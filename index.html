@@ -1483,6 +1483,25 @@
   background: #FFFBEB;
   border-top: 1px solid #FDE68A;
 }
+.ec-list-header, .ec-row { grid-template-columns: 1fr 1fr 1fr auto; }
+.ec-row .ec-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.ec-edit-btn, .ec-save-btn, .ec-cancel-btn {
+  border: none; border-radius: 6px; padding: 4px 10px;
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.ec-edit-btn { background: var(--ocean-deep); color: white; }
+.ec-edit-btn:hover { opacity: 0.85; }
+.ec-save-btn { background: #16A34A; color: white; }
+.ec-save-btn:hover { opacity: 0.85; }
+.ec-cancel-btn { background: #E2E8F0; color: var(--text-dark); }
+.ec-cancel-btn:hover { background: #CBD5E1; }
+.ec-row input.ec-inline-input {
+  width: 100%; padding: 4px 8px; border: 1.5px solid var(--ocean-deep);
+  border-radius: 6px; font-size: 0.88rem; font-family: inherit;
+  outline: none; background: #F0F9FF;
+}
+.ec-row input.ec-inline-input:focus { box-shadow: 0 0 0 2px rgba(0,78,124,0.18); }
 @media (max-width: 600px) {
   .ec-list-header, .ec-row { grid-template-columns: 1fr; gap: 2px; }
   .ec-list-header { display: none; }
@@ -2046,6 +2065,7 @@
             <span>Staff Member</span>
             <span>Emergency Contact</span>
             <span>Phone</span>
+            <span style="text-align:right;">Actions</span>
           </div>
           <div id="ecListBody"><div class="ec-row"><span style="color:var(--text-soft);grid-column:1/-1;">Loading...</span></div></div>
         </div>
@@ -3108,22 +3128,22 @@
 
       snapshot.forEach(doc => {
         const d = doc.data();
-        const name = d.displayName || d.email || doc.id;
-        const hasEC = d.emergencyContactName && d.emergencyContactName.trim();
+        const uid = doc.id;
+        const name = d.displayName || d.email || uid;
+        const ecName = d.emergencyContactName || '';
+        const ecPhone = d.emergencyContactPhone || '';
+        const hasEC = ecName.trim();
 
-        if (hasEC) {
-          html += '<div class="ec-row">' +
-            '<span class="ec-name">' + name + '</span>' +
-            '<span class="ec-contact">' + d.emergencyContactName + '</span>' +
-            '<span class="ec-phone">' + (d.emergencyContactPhone || '—') + '</span>' +
-            '</div>';
-        } else {
-          hasMissing = true;
-          html += '<div class="ec-row">' +
-            '<span class="ec-name">' + name + ' *</span>' +
-            '<span class="ec-missing" style="grid-column:2/-1;">No emergency contact on file</span>' +
-            '</div>';
-        }
+        html += '<div class="ec-row" id="ec-row-' + uid + '">' +
+          '<span class="ec-name">' + name + (!hasEC ? ' *' : '') + '</span>' +
+          '<span class="ec-contact" id="ec-contact-' + uid + '">' + (hasEC ? ecName : '<em style="color:var(--text-soft);">Not on file</em>') + '</span>' +
+          '<span class="ec-phone" id="ec-phone-' + uid + '">' + (ecPhone || '—') + '</span>' +
+          '<span class="ec-actions" id="ec-actions-' + uid + '">' +
+            '<button class="ec-edit-btn" onclick="editEmergencyContact(\'' + uid + '\', \'' + ecName.replace(/'/g, "\\'") + '\', \'' + ecPhone.replace(/'/g, "\\'") + '\')">Edit</button>' +
+          '</span>' +
+          '</div>';
+
+        if (!hasEC) hasMissing = true;
       });
 
       if (hasMissing) {
@@ -3139,6 +3159,41 @@
       body.innerHTML = '<div class="ec-row"><span style="color:#DC2626;grid-column:1/-1;">Error: ' + err.message + '</span></div>';
     }
   }
+
+  window.editEmergencyContact = function(uid, currentName, currentPhone) {
+    const contactEl = document.getElementById('ec-contact-' + uid);
+    const phoneEl = document.getElementById('ec-phone-' + uid);
+    const actionsEl = document.getElementById('ec-actions-' + uid);
+    if (!contactEl || !phoneEl || !actionsEl) return;
+
+    contactEl.innerHTML = '<input class="ec-inline-input" id="ec-input-name-' + uid + '" type="text" value="' + currentName.replace(/"/g, '&quot;') + '" placeholder="Contact name">';
+    phoneEl.innerHTML = '<input class="ec-inline-input" id="ec-input-phone-' + uid + '" type="tel" value="' + currentPhone.replace(/"/g, '&quot;') + '" placeholder="(808) 555-1234">';
+    actionsEl.innerHTML =
+      '<button class="ec-save-btn" onclick="saveEmergencyContact(\'' + uid + '\')">Save</button>' +
+      '<button class="ec-cancel-btn" onclick="loadEmergencyContacts()">Cancel</button>';
+
+    document.getElementById('ec-input-name-' + uid).focus();
+  };
+
+  window.saveEmergencyContact = async function(uid) {
+    const nameInput = document.getElementById('ec-input-name-' + uid);
+    const phoneInput = document.getElementById('ec-input-phone-' + uid);
+    if (!nameInput || !phoneInput) return;
+
+    const actionsEl = document.getElementById('ec-actions-' + uid);
+    if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--text-soft);font-size:0.8rem;">Saving...</span>';
+
+    try {
+      await db.collection('userRoles').doc(uid).update({
+        emergencyContactName: nameInput.value.trim(),
+        emergencyContactPhone: phoneInput.value.trim()
+      });
+      loadEmergencyContacts();
+    } catch (err) {
+      alert('Error saving: ' + err.message);
+      loadEmergencyContacts();
+    }
+  };
 
   // ── Website/App Analytics ──
   let siteAnalyticsData = [];
