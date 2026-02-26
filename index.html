@@ -1989,6 +1989,39 @@
   background: #E2E8F0; color: var(--text-dark);
 }
 
+/* Append note area in interaction view */
+.ix-append-note {
+  margin: 0 18px 10px; padding: 12px; border-radius: 10px;
+  background: rgba(8,145,178,.04); border: 1.5px solid rgba(8,145,178,.12);
+}
+.ix-append-note label {
+  font-weight: 700; font-size: .8rem; color: var(--ocean-deep); display: block; margin-bottom: 6px;
+}
+.ix-append-note textarea {
+  width: 100%; border-radius: 8px; border: 1.5px solid rgba(8,145,178,.15);
+  padding: 8px 10px; font-family: inherit; font-size: .88rem; font-weight: 600;
+  resize: vertical; outline: none; box-sizing: border-box;
+}
+.ix-append-note textarea:focus { border-color: var(--ocean-mid); }
+.ix-append-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+.ix-append-char { font-size: .75rem; font-weight: 700; color: var(--text-soft); }
+.ix-append-char.warn { color: #D97706; }
+.ix-append-char.danger { color: #DC2626; }
+.ix-append-btn {
+  padding: 7px 18px; border-radius: 8px; font-weight: 700; font-size: .82rem;
+  border: none; cursor: pointer; color: white;
+  background: linear-gradient(135deg, var(--ocean-deep), #0891B2);
+  transition: opacity .15s;
+}
+.ix-append-btn:hover { opacity: .85; }
+.ix-append-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Appended note entries styling */
+.ix-note-entry { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(8,145,178,.08); }
+.ix-note-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.ix-note-meta { font-size: .75rem; font-weight: 700; color: var(--ocean-deep); margin-bottom: 2px; }
+.ix-note-text { font-size: .88rem; color: var(--text-dark); white-space: pre-wrap; }
+
 /* Contact Detail Modal */
 .ct-detail-overlay {
   display: none; position: fixed; inset: 0; z-index: 10100;
@@ -3236,6 +3269,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         <button class="ix-close" onclick="closeIxView()">&times;</button>
       </div>
       <div class="ix-view-body" id="ixViewBody">
+      </div>
+      <div class="ix-append-note" id="ixAppendArea">
+        <label>✏️ Add a Note</label>
+        <textarea id="ixAppendInput" placeholder="Type your note here…" rows="2" maxlength="500"></textarea>
+        <div class="ix-append-footer">
+          <span class="ix-append-char" id="ixAppendChar">0 / 500</span>
+          <button class="ix-append-btn" id="ixAppendBtn" type="button">Add Note</button>
+        </div>
       </div>
       <div class="ix-view-actions">
         <button onclick="closeIxView()">Close</button>
@@ -5768,11 +5809,20 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   // ── View Interaction Modal ──
 
+  var _ixViewDocId = null; // track which interaction is open for appending notes
+
   window.viewInteraction = async function(docId) {
     var body = document.getElementById('ixViewBody');
     if (!body) return;
+    _ixViewDocId = docId;
     body.innerHTML = '<p style="color:var(--text-soft);">Loading...</p>';
     document.getElementById('ixViewOverlay').classList.add('active');
+
+    // Reset append area
+    var appendInput = document.getElementById('ixAppendInput');
+    var appendChar = document.getElementById('ixAppendChar');
+    if (appendInput) { appendInput.value = ''; }
+    if (appendChar) { appendChar.textContent = '0 / 500'; appendChar.className = 'ix-append-char'; }
 
     try {
       var doc = await db.collection('interactions').doc(docId).get();
@@ -5785,25 +5835,127 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var dateStr = ts ? ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
         ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
 
+      // Render notes — parse appended entries (delimited by \n--- lines)
+      var notesHtml = renderNotesWithEntries(d.notes || '');
+
       body.innerHTML =
         '<div class="ix-view-field"><label>DATE</label><div class="val">' + dateStr + '</div></div>' +
         '<div class="ix-view-field"><label>CHANNEL</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
-        '<div class="ix-view-field"><label>TYPE</label><div class="val">' + rsEscape(d.interactionType || '—') + '</div></div>' +
-        '<div class="ix-view-field"><label>CONTACT</label><div class="val">' + rsEscape(d.contactName || '—') +
+        '<div class="ix-view-field"><label>TYPE</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
+        '<div class="ix-view-field"><label>CONTACT</label><div class="val">' + rsEscape(d.contactName || d.clientName || '—') +
           (d.contactType ? ' <span style="font-size:.8rem;color:var(--text-soft);">(' + rsEscape(d.contactType) + ')</span>' : '') + '</div></div>' +
         '<div class="ix-view-field"><label>GRANT / PROGRAM</label><div class="val">' + rsEscape(d.grantProgram || '—') + '</div></div>' +
         '<div class="ix-view-field"><label>SUMMARY</label><div class="val">' + rsEscape(d.summary || '—') + '</div></div>' +
         '<div class="ix-view-field"><label>STATUS</label><div class="val">' + rsEscape(d.status || '—') + '</div></div>' +
         '<div class="ix-view-field"><label>FOLLOW-UP DATE</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>' +
-        '<div class="ix-view-field"><label>NOTES</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(d.notes || '—') + '</div></div>' +
-        '<div class="ix-view-field"><label>OWNER</label><div class="val">' + rsEscape(d.owner || '—') + '</div></div>';
+        '<div class="ix-view-field"><label>NOTES</label><div id="ixNotesDisplay">' + notesHtml + '</div></div>' +
+        '<div class="ix-view-field"><label>OWNER</label><div class="val">' + rsEscape(d.owner || d.createdBy || '—') + '</div></div>';
 
     } catch (err) {
       body.innerHTML = '<p style="color:#DC2626;">Error: ' + err.message + '</p>';
     }
   };
 
+  // Render notes text — splits on "\n---\n" delimiter to show appended entries nicely
+  function renderNotesWithEntries(notesText) {
+    if (!notesText || notesText === '—') return '<div class="val" style="color:var(--text-soft);">—</div>';
+
+    // Split on the --- delimiter used for appended notes
+    var parts = notesText.split(/\n---\n/);
+    if (parts.length === 1) {
+      // No appended entries, just show plain notes
+      return '<div class="ix-note-entry"><div class="ix-note-text">' + rsEscape(notesText) + '</div></div>';
+    }
+
+    var html = '';
+    parts.forEach(function(part, i) {
+      part = part.trim();
+      if (!part) return;
+      // Try to detect "[Name — Date Time]" pattern at the start
+      var metaMatch = part.match(/^\[(.+?)\]\s*([\s\S]*)$/);
+      if (metaMatch) {
+        html += '<div class="ix-note-entry">' +
+          '<div class="ix-note-meta">' + rsEscape(metaMatch[1]) + '</div>' +
+          '<div class="ix-note-text">' + rsEscape(metaMatch[2].trim()) + '</div>' +
+        '</div>';
+      } else {
+        // Original note (no meta header)
+        html += '<div class="ix-note-entry">' +
+          (i === 0 ? '<div class="ix-note-meta">Original Note</div>' : '') +
+          '<div class="ix-note-text">' + rsEscape(part) + '</div>' +
+        '</div>';
+      }
+    });
+    return html;
+  }
+
+  // Append note to interaction
+  window.appendInteractionNote = async function() {
+    var input = document.getElementById('ixAppendInput');
+    var btn = document.getElementById('ixAppendBtn');
+    if (!input || !_ixViewDocId) return;
+    var text = input.value.trim();
+    if (!text) { input.focus(); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+      var userName = (currentUserData?.displayName) || 'Unknown';
+      var now = new Date();
+      var stamp = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      // Build the appended entry with delimiter
+      var entry = '\n---\n[' + userName + ' — ' + stamp + ']\n' + text;
+
+      // Get current notes and append
+      var docRef = db.collection('interactions').doc(_ixViewDocId);
+      var doc = await docRef.get();
+      var currentNotes = (doc.exists && doc.data().notes) ? doc.data().notes : '';
+      var updatedNotes = currentNotes + entry;
+
+      await docRef.update({ notes: updatedNotes });
+
+      // Refresh the notes display
+      var notesDisplay = document.getElementById('ixNotesDisplay');
+      if (notesDisplay) {
+        notesDisplay.innerHTML = renderNotesWithEntries(updatedNotes);
+      }
+
+      // Clear input
+      input.value = '';
+      var charEl = document.getElementById('ixAppendChar');
+      if (charEl) { charEl.textContent = '0 / 500'; charEl.className = 'ix-append-char'; }
+
+    } catch (err) {
+      alert('Error appending note: ' + err.message);
+      console.error('Append note error:', err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Add Note';
+    }
+  };
+
+  // Character counter for append input
+  (function() {
+    var input = document.getElementById('ixAppendInput');
+    var counter = document.getElementById('ixAppendChar');
+    var btn = document.getElementById('ixAppendBtn');
+    if (input && counter) {
+      input.addEventListener('input', function() {
+        var len = input.value.length;
+        counter.textContent = len + ' / 500';
+        counter.className = 'ix-append-char' + (len >= 490 ? ' danger' : len >= 450 ? ' warn' : '');
+      });
+    }
+    if (btn) {
+      btn.addEventListener('click', function() { appendInteractionNote(); });
+    }
+  })();
+
   window.closeIxView = function() {
+    _ixViewDocId = null;
     document.getElementById('ixViewOverlay').classList.remove('active');
   };
 
