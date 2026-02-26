@@ -2179,15 +2179,15 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           <div class="value">9</div>
           <div class="trend">2 flagged follow-up</div>
         </div>
-        <div class="kpi">
+        <div class="kpi" id="kpiInteractions">
           <div class="label">Interactions logged <span class="tag">WTD</span></div>
-          <div class="value">31</div>
-          <div class="trend">↑ +5 vs last week</div>
+          <div class="value">—</div>
+          <div class="trend"></div>
         </div>
-        <div class="kpi">
+        <div class="kpi" id="kpiFollowUps">
           <div class="label">Follow‑ups due <span class="tag orange">7 days</span></div>
-          <div class="value">6</div>
-          <div class="trend">3 overdue</div>
+          <div class="value">—</div>
+          <div class="trend"></div>
         </div>
         <div class="kpi">
           <div class="label">Change requests <span class="tag">Pending</span></div>
@@ -2816,107 +2816,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     });
     document.getElementById('saveDraft').addEventListener('click', async ()=>{
       await saveInteractionToFirestore(true);
-    });
-  
-    // --- Owner column formatting ---
-    // If it's the logged-in user's record: show only "You" indicator (no name).
-    // Otherwise: show "First L." (first name + last initial).
-    function formatOwnerNames(){
-      if(!tbody) return;
-      [...tbody.querySelectorAll('tr')].forEach(tr=>{
-        const ownerCell = tr.querySelector('td.owner-cell');
-        const ownerRaw = (tr.getAttribute('data-owner') || '').trim();
-        if(!ownerCell) return;
-
-        const isMine = normalize(ownerRaw).includes(normalize(currentUserName));
-        if(isMine){
-          ownerCell.textContent = '';
-          const chip = document.createElement('span');
-          chip.className = 'you-chip';
-          chip.textContent = 'You';
-          ownerCell.appendChild(chip);
-          return;
-        }
-
-        // Convert to "First L."
-        const parts = ownerRaw.split(/\s+/).filter(Boolean);
-        let display = ownerRaw || '—';
-        if(parts.length >= 2){
-          display = `${parts[0]} ${parts[1][0]}.`;
-        }else if(parts.length === 1){
-          display = parts[0];
-        }
-        ownerCell.textContent = display;
-      });
-    }
-    formatOwnerNames();
-
-    // --- Reveal "Request edit" after a user clicks View (mock behavior) ---
-    function wireRowActions(){
-      if(!tbody) return;
-      [...tbody.querySelectorAll('tr')].forEach(tr=>{
-        const viewBtn = tr.querySelector('.row-actions button.iconbtn:not(.danger)');
-        const requestBtn = tr.querySelector('[data-edit-request]');
-        if(viewBtn && requestBtn){
-          viewBtn.addEventListener('click', ()=>{
-            requestBtn.style.display = '';
-          }, { once:true });
-        }
-        requestBtn?.addEventListener('click', ()=>{
-          alert('Mock: Edit request started. (Next: open a modal to capture requested changes + reason.)');
-        });
-      });
-    }
-    wireRowActions();
-
-    // --- Internal chat drawer (mock) ---
-    const chatDrawer = document.getElementById('chatDrawer');
-    const chatOpen = document.getElementById('chatOpen');
-    const chatClose = document.getElementById('chatClose');
-    const chatSend = document.getElementById('chatSend');
-    const chatInput = document.getElementById('chatInput');
-    const chatBody = document.getElementById('chatBody');
-    const chatBadge = document.getElementById('chatBadge');
-
-    function openChat(){
-      if(!chatDrawer) return;
-      chatDrawer.classList.add('active');
-      if(chatBadge) chatBadge.style.display = 'none';
-      setTimeout(()=>chatInput?.focus(), 50);
-    }
-    function closeChat(){
-      chatDrawer?.classList.remove('active');
-    }
-    chatOpen?.addEventListener('click', openChat);
-    chatClose?.addEventListener('click', closeChat);
-
-    function appendMyMessage(text){
-      const wrap = document.createElement('div');
-      wrap.className = 'msg me';
-      const now = new Date();
-      const hh = now.getHours() % 12 || 12;
-      const mm = String(now.getMinutes()).padStart(2,'0');
-      const ampm = now.getHours() >= 12 ? 'PM':'AM';
-      wrap.innerHTML = `<div class="meta"><span>You</span><span>${hh}:${mm} ${ampm}</span></div><div class="text"></div>`;
-      wrap.querySelector('.text').textContent = text;
-      chatBody.appendChild(wrap);
-      chatBody.scrollTop = chatBody.scrollHeight;
-    }
-
-    function sendChat(){
-      const text = (chatInput?.value || '').trim();
-      if(!text) return;
-      appendMyMessage(text);
-      chatInput.value = '';
-    }
-    chatSend?.addEventListener('click', sendChat);
-    chatInput?.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); sendChat(); }});
-
-    // Close chat with Escape (if open) without interfering with modal close
-    document.addEventListener('keydown', (e)=>{
-      if(e.key === 'Escape' && chatDrawer?.classList.contains('active')){
-        closeChat();
-      }
     });
 
   </script>
@@ -4579,49 +4478,49 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   // Update dashboard KPI counters from Firestore
   async function updateDashKPIs() {
     try {
-      // Interactions logged this week
+      // Single query — reuses the existing composite index (isDraft ASC + createdAt DESC)
+      var snap = await db.collection('interactions')
+        .where('isDraft', '==', false)
+        .orderBy('createdAt', 'desc')
+        .get();
+
       var now = new Date();
       var dayOfWeek = now.getDay();
       var startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - dayOfWeek);
       startOfWeek.setHours(0, 0, 0, 0);
-
-      var wtdSnap = await db.collection('interactions')
-        .where('isDraft', '==', false)
-        .where('createdAt', '>=', startOfWeek)
-        .get();
-
-      var wtdCount = wtdSnap.size;
-      var wtdEl = document.querySelector('.kpi .value');
-      // Find the "Interactions logged" KPI (second one)
-      var kpis = document.querySelectorAll('.kpi');
-      if (kpis[1]) {
-        kpis[1].querySelector('.value').textContent = wtdCount;
-      }
-
-      // Follow-ups due in next 7 days
+      var todayStr = now.toISOString().split('T')[0];
       var sevenDaysOut = new Date();
       sevenDaysOut.setDate(sevenDaysOut.getDate() + 7);
-      var todayStr = now.toISOString().split('T')[0];
       var futureStr = sevenDaysOut.toISOString().split('T')[0];
 
-      var fuSnap = await db.collection('interactions')
-        .where('isDraft', '==', false)
-        .where('status', '==', 'Open')
-        .get();
-
+      var wtdCount = 0;
       var fuDue = 0;
       var fuOverdue = 0;
-      fuSnap.forEach(function(doc) {
+
+      snap.forEach(function(doc) {
         var d = doc.data();
-        if (d.followUpDate) {
+        // Count interactions logged this week
+        if (d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
+          wtdCount++;
+        }
+        // Count follow-ups due (open items with followUpDate in next 7 days or overdue)
+        if (d.status === 'Open' && d.followUpDate) {
           if (d.followUpDate <= todayStr) fuOverdue++;
           else if (d.followUpDate <= futureStr) fuDue++;
         }
       });
-      if (kpis[2]) {
-        kpis[2].querySelector('.value').textContent = fuDue + fuOverdue;
-        kpis[2].querySelector('.trend').textContent = fuOverdue + ' overdue';
+
+      var kpiInt = document.getElementById('kpiInteractions');
+      if (kpiInt) {
+        kpiInt.querySelector('.value').textContent = wtdCount;
+        kpiInt.querySelector('.trend').textContent = snap.size + ' total';
+      }
+
+      var kpiFu = document.getElementById('kpiFollowUps');
+      if (kpiFu) {
+        kpiFu.querySelector('.value').textContent = fuDue + fuOverdue;
+        kpiFu.querySelector('.trend').textContent = fuOverdue + ' overdue';
       }
 
     } catch (err) {
