@@ -2019,6 +2019,29 @@
   background: #E2E8F0; color: var(--text-dark);
 }
 
+/* Status changer in interaction detail */
+.ix-status-changer {
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.ix-status-changer select {
+  padding: 5px 10px; border-radius: 8px; font-size: .85rem; font-weight: 600;
+  border: 1.5px solid rgba(8,145,178,.2); background: var(--sand-light);
+  color: var(--text-dark); cursor: pointer;
+}
+.ix-status-changer select:focus { border-color: var(--ocean-mid); outline: none; }
+.ix-status-save {
+  padding: 5px 14px; border-radius: 8px; font-size: .8rem; font-weight: 700;
+  background: var(--ocean-deep); color: white; border: none; cursor: pointer;
+}
+.ix-status-save:hover { background: #0e7490; }
+.ix-status-save:disabled { opacity: .5; cursor: not-allowed; }
+.ix-status-saved {
+  font-size: .78rem; font-weight: 700; color: #059669;
+}
+.ix-status-locked {
+  font-size: .78rem; color: #DC2626; font-style: italic;
+}
+
 /* Append note area in interaction view */
 .ix-append-note {
   margin: 0 18px 10px; padding: 12px; border-radius: 10px;
@@ -5898,6 +5921,36 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var contactPhone = '';
       var contactLookupId = d.contactId || d.clientId || '';
 
+      // Permission check for status change
+      var role = currentUserData ? currentUserData.role : '';
+      var isAdmin = (role === 'superAdmin' || role === 'admin');
+      var isOwner = (d.ownerUid && currentUserData && d.ownerUid === currentUserData.uid);
+      var currentStatus = d.status || 'Open';
+      var isLockedReview = (currentStatus === 'Needs admin review' && !isAdmin);
+      var canChangeStatus = isAdmin || (isOwner && !isLockedReview);
+
+      // Build status field — dropdown if allowed, read-only otherwise
+      var statusFieldHtml;
+      if (canChangeStatus) {
+        var opts = ['Open', 'Closed', 'Needs admin review'];
+        var optHtml = opts.map(function(o) {
+          return '<option value="' + o + '"' + (o === currentStatus ? ' selected' : '') + '>' + o + '</option>';
+        }).join('');
+        statusFieldHtml =
+          '<div class="ct-info-field"><label>Status</label><div class="val">' +
+            '<div class="ix-status-changer">' +
+              '<select id="ixStatusSelect">' + optHtml + '</select>' +
+              '<button class="ix-status-save" onclick="changeInteractionStatus()">Save</button>' +
+              '<span id="ixStatusMsg"></span>' +
+            '</div>' +
+          '</div></div>';
+      } else {
+        statusFieldHtml =
+          '<div class="ct-info-field"><label>Status</label><div class="val">' + rsEscape(currentStatus) +
+            (isLockedReview ? ' <span class="ix-status-locked">(Admin review required)</span>' : '') +
+          '</div></div>';
+      }
+
       // Build the top info card (like the contact detail card)
       var infoCard =
         '<div class="ct-info-card">' +
@@ -5909,7 +5962,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           '<div class="ct-info-field" id="ixViewEmail"><label>Email</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
           '<div class="ct-info-field" id="ixViewPhone"><label>Phone</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
           '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(d.grantProgram || '—') + '</div></div>' +
-          '<div class="ct-info-field"><label>Status</label><div class="val">' + rsEscape(d.status || '—') + '</div></div>' +
+          statusFieldHtml +
           '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>' +
           '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(d.owner || d.createdBy || '—') + '</div></div>' +
         '</div>';
@@ -6041,6 +6094,38 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       btn.addEventListener('click', function() { appendInteractionNote(); });
     }
   })();
+
+  // Change interaction status (from detail view dropdown)
+  window.changeInteractionStatus = async function() {
+    var sel = document.getElementById('ixStatusSelect');
+    var msg = document.getElementById('ixStatusMsg');
+    if (!sel || !_ixViewDocId) return;
+
+    var newStatus = sel.value;
+    var btn = sel.nextElementSibling;
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    try {
+      await db.collection('interactions').doc(_ixViewDocId).update({
+        status: newStatus,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
+      setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
+
+      // Refresh lists & KPIs
+      if (typeof loadInteractions === 'function') loadInteractions();
+      if (typeof updateDashKPIs === 'function') updateDashKPIs();
+      if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
+
+    } catch (err) {
+      if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Error: ' + err.message; }
+      console.error('Status update error:', err);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    }
+  };
 
   window.closeIxView = function() {
     _ixViewDocId = null;
