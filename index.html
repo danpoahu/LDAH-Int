@@ -1791,6 +1791,39 @@
   object-fit: cover;
 }
 
+/* ── Alert Preferences ── */
+.alert-pref-group{ margin-bottom:14px; }
+.alert-pref-group-header{
+  display:flex; align-items:center; justify-content:space-between;
+  font-weight:800; font-size:.82rem; color:var(--ocean-deep);
+  text-transform:uppercase; letter-spacing:.3px;
+  padding:6px 0; border-bottom:1.5px solid rgba(8,145,178,.12); margin-bottom:6px;
+}
+.alert-pref-group-header .alert-toggle-all{
+  font-size:.72rem; font-weight:700; color:var(--sunset-coral);
+  cursor:pointer; text-transform:none; letter-spacing:0;
+}
+.alert-pref-group-header .alert-toggle-all:hover{ text-decoration:underline; }
+.alert-pref-checks{
+  display:grid; grid-template-columns:1fr 1fr; gap:4px 16px;
+}
+@media(max-width:600px){ .alert-pref-checks{ grid-template-columns:1fr; } }
+.alert-pref-checks label{
+  display:flex; align-items:center; gap:6px;
+  font-size:.84rem; font-weight:600; color:var(--text-dark);
+  cursor:pointer; padding:3px 0;
+}
+.alert-pref-checks input[type="checkbox"]{
+  accent-color:var(--ocean-deep); width:16px; height:16px; cursor:pointer;
+}
+.alert-loc-note{
+  display:flex; align-items:center; gap:8px;
+  background:rgba(8,145,178,.06); border-radius:10px;
+  padding:10px 14px; margin-bottom:16px;
+  font-size:.84rem; font-weight:600; color:var(--text-soft);
+}
+.alert-loc-note strong{ color:var(--ocean-deep); }
+
 /* ── Emergency Contacts ── */
 .ec-section { padding: 0; max-width: 900px; }
 .ec-section h2 {
@@ -2657,7 +2690,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v54</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v55</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -2947,6 +2980,29 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
           </div>
         </div>
+
+        <!-- Weather Alert Preferences Card -->
+        <div class="profile-card" style="margin-top:20px;">
+          <div class="profile-card-header">Weather Alert Preferences</div>
+          <div class="profile-card-body">
+            <div class="alert-loc-note">
+              <span>📍</span>
+              <span>Alerts filtered to your location: <strong id="alertPrefLocation">—</strong>
+              &nbsp;&nbsp;
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-weight:700;color:var(--ocean-deep);">
+                <input type="checkbox" id="alertLocOnly" checked style="accent-color:var(--ocean-deep);width:15px;height:15px;cursor:pointer;">
+                My location only
+              </label>
+              </span>
+            </div>
+            <div id="alertPrefGroups"></div>
+            <div style="display:flex;align-items:center;flex-wrap:wrap;margin-top:12px;">
+              <button class="profile-save-btn" id="alertPrefSaveBtn" onclick="saveProfile()">Save Preferences</button>
+              <span class="profile-save-msg" id="alertPrefSaveMsg"></span>
+            </div>
+          </div>
+        </div>
+
       </section>
 
       <!-- Emergency Contacts (admin + superAdmin) -->
@@ -4164,7 +4220,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             convs.push(d);
             // Check unread: lastMessage not read by me
             var isUnreadCheck = d.lastReadBy && !d.lastReadBy.includes(myUid) && d.lastSenderId !== myUid;
-            console.log('[Chat Debug] Conv:', d._id, '| lastSenderId:', d.lastSenderId, '| lastReadBy:', JSON.stringify(d.lastReadBy), '| myUid:', myUid, '| isUnread:', isUnreadCheck);
             if (isUnreadCheck) {
               unread++;
               // Track which user sent the unread message
@@ -4174,7 +4229,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
               }
             }
           });
-          console.log('[Chat Debug] Total unread:', unread, '| modalOpen:', _chatModalOpen, '| unreadByUser:', JSON.stringify(unreadByUser));
           renderConversations(convs);
           _chatConvsList = convs;
           _chatUnreadCount = unread;
@@ -4561,7 +4615,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             uid: user.uid,
             email: user.email,
             displayName: roleDoc.data().displayName || user.email.split('@')[0],
-            role: roleDoc.data().role
+            role: roleDoc.data().role,
+            alertPrefs: roleDoc.data().alertPrefs || null
           };
           showApp();
           // Set chat presence online
@@ -4963,6 +5018,15 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
       // Photo
       updateProfilePhoto(d.photoURL, d.displayName);
+
+      // Alert preferences
+      var alertPrefs = d.alertPrefs || null;
+      var enabledTypes = alertPrefs ? alertPrefs.enabledTypes : null; // null = use defaults
+      renderAlertPrefCheckboxes(enabledTypes);
+      var locOnlyCb = document.getElementById('alertLocOnly');
+      if (locOnlyCb) locOnlyCb.checked = alertPrefs ? (alertPrefs.locationOnly !== false) : true;
+      var locLabel = document.getElementById('alertPrefLocation');
+      if (locLabel) locLabel.textContent = d.location || 'Not set — update Location above';
     });
   }
 
@@ -5055,6 +5119,15 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         bio: document.getElementById('profBio').value.trim()
       };
 
+      // Alert preferences
+      var locOnlyCb = document.getElementById('alertLocOnly');
+      updates.alertPrefs = {
+        enabledTypes: getSelectedAlertTypes(),
+        locationOnly: locOnlyCb ? locOnlyCb.checked : true
+      };
+      // Cache locally so weather system picks it up immediately
+      if (currentUserData) currentUserData.alertPrefs = updates.alertPrefs;
+
       await db.collection('userRoles').doc(currentUserData.uid).update(updates);
 
       // Update local state and header if name changed
@@ -5063,9 +5136,17 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         updateUserUI();
       }
 
+      // Re-fetch alerts with new preferences
+      if (typeof fetchWeatherAlerts === 'function') {
+        fetchWeatherAlerts().then(function() { renderWeatherAlertsBanner(); });
+      }
+
       msgEl.textContent = 'Profile saved!';
       msgEl.style.color = '#16A34A';
       setTimeout(() => { msgEl.textContent = ''; }, 2500);
+      // Also show on alert prefs card
+      var alertMsg = document.getElementById('alertPrefSaveMsg');
+      if (alertMsg) { alertMsg.textContent = 'Saved!'; alertMsg.style.color = '#16A34A'; setTimeout(function(){ alertMsg.textContent = ''; }, 2500); }
     } catch (err) {
       msgEl.textContent = 'Error: ' + err.message;
       msgEl.style.color = '#DC2626';
@@ -5798,6 +5879,64 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   window._lastRosterOnline = [];
   window._lastRosterOffline = [];
 
+  // ── Alert Type Categories & Defaults ──
+  var ALERT_CATEGORIES = [
+    { name: 'Critical', icon: '🚨', types: ['Tsunami Warning','Tsunami Watch','Hurricane Warning','Hurricane Watch','Tropical Storm Warning','Tropical Storm Watch','Evacuation Immediate'], defaultOn: true },
+    { name: 'Severe Weather', icon: '⛈️', types: ['Tornado Warning','Tornado Watch','Severe Thunderstorm Warning','Severe Thunderstorm Watch','Flash Flood Warning','Flash Flood Watch','Flood Warning','Flood Watch','Flood Advisory'], defaultOn: true },
+    { name: 'Wind & Storm', icon: '💨', types: ['High Wind Warning','High Wind Watch','Extreme Wind Warning','Wind Advisory','Gale Warning','Storm Warning'], defaultOn: true },
+    { name: 'Fire & Air Quality', icon: '🔥', types: ['Red Flag Warning','Fire Weather Watch','Extreme Fire Danger','Air Quality Alert'], defaultOn: true },
+    { name: 'Marine & Coastal', icon: '🌊', types: ['High Surf Warning','High Surf Advisory','Hazardous Seas Warning','Small Craft Advisory','Rip Current Statement','Coastal Flood Warning','Coastal Flood Advisory'], defaultOn: false },
+    { name: 'Other', icon: '🌤️', types: ['Special Weather Statement','Dense Fog Advisory','Winter Weather Advisory','Winter Storm Warning','Cold Weather Advisory','Heat Advisory','Excessive Heat Warning','Freeze Warning','Frost Advisory'], defaultOn: false }
+  ];
+
+  // Build flat list of all alert types with their defaults
+  var ALL_ALERT_TYPES = [];
+  var ALERT_TYPE_DEFAULTS = {};
+  ALERT_CATEGORIES.forEach(function(cat) {
+    cat.types.forEach(function(t) {
+      ALL_ALERT_TYPES.push(t);
+      ALERT_TYPE_DEFAULTS[t] = cat.defaultOn;
+    });
+  });
+
+  // Render alert pref checkboxes into #alertPrefGroups
+  function renderAlertPrefCheckboxes(enabledTypes) {
+    var container = document.getElementById('alertPrefGroups');
+    if (!container) return;
+    var html = '';
+    ALERT_CATEGORIES.forEach(function(cat, ci) {
+      html += '<div class="alert-pref-group">';
+      html += '<div class="alert-pref-group-header"><span>' + cat.icon + ' ' + cat.name + '</span>';
+      html += '<span class="alert-toggle-all" data-catidx="' + ci + '">Toggle All</span></div>';
+      html += '<div class="alert-pref-checks">';
+      cat.types.forEach(function(t) {
+        var checked = enabledTypes ? enabledTypes.includes(t) : cat.defaultOn;
+        html += '<label><input type="checkbox" class="alert-type-cb" value="' + t + '"' + (checked ? ' checked' : '') + '> ' + t + '</label>';
+      });
+      html += '</div></div>';
+    });
+    container.innerHTML = html;
+
+    // Toggle all handlers
+    container.querySelectorAll('.alert-toggle-all').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx = parseInt(btn.getAttribute('data-catidx'));
+        var checks = btn.closest('.alert-pref-group').querySelectorAll('.alert-type-cb');
+        var allChecked = Array.from(checks).every(function(c) { return c.checked; });
+        checks.forEach(function(c) { c.checked = !allChecked; });
+      });
+    });
+  }
+
+  // Get currently selected alert types from checkboxes
+  function getSelectedAlertTypes() {
+    var types = [];
+    document.querySelectorAll('.alert-type-cb:checked').forEach(function(cb) {
+      types.push(cb.value);
+    });
+    return types;
+  }
+
   function _wEsc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
   var WEATHER_LOCATIONS = {
@@ -6120,33 +6259,54 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var data = await resp.json();
       if (!data.features || data.features.length === 0) return;
 
-      // Get team location labels for relevance filtering
-      var teamLabels = new Set();
-      for (var uid in _userLocations) {
-        teamLabels.add(_userLocations[uid].label.toLowerCase());
+      // Get user's alert preferences (from currentUserData or defaults)
+      var prefs = (window.currentUserData && window.currentUserData.alertPrefs) || null;
+      var enabledTypes = prefs ? prefs.enabledTypes : null; // null = use defaults
+      var locationOnly = prefs ? (prefs.locationOnly !== false) : true;
+
+      // Build location labels for filtering
+      var locationLabels = new Set();
+      if (locationOnly && window.currentUserData && window.currentUserData.uid) {
+        // Only current user's location
+        var myLoc = _userLocations[window.currentUserData.uid];
+        if (myLoc) locationLabels.add(myLoc.label.toLowerCase());
+      } else {
+        // All team locations
+        for (var uid in _userLocations) {
+          locationLabels.add(_userLocations[uid].label.toLowerCase());
+        }
       }
 
       data.features.forEach(function(f) {
         var p = f.properties;
-        // Check if alert area matches any team location
-        var isRelevant = false;
-        if (p.areaDesc) {
-          var areaLower = p.areaDesc.toLowerCase();
-          teamLabels.forEach(function(label) {
-            if (areaLower.indexOf(label.toLowerCase()) !== -1) isRelevant = true;
-          });
-          // Also check broad area matches
-          if (areaLower.indexOf('hawaii') !== -1 || areaLower.indexOf('oahu') !== -1 ||
-              areaLower.indexOf('maui') !== -1 || areaLower.indexOf('guam') !== -1 ||
-              areaLower.indexOf('samoa') !== -1 || areaLower.indexOf('mariana') !== -1) {
-            isRelevant = true;
+
+        // Filter by user's enabled alert types
+        var eventName = p.event || '';
+        if (enabledTypes) {
+          if (!enabledTypes.includes(eventName)) return; // skip types user disabled
+        } else {
+          // Default: skip marine/coastal types
+          var evLower = eventName.toLowerCase();
+          if (evLower.indexOf('high surf') !== -1 || evLower.indexOf('surf advisory') !== -1 ||
+              evLower.indexOf('rip current') !== -1 || evLower.indexOf('small craft') !== -1 ||
+              evLower.indexOf('coastal flood') !== -1 || evLower.indexOf('hazardous seas') !== -1) {
+            return;
           }
         }
 
-        // Skip non-critical surf/marine advisories — only show severe threats like tsunamis
-        var eventLower = (p.event || '').toLowerCase();
-        if (eventLower.indexOf('high surf') !== -1 || eventLower.indexOf('surf advisory') !== -1) {
-          isRelevant = false;
+        // Check if alert area matches user's location(s)
+        var isRelevant = false;
+        if (p.areaDesc) {
+          var areaLower = p.areaDesc.toLowerCase();
+          locationLabels.forEach(function(label) {
+            if (areaLower.indexOf(label) !== -1) isRelevant = true;
+          });
+          // Broad area matching for Hawaii
+          if (areaLower.indexOf('hawaii') !== -1) {
+            locationLabels.forEach(function(label) {
+              if (['oahu', "o'ahu", 'maui', 'kauai', "kaua'i", "hawai'i island", 'hawaii island', 'big island', 'molokai', "moloka'i", 'lanai', "lana'i"].indexOf(label) !== -1) isRelevant = true;
+            });
+          }
         }
 
         if (isRelevant) {
