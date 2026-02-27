@@ -270,6 +270,35 @@
     .card-body{ padding:14px 16px 16px; }
 
     /* KPI row */
+    /* Weather alerts banner */
+    #weatherAlertsBanner { margin: 0 0 16px 0; }
+    .weather-alert {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 12px 16px; border-radius: 12px; margin-bottom: 8px;
+      font-size: .86rem; font-weight: 600; line-height: 1.4;
+    }
+    .weather-alert.severity-extreme,
+    .weather-alert.severity-severe {
+      background: linear-gradient(135deg, rgba(220,38,38,.12), rgba(249,115,22,.08));
+      border: 1px solid rgba(220,38,38,.3); color: #991b1b;
+    }
+    .weather-alert.severity-moderate {
+      background: linear-gradient(135deg, rgba(249,115,22,.10), rgba(251,191,36,.08));
+      border: 1px solid rgba(249,115,22,.25); color: #9a3412;
+    }
+    .weather-alert.severity-minor,
+    .weather-alert.severity-unknown {
+      background: rgba(254,243,199,.6);
+      border: 1px solid rgba(251,191,36,.3); color: #92400e;
+    }
+    .weather-alert .alert-icon { font-size: 1.2rem; flex-shrink: 0; }
+    .weather-alert .alert-body { flex: 1; }
+    .weather-alert .alert-dismiss {
+      margin-left: auto; background: none; border: none;
+      cursor: pointer; font-size: 1rem; opacity: .5; padding: 0 4px; flex-shrink: 0;
+    }
+    .weather-alert .alert-dismiss:hover { opacity: 1; }
+
     .kpis{
       display:grid;
       grid-template-columns: repeat(5, 1fr);
@@ -1093,6 +1122,7 @@
     .chat-roster-item .roster-dot.offline{ background:#94a3b8; }
     .chat-roster-item .roster-name{ font-weight:700; font-size:.9rem; color:var(--text-dark); }
     .chat-roster-item .roster-role{ font-size:.72rem; font-weight:600; color:var(--text-soft); margin-left:auto; }
+    .roster-weather{ font-size:.68rem; font-weight:600; color:var(--sunset-coral); white-space:nowrap; flex-shrink:0; }
     .roster-star{
       flex-shrink:0; background:none; border:none; cursor:pointer;
       font-size:1rem; padding:0 2px; line-height:1; opacity:.35;
@@ -2461,7 +2491,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v32</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v33</span>
         <img src="logo_transparent.png" alt="LDAH" class="topbar-logo" />
         <div class="topbar-left">
           <div>
@@ -2492,6 +2522,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 </div>
         </div>
       </header>
+
+      <div id="weatherAlertsBanner" style="display:none;"></div>
 
       <section class="kpis" aria-label="KPIs">
         <div class="kpi">
@@ -3651,6 +3683,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         });
         online.sort(function(a, b) { return (a.displayName || '').localeCompare(b.displayName || ''); });
         offline.sort(function(a, b) { return (a.displayName || '').localeCompare(b.displayName || ''); });
+        _lastRosterOnline = online;
+        _lastRosterOffline = offline;
         renderRoster(online, offline);
       }, function(err) {
         console.warn('Chat roster listener error (Firestore rules may need updating for chatPresence):', err.message);
@@ -3674,9 +3708,16 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var activeClass = u.uid === _chatActiveOtherUid ? ' active-conv' : '';
         var isFav = _chatFavorites.has(u.uid);
         var starCls = 'roster-star' + (isFav ? ' fav' : '');
+        // Weather snippet
+        var weatherHtml = '';
+        var w = getWeatherForUid(u.uid);
+        if (w) {
+          weatherHtml = '<span class="roster-weather">' + w.icon + ' ' + w.temp + '°</span>';
+        }
         return '<div class="chat-roster-item' + activeClass + '" data-uid="' + u.uid + '" data-name="' + (u.displayName || '').replace(/"/g, '&quot;') + '">'
           + '<div class="roster-dot ' + dotClass + '"></div>'
           + '<span class="roster-name">' + escHTML(u.displayName || 'Unknown') + '</span>'
+          + weatherHtml
           + '<span class="roster-role">' + rightText + '</span>'
           + '<button class="' + starCls + '" data-fav-uid="' + u.uid + '" title="' + (isFav ? 'Remove from favorites' : 'Add to favorites') + '">' + (isFav ? '★' : '☆') + '</button>'
           + '</div>';
@@ -4207,6 +4248,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             online: true,
             lastSeen: firebase.firestore.FieldValue.serverTimestamp()
           }, { merge: true }).catch(function(e){ console.warn('Chat presence write failed (update Firestore rules):', e.message); });
+          // Initialize weather system
+          if (typeof initWeatherSystem === 'function') initWeatherSystem();
         } else {
           showAccessDenied();
         }
@@ -5352,6 +5395,235 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   }
 
   // ── Sidebar Tip Rotator (reads from lookupLists.tips) ──
+
+  // ══════════════════════════════════════════════════════════════
+  // ── Weather System (OpenWeatherMap + NWS Alerts) ──
+  // ══════════════════════════════════════════════════════════════
+
+  var WEATHER_API_KEY = '2ad9274e65cb3e7317ce2347c4d3988a';
+  var WEATHER_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+  var _weatherCache = {};       // keyed by location label
+  var _weatherAlerts = [];      // active NWS alerts
+  var _userLocations = {};      // uid → resolved location object
+  var _dismissedAlerts = new Set();
+  var _lastRosterOnline = [];
+  var _lastRosterOffline = [];
+
+  var WEATHER_LOCATIONS = {
+    // Hawaiian Islands
+    'oahu':              { lat: 21.3069, lon: -157.8583, label: "O'ahu" },
+    'honolulu':          { lat: 21.3069, lon: -157.8583, label: "O'ahu" },
+    'maui':              { lat: 20.7984, lon: -156.3319, label: 'Maui' },
+    'big island':        { lat: 19.8968, lon: -155.5828, label: 'Hawai\u02BBi Island' },
+    'hawaii island':     { lat: 19.8968, lon: -155.5828, label: 'Hawai\u02BBi Island' },
+    'hilo':              { lat: 19.7241, lon: -155.0868, label: 'Hawai\u02BBi Island' },
+    'kona':              { lat: 19.6400, lon: -155.9969, label: 'Hawai\u02BBi Island' },
+    'kauai':             { lat: 22.0964, lon: -159.5261, label: 'Kaua\u02BBi' },
+    'molokai':           { lat: 21.1458, lon: -157.0227, label: 'Moloka\u02BBi' },
+    // Pacific Island Partners
+    'american samoa':    { lat: -14.2710, lon: -170.1322, label: 'American Samoa' },
+    'pago pago':         { lat: -14.2710, lon: -170.1322, label: 'American Samoa' },
+    'samoa':             { lat: -14.2710, lon: -170.1322, label: 'American Samoa' },
+    'guam':              { lat: 13.4443, lon: 144.7937,   label: 'Guam' },
+    'cnmi':              { lat: 15.1779, lon: 145.7490,   label: 'CNMI' },
+    'saipan':            { lat: 15.1779, lon: 145.7490,   label: 'CNMI' },
+    'northern mariana':  { lat: 15.1779, lon: 145.7490,   label: 'CNMI' },
+    'micronesia':        { lat: 6.8874,  lon: 158.2150,   label: 'Micronesia' },
+    'fsm':               { lat: 6.8874,  lon: 158.2150,   label: 'Micronesia' },
+    'pohnpei':           { lat: 6.8874,  lon: 158.2150,   label: 'Micronesia' },
+    'chuuk':             { lat: 7.4467,  lon: 151.8553,   label: 'Micronesia' },
+    'kosrae':            { lat: 5.3170,  lon: 162.9814,   label: 'Micronesia' },
+    'yap':               { lat: 9.5144,  lon: 138.1292,   label: 'Micronesia' },
+    'marshall islands':  { lat: 7.1164,  lon: 171.1858,   label: 'Marshall Islands' },
+    'majuro':            { lat: 7.1164,  lon: 171.1858,   label: 'Marshall Islands' },
+    'palau':             { lat: 7.5150,  lon: 134.5825,   label: 'Palau' },
+    'koror':             { lat: 7.5150,  lon: 134.5825,   label: 'Palau' }
+  };
+
+  function resolveLocation(freeText) {
+    if (!freeText) return null;
+    var lower = freeText.trim().toLowerCase();
+    if (WEATHER_LOCATIONS[lower]) return WEATHER_LOCATIONS[lower];
+    for (var key in WEATHER_LOCATIONS) {
+      if (lower.indexOf(key) !== -1 || key.indexOf(lower) !== -1) {
+        return WEATHER_LOCATIONS[key];
+      }
+    }
+    return null;
+  }
+
+  function mapWeatherIcon(owmIcon) {
+    var map = {
+      '01d': '☀️', '01n': '🌙',
+      '02d': '⛅', '02n': '🌙',
+      '03d': '☁️', '03n': '☁️',
+      '04d': '☁️', '04n': '☁️',
+      '09d': '🌧️', '09n': '🌧️',
+      '10d': '🌦️', '10n': '🌧️',
+      '11d': '⛈️', '11n': '⛈️',
+      '13d': '❄️', '13n': '❄️',
+      '50d': '🌫️', '50n': '🌫️'
+    };
+    return map[owmIcon] || '🌤️';
+  }
+
+  function getWeatherForUid(uid) {
+    var loc = _userLocations[uid];
+    if (!loc) return null;
+    var cached = _weatherCache[loc.label];
+    if (!cached) return null;
+    return cached;
+  }
+
+  async function initWeatherSystem() {
+    try {
+      var snapshot = await db.collection('userRoles').get();
+      snapshot.forEach(function(doc) {
+        var d = doc.data();
+        var resolved = resolveLocation(d.location);
+        if (resolved) {
+          _userLocations[doc.id] = resolved;
+        }
+      });
+      await fetchAllWeather();
+      setInterval(fetchAllWeather, WEATHER_CACHE_TTL);
+    } catch (err) {
+      console.warn('Weather init failed:', err.message);
+    }
+  }
+
+  async function fetchAllWeather() {
+    // Deduplicate by location label
+    var uniqueLocations = {};
+    for (var uid in _userLocations) {
+      var loc = _userLocations[uid];
+      uniqueLocations[loc.label] = loc;
+    }
+
+    for (var label in uniqueLocations) {
+      var loc = uniqueLocations[label];
+      // Skip if cache is still fresh
+      if (_weatherCache[label] && (Date.now() - _weatherCache[label].fetchedAt) < WEATHER_CACHE_TTL) continue;
+
+      try {
+        var resp = await fetch(
+          'https://api.openweathermap.org/data/2.5/weather?lat=' + loc.lat +
+          '&lon=' + loc.lon + '&appid=' + WEATHER_API_KEY + '&units=imperial'
+        );
+        var data = await resp.json();
+        if (data.main && data.weather) {
+          _weatherCache[label] = {
+            temp: Math.round(data.main.temp),
+            icon: mapWeatherIcon(data.weather[0].icon),
+            description: data.weather[0].description,
+            fetchedAt: Date.now()
+          };
+        }
+      } catch (err) {
+        console.warn('Weather fetch failed for ' + label + ':', err.message);
+      }
+    }
+
+    // Fetch NWS alerts
+    await fetchWeatherAlerts();
+
+    // Re-render roster if visible
+    if (_lastRosterOnline.length > 0 || _lastRosterOffline.length > 0) {
+      renderRoster(_lastRosterOnline, _lastRosterOffline);
+    }
+    renderWeatherAlertsBanner();
+  }
+
+  async function fetchWeatherAlerts() {
+    _weatherAlerts = [];
+    try {
+      var resp = await fetch('https://api.weather.gov/alerts/active?area=HI,GU,AS,MP', {
+        headers: { 'Accept': 'application/geo+json', 'User-Agent': 'LDAH-Internal-App' }
+      });
+      var data = await resp.json();
+      if (!data.features || data.features.length === 0) return;
+
+      // Get team location labels for relevance filtering
+      var teamLabels = new Set();
+      for (var uid in _userLocations) {
+        teamLabels.add(_userLocations[uid].label.toLowerCase());
+      }
+
+      data.features.forEach(function(f) {
+        var p = f.properties;
+        // Check if alert area matches any team location
+        var isRelevant = false;
+        if (p.areaDesc) {
+          var areaLower = p.areaDesc.toLowerCase();
+          teamLabels.forEach(function(label) {
+            if (areaLower.indexOf(label.toLowerCase()) !== -1) isRelevant = true;
+          });
+          // Also check broad area matches
+          if (areaLower.indexOf('hawaii') !== -1 || areaLower.indexOf('oahu') !== -1 ||
+              areaLower.indexOf('maui') !== -1 || areaLower.indexOf('guam') !== -1 ||
+              areaLower.indexOf('samoa') !== -1 || areaLower.indexOf('mariana') !== -1) {
+            isRelevant = true;
+          }
+        }
+
+        if (isRelevant) {
+          _weatherAlerts.push({
+            id: p.id,
+            event: p.event,
+            severity: (p.severity || 'unknown').toLowerCase(),
+            headline: p.headline,
+            areaDesc: p.areaDesc,
+            expires: p.expires
+          });
+        }
+      });
+    } catch (err) {
+      console.warn('NWS alerts fetch failed:', err.message);
+    }
+  }
+
+  function renderWeatherAlertsBanner() {
+    var banner = document.getElementById('weatherAlertsBanner');
+    if (!banner) return;
+
+    var now = new Date();
+    var active = _weatherAlerts.filter(function(a) {
+      if (_dismissedAlerts.has(a.id)) return false;
+      if (a.expires && new Date(a.expires) < now) return false;
+      return true;
+    });
+
+    if (active.length === 0) { banner.style.display = 'none'; return; }
+
+    banner.style.display = 'block';
+    var html = '';
+    active.forEach(function(a) {
+      var sevClass = 'severity-' + a.severity;
+      var icon = (a.severity === 'extreme' || a.severity === 'severe') ? '⚠️' : '🌧️';
+      html += '<div class="weather-alert ' + sevClass + '" data-alert-id="' + (a.id || '').replace(/"/g, '&quot;') + '">'
+        + '<span class="alert-icon">' + icon + '</span>'
+        + '<div class="alert-body">'
+        + '<strong>' + escHTML(a.event) + '</strong> — ' + escHTML(a.areaDesc || '')
+        + (a.headline ? '<br><span style="font-weight:400;font-size:.8rem;">' + escHTML(a.headline) + '</span>' : '')
+        + '</div>'
+        + '<button class="alert-dismiss" title="Dismiss">✕</button>'
+        + '</div>';
+    });
+    banner.innerHTML = html;
+
+    banner.querySelectorAll('.alert-dismiss').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var alertDiv = btn.closest('.weather-alert');
+        var alertId = alertDiv.getAttribute('data-alert-id');
+        _dismissedAlerts.add(alertId);
+        alertDiv.remove();
+        if (banner.children.length === 0) banner.style.display = 'none';
+      });
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════
 
   var _tipIdx = 0;
 
