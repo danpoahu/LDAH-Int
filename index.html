@@ -242,6 +242,32 @@
     .wo-card .wo-temp { font-size:1.6rem; font-weight:700; color:var(--sunset-coral); }
     .wo-card .wo-label { font-size:.85rem; font-weight:700; color:var(--ocean-deep); margin-top:4px; }
     .wo-card .wo-desc { font-size:.75rem; color:var(--text-soft); text-transform:capitalize; }
+    .wo-card { cursor:pointer; transition:transform .15s, box-shadow .15s; }
+    .wo-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,40,80,.1); }
+    .wo-card.expanded { grid-column:1/-1; text-align:left; cursor:default; }
+    .wo-card.expanded:hover { transform:none; box-shadow:none; }
+    .wo-forecast { margin-top:12px; }
+    .wo-forecast-title {
+      font-size:.82rem; font-weight:700; color:var(--ocean-deep);
+      margin-bottom:8px; padding-bottom:6px;
+      border-bottom:1px solid rgba(8,145,178,.1);
+    }
+    .wo-forecast-row {
+      display:grid; grid-template-columns:110px 30px 60px 1fr;
+      align-items:center; gap:8px; padding:5px 0;
+      font-size:.82rem; border-bottom:1px solid rgba(0,0,0,.04);
+    }
+    .wo-forecast-row:last-child { border-bottom:none; }
+    .wo-forecast-row .wo-f-day { font-weight:700; color:var(--text-dark); }
+    .wo-forecast-row .wo-f-temp { font-weight:700; color:var(--sunset-coral); }
+    .wo-forecast-row .wo-f-desc { color:var(--text-soft); text-transform:capitalize; }
+    .wo-back-btn {
+      display:inline-block; margin-top:10px; padding:6px 14px;
+      border-radius:8px; border:1px solid rgba(8,145,178,.2);
+      background:white; color:var(--ocean-deep); font-weight:700;
+      font-size:.78rem; cursor:pointer;
+    }
+    .wo-back-btn:hover { background:rgba(8,145,178,.06); }
     .btn{
       border:none;
       cursor:pointer;
@@ -2532,7 +2558,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v35</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v36</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -5656,6 +5682,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     widget.style.display = 'flex';
   }
 
+  var _forecastCache = {}; // keyed by location label
+
   window.toggleWeatherOverlay = function() {
     var overlay = document.getElementById('weatherOverlay');
     if (!overlay) return;
@@ -5663,17 +5691,21 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       overlay.classList.remove('active');
       return;
     }
-    // Build weather cards for all cached locations
+    renderWeatherGrid();
+    overlay.classList.add('active');
+  };
+
+  function renderWeatherGrid() {
     var grid = document.getElementById('weatherOverlayGrid');
     if (!grid) return;
     var html = '';
-    // Get unique locations with weather
     var shown = {};
     for (var label in _weatherCache) {
       if (shown[label]) continue;
       shown[label] = true;
       var w = _weatherCache[label];
-      html += '<div class="wo-card">'
+      var safeLabel = label.replace(/'/g, "\\'");
+      html += '<div class="wo-card" onclick="expandWeatherCard(\'' + safeLabel + '\')">'
         + '<div class="wo-icon">' + w.icon + '</div>'
         + '<div class="wo-temp">' + w.temp + '°F</div>'
         + '<div class="wo-label">' + _wEsc(label) + '</div>'
@@ -5684,7 +5716,90 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       html = '<div style="grid-column:1/-1;text-align:center;color:var(--text-soft);padding:20px;">No weather data available. Make sure users have locations assigned in User Roles.</div>';
     }
     grid.innerHTML = html;
-    overlay.classList.add('active');
+  }
+
+  window.expandWeatherCard = async function(label) {
+    var grid = document.getElementById('weatherOverlayGrid');
+    if (!grid) return;
+    var w = _weatherCache[label];
+    if (!w) return;
+
+    // Find the location coords
+    var loc = null;
+    for (var k in WEATHER_LOCATIONS) {
+      if (WEATHER_LOCATIONS[k].label === label) { loc = WEATHER_LOCATIONS[k]; break; }
+    }
+    if (!loc) return;
+
+    // Show expanded card with loading state
+    var html = '<div class="wo-card expanded">'
+      + '<div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;">'
+      + '<span style="font-size:2.2rem;">' + w.icon + '</span>'
+      + '<div>'
+      + '<div style="font-size:1.4rem;font-weight:700;color:var(--sunset-coral);">' + w.temp + '°F</div>'
+      + '<div style="font-size:1rem;font-weight:700;color:var(--ocean-deep);">' + _wEsc(label) + '</div>'
+      + '<div style="font-size:.82rem;color:var(--text-soft);text-transform:capitalize;">' + _wEsc(w.description) + '</div>'
+      + '</div></div>'
+      + '<div class="wo-forecast" id="woForecastBody">Loading 5-day forecast...</div>'
+      + '<button class="wo-back-btn" onclick="renderWeatherGrid()">← Back to all locations</button>'
+      + '</div>';
+    grid.innerHTML = html;
+
+    // Fetch 5-day forecast
+    try {
+      var forecast;
+      if (_forecastCache[label] && (Date.now() - _forecastCache[label].fetchedAt) < WEATHER_CACHE_TTL) {
+        forecast = _forecastCache[label].data;
+      } else {
+        var resp = await fetch(
+          'https://api.openweathermap.org/data/2.5/forecast?lat=' + loc.lat +
+          '&lon=' + loc.lon + '&appid=' + WEATHER_API_KEY + '&units=imperial'
+        );
+        var raw = await resp.json();
+        if (!raw.list) throw new Error('No forecast data');
+        // Group by day — pick one reading per day (noon or closest)
+        var days = {};
+        raw.list.forEach(function(item) {
+          var date = item.dt_txt.split(' ')[0];
+          var hour = parseInt(item.dt_txt.split(' ')[1].split(':')[0]);
+          if (!days[date] || Math.abs(hour - 12) < Math.abs(days[date]._hour - 12)) {
+            days[date] = {
+              temp: Math.round(item.main.temp),
+              icon: mapWeatherIcon(item.weather[0].icon),
+              description: item.weather[0].description,
+              _hour: hour
+            };
+          }
+        });
+        forecast = [];
+        var today = new Date().toISOString().split('T')[0];
+        for (var d in days) {
+          if (d === today) continue; // skip today, we already show current
+          forecast.push({ date: d, temp: days[d].temp, icon: days[d].icon, desc: days[d].description });
+        }
+        forecast = forecast.slice(0, 5);
+        _forecastCache[label] = { data: forecast, fetchedAt: Date.now() };
+      }
+
+      // Render forecast rows
+      var fBody = document.getElementById('woForecastBody');
+      if (!fBody) return;
+      var fHtml = '<div class="wo-forecast-title">5-Day Forecast</div>';
+      forecast.forEach(function(f) {
+        var dt = new Date(f.date + 'T12:00:00');
+        var dayName = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        fHtml += '<div class="wo-forecast-row">'
+          + '<span class="wo-f-day">' + dayName + '</span>'
+          + '<span>' + f.icon + '</span>'
+          + '<span class="wo-f-temp">' + f.temp + '°F</span>'
+          + '<span class="wo-f-desc">' + _wEsc(f.desc) + '</span>'
+          + '</div>';
+      });
+      fBody.innerHTML = fHtml;
+    } catch (err) {
+      var fBody = document.getElementById('woForecastBody');
+      if (fBody) fBody.innerHTML = '<div style="color:var(--text-soft);">Could not load forecast: ' + _wEsc(err.message) + '</div>';
+    }
   };
 
   async function fetchWeatherAlerts() {
