@@ -1264,6 +1264,20 @@
     }
     .roster-star:hover{ opacity:.7; transform:scale(1.2); }
     .roster-star.fav{ opacity:1; color:#f59e0b; }
+    /* ── Roster Unread Badge ── */
+    .roster-unread-badge{
+      min-width:18px; height:18px; border-radius:999px;
+      background:var(--sunset-coral); color:white;
+      font-size:.7rem; font-weight:900; line-height:18px;
+      text-align:center; padding:0 5px; flex-shrink:0;
+      animation: rosterBounce 1s ease infinite;
+    }
+    @keyframes rosterBounce{
+      0%,100%{ transform:scale(1); }
+      25%{ transform:scale(1.25); }
+      50%{ transform:scale(0.95); }
+      75%{ transform:scale(1.1); }
+    }
     .chat-fav-header{
       font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
       color:#f59e0b; padding:8px 10px 4px; display:flex; align-items:center; gap:4px;
@@ -3770,6 +3784,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var _chatShowAllOffline = false;
     var _chatModalOpen = false;
     var _chatUnreadCount = 0;
+    var _chatUnreadByUser = {}; // uid -> unread count for roster badges
 
     // ── Favorites (localStorage, zero Firestore cost) ──
     var _chatFavorites = new Set(JSON.parse(localStorage.getItem('chatFavorites') || '[]'));
@@ -3955,10 +3970,17 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         if (w) {
           weatherHtml = '<span class="roster-weather">' + w.icon + ' ' + w.temp + '°</span>';
         }
+        // Unread badge for this user
+        var unreadBadge = '';
+        var uc = _chatUnreadByUser[u.uid] || 0;
+        if (uc > 0) {
+          unreadBadge = '<span class="roster-unread-badge">' + uc + '</span>';
+        }
         return '<div class="chat-roster-item' + activeClass + '" data-uid="' + u.uid + '" data-name="' + (u.displayName || '').replace(/"/g, '&quot;') + '">'
           + '<div class="roster-dot ' + dotClass + '"></div>'
           + '<span class="roster-name">' + escHTML(u.displayName || 'Unknown') + '</span>'
           + weatherHtml
+          + unreadBadge
           + '<span class="roster-role">' + rightText + '</span>'
           + '<button class="' + starCls + '" data-fav-uid="' + u.uid + '" title="' + (isFav ? 'Remove from favorites' : 'Add to favorites') + '">' + (isFav ? '★' : '☆') + '</button>'
           + '</div>';
@@ -4093,6 +4115,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         .onSnapshot(function(snap) {
           var convs = [];
           var unread = 0;
+          var unreadByUser = {};
           snap.forEach(function(doc) {
             var d = doc.data();
             d._id = doc.id;
@@ -4100,11 +4123,19 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             // Check unread: lastMessage not read by me
             if (d.lastReadBy && !d.lastReadBy.includes(myUid) && d.lastSenderId !== myUid) {
               unread++;
+              // Track which user sent the unread message
+              var otherUid = (d.participants || []).find(function(p) { return p !== myUid; });
+              if (otherUid) {
+                unreadByUser[otherUid] = (unreadByUser[otherUid] || 0) + 1;
+              }
             }
           });
           renderConversations(convs);
           _chatUnreadCount = unread;
+          _chatUnreadByUser = unreadByUser;
           updateChatBadge();
+          // Refresh roster to show/hide unread badges
+          if (typeof window._refreshRoster === 'function') window._refreshRoster();
         }, function(err) {
           console.warn('Chat conversations listener error (Firestore rules may need updating for chatConversations):', err.message);
         });
