@@ -1666,6 +1666,10 @@
   font-weight: 700;
   font-size: 1rem;
 }
+.profile-card-header.collapsible { cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+.profile-card-header.collapsible::after { content: '\25B2'; font-size: .7rem; transition: transform .2s; }
+.profile-card.collapsed .profile-card-header.collapsible::after { transform: rotate(180deg); }
+.profile-card.collapsed .profile-card-body { display: none; }
 .profile-card-body { padding: 24px; }
 
 .profile-photo-area {
@@ -2213,6 +2217,11 @@
   box-shadow: 0 1px 4px rgba(0,40,80,.06); font-size: .85rem;
 }
 .ix-counter b { font-size: 1.2rem; margin-right: 4px; }
+.ix-counter.clickable { cursor: pointer; transition: all .15s; }
+.ix-counter.clickable:hover { box-shadow: 0 2px 8px rgba(0,40,80,.12); }
+.ix-counter.active { background: var(--ocean-deep); color: white; }
+.ix-counter.active b { color: white; }
+.ix-draft-badge { display:inline-block;font-size:.7rem;font-weight:700;background:#F59E0B;color:white;padding:1px 7px;border-radius:8px;margin-left:6px;vertical-align:middle; }
 .ix-list-header, .ix-row {
   display: grid;
   grid-template-columns: 100px 80px 1.5fr 2fr 120px 1fr 100px;
@@ -2690,7 +2699,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v55</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v56</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -2982,8 +2991,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         </div>
 
         <!-- Weather Alert Preferences Card -->
-        <div class="profile-card" style="margin-top:20px;">
-          <div class="profile-card-header">Weather Alert Preferences</div>
+        <div class="profile-card collapsed" style="margin-top:20px;">
+          <div class="profile-card-header collapsible" onclick="this.parentElement.classList.toggle('collapsed')">Weather Alert Preferences</div>
           <div class="profile-card-body">
             <div class="alert-loc-note">
               <span>📍</span>
@@ -3180,6 +3189,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           <div class="ix-counter"><b id="ixTotalCount">0</b> total</div>
           <div class="ix-counter"><b id="ixOpenCount">0</b> open</div>
           <div class="ix-counter"><b id="ixFollowUpCount">0</b> follow-ups due</div>
+          <div class="ix-counter clickable" id="ixDraftCounter" onclick="toggleDraftView()" title="Click to view drafts"><b id="ixDraftCount">0</b> drafts</div>
         </div>
 
         <div class="ix-list">
@@ -6952,6 +6962,31 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   // ── Interactions — Save to Firestore ──
 
+  var _editingDraftId = null;
+
+  window.editDraft = async function(docId) {
+    try {
+      var doc = await db.collection('interactions').doc(docId).get();
+      if (!doc.exists) { alert('Draft not found.'); return; }
+      var d = doc.data();
+      // Open the modal and pre-fill
+      window.openModal();
+      _editingDraftId = docId;
+      var chSel = document.getElementById('intChannel');
+      if (chSel) chSel.value = d.channel || '';
+      var tySel = document.getElementById('intType');
+      if (tySel) tySel.value = d.interactionType || '';
+      document.getElementById('intContact').value = d.contactName || '';
+      document.getElementById('intGrant').value = d.grantProgram || '';
+      document.getElementById('intSummary').value = d.summary || '';
+      document.getElementById('intFollowUp').value = d.followUpDate || '';
+      document.getElementById('intStatus').value = d.status || 'Open';
+      document.getElementById('intNotes').value = d.notes || '';
+    } catch (err) {
+      alert('Error loading draft: ' + err.message);
+    }
+  };
+
   window.saveInteractionToFirestore = async function saveInteractionToFirestore(isDraft) {
     var channel = document.getElementById('intChannel').value;
     var intType = document.getElementById('intType').value;
@@ -7000,7 +7035,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     };
 
     try {
-      await db.collection('interactions').add(data);
+      if (_editingDraftId) {
+        // Update existing draft doc (or convert draft → full interaction)
+        delete data.createdAt; // keep original timestamp
+        await db.collection('interactions').doc(_editingDraftId).update(data);
+        _editingDraftId = null;
+      } else {
+        await db.collection('interactions').add(data);
+      }
       window.closeModal();
       // Reset modal fields
       resetInteractionModal();
@@ -7008,15 +7050,15 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (typeof updateDashKPIs === 'function') updateDashKPIs();
       // Refresh dashboard
       if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
-      if (isDraft) {
-        // Subtle confirmation
-      }
+      // Refresh interaction list if visible
+      if (typeof loadInteractions === 'function') loadInteractions();
     } catch (err) {
       alert('Error saving interaction: ' + err.message);
     }
   }
 
   function resetInteractionModal() {
+    _editingDraftId = null;
     var chSel = document.getElementById('intChannel');
     if (chSel && chSel.options.length > 0) chSel.selectedIndex = 0; else if (chSel) chSel.value = '';
     var tySel = document.getElementById('intType');
@@ -8059,6 +8101,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   var _ixExportRows = [];
   var _ixFiltersActive = false;
+  var _ixShowDrafts = false;
+
+  window.toggleDraftView = function() {
+    _ixShowDrafts = !_ixShowDrafts;
+    var counter = document.getElementById('ixDraftCounter');
+    if (counter) counter.classList.toggle('active', _ixShowDrafts);
+    loadInteractions();
+  };
 
   // Smart Filter / Clear Filters toggle
   window.handleIxFilterClick = function() {
@@ -8086,6 +8136,9 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var contactF = document.getElementById('ixContactFilter');
     if (contactF) contactF.value = '';
     _ixFiltersActive = false;
+    _ixShowDrafts = false;
+    var dc = document.getElementById('ixDraftCounter');
+    if (dc) dc.classList.remove('active');
     var btn = document.getElementById('ixFilterBtn');
     if (btn) {
       btn.textContent = 'Filter';
@@ -8119,14 +8172,23 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     }
 
     try {
+      // Always fetch draft count for the counter badge
+      var draftSnap = await db.collection('interactions')
+        .where('isDraft', '==', true)
+        .orderBy('createdAt', 'desc')
+        .limit(100)
+        .get();
+      var draftCountEl = document.getElementById('ixDraftCount');
+      if (draftCountEl) draftCountEl.textContent = draftSnap.size;
+
       var query = db.collection('interactions')
-        .where('isDraft', '==', false)
+        .where('isDraft', '==', _ixShowDrafts)
         .orderBy('createdAt', 'desc');
 
-      if (dateFrom) {
+      if (!_ixShowDrafts && dateFrom) {
         query = query.where('createdAt', '>=', new Date(dateFrom));
       }
-      if (dateTo) {
+      if (!_ixShowDrafts && dateTo) {
         var endDate = new Date(dateTo);
         endDate.setDate(endDate.getDate() + 1);
         query = query.where('createdAt', '<', endDate);
@@ -8178,16 +8240,19 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var statusLabel = d.status === 'Needs admin review' ? 'Review' : (d.status || 'Open');
 
         var notesBadge = _notesBadgeHtml(d.notes);
+        var draftBadge = d.isDraft ? '<span class="ix-draft-badge">DRAFT</span>' : '';
         html += '<div class="ix-row">' +
           '<span style="font-size:.84rem;">' + dateStr + '</span>' +
           '<span><span class="ix-channel-tag">' + rsEscape(d.channel || '') + '</span></span>' +
           '<span><b>' + rsEscape(d.contactName || '—') + '</b>' +
             (d.contactType ? '<br><span style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(d.contactType) + '</span>' : '') +
           '</span>' +
-          '<span>' + rsEscape(d.summary || '—') + (notesBadge ? '<div style="margin-top:3px;">' + notesBadge + '</div>' : '') + '</span>' +
+          '<span>' + rsEscape(d.summary || '—') + draftBadge + (notesBadge ? '<div style="margin-top:3px;">' + notesBadge + '</div>' : '') + '</span>' +
           '<span><span class="ix-status-badge ' + statusCls + '">' + rsEscape(statusLabel) + '</span></span>' +
           '<span>' + (function(o){ var p=o.split(/\s+/).filter(Boolean); return p.length>=2 ? rsEscape(p[0]+' '+p[1][0]+'.') : rsEscape(o); })(d.owner||'—') + '</span>' +
-          '<span class="ix-row-actions"><button onclick="viewInteraction(\'' + d._id + '\')">View</button></span>' +
+          '<span class="ix-row-actions"><button onclick="viewInteraction(\'' + d._id + '\')">View</button>' +
+            (d.isDraft ? '<button onclick="editDraft(\'' + d._id + '\')" style="margin-left:4px;background:#F59E0B;">Edit</button>' : '') +
+          '</span>' +
           '</div>';
       });
 
