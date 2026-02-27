@@ -2424,7 +2424,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v25</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v26</span>
         <img src="logo_transparent.png" alt="LDAH" class="topbar-logo" />
         <div class="topbar-left">
           <div>
@@ -3569,10 +3569,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       _chatRosterUnsub = db().collection('chatPresence').onSnapshot(function(snap) {
         var online = [];
         var offline = [];
+        var staleThreshold = Date.now() - (15 * 60 * 1000); // 15 min staleness check
         snap.forEach(function(doc) {
           var d = doc.data();
           if (d.uid === myUid) return; // exclude self
-          if (d.online) {
+          // Treat as offline if lastSeen is stale (> 15 min) even if online flag is true
+          var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
+          var isStale = lastSeenMs < staleThreshold;
+          if (d.online && !isStale) {
             online.push(d);
           } else {
             offline.push(d);
@@ -4154,6 +4158,60 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       }).catch(function(){});
     }
   });
+
+  // ── Idle Detection (10 min → away, activity → back online) ──
+  (function() {
+    var IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+    var _idleTimer = null;
+    var _isIdle = false;
+
+    function setIdle() {
+      if (_isIdle) return;
+      _isIdle = true;
+      if (currentUserData && currentUserData.uid) {
+        db.collection('chatPresence').doc(currentUserData.uid).update({
+          online: false,
+          lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(function(){});
+      }
+    }
+
+    function setActive() {
+      if (!_isIdle) return;
+      _isIdle = false;
+      if (currentUserData && currentUserData.uid) {
+        db.collection('chatPresence').doc(currentUserData.uid).update({
+          online: true,
+          lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(function(){});
+      }
+    }
+
+    function resetTimer() {
+      if (_isIdle) setActive();
+      clearTimeout(_idleTimer);
+      _idleTimer = setTimeout(setIdle, IDLE_TIMEOUT);
+    }
+
+    // Listen for user activity (passive to avoid perf impact)
+    ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'].forEach(function(evt) {
+      document.addEventListener(evt, resetTimer, { passive: true });
+    });
+
+    // Also handle tab visibility changes
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        // Start a shorter timer when tab is hidden (2 min)
+        clearTimeout(_idleTimer);
+        _idleTimer = setTimeout(setIdle, 2 * 60 * 1000);
+      } else {
+        resetTimer();
+      }
+    });
+
+    // Start the timer
+    _idleTimer = setTimeout(setIdle, IDLE_TIMEOUT);
+  })();
 
   // ── Update User UI ──
   function updateUserUI() {
