@@ -540,6 +540,7 @@
       color: var(--palm);
     }
     .status.needs{ border-color: rgba(249,115,22,.22); background: rgba(249,115,22,.10); color: var(--sunset-coral); }
+    .status.draft{ border-color: rgba(79,70,229,.22); background: rgba(79,70,229,.10); color: #4F46E5; }
     .status.closed{ border-color: rgba(100,116,139,.20); background: rgba(100,116,139,.10); color: var(--text-soft); }
 
     /* Resource list */
@@ -2217,11 +2218,6 @@
   box-shadow: 0 1px 4px rgba(0,40,80,.06); font-size: .85rem;
 }
 .ix-counter b { font-size: 1.2rem; margin-right: 4px; }
-.ix-counter.clickable { cursor: pointer; transition: all .15s; }
-.ix-counter.clickable:hover { box-shadow: 0 2px 8px rgba(0,40,80,.12); }
-.ix-counter.active { background: var(--ocean-deep); color: white; }
-.ix-counter.active b { color: white; }
-.ix-draft-badge { display:inline-block;font-size:.7rem;font-weight:700;background:#F59E0B;color:white;padding:1px 7px;border-radius:8px;margin-left:6px;vertical-align:middle; }
 .ix-list-header, .ix-row {
   display: grid;
   grid-template-columns: 100px 80px 1.5fr 2fr 120px 1fr 100px;
@@ -2246,6 +2242,7 @@
 }
 .ix-status-badge.open { background: #FEF3C7; color: #D97706; }
 .ix-status-badge.closed { background: #D1FAE5; color: #059669; }
+.ix-status-badge.draft { background: #E0E7FF; color: #4F46E5; }
 .ix-status-badge.needs { background: #FEE2E2; color: #DC2626; }
 .ix-row-actions button {
   padding: 5px 10px; border-radius: 8px; font-size: .78rem;
@@ -2699,7 +2696,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v56</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v57</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -3164,6 +3161,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
               <option value="">All</option>
               <option value="Open">Open</option>
               <option value="Closed">Closed</option>
+              <option value="Draft">Draft</option>
               <option value="Needs admin review">Needs review</option>
             </select>
           </div>
@@ -3189,7 +3187,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           <div class="ix-counter"><b id="ixTotalCount">0</b> total</div>
           <div class="ix-counter"><b id="ixOpenCount">0</b> open</div>
           <div class="ix-counter"><b id="ixFollowUpCount">0</b> follow-ups due</div>
-          <div class="ix-counter clickable" id="ixDraftCounter" onclick="toggleDraftView()" title="Click to view drafts"><b id="ixDraftCount">0</b> drafts</div>
+          <div class="ix-counter"><b id="ixDraftCount">0</b> drafts</div>
         </div>
 
         <div class="ix-list">
@@ -7026,7 +7024,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       grantProgram: grant,
       summary: summary,
       followUpDate: followUp,
-      status: status,
+      status: isDraft ? 'Draft' : status,
       notes: notes,
       isDraft: isDraft,
       owner: currentUserData?.displayName || 'Unknown',
@@ -7082,7 +7080,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     try {
       var snap = await db.collection('interactions')
-        .where('isDraft', '==', false)
         .orderBy('createdAt', 'desc')
         .limit(10)
         .get();
@@ -7107,6 +7104,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var statusRaw = d.status || 'Open';
         var statusText = statusRaw === 'Needs admin review' ? 'Review' : statusRaw;
         if (statusRaw === 'Closed') statusCls = 'closed';
+        else if (statusRaw === 'Draft') statusCls = 'draft';
         else if (statusRaw === 'Needs admin review') statusCls = 'needs';
 
         var contactDisplay = rsEscape(d.contactName || '—');
@@ -7146,9 +7144,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   // Update dashboard KPI counters from Firestore
   async function updateDashKPIs() {
     try {
-      // Single query — reuses the existing composite index (isDraft ASC + createdAt DESC)
       var snap = await db.collection('interactions')
-        .where('isDraft', '==', false)
         .orderBy('createdAt', 'desc')
         .get();
 
@@ -7170,6 +7166,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
       snap.forEach(function(doc) {
         var d = doc.data();
+        // Skip drafts from KPI counts
+        if (d.status === 'Draft' || d.isDraft) return;
         // Count interactions logged this week
         if (d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
           wtdCount++;
@@ -8101,15 +8099,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   var _ixExportRows = [];
   var _ixFiltersActive = false;
-  var _ixShowDrafts = false;
-
-  window.toggleDraftView = function() {
-    _ixShowDrafts = !_ixShowDrafts;
-    var counter = document.getElementById('ixDraftCounter');
-    if (counter) counter.classList.toggle('active', _ixShowDrafts);
-    loadInteractions();
-  };
-
   // Smart Filter / Clear Filters toggle
   window.handleIxFilterClick = function() {
     if (_ixFiltersActive) {
@@ -8136,9 +8125,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var contactF = document.getElementById('ixContactFilter');
     if (contactF) contactF.value = '';
     _ixFiltersActive = false;
-    _ixShowDrafts = false;
-    var dc = document.getElementById('ixDraftCounter');
-    if (dc) dc.classList.remove('active');
     var btn = document.getElementById('ixFilterBtn');
     if (btn) {
       btn.textContent = 'Filter';
@@ -8172,23 +8158,13 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     }
 
     try {
-      // Always fetch draft count for the counter badge
-      var draftSnap = await db.collection('interactions')
-        .where('isDraft', '==', true)
-        .orderBy('createdAt', 'desc')
-        .limit(100)
-        .get();
-      var draftCountEl = document.getElementById('ixDraftCount');
-      if (draftCountEl) draftCountEl.textContent = draftSnap.size;
-
       var query = db.collection('interactions')
-        .where('isDraft', '==', _ixShowDrafts)
         .orderBy('createdAt', 'desc');
 
-      if (!_ixShowDrafts && dateFrom) {
+      if (dateFrom) {
         query = query.where('createdAt', '>=', new Date(dateFrom));
       }
-      if (!_ixShowDrafts && dateTo) {
+      if (dateTo) {
         var endDate = new Date(dateTo);
         endDate.setDate(endDate.getDate() + 1);
         query = query.where('createdAt', '<', endDate);
@@ -8219,10 +8195,12 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       // Counters
       var total = rows.length;
       var openCount = rows.filter(function(r) { return r.status === 'Open'; }).length;
-      var fuCount = rows.filter(function(r) { return r.followUpDate && r.followUpDate <= sevenStr && r.status !== 'Closed'; }).length;
+      var fuCount = rows.filter(function(r) { return r.followUpDate && r.followUpDate <= sevenStr && r.status !== 'Closed' && r.status !== 'Draft'; }).length;
+      var draftCount = rows.filter(function(r) { return r.status === 'Draft' || r.isDraft; }).length;
       document.getElementById('ixTotalCount').textContent = total;
       document.getElementById('ixOpenCount').textContent = openCount;
       document.getElementById('ixFollowUpCount').textContent = fuCount;
+      document.getElementById('ixDraftCount').textContent = draftCount;
 
       if (rows.length === 0) {
         body.innerHTML = '<div class="ix-empty">No interactions found.</div>';
@@ -8235,23 +8213,24 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var ts = d.createdAt ? d.createdAt.toDate() : new Date();
         var dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
+        var isDraft = d.status === 'Draft' || d.isDraft;
         var statusCls = d.status === 'Closed' ? 'closed' :
+                        d.status === 'Draft' ? 'draft' :
                         d.status === 'Needs admin review' ? 'needs' : 'open';
         var statusLabel = d.status === 'Needs admin review' ? 'Review' : (d.status || 'Open');
 
         var notesBadge = _notesBadgeHtml(d.notes);
-        var draftBadge = d.isDraft ? '<span class="ix-draft-badge">DRAFT</span>' : '';
         html += '<div class="ix-row">' +
           '<span style="font-size:.84rem;">' + dateStr + '</span>' +
           '<span><span class="ix-channel-tag">' + rsEscape(d.channel || '') + '</span></span>' +
           '<span><b>' + rsEscape(d.contactName || '—') + '</b>' +
             (d.contactType ? '<br><span style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(d.contactType) + '</span>' : '') +
           '</span>' +
-          '<span>' + rsEscape(d.summary || '—') + draftBadge + (notesBadge ? '<div style="margin-top:3px;">' + notesBadge + '</div>' : '') + '</span>' +
+          '<span>' + rsEscape(d.summary || '—') + (notesBadge ? '<div style="margin-top:3px;">' + notesBadge + '</div>' : '') + '</span>' +
           '<span><span class="ix-status-badge ' + statusCls + '">' + rsEscape(statusLabel) + '</span></span>' +
           '<span>' + (function(o){ var p=o.split(/\s+/).filter(Boolean); return p.length>=2 ? rsEscape(p[0]+' '+p[1][0]+'.') : rsEscape(o); })(d.owner||'—') + '</span>' +
           '<span class="ix-row-actions"><button onclick="viewInteraction(\'' + d._id + '\')">View</button>' +
-            (d.isDraft ? '<button onclick="editDraft(\'' + d._id + '\')" style="margin-left:4px;background:#F59E0B;">Edit</button>' : '') +
+            (isDraft ? '<button onclick="editDraft(\'' + d._id + '\')" style="margin-left:4px;background:#F59E0B;">Edit</button>' : '') +
           '</span>' +
           '</div>';
       });
