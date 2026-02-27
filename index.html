@@ -2363,23 +2363,35 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     }
     highlightMine();
 
-    // --- Rotating tips (3 tips) ---
-    const tips = [
-      "Staff can submit edits as Change Requests. Admin applies updates to protected fields (keeps audit integrity).",
-      "Use “Add note” to record context & the “why” immediately—notes are searchable and auditable.",
-      "Press Esc to close the New Interaction modal. Use “Save + Add Another” (next) to log quickly."
+    // --- Rotating tips (loaded from Firestore via lookupLists.tips) ---
+    var _tipFallbacks = [
+      “Use filters on the Interactions page to find what you need fast.”,
+      “Star your favorite contacts in Chat to keep them pinned at the top.”,
+      “Click any dashboard KPI card to jump to the filtered list.”
     ];
-    let tipIdx = 0;
-    const tipText = document.getElementById('tipText');
-    function rotateTip(){
-      if(!tipText) return;
+    var tipIdx = 0;
+    var tipText = document.getElementById('tipText');
 
-      // Fade out
+    function getTips() {
+      return (_lookupLists.tips && _lookupLists.tips.length > 0) ? _lookupLists.tips : _tipFallbacks;
+    }
+
+    function initTipRotator() {
+      var tips = getTips();
+      if (tipText && tips.length > 0) {
+        tipText.textContent = tips[0];
+      }
+    }
+
+    function rotateTip() {
+      if (!tipText) return;
+      var tips = getTips();
+      if (tips.length === 0) return;
+
       tipText.classList.remove('fade-in');
       tipText.classList.add('fade-out');
 
-      // Swap text mid-transition, then fade in
-      setTimeout(()=>{
+      setTimeout(function() {
         tipIdx = (tipIdx + 1) % tips.length;
         tipText.textContent = tips[tipIdx];
         tipText.classList.remove('fade-out');
@@ -2458,7 +2470,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v30</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v31</span>
         <img src="logo_transparent.png" alt="LDAH" class="topbar-logo" />
         <div class="topbar-left">
           <div>
@@ -3069,6 +3081,20 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             <div class="lm-add-row">
               <input id="lmGrantsNew" placeholder="New grant or program" />
               <button onclick="addLookupItem('grants','lmGrantsNew')">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="lm-card">
+          <div class="lm-card-header">Sidebar Tips</div>
+          <p style="color:var(--text-soft);font-size:.82rem;margin:0 0 8px 0;padding:0 12px;">
+            These tips rotate in the sidebar footer to help users navigate the system. Keep them short and helpful.
+          </p>
+          <div class="lm-card-body">
+            <ul id="lmTipsList" class="lm-list"></ul>
+            <div class="lm-add-row">
+              <input id="lmTipsNew" placeholder="New tip text" style="flex:1;" />
+              <button onclick="addLookupItem('tips','lmTipsNew')">Add</button>
             </div>
           </div>
         </div>
@@ -5227,13 +5253,21 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   // ── Lookup Lists (Admin-managed dropdowns) ──
 
-  var _lookupLists = { channels: [], interactionTypes: [], grants: [] };
+  var _lookupLists = { channels: [], interactionTypes: [], grants: [], tips: [] };
 
   async function seedLookupListsIfNeeded() {
     var defaults = {
       channels: ['Phone', 'Web', 'Office', 'Email', 'Chat', 'Other'],
       interactionTypes: ['Consultation', 'Resource request', 'Training', 'Follow-up', 'Finding / corrective action'],
-      grants: ['PTI', 'IDEA', 'OSEP']
+      grants: ['PTI', 'IDEA', 'OSEP'],
+      tips: [
+        'Star your favorite contacts in Chat to keep them pinned at the top of the roster.',
+        'Use "Add note" to record context & the "why" immediately — notes are searchable and auditable.',
+        'Press Esc to close any modal. Keyboard shortcuts save time!',
+        'Use filters on the Interactions page, then click "Clear Filters" to reset everything at once.',
+        'Your chat status automatically goes offline after 10 minutes of inactivity.',
+        'Click any dashboard KPI card to jump directly to the filtered interaction list.'
+      ]
     };
     try {
       for (var key in defaults) {
@@ -5281,6 +5315,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       populateChannelDropdown();
       populateTypeDropdown();
       populateGrantDatalist();
+      if (typeof initTipRotator === 'function') initTipRotator();
     } catch (e) {
       console.error('Error loading lookup lists:', e);
     }
@@ -5330,7 +5365,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   var _lmListMap = {
     channels: 'lmChannelsList',
     interactionTypes: 'lmInteractionTypesList',
-    grants: 'lmGrantsList'
+    grants: 'lmGrantsList',
+    tips: 'lmTipsList'
   };
 
   function renderLookupList(listKey) {
@@ -5354,6 +5390,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     renderLookupList('channels');
     renderLookupList('interactionTypes');
     renderLookupList('grants');
+    renderLookupList('tips');
   };
 
   async function saveLookupList(listKey) {
@@ -5366,6 +5403,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (listKey === 'channels') populateChannelDropdown();
       if (listKey === 'interactionTypes') populateTypeDropdown();
       if (listKey === 'grants') populateGrantDatalist();
+      if (listKey === 'tips') { tipIdx = 0; if (typeof initTipRotator === 'function') initTipRotator(); }
     } catch (e) {
       alert('Error saving list: ' + e.message);
     }
