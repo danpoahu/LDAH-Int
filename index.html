@@ -2211,6 +2211,28 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 }
 .ix-contact-add-btn:hover { background: var(--ocean-deep); color: white; }
 
+/* Custom autocomplete dropdown */
+.ac-dropdown {
+  display: none; position: absolute; top: 100%; left: 0; right: 40px;
+  max-height: 200px; overflow-y: auto; background: white;
+  border: 1px solid rgba(8,145,178,.25); border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,40,80,.12); z-index: 999;
+  margin-top: 2px;
+}
+.ac-dropdown.open { display: block; }
+.ac-item {
+  padding: 8px 12px; cursor: pointer; font-size: .88rem;
+  border-bottom: 1px solid rgba(0,0,0,.04);
+}
+.ac-item:last-child { border-bottom: none; }
+.ac-item:hover, .ac-item.active { background: rgba(8,145,178,.1); }
+.ac-item .ac-match { font-weight: 700; color: var(--ocean-deep); }
+.ac-hint {
+  padding: 6px 12px; font-size: .75rem; color: var(--text-soft);
+  border-top: 1px solid rgba(0,0,0,.06); background: #f8fafc;
+  border-radius: 0 0 8px 8px;
+}
+
 /* ── List Management (.lm-) ─────────── */
 .lm-card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.06); margin-bottom: 24px; overflow: hidden; }
 .lm-card-header { padding: 16px 20px; background: linear-gradient(135deg, var(--ocean-deep), #0891B2); color: white; font-weight: 700; font-size: 1rem; font-family: 'Outfit', sans-serif; }
@@ -2436,7 +2458,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v29</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v30</span>
         <img src="logo_transparent.png" alt="LDAH" class="topbar-logo" />
         <div class="topbar-left">
           <div>
@@ -3077,10 +3099,11 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         </div>
         <div class="field">
           <label>Client / Entity</label>
-          <div class="ix-contact-wrapper">
-            <input id="intContact" list="contactOptions" placeholder="Search or type a name" />
+          <div class="ix-contact-wrapper" style="position:relative;">
+            <input id="intContact" placeholder="Search or type a name" autocomplete="off" />
             <button type="button" id="intContactAddBtn" class="ix-contact-add-btn" title="Quick-add new contact">+</button>
             <datalist id="contactOptions"></datalist>
+            <div id="intContactDropdown" class="ac-dropdown"></div>
           </div>
         </div>
         <div class="field">
@@ -5408,6 +5431,113 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       } else if (parts.length === 1) {
         document.getElementById('ctFirstName').value = parts[0];
       }
+    });
+  })();
+
+  // ── Custom autocomplete for Client / Entity ──
+  (function() {
+    var input = document.getElementById('intContact');
+    var dropdown = document.getElementById('intContactDropdown');
+    if (!input || !dropdown) return;
+
+    var _acIndex = -1;   // highlighted index
+    var _acItems = [];   // current filtered items
+
+    function showDropdown(filtered) {
+      _acItems = filtered;
+      _acIndex = filtered.length === 1 ? 0 : -1;  // auto-highlight if single match
+      if (filtered.length === 0) { dropdown.classList.remove('open'); return; }
+
+      var html = '';
+      var query = input.value.trim().toLowerCase();
+      filtered.forEach(function(c, i) {
+        var name = c.displayName;
+        // Bold the matching portion
+        var idx = name.toLowerCase().indexOf(query);
+        var display = idx >= 0
+          ? escHtml(name.substring(0, idx)) + '<span class="ac-match">' + escHtml(name.substring(idx, idx + query.length)) + '</span>' + escHtml(name.substring(idx + query.length))
+          : escHtml(name);
+        html += '<div class="ac-item' + (i === _acIndex ? ' active' : '') + '" data-idx="' + i + '">' + display + '</div>';
+      });
+      if (filtered.length === 1) {
+        html += '<div class="ac-hint">Press Enter to accept</div>';
+      }
+      dropdown.innerHTML = html;
+      dropdown.classList.add('open');
+
+      // Click to select
+      dropdown.querySelectorAll('.ac-item').forEach(function(el) {
+        el.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          selectAcItem(parseInt(el.getAttribute('data-idx')));
+        });
+      });
+    }
+
+    function escHtml(s) {
+      var d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+    }
+
+    function selectAcItem(idx) {
+      if (idx < 0 || idx >= _acItems.length) return;
+      input.value = _acItems[idx].displayName;
+      dropdown.classList.remove('open');
+      _acItems = [];
+      _acIndex = -1;
+      // Trigger quick-add check
+      input.dispatchEvent(new Event('change'));
+    }
+
+    function updateHighlight() {
+      var items = dropdown.querySelectorAll('.ac-item');
+      items.forEach(function(el, i) {
+        el.classList.toggle('active', i === _acIndex);
+        if (i === _acIndex) el.scrollIntoView({ block: 'nearest' });
+      });
+    }
+
+    input.addEventListener('input', function() {
+      var val = input.value.trim().toLowerCase();
+      if (val.length < 1) { dropdown.classList.remove('open'); _acItems = []; return; }
+      var filtered = _allContacts.filter(function(c) {
+        return c.displayName.toLowerCase().indexOf(val) >= 0;
+      }).slice(0, 50);  // cap at 50 for performance
+      showDropdown(filtered);
+    });
+
+    input.addEventListener('keydown', function(e) {
+      if (!dropdown.classList.contains('open') || _acItems.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _acIndex = Math.min(_acIndex + 1, _acItems.length - 1);
+        updateHighlight();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _acIndex = Math.max(_acIndex - 1, 0);
+        updateHighlight();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (_acIndex >= 0) {
+          selectAcItem(_acIndex);
+        } else if (_acItems.length === 1) {
+          selectAcItem(0);
+        }
+      } else if (e.key === 'Escape') {
+        dropdown.classList.remove('open');
+        _acItems = [];
+        _acIndex = -1;
+      }
+    });
+
+    input.addEventListener('blur', function() {
+      // Small delay so mousedown on dropdown items fires first
+      setTimeout(function() { dropdown.classList.remove('open'); }, 150);
+    });
+
+    input.addEventListener('focus', function() {
+      var val = input.value.trim().toLowerCase();
+      if (val.length >= 1 && _acItems.length > 0) dropdown.classList.add('open');
     });
   })();
 
