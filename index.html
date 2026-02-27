@@ -304,6 +304,37 @@
       width:100%; padding:10px; border:1px solid rgba(8,145,178,.2);
       border-radius:8px; font-family:inherit; font-size:.85rem; resize:vertical;
     }
+
+    /* ── Notifications ── */
+    .notif-item {
+      padding:12px 14px; border-bottom:1px solid rgba(0,0,0,.06);
+      cursor:pointer; transition:background .15s;
+    }
+    .notif-item:hover { background:rgba(14,116,144,.04); }
+    .notif-item.unread { border-left:3px solid var(--sunset-coral); background:rgba(249,115,22,.03); }
+    .notif-item .notif-title { font-weight:700; font-size:.88rem; color:var(--text-dark); }
+    .notif-item .notif-msg { font-size:.82rem; color:var(--text-soft); margin-top:2px; }
+    .notif-item .notif-time { font-size:.72rem; color:var(--text-soft); margin-top:4px; }
+    .notif-type-badge {
+      display:inline-block; font-size:.7rem; font-weight:700; padding:2px 8px;
+      border-radius:999px; margin-left:6px; vertical-align:middle;
+    }
+    .notif-type-badge.approved { background:rgba(16,185,129,.12); color:#059669; }
+    .notif-type-badge.rejected { background:rgba(220,38,38,.10); color:#DC2626; }
+
+    /* ── Edit Mode ── */
+    .ix-edit-input {
+      width:100%; padding:7px 10px; border:1px solid rgba(8,145,178,.25);
+      border-radius:8px; font-family:inherit; font-size:.85rem;
+    }
+    .ix-edit-input:focus { outline:none; border-color:var(--ocean-deep); box-shadow:0 0 0 2px rgba(8,145,178,.1); }
+    select.ix-edit-input { cursor:pointer; }
+    textarea.ix-edit-input { resize:vertical; }
+    .ix-edit-banner {
+      background:linear-gradient(135deg, #FFF7ED, #FEF3C7); border:1px solid #F59E0B;
+      border-radius:10px; padding:10px 14px; margin-bottom:14px;
+      font-size:.82rem; font-weight:700; color:#92400E;
+    }
     .btn{
       border:none;
       cursor:pointer;
@@ -2594,7 +2625,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v45</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v46</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -2608,8 +2639,9 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         </div>
 
         <div class="topbar-actions">
-          <button class="btn btn-ghost" type="button" title="Notifications">
+          <button class="btn btn-ghost" type="button" id="notifBellBtn" title="Notifications" onclick="toggleNotifications()">
             🔔 <span style="font-family:inherit;font-weight:800;">Alerts</span>
+            <span class="pill" id="notifBadge" style="display:none;">0</span>
           </button>
           <button class="btn btn-primary" type="button" id="newInteractionBtn">
             ➕ New Interaction
@@ -3592,6 +3624,23 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     </div>
   </div>
 
+  <!-- Notifications Overlay -->
+  <div class="ix-view-overlay" id="notifOverlay">
+    <div class="ix-view-modal" style="width:500px;">
+      <div class="ix-view-header">
+        <span>🔔 Notifications</span>
+        <button class="ix-close" onclick="closeNotifications()">&times;</button>
+      </div>
+      <div class="ix-view-body" id="notifListBody" style="max-height:60vh;overflow-y:auto;padding:0;">
+        <p style="color:var(--text-soft);text-align:center;padding:20px;">No notifications yet.</p>
+      </div>
+      <div class="ix-view-actions" style="display:flex;justify-content:space-between;padding:12px 18px;">
+        <button onclick="markAllNotifsRead()" style="padding:8px 14px;border-radius:8px;border:1px solid #E2E8F0;background:white;cursor:pointer;font-size:.82rem;font-weight:700;">Mark all read</button>
+        <button onclick="closeNotifications()" style="padding:8px 14px;border-radius:8px;border:none;background:var(--ocean-deep);color:white;cursor:pointer;font-weight:700;">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Distribution Prompt Modal -->
   <div class="ra-dist-overlay" id="raDistOverlay">
     <div class="ra-dist-modal">
@@ -4381,6 +4430,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     }
     // Update change request badge
     if (typeof updateCrBadge === 'function') updateCrBadge();
+    if (typeof updateNotifBadge === 'function') updateNotifBadge();
   }
   function showLogin() {
     document.getElementById('loginScreen').style.display = 'flex';
@@ -6900,7 +6950,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   var _ixViewDocId = null; // track which interaction is open for appending notes
 
-  window.viewInteraction = async function(docId) {
+  window.viewInteraction = async function(docId, editOpts) {
     var body = document.getElementById('ixViewBody');
     if (!body) return;
     _ixViewDocId = docId;
@@ -6913,6 +6963,11 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     if (appendInput) { appendInput.value = ''; }
     if (appendChar) { appendChar.textContent = '0 / 500'; appendChar.className = 'ix-append-char'; }
 
+    // Edit mode check
+    var isEditMode = !!(editOpts && editOpts.editUnlockNotifId);
+    var editNotifId = isEditMode ? editOpts.editUnlockNotifId : null;
+    var editCrId = isEditMode ? editOpts.changeRequestId : null;
+
     try {
       var doc = await db.collection('interactions').doc(docId).get();
       if (!doc.exists) {
@@ -6923,6 +6978,17 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var ts = d.createdAt ? d.createdAt.toDate() : null;
       var dateStr = ts ? ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
         ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+
+      // Verify edit unlock is still valid
+      if (isEditMode && editNotifId) {
+        try {
+          var notifDoc = await db.collection('notifications').doc(editNotifId).get();
+          if (!notifDoc.exists || notifDoc.data().editUsed) {
+            isEditMode = false;
+            editNotifId = null;
+          }
+        } catch(e) { isEditMode = false; editNotifId = null; }
+      }
 
       // Render notes — parse appended entries (delimited by \n--- lines)
       var notesHtml = renderNotesWithEntries(d.notes || '');
@@ -6938,7 +7004,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var isOwner = (d.ownerUid && currentUserData && d.ownerUid === currentUserData.uid);
       var currentStatus = d.status || 'Open';
       var isLockedReview = (currentStatus === 'Needs admin review' && !isAdmin);
-      var canChangeStatus = isAdmin || (isOwner && !isLockedReview);
+      var canChangeStatus = isAdmin || (isOwner && !isLockedReview) || isEditMode;
 
       // Build status field — dropdown if allowed, read-only otherwise
       var statusFieldHtml;
@@ -6949,11 +7015,11 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         }).join('');
         statusFieldHtml =
           '<div class="ct-info-field"><label>Status</label><div class="val">' +
-            '<div class="ix-status-changer">' +
-              '<select id="ixStatusSelect">' + optHtml + '</select>' +
-              '<button class="ix-status-save" onclick="changeInteractionStatus()">Save</button>' +
-              '<span id="ixStatusMsg"></span>' +
-            '</div>' +
+            (isEditMode
+              ? '<select id="ixStatusSelect" class="ix-edit-input">' + optHtml + '</select>'
+              : '<div class="ix-status-changer"><select id="ixStatusSelect">' + optHtml + '</select>' +
+                '<button class="ix-status-save" onclick="changeInteractionStatus()">Save</button>' +
+                '<span id="ixStatusMsg"></span></div>') +
           '</div></div>';
       } else {
         statusFieldHtml =
@@ -6968,36 +7034,89 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var ownerShort = ownerRaw;
       if (ownerParts.length >= 2) ownerShort = ownerParts[0] + ' ' + ownerParts[1][0] + '.';
 
-      // ── Top Info Card: Date, Channel, Type, Status, Owner ──
-      var infoCard =
-        '<div class="ct-info-card">' +
-          '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
-          '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
-          '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
-          statusFieldHtml +
-          '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>' +
-          '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>' +
-        '</div>';
+      var infoCard, contactSection, detailSection;
 
-      // ── Contact Section ──
-      var contactSection =
-        '<div class="ct-detail-section-label">👤 Contact</div>' +
-        '<div class="ct-info-card">' +
-          '<div class="ct-info-field"><label>Name</label><div class="val">' + rsEscape(d.contactName || d.clientName || '—') +
-            (d.contactType ? ' <span style="font-size:.8rem;color:var(--text-soft);">(' + rsEscape(d.contactType) + ')</span>' : '') + '</div></div>' +
-          '<div class="ct-info-field" id="ixViewEmail"><label>Email</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
-          '<div class="ct-info-field" id="ixViewPhone"><label>Phone</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
-          '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(d.grantProgram || '—') + '</div></div>' +
-        '</div>';
+      if (isEditMode) {
+        // ── EDIT MODE ──
+        var channels = (_lookupLists && _lookupLists.channels.length) ? _lookupLists.channels : ['Email','Phone','In Person','Virtual','Other'];
+        var types = (_lookupLists && _lookupLists.interactionTypes.length) ? _lookupLists.interactionTypes : ['General','Follow-Up','Intake','Referral'];
 
-      // ── Details Section ──
-      var detailSection =
-        '<div class="ct-detail-section-label">📋 Details</div>' +
-        '<div class="ix-view-field"><label>SUMMARY</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(d.summary || '—') + '</div></div>' +
-        '<div class="ix-view-field"><label>NOTES</label><div id="ixNotesDisplay">' + notesHtml + '</div></div>' +
-        '<div id="ixChangeRequestsArea"></div>';
+        var channelOpts = channels.map(function(c) {
+          return '<option' + (c === d.channel ? ' selected' : '') + '>' + rsEscape(c) + '</option>';
+        }).join('');
+        var typeOpts = types.map(function(t) {
+          return '<option' + (t === (d.interactionType || d.type) ? ' selected' : '') + '>' + rsEscape(t) + '</option>';
+        }).join('');
+
+        infoCard =
+          '<div class="ix-edit-banner">✏️ One-time edit mode — make your changes and save</div>' +
+          '<div class="ct-info-card">' +
+            '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
+            '<div class="ct-info-field"><label>Channel</label><div class="val"><select id="editChannel" class="ix-edit-input">' + channelOpts + '</select></div></div>' +
+            '<div class="ct-info-field"><label>Type</label><div class="val"><select id="editType" class="ix-edit-input">' + typeOpts + '</select></div></div>' +
+            statusFieldHtml +
+            '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>' +
+            '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val"><input type="date" id="editFollowUp" class="ix-edit-input" value="' + rsEscape(d.followUpDate || '') + '"></div></div>' +
+          '</div>';
+
+        contactSection =
+          '<div class="ct-detail-section-label">👤 Contact</div>' +
+          '<div class="ct-info-card">' +
+            '<div class="ct-info-field"><label>Name</label><div class="val"><input id="editContact" class="ix-edit-input" value="' + rsEscape(d.contactName || d.clientName || '') + '" list="contactOptions"></div></div>' +
+            '<div class="ct-info-field"><label>Grant / Program</label><div class="val"><input id="editGrant" class="ix-edit-input" value="' + rsEscape(d.grantProgram || '') + '" list="grantOptions"></div></div>' +
+          '</div>';
+
+        detailSection =
+          '<div class="ct-detail-section-label">📋 Details</div>' +
+          '<div class="ix-view-field"><label>SUMMARY</label><input id="editSummary" class="ix-edit-input" value="' + rsEscape(d.summary || '') + '"></div>' +
+          '<div class="ix-view-field" style="margin-top:10px;"><label>NOTES</label><textarea id="editNotes" class="ix-edit-input" rows="5">' + rsEscape(d.notes || '') + '</textarea></div>';
+
+      } else {
+        // ── READ-ONLY MODE (existing) ──
+        infoCard =
+          '<div class="ct-info-card">' +
+            '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
+            '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
+            '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
+            statusFieldHtml +
+            '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>' +
+            '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>' +
+          '</div>';
+
+        contactSection =
+          '<div class="ct-detail-section-label">👤 Contact</div>' +
+          '<div class="ct-info-card">' +
+            '<div class="ct-info-field"><label>Name</label><div class="val">' + rsEscape(d.contactName || d.clientName || '—') +
+              (d.contactType ? ' <span style="font-size:.8rem;color:var(--text-soft);">(' + rsEscape(d.contactType) + ')</span>' : '') + '</div></div>' +
+            '<div class="ct-info-field" id="ixViewEmail"><label>Email</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
+            '<div class="ct-info-field" id="ixViewPhone"><label>Phone</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
+            '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(d.grantProgram || '—') + '</div></div>' +
+          '</div>';
+
+        detailSection =
+          '<div class="ct-detail-section-label">📋 Details</div>' +
+          '<div class="ix-view-field"><label>SUMMARY</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(d.summary || '—') + '</div></div>' +
+          '<div class="ix-view-field"><label>NOTES</label><div id="ixNotesDisplay">' + notesHtml + '</div></div>' +
+          '<div id="ixChangeRequestsArea"></div>';
+      }
 
       body.innerHTML = infoCard + contactSection + detailSection;
+
+      // In edit mode: update footer and hide append/CR areas
+      var actionsArea = document.querySelector('#ixViewOverlay .ix-view-actions');
+      var appendArea = document.getElementById('ixAppendArea');
+      var crStaticArea = document.getElementById('crStaticArea');
+      if (isEditMode) {
+        if (actionsArea) actionsArea.innerHTML =
+          '<button onclick="closeIxView()" style="padding:8px 16px;border-radius:8px;border:1px solid #E2E8F0;background:white;cursor:pointer;font-weight:700;">Cancel</button>' +
+          '<button onclick="saveEditedInteraction(\'' + docId + '\',\'' + (editNotifId || '') + '\',\'' + (editCrId || '') + '\')" style="padding:8px 16px;border-radius:8px;border:none;background:var(--ocean-deep);color:white;cursor:pointer;font-weight:700;">💾 Save Changes</button>';
+        if (appendArea) appendArea.style.display = 'none';
+        if (crStaticArea) crStaticArea.style.display = 'none';
+      } else {
+        if (actionsArea) actionsArea.innerHTML = '<button onclick="closeIxView()">Close</button>';
+        if (appendArea) appendArea.style.display = '';
+        if (crStaticArea) crStaticArea.style.display = '';
+      }
 
       // Async lookup for change requests tied to this interaction
       db.collection('changeRequests')
@@ -7186,11 +7305,10 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   };
 
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && document.getElementById('ixViewOverlay')?.classList.contains('active')) {
-      closeIxView();
-    }
-    if (e.key === 'Escape' && document.getElementById('crActionOverlay')?.classList.contains('active')) {
-      closeCrAction();
+    if (e.key === 'Escape') {
+      if (document.getElementById('notifOverlay')?.classList.contains('active')) { closeNotifications(); }
+      else if (document.getElementById('crActionOverlay')?.classList.contains('active')) { closeCrAction(); }
+      else if (document.getElementById('ixViewOverlay')?.classList.contains('active')) { closeIxView(); }
     }
   });
 
@@ -7325,15 +7443,31 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   window.approveCr = async function(crDocId, interactionId) {
     try {
+      var crDoc = await db.collection('changeRequests').doc(crDocId).get();
+      var crData = crDoc.exists ? crDoc.data() : {};
+
       await db.collection('changeRequests').doc(crDocId).update({
         status: 'approved',
         resolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
         resolvedBy: currentUserData.displayName
       });
+
+      // Notify the requester
+      if (crData.requestedByUid) {
+        await createNotification({
+          recipientUid: crData.requestedByUid,
+          recipientName: crData.requestedBy || '',
+          type: 'cr_approved',
+          title: 'Change Request Approved',
+          message: 'Your request for "' + (crData.interactionSummary || '').substring(0, 80) + '" was approved.',
+          interactionId: interactionId,
+          changeRequestId: crDocId,
+          editUnlockId: interactionId
+        });
+      }
+
       updateCrBadge();
       loadChangeRequests();
-      // Open the interaction so admin can make the edit
-      if (interactionId) viewInteraction(interactionId);
     } catch (err) {
       alert('Error approving: ' + err.message);
     }
@@ -7354,18 +7488,243 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     if (!_crActionDocId) return;
     var note = document.getElementById('crAdminNote').value.trim();
     try {
+      var crDoc = await db.collection('changeRequests').doc(_crActionDocId).get();
+      var crData = crDoc.exists ? crDoc.data() : {};
+
       await db.collection('changeRequests').doc(_crActionDocId).update({
         status: 'rejected',
         adminNote: note,
         resolvedAt: firebase.firestore.FieldValue.serverTimestamp(),
         resolvedBy: currentUserData.displayName
       });
+
+      // Notify the requester
+      if (crData.requestedByUid) {
+        await createNotification({
+          recipientUid: crData.requestedByUid,
+          recipientName: crData.requestedBy || '',
+          type: 'cr_rejected',
+          title: 'Change Request Declined',
+          message: 'Your request for "' + (crData.interactionSummary || '').substring(0, 80) + '" was declined.' +
+            (note ? ' Reason: ' + note.substring(0, 100) : ''),
+          interactionId: crData.interactionId || '',
+          changeRequestId: _crActionDocId
+        });
+      }
+
       closeCrAction();
       updateCrBadge();
       loadChangeRequests();
     } catch (err) {
       alert('Error rejecting: ' + err.message);
     }
+  };
+
+  // ── Save Edited Interaction (one-time edit unlock) ──
+
+  window.saveEditedInteraction = async function(docId, notifDocId, crDocId) {
+    try {
+      var channel = document.getElementById('editChannel');
+      var type = document.getElementById('editType');
+      var contact = document.getElementById('editContact');
+      var grant = document.getElementById('editGrant');
+      var summary = document.getElementById('editSummary');
+      var followUp = document.getElementById('editFollowUp');
+      var status = document.getElementById('ixStatusSelect');
+      var notes = document.getElementById('editNotes');
+
+      if (summary && !summary.value.trim()) {
+        alert('Summary cannot be empty.');
+        return;
+      }
+
+      var updateData = {};
+      if (channel) updateData.channel = channel.value;
+      if (type) updateData.interactionType = type.value;
+      if (contact) {
+        updateData.contactName = contact.value.trim();
+        // Attempt contact ID resolution
+        if (typeof _allContacts !== 'undefined') {
+          var match = _allContacts.find(function(c) {
+            return c.displayName.toLowerCase() === contact.value.trim().toLowerCase();
+          });
+          if (match) {
+            updateData.contactId = match.id;
+            updateData.contactType = match.type;
+          }
+        }
+      }
+      if (grant) updateData.grantProgram = grant.value.trim();
+      if (summary) updateData.summary = summary.value.trim();
+      if (followUp) updateData.followUpDate = followUp.value;
+      if (status) updateData.status = status.value;
+
+      // Auto-append audit note
+      var existingNotes = notes ? notes.value : '';
+      var now = new Date();
+      var stamp = now.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) + ' ' +
+        now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      var auditNote = 'Edited via approved change request';
+      updateData.notes = existingNotes + '\n---\n[' + stamp + ' — ' + (currentUserData.displayName || '') + ']\n' + auditNote;
+      updateData.lastEditedAt = firebase.firestore.FieldValue.serverTimestamp();
+      updateData.lastEditedBy = currentUserData.displayName || '';
+
+      // 1. Update the interaction
+      await db.collection('interactions').doc(docId).update(updateData);
+
+      // 2. Mark notification edit as used
+      if (notifDocId) {
+        try { await db.collection('notifications').doc(notifDocId).update({ editUsed: true }); }
+        catch(e) { console.warn('Could not mark edit used:', e.message); }
+      }
+
+      // 3. Mark change request as applied
+      if (crDocId) {
+        try { await db.collection('changeRequests').doc(crDocId).update({ status: 'applied' }); }
+        catch(e) { console.warn('Could not mark CR applied:', e.message); }
+      }
+
+      // 4. Close and refresh
+      closeIxView();
+      if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
+      updateCrBadge();
+
+    } catch (err) {
+      alert('Error saving changes: ' + err.message);
+      console.error('Edit save error:', err);
+    }
+  };
+
+  // ── Notifications System ──
+
+  window.toggleNotifications = function() {
+    var ov = document.getElementById('notifOverlay');
+    if (!ov) return;
+    if (ov.classList.contains('active')) {
+      ov.classList.remove('active');
+    } else {
+      ov.classList.add('active');
+      loadNotifications();
+    }
+  };
+
+  window.closeNotifications = function() {
+    var ov = document.getElementById('notifOverlay');
+    if (ov) ov.classList.remove('active');
+  };
+
+  window.loadNotifications = async function() {
+    var body = document.getElementById('notifListBody');
+    if (!body || !currentUserData) return;
+    body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">Loading...</p>';
+
+    try {
+      var snap = await db.collection('notifications')
+        .where('recipientUid', '==', currentUserData.uid)
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .get();
+
+      if (snap.empty) {
+        body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">No notifications yet.</p>';
+        return;
+      }
+
+      var html = '';
+      snap.forEach(function(doc) {
+        var n = doc.data();
+        var ts = n.createdAt ? n.createdAt.toDate() : null;
+        var timeStr = ts ? ts.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ' ' +
+          ts.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+        var typeBadge = '';
+        if (n.type === 'cr_approved') typeBadge = '<span class="notif-type-badge approved">Approved</span>';
+        if (n.type === 'cr_rejected') typeBadge = '<span class="notif-type-badge rejected">Rejected</span>';
+        var unreadClass = n.read ? '' : ' unread';
+        var editHint = (n.type === 'cr_approved' && !n.editUsed) ? '<div style="font-size:.78rem;color:var(--ocean-deep);font-weight:700;margin-top:3px;">📝 Click to edit interaction</div>' : '';
+
+        html += '<div class="notif-item' + unreadClass + '" onclick="handleNotifClick(\'' +
+          doc.id + '\',\'' + (n.type || '') + '\',\'' +
+          (n.interactionId || '') + '\',\'' + (n.changeRequestId || '') + '\')">' +
+          '<div class="notif-title">' + rsEscape(n.title || '') + typeBadge + '</div>' +
+          '<div class="notif-msg">' + rsEscape(n.message || '') + '</div>' +
+          editHint +
+          '<div class="notif-time">' + timeStr + '</div>' +
+        '</div>';
+      });
+      body.innerHTML = html;
+    } catch (err) {
+      body.innerHTML = '<p style="color:#DC2626;text-align:center;padding:20px;">Error loading notifications.</p>';
+      console.error('Notif load error:', err);
+    }
+  };
+
+  window.handleNotifClick = async function(notifDocId, type, interactionId, changeRequestId) {
+    // Mark as read
+    try {
+      await db.collection('notifications').doc(notifDocId).update({ read: true });
+    } catch(e) { console.warn('Mark read error:', e.message); }
+
+    if (type === 'cr_approved' && interactionId) {
+      closeNotifications();
+      viewInteraction(interactionId, { editUnlockNotifId: notifDocId, changeRequestId: changeRequestId });
+    } else {
+      loadNotifications();
+    }
+    updateNotifBadge();
+  };
+
+  window.updateNotifBadge = async function() {
+    if (!currentUserData) return;
+    try {
+      var snap = await db.collection('notifications')
+        .where('recipientUid', '==', currentUserData.uid)
+        .where('read', '==', false)
+        .get();
+      var badge = document.getElementById('notifBadge');
+      if (badge) {
+        if (snap.size > 0) {
+          badge.textContent = snap.size;
+          badge.style.display = '';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+    } catch (err) {
+      console.warn('Notif badge error:', err.message);
+    }
+  };
+
+  window.markAllNotifsRead = async function() {
+    if (!currentUserData) return;
+    try {
+      var snap = await db.collection('notifications')
+        .where('recipientUid', '==', currentUserData.uid)
+        .where('read', '==', false)
+        .get();
+      var batch = db.batch();
+      snap.forEach(function(doc) {
+        batch.update(doc.ref, { read: true });
+      });
+      await batch.commit();
+      loadNotifications();
+      updateNotifBadge();
+    } catch (err) { console.error('Mark all read error:', err); }
+  };
+
+  window.createNotification = async function(opts) {
+    await db.collection('notifications').add({
+      recipientUid: opts.recipientUid,
+      recipientName: opts.recipientName || '',
+      type: opts.type,
+      title: opts.title,
+      message: opts.message || '',
+      interactionId: opts.interactionId || '',
+      changeRequestId: opts.changeRequestId || '',
+      editUnlockId: opts.editUnlockId || '',
+      editUsed: false,
+      read: false,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
   };
 
   // ── Full Interactions Section Page ──
