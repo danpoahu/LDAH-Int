@@ -2657,7 +2657,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v51</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v52</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -3802,6 +3802,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var _chatModalOpen = false;
     var _chatUnreadCount = 0;
     var _chatUnreadByUser = {}; // uid -> unread count for roster badges
+    var _chatConvsList = []; // cached conversations for auto-open
 
     // ── Favorites (localStorage, zero Firestore cost) ──
     var _chatFavorites = new Set(JSON.parse(localStorage.getItem('chatFavorites') || '[]'));
@@ -3868,10 +3869,26 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       updateChatBadge();
     }
 
-    // Attach FAB button click — direct + onclick fallback
+    // Attach FAB button click — auto-open first unread conversation
+    function handleFabClick(e) {
+      e.stopPropagation();
+      openChatModal();
+      // If there are unread messages, jump straight to the first unread conversation
+      if (_chatUnreadCount > 0 && _chatConvsList.length > 0) {
+        var myUid = getMyUid();
+        var firstUnread = _chatConvsList.find(function(c) {
+          return c.lastReadBy && !c.lastReadBy.includes(myUid) && c.lastSenderId !== myUid;
+        });
+        if (firstUnread) {
+          var otherUid = (firstUnread.participants || []).find(function(p) { return p !== myUid; });
+          var otherName = (firstUnread.participantNames && firstUnread.participantNames[otherUid]) || 'Unknown';
+          openConversation(otherUid, otherName);
+        }
+      }
+    }
     if (chatOpen) {
-      chatOpen.addEventListener('click', function(e) { e.stopPropagation(); openChatModal(); });
-      chatOpen.onclick = function(e) { e.stopPropagation(); openChatModal(); };
+      chatOpen.addEventListener('click', handleFabClick);
+      chatOpen.onclick = handleFabClick;
     }
     if (chatModalClose) chatModalClose.addEventListener('click', closeChatModal);
     if (chatModalOverlay) chatModalOverlay.addEventListener('click', function(e) {
@@ -4156,6 +4173,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           });
           console.log('[Chat Debug] Total unread:', unread, '| modalOpen:', _chatModalOpen, '| unreadByUser:', JSON.stringify(unreadByUser));
           renderConversations(convs);
+          _chatConvsList = convs;
           _chatUnreadCount = unread;
           _chatUnreadByUser = unreadByUser;
           updateChatBadge();
