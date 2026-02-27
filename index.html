@@ -1069,6 +1069,17 @@
     .chat-roster-item .roster-dot.offline{ background:#94a3b8; }
     .chat-roster-item .roster-name{ font-weight:700; font-size:.9rem; color:var(--text-dark); }
     .chat-roster-item .roster-role{ font-size:.72rem; font-weight:600; color:var(--text-soft); margin-left:auto; }
+    .roster-star{
+      flex-shrink:0; background:none; border:none; cursor:pointer;
+      font-size:1rem; padding:0 2px; line-height:1; opacity:.35;
+      transition: opacity .15s, transform .15s;
+    }
+    .roster-star:hover{ opacity:.7; transform:scale(1.2); }
+    .roster-star.fav{ opacity:1; color:#f59e0b; }
+    .chat-fav-header{
+      font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
+      color:#f59e0b; padding:8px 10px 4px; display:flex; align-items:center; gap:4px;
+    }
     .chat-show-more{
       display:block; width:100%; border:none; background:none;
       color:var(--ocean-deep); font-weight:800; font-size:.82rem;
@@ -2424,7 +2435,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v26</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v27</span>
         <img src="logo_transparent.png" alt="LDAH" class="topbar-logo" />
         <div class="topbar-left">
           <div>
@@ -3451,6 +3462,20 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var _chatModalOpen = false;
     var _chatUnreadCount = 0;
 
+    // ── Favorites (localStorage, zero Firestore cost) ──
+    var _chatFavorites = new Set(JSON.parse(localStorage.getItem('chatFavorites') || '[]'));
+
+    function toggleFavorite(uid) {
+      if (_chatFavorites.has(uid)) {
+        _chatFavorites.delete(uid);
+      } else {
+        _chatFavorites.add(uid);
+      }
+      localStorage.setItem('chatFavorites', JSON.stringify(Array.from(_chatFavorites)));
+      // Re-render roster
+      if (typeof window.initChatRoster === 'function') window.initChatRoster();
+    }
+
     // ── Helpers ──
     function getMyUid() {
       return window.currentUserData ? window.currentUserData.uid : null;
@@ -3594,22 +3619,54 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     function renderRoster(online, offline) {
       var searchVal = (chatSearchInput ? chatSearchInput.value.trim().toLowerCase() : '');
 
+      // Helper: sort favorites to top
+      function favSort(a, b) {
+        var aFav = _chatFavorites.has(a.uid) ? 0 : 1;
+        var bFav = _chatFavorites.has(b.uid) ? 0 : 1;
+        if (aFav !== bFav) return aFav - bFav;
+        return (a.displayName || '').localeCompare(b.displayName || '');
+      }
+
+      // Helper: build roster item HTML with star
+      function rosterItemHtml(u, dotClass, rightText) {
+        var activeClass = u.uid === _chatActiveOtherUid ? ' active-conv' : '';
+        var isFav = _chatFavorites.has(u.uid);
+        var starCls = 'roster-star' + (isFav ? ' fav' : '');
+        return '<div class="chat-roster-item' + activeClass + '" data-uid="' + u.uid + '" data-name="' + (u.displayName || '').replace(/"/g, '&quot;') + '">'
+          + '<div class="roster-dot ' + dotClass + '"></div>'
+          + '<span class="roster-name">' + escHTML(u.displayName || 'Unknown') + '</span>'
+          + '<span class="roster-role">' + rightText + '</span>'
+          + '<button class="' + starCls + '" data-fav-uid="' + u.uid + '" title="' + (isFav ? 'Remove from favorites' : 'Add to favorites') + '">' + (isFav ? '★' : '☆') + '</button>'
+          + '</div>';
+      }
+
       // Online list
       if (chatOnlineList) {
-        if (online.length === 0) {
-          chatOnlineList.innerHTML = '<div style="padding:6px 10px;font-size:.82rem;color:var(--text-soft);font-weight:600;">No team members online</div>';
+        var filteredOnline = online;
+        if (searchVal) {
+          filteredOnline = online.filter(function(u) { return u.displayName.toLowerCase().indexOf(searchVal) !== -1; });
+        }
+        filteredOnline.sort(favSort);
+
+        if (filteredOnline.length === 0) {
+          chatOnlineList.innerHTML = '<div style="padding:6px 10px;font-size:.82rem;color:var(--text-soft);font-weight:600;">' + (online.length === 0 ? 'No team members online' : 'No matches') + '</div>';
         } else {
           var html = '';
-          online.forEach(function(u) {
-            if (searchVal && u.displayName.toLowerCase().indexOf(searchVal) === -1) return;
-            var activeClass = u.uid === _chatActiveOtherUid ? ' active-conv' : '';
-            html += '<div class="chat-roster-item' + activeClass + '" data-uid="' + u.uid + '" data-name="' + (u.displayName || '').replace(/"/g, '&quot;') + '">'
-              + '<div class="roster-dot online"></div>'
-              + '<span class="roster-name">' + escHTML(u.displayName || 'Unknown') + '</span>'
-              + '<span class="roster-role">' + escHTML(formatRole(u.role)) + '</span>'
-              + '</div>';
+          var hasFavHeader = false;
+          var hasRegHeader = false;
+          filteredOnline.forEach(function(u) {
+            var isFav = _chatFavorites.has(u.uid);
+            if (isFav && !hasFavHeader) {
+              html += '<div class="chat-fav-header">★ Favorites</div>';
+              hasFavHeader = true;
+            }
+            if (!isFav && hasFavHeader && !hasRegHeader) {
+              html += '<div class="chat-roster-divider"></div>';
+              hasRegHeader = true;
+            }
+            html += rosterItemHtml(u, 'online', escHTML(formatRole(u.role)));
           });
-          chatOnlineList.innerHTML = html || '<div style="padding:6px 10px;font-size:.82rem;color:var(--text-soft);font-weight:600;">No matches</div>';
+          chatOnlineList.innerHTML = html;
         }
       }
 
@@ -3619,17 +3676,24 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         if (searchVal) {
           visibleOffline = offline.filter(function(u) { return u.displayName.toLowerCase().indexOf(searchVal) !== -1; });
         }
+        visibleOffline.sort(favSort);
         var showCount = _chatShowAllOffline ? visibleOffline.length : Math.min(5, visibleOffline.length);
         var html = '';
+        var hasFavHeader = false;
+        var hasRegHeader = false;
         for (var i = 0; i < showCount; i++) {
           var u = visibleOffline[i];
-          var activeClass = u.uid === _chatActiveOtherUid ? ' active-conv' : '';
+          var isFav = _chatFavorites.has(u.uid);
+          if (isFav && !hasFavHeader) {
+            html += '<div class="chat-fav-header">★ Favorites</div>';
+            hasFavHeader = true;
+          }
+          if (!isFav && hasFavHeader && !hasRegHeader) {
+            html += '<div class="chat-roster-divider"></div>';
+            hasRegHeader = true;
+          }
           var lastSeenStr = u.lastSeen ? formatTime(u.lastSeen) : '';
-          html += '<div class="chat-roster-item' + activeClass + '" data-uid="' + u.uid + '" data-name="' + (u.displayName || '').replace(/"/g, '&quot;') + '">'
-            + '<div class="roster-dot offline"></div>'
-            + '<span class="roster-name">' + escHTML(u.displayName || 'Unknown') + '</span>'
-            + '<span class="roster-role">' + (lastSeenStr ? lastSeenStr : escHTML(formatRole(u.role))) + '</span>'
-            + '</div>';
+          html += rosterItemHtml(u, 'offline', lastSeenStr ? lastSeenStr : escHTML(formatRole(u.role)));
         }
         chatOfflineList.innerHTML = html || '<div style="padding:6px 10px;font-size:.82rem;color:var(--text-soft);font-weight:600;">No offline users</div>';
 
@@ -3650,6 +3714,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           var uid = el.getAttribute('data-uid');
           var name = el.getAttribute('data-name');
           openConversation(uid, name);
+        });
+      });
+
+      // Attach star/favorite click handlers (stop propagation so it doesn't open chat)
+      document.querySelectorAll('.roster-star[data-fav-uid]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          toggleFavorite(btn.getAttribute('data-fav-uid'));
         });
       });
     }
