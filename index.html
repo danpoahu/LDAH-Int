@@ -2542,6 +2542,45 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   .ix-row { grid-template-columns: 1fr 1fr; gap: 4px; padding: 14px 16px; }
 }
 
+/* ── Dashboard Mini Calendar ── */
+.mini-cal-header { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: .7rem; font-weight: 700; color: var(--text-soft); margin-bottom: 4px; }
+.mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.mini-cal-day {
+  aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: .78rem; border-radius: var(--radius); cursor: pointer; position: relative; color: var(--text);
+  transition: background .15s;
+}
+.mini-cal-day:hover { background: var(--sand); }
+.mini-cal-day.today { font-weight: 800; background: var(--ocean-deep); color: #fff; border-radius: 50%; }
+.mini-cal-day.today:hover { background: #0e7490; }
+.mini-cal-day.selected { outline: 2px solid var(--ocean-deep); outline-offset: -2px; border-radius: 50%; }
+.mini-cal-day.other-month { color: var(--text-soft); opacity: .4; }
+.mini-cal-day .cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ocean-deep); position: absolute; bottom: 3px; }
+.mini-cal-day.today .cal-dot { background: #fff; }
+.dash-cal-nav { display: flex; align-items: center; gap: 8px; }
+.dash-cal-nav button { background: none; border: none; font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: var(--radius); color: var(--text); }
+.dash-cal-nav button:hover { background: var(--sand); }
+.dash-cal-nav span { font-size: .85rem; font-weight: 700; min-width: 120px; text-align: center; }
+.dash-event-item {
+  display: flex; gap: 10px; align-items: flex-start; padding: 8px 0;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+}
+.dash-event-item:last-child { border-bottom: none; }
+.dash-event-date-badge {
+  min-width: 42px; text-align: center; background: var(--sand); border-radius: var(--radius);
+  padding: 4px 6px; font-size: .65rem; font-weight: 700; line-height: 1.3; flex-shrink: 0;
+}
+.dash-event-date-badge .month { color: var(--ocean-deep); text-transform: uppercase; }
+.dash-event-date-badge .day { font-size: 1rem; color: var(--text); }
+.dash-event-info { flex: 1; min-width: 0; }
+.dash-event-info .title { font-weight: 600; font-size: .82rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-event-info .meta { font-size: .7rem; color: var(--text-soft); margin: 2px 0 0; }
+.dash-event-recurring-badge {
+  font-size: .6rem; font-weight: 700; background: #dbeafe; color: #1d4ed8;
+  padding: 1px 6px; border-radius: 8px; display: inline-block; margin-top: 2px;
+}
+#dashEventsList .empty-msg { text-align: center; padding: 16px 0; color: var(--text-soft); font-size: .82rem; }
+
 </style>
 </head>
 
@@ -2696,7 +2735,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v59</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v60</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -2862,8 +2901,26 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           </div>
         </div>
 
-        <!-- Right column: resources + audit -->
+        <!-- Right column: calendar + resources + audit -->
         <div>
+          <div class="card" id="dashCalendarCard">
+            <div class="card-header">
+              <div>
+                <h3>Community Calendar</h3>
+                <p>Upcoming LDAH events</p>
+              </div>
+              <div class="dash-cal-nav">
+                <button onclick="calNavPrev()">&lsaquo;</button>
+                <span id="calMonthLabel"></span>
+                <button onclick="calNavNext()">&rsaquo;</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="dashMiniCal"></div>
+              <div id="dashEventsList" style="margin-top:10px;"></div>
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-header">
               <div>
@@ -4877,9 +4934,219 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         dashboardSections.forEach(sel => {
           document.querySelectorAll(sel).forEach(el => el.style.display = '');
         });
+        if (typeof loadDashboardCalendar === 'function') loadDashboardCalendar();
       }
     });
   });
+
+  // ── Dashboard Community Calendar ──
+  var _dashCalYear, _dashCalMonth, _dashCalSelectedDay = null;
+  var _dashCalEvents = null; // cache
+  var _dashCalEventsLoading = false;
+
+  function loadDashboardCalendar() {
+    var now = new Date();
+    if (!_dashCalYear) { _dashCalYear = now.getFullYear(); _dashCalMonth = now.getMonth(); }
+    renderMiniCalendar(_dashCalYear, _dashCalMonth);
+    if (!_dashCalEvents && !_dashCalEventsLoading) {
+      _dashCalEventsLoading = true;
+      Promise.all([
+        db.collection('events').get(),
+        db.collection('recurringEvents').where('active', '==', true).get()
+      ]).then(function(results) {
+        var eventsSnap = results[0], recurSnap = results[1];
+        var merged = [];
+        var now = new Date(); now.setHours(0,0,0,0);
+        // One-time events: upcoming (between startDate and moveToPastDate)
+        eventsSnap.docs.forEach(function(doc) {
+          var d = doc.data();
+          if (!d.title) return;
+          if (doc.id.length > 30) return;
+          var eventDate = d.eventDate ? new Date(d.eventDate + 'T00:00:00') : null;
+          var startDate = d.startDate ? new Date(d.startDate + 'T00:00:00') : null;
+          var moveToPast = d.moveToPastDate ? new Date(d.moveToPastDate + 'T00:00:00') : null;
+          if (!eventDate || isNaN(eventDate.getTime())) return;
+          // Include if still visible (before moveToPastDate) or if eventDate is in the future
+          var visible = true;
+          if (moveToPast && !isNaN(moveToPast.getTime()) && now >= moveToPast) visible = false;
+          if (!visible) return;
+          merged.push({
+            id: doc.id, title: d.title, date: eventDate,
+            location: d.location || '', description: d.description || '',
+            isRecurring: false
+          });
+        });
+        // Recurring events: generate occurrences for next 90 days
+        recurSnap.docs.forEach(function(doc) {
+          var d = doc.data();
+          if (!d.title) return;
+          var occs = _calGetOccurrences(d.schedules, 90);
+          occs.forEach(function(occ) {
+            merged.push({
+              id: doc.id, title: d.title, date: occ.date,
+              location: occ.schedule.location || '', description: d.description || '',
+              isRecurring: true, schedule: occ.schedule
+            });
+          });
+        });
+        merged.sort(function(a, b) { return a.date - b.date; });
+        _dashCalEvents = merged;
+        _dashCalEventsLoading = false;
+        renderMiniCalendar(_dashCalYear, _dashCalMonth);
+        renderDashEventsList(_dashCalEvents, _dashCalSelectedDay);
+      }).catch(function(err) {
+        console.error('Dashboard calendar load error:', err);
+        _dashCalEventsLoading = false;
+      });
+    } else if (_dashCalEvents) {
+      renderDashEventsList(_dashCalEvents, _dashCalSelectedDay);
+    }
+  }
+
+  function _calGetOccurrences(schedules, days) {
+    var today = new Date(); today.setHours(0,0,0,0);
+    var end = new Date(today); end.setDate(end.getDate() + days);
+    var results = [];
+    (schedules || []).forEach(function(sch) {
+      if (sch.frequency === 'weekly') {
+        var d = new Date(today);
+        var diff = (sch.dayOfWeek - d.getDay() + 7) % 7;
+        d.setDate(d.getDate() + diff);
+        while (d <= end) {
+          results.push({ date: new Date(d), schedule: sch });
+          d.setDate(d.getDate() + 7);
+        }
+      } else {
+        for (var mo = 0; mo <= 3; mo++) {
+          var ref = new Date(today.getFullYear(), today.getMonth() + mo, 1);
+          var firstDow = ref.getDay();
+          var dayOffset = (sch.dayOfWeek - firstDow + 7) % 7;
+          var nth = new Date(ref.getFullYear(), ref.getMonth(), 1 + dayOffset + (sch.weekOfMonth - 1) * 7);
+          if (nth.getMonth() === ref.getMonth() && nth >= today && nth <= end)
+            results.push({ date: nth, schedule: sch });
+        }
+      }
+    });
+    results.sort(function(a, b) { return a.date - b.date; });
+    return results;
+  }
+
+  function renderMiniCalendar(year, month) {
+    var container = document.getElementById('dashMiniCal');
+    if (!container) return;
+    var label = document.getElementById('calMonthLabel');
+    var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    if (label) label.textContent = months[month] + ' ' + year;
+
+    var today = new Date(); today.setHours(0,0,0,0);
+    var firstDay = new Date(year, month, 1);
+    var startDow = firstDay.getDay();
+    var daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // Build set of days with events
+    var eventDays = {};
+    if (_dashCalEvents) {
+      _dashCalEvents.forEach(function(ev) {
+        if (ev.date.getFullYear() === year && ev.date.getMonth() === month) {
+          eventDays[ev.date.getDate()] = true;
+        }
+      });
+    }
+
+    var html = '<div class="mini-cal-header">';
+    ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(function(d) { html += '<div>' + d + '</div>'; });
+    html += '</div><div class="mini-cal-grid">';
+
+    // Previous month filler days
+    var prevMonthDays = new Date(year, month, 0).getDate();
+    for (var i = 0; i < startDow; i++) {
+      html += '<div class="mini-cal-day other-month">' + (prevMonthDays - startDow + 1 + i) + '</div>';
+    }
+
+    // Current month days
+    for (var d = 1; d <= daysInMonth; d++) {
+      var thisDate = new Date(year, month, d);
+      var cls = 'mini-cal-day';
+      if (thisDate.getTime() === today.getTime()) cls += ' today';
+      if (_dashCalSelectedDay && _dashCalSelectedDay.getTime() === thisDate.getTime()) cls += ' selected';
+      var dot = eventDays[d] ? '<span class="cal-dot"></span>' : '';
+      html += '<div class="' + cls + '" onclick="_calDayClick(' + d + ')">' + d + dot + '</div>';
+    }
+
+    // Next month filler days
+    var totalCells = startDow + daysInMonth;
+    var remaining = (7 - (totalCells % 7)) % 7;
+    for (var i = 1; i <= remaining; i++) {
+      html += '<div class="mini-cal-day other-month">' + i + '</div>';
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  function _calDayClick(day) {
+    var clicked = new Date(_dashCalYear, _dashCalMonth, day);
+    if (_dashCalSelectedDay && _dashCalSelectedDay.getTime() === clicked.getTime()) {
+      _dashCalSelectedDay = null; // deselect
+    } else {
+      _dashCalSelectedDay = clicked;
+    }
+    renderMiniCalendar(_dashCalYear, _dashCalMonth);
+    renderDashEventsList(_dashCalEvents, _dashCalSelectedDay);
+  }
+
+  function calNavPrev() {
+    _dashCalMonth--;
+    if (_dashCalMonth < 0) { _dashCalMonth = 11; _dashCalYear--; }
+    _dashCalSelectedDay = null;
+    renderMiniCalendar(_dashCalYear, _dashCalMonth);
+    renderDashEventsList(_dashCalEvents, _dashCalSelectedDay);
+  }
+
+  function calNavNext() {
+    _dashCalMonth++;
+    if (_dashCalMonth > 11) { _dashCalMonth = 0; _dashCalYear++; }
+    _dashCalSelectedDay = null;
+    renderMiniCalendar(_dashCalYear, _dashCalMonth);
+    renderDashEventsList(_dashCalEvents, _dashCalSelectedDay);
+  }
+
+  function renderDashEventsList(events, selectedDay) {
+    var container = document.getElementById('dashEventsList');
+    if (!container) return;
+    if (!events) { container.innerHTML = '<div class="empty-msg">Loading events...</div>'; return; }
+
+    var filtered;
+    if (selectedDay) {
+      filtered = events.filter(function(ev) {
+        return ev.date.getFullYear() === selectedDay.getFullYear() &&
+               ev.date.getMonth() === selectedDay.getMonth() &&
+               ev.date.getDate() === selectedDay.getDate();
+      });
+    } else {
+      // Show next 5 upcoming events from today
+      var now = new Date(); now.setHours(0,0,0,0);
+      filtered = events.filter(function(ev) { return ev.date >= now; }).slice(0, 5);
+    }
+
+    if (filtered.length === 0) {
+      container.innerHTML = '<div class="empty-msg">' + (selectedDay ? 'No events on this day' : 'No upcoming events') + '</div>';
+      return;
+    }
+
+    var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var html = '';
+    filtered.forEach(function(ev) {
+      var recurBadge = ev.isRecurring ? '<span class="dash-event-recurring-badge">Recurring</span>' : '';
+      var locText = ev.location ? '<span style="margin-left:6px;">' + ev.location + '</span>' : '';
+      html += '<div class="dash-event-item">' +
+        '<div class="dash-event-date-badge"><div class="month">' + monthNames[ev.date.getMonth()] + '</div><div class="day">' + ev.date.getDate() + '</div></div>' +
+        '<div class="dash-event-info"><p class="title">' + ev.title + '</p>' +
+        '<p class="meta">' + ev.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + locText + '</p>' +
+        recurBadge + '</div></div>';
+    });
+    container.innerHTML = html;
+  }
 
   // ── User Roles Management ──
 
