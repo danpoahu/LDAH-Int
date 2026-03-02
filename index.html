@@ -2696,7 +2696,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v58</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v59</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -3864,6 +3864,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var _chatActiveOtherUid = null;
     var _chatMessagesUnsub = null;
     var _chatRosterUnsub = null;
+    var _chatHeaderPresenceUnsub = null;
     var _chatConvsUnsub = null;
     var _chatShowAllOffline = false;
     var _chatModalOpen = false;
@@ -3929,8 +3930,9 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     function closeChatModal() {
       if (chatModalOverlay) chatModalOverlay.classList.remove('active');
       _chatModalOpen = false;
-      // Stop listening to messages so we don't auto-mark as read
+      // Stop listening to messages and header presence
       if (_chatMessagesUnsub) { _chatMessagesUnsub(); _chatMessagesUnsub = null; }
+      if (_chatHeaderPresenceUnsub) { _chatHeaderPresenceUnsub(); _chatHeaderPresenceUnsub = null; }
       _chatActiveConvId = null;
       _chatActiveOtherUid = null;
       updateChatBadge();
@@ -4350,12 +4352,17 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (chatHeaderAvatar) chatHeaderAvatar.textContent = getInitials(otherName);
       if (chatHeaderName) chatHeaderName.textContent = otherName;
 
-      // Check presence for status
-      db().collection('chatPresence').doc(otherUid).get().then(function(doc) {
-        if (doc.exists && doc.data().online) {
+      // Check presence for status (real-time listener so it updates live)
+      if (_chatHeaderPresenceUnsub) _chatHeaderPresenceUnsub();
+      _chatHeaderPresenceUnsub = db().collection('chatPresence').doc(otherUid).onSnapshot(function(doc) {
+        if (!doc.exists) { if (chatHeaderStatus) chatHeaderStatus.textContent = 'Offline'; return; }
+        var d = doc.data();
+        var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
+        var isStale = lastSeenMs < (Date.now() - 15 * 60 * 1000);
+        if (d.online && !isStale) {
           if (chatHeaderStatus) chatHeaderStatus.textContent = '🟢 Online';
         } else {
-          var ls = doc.exists && doc.data().lastSeen ? formatTime(doc.data().lastSeen) : '';
+          var ls = d.lastSeen ? formatTime(d.lastSeen) : '';
           if (chatHeaderStatus) chatHeaderStatus.textContent = ls ? 'Last seen ' + ls : 'Offline';
         }
       });
