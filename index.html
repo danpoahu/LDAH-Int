@@ -1717,6 +1717,24 @@
   background: var(--ocean-deep); color: white; font-weight: 600; cursor: pointer; font-size: 0.8rem;
 }
 .ur-save-btn:hover { background: #0e7490; }
+.ur-status-dot {
+  width:10px; height:10px; border-radius:50%; display:inline-block;
+}
+.ur-status-dot.green { background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,.45); }
+.ur-status-dot.yellow { background:#eab308; box-shadow:0 0 6px rgba(234,179,8,.4); }
+.ur-status-dot.red { background:#ef4444; box-shadow:0 0 5px rgba(239,68,68,.3); }
+.ur-table th.sortable {
+  cursor:pointer; user-select:none; position:relative; padding-right:22px;
+  transition:color .15s;
+}
+.ur-table th.sortable:hover { color:var(--ocean-deep); }
+.ur-table th.sortable::after {
+  content:'⇅'; position:absolute; right:4px; top:50%; transform:translateY(-50%);
+  font-size:.7rem; opacity:.4;
+}
+.ur-table th.sortable.asc::after { content:'↑'; opacity:.8; }
+.ur-table th.sortable.desc::after { content:'↓'; opacity:.8; }
+.ur-status-label { font-size:.65rem; font-weight:600; color:var(--text-soft); margin-left:6px; }
 
 /* ── Web/App Dashboard Analytics ── */
 .wa-section { padding: 0; }
@@ -3640,10 +3658,10 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           <div class="ur-card-body">
             <table class="ur-table">
               <thead>
-                <tr><th>Name</th><th>Email</th><th>Role</th><th>Location</th><th>Actions</th></tr>
+                <tr><th class="sortable desc" data-sort="status" onclick="sortUserRoles('status',this)" style="width:50px;">Status</th><th class="sortable" data-sort="name" onclick="sortUserRoles('name',this)">Name</th><th>Email</th><th class="sortable" data-sort="role" onclick="sortUserRoles('role',this)">Role</th><th class="sortable" data-sort="location" onclick="sortUserRoles('location',this)">Location</th><th>Actions</th></tr>
               </thead>
               <tbody id="userRolesTableBody">
-                <tr><td colspan="5" style="color:#64748B;">Loading...</td></tr>
+                <tr><td colspan="6" style="color:#64748B;">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -5863,82 +5881,168 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   });
 
   // Load and display all users from userRoles collection
+  // User Roles — cached data for sorting
+  var _urCachedRows = []; // { uid, name, email, role, location, status, statusOrder }
+  var _urCurrentSort = { col: 'status', dir: 'asc' }; // default: green first
+  var _urLocationLabels = [];
+
   async function loadUserRoles() {
     const tbody = document.getElementById('userRolesTableBody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="5" style="color:#64748B;">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#64748B;">Loading...</td></tr>';
 
     // Build unique location options from WEATHER_LOCATIONS
-    var locationLabels = [];
+    _urLocationLabels = [];
     var seenLabels = {};
     if (typeof WEATHER_LOCATIONS !== 'undefined') {
       for (var k in WEATHER_LOCATIONS) {
         var lbl = WEATHER_LOCATIONS[k].label;
-        if (!seenLabels[lbl]) { locationLabels.push(lbl); seenLabels[lbl] = true; }
+        if (!seenLabels[lbl]) { _urLocationLabels.push(lbl); seenLabels[lbl] = true; }
       }
-      locationLabels.sort();
+      _urLocationLabels.sort();
     }
 
     try {
-      const snapshot = await db.collection('userRoles').orderBy('displayName').get();
-      tbody.innerHTML = '';
+      // Fetch both userRoles and chatPresence in parallel
+      const [rolesSnap, presenceSnap] = await Promise.all([
+        db.collection('userRoles').orderBy('displayName').get(),
+        db.collection('chatPresence').get()
+      ]);
 
-      if (snapshot.empty) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color:#64748B;">No users found.</td></tr>';
+      if (rolesSnap.empty) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#64748B;">No users found.</td></tr>';
         return;
       }
 
-      snapshot.forEach(doc => {
-        const d = doc.data();
-        const currentLoc = d.location || '';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td style="font-weight:600;">${d.displayName || '—'}</td>
-          <td>${d.email || doc.id}</td>
-          <td>
-            <select class="ur-role-select" data-uid="${doc.id}">
-              ${VALID_ROLES.map(r => '<option value="'+r+'" '+(r===d.role?'selected':'')+'>'+(ROLE_LABELS[r]||r)+'</option>').join('')}
-            </select>
-          </td>
-          <td>
-            <select class="ur-loc-select" data-uid="${doc.id}">
-              <option value="">— None —</option>
-              ${locationLabels.map(l => '<option value="'+l+'" '+(currentLoc===l?'selected':'')+'>'+l+'</option>').join('')}
-            </select>
-          </td>
-          <td><button class="ur-save-btn" data-uid="${doc.id}">Save</button></td>
-        `;
-        tbody.appendChild(tr);
+      // Build presence lookup: uid → { online, lastSeen }
+      var presenceMap = {};
+      var staleThreshold = Date.now() - (15 * 60 * 1000); // 15 min
+      presenceSnap.forEach(function(doc) {
+        var d = doc.data();
+        var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
+        var isStale = lastSeenMs < staleThreshold;
+        presenceMap[doc.id] = {
+          online: d.online && !isStale,
+          idle: d.online && isStale,
+          lastSeenMs: lastSeenMs
+        };
       });
 
-      // Attach save handlers
-      tbody.querySelectorAll('.ur-save-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const uid = btn.getAttribute('data-uid');
-          const roleSelect = tbody.querySelector('.ur-role-select[data-uid="'+uid+'"]');
-          const locSelect = tbody.querySelector('.ur-loc-select[data-uid="'+uid+'"]');
-          try {
-            var updates = { role: roleSelect.value };
-            if (locSelect) updates.location = locSelect.value;
-            await db.collection('userRoles').doc(uid).update(updates);
-            btn.textContent = '✓ Saved';
-            btn.style.background = '#16A34A';
-            setTimeout(() => { btn.textContent = 'Save'; btn.style.background = ''; }, 1500);
-            // Refresh weather user locations if location changed
-            if (locSelect && typeof resolveLocation === 'function') {
-              var resolved = resolveLocation(locSelect.value);
-              if (resolved) { _userLocations[uid] = resolved; }
-              else { delete _userLocations[uid]; }
-            }
-          } catch (err) {
-            alert('Error updating: ' + err.message);
-          }
+      // Build cached rows
+      _urCachedRows = [];
+      rolesSnap.forEach(function(doc) {
+        var d = doc.data();
+        var p = presenceMap[doc.id];
+        var status, statusOrder;
+        if (p && p.online) { status = 'green'; statusOrder = 0; }
+        else if (p && p.idle) { status = 'yellow'; statusOrder = 1; }
+        else if (p && p.lastSeenMs > 0) { status = 'red'; statusOrder = 2; }
+        else { status = 'red'; statusOrder = 3; } // never seen
+        _urCachedRows.push({
+          uid: doc.id,
+          name: d.displayName || '—',
+          email: d.email || doc.id,
+          role: d.role || '',
+          location: d.location || '',
+          status: status,
+          statusOrder: statusOrder
         });
       });
+
+      // Initial sort: green → yellow → red, then alpha
+      _urCurrentSort = { col: 'status', dir: 'asc' };
+      renderUserRolesTable();
+
     } catch (err) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:#DC2626;">Error: ' + err.message + '</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#DC2626;">Error: ' + err.message + '</td></tr>';
     }
   }
+
+  function renderUserRolesTable() {
+    var tbody = document.getElementById('userRolesTableBody');
+    if (!tbody) return;
+
+    // Sort rows
+    var rows = _urCachedRows.slice();
+    var col = _urCurrentSort.col;
+    var dir = _urCurrentSort.dir === 'asc' ? 1 : -1;
+    rows.sort(function(a, b) {
+      var av, bv;
+      if (col === 'status') { av = a.statusOrder; bv = b.statusOrder; }
+      else if (col === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
+      else if (col === 'role') { av = (ROLE_LABELS[a.role] || a.role).toLowerCase(); bv = (ROLE_LABELS[b.role] || b.role).toLowerCase(); }
+      else if (col === 'location') { av = a.location.toLowerCase(); bv = b.location.toLowerCase(); }
+      else { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      // Secondary sort: alpha by name
+      if (col !== 'name') return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      return 0;
+    });
+
+    tbody.innerHTML = '';
+    var locationLabels = _urLocationLabels;
+
+    rows.forEach(function(r) {
+      var statusLabel = r.status === 'green' ? 'Online' : r.status === 'yellow' ? 'Idle' : 'Offline';
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="text-align:center;"><span class="ur-status-dot ' + r.status + '" title="' + statusLabel + '"></span></td>'
+        + '<td style="font-weight:600;">' + _wEsc(r.name) + '</td>'
+        + '<td>' + _wEsc(r.email) + '</td>'
+        + '<td><select class="ur-role-select" data-uid="' + r.uid + '">'
+        + VALID_ROLES.map(function(rl) { return '<option value="'+rl+'" '+(rl===r.role?'selected':'')+'>'+(ROLE_LABELS[rl]||rl)+'</option>'; }).join('')
+        + '</select></td>'
+        + '<td><select class="ur-loc-select" data-uid="' + r.uid + '">'
+        + '<option value="">— None —</option>'
+        + locationLabels.map(function(l) { return '<option value="'+l+'" '+(r.location===l?'selected':'')+'>'+l+'</option>'; }).join('')
+        + '</select></td>'
+        + '<td><button class="ur-save-btn" data-uid="' + r.uid + '">Save</button></td>';
+      tbody.appendChild(tr);
+    });
+
+    // Attach save handlers
+    tbody.querySelectorAll('.ur-save-btn').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var uid = btn.getAttribute('data-uid');
+        var roleSelect = tbody.querySelector('.ur-role-select[data-uid="'+uid+'"]');
+        var locSelect = tbody.querySelector('.ur-loc-select[data-uid="'+uid+'"]');
+        try {
+          var updates = { role: roleSelect.value };
+          if (locSelect) updates.location = locSelect.value;
+          await db.collection('userRoles').doc(uid).update(updates);
+          btn.textContent = '✓ Saved';
+          btn.style.background = '#16A34A';
+          setTimeout(function() { btn.textContent = 'Save'; btn.style.background = ''; }, 1500);
+          // Update cached row too
+          var cached = _urCachedRows.find(function(rw) { return rw.uid === uid; });
+          if (cached) { cached.role = roleSelect.value; cached.location = locSelect.value; }
+          if (locSelect && typeof resolveLocation === 'function') {
+            var resolved = resolveLocation(locSelect.value);
+            if (resolved) { _userLocations[uid] = resolved; }
+            else { delete _userLocations[uid]; }
+          }
+        } catch (err) {
+          alert('Error updating: ' + err.message);
+        }
+      });
+    });
+  }
+
+  window.sortUserRoles = function(col, thEl) {
+    // Toggle direction if same column, otherwise default asc (status) or asc (alpha)
+    if (_urCurrentSort.col === col) {
+      _urCurrentSort.dir = _urCurrentSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      _urCurrentSort.col = col;
+      _urCurrentSort.dir = 'asc';
+    }
+    // Update header classes
+    var ths = thEl.closest('thead').querySelectorAll('th.sortable');
+    ths.forEach(function(h) { h.classList.remove('asc', 'desc'); });
+    thEl.classList.add(_urCurrentSort.dir);
+    renderUserRolesTable();
+  };
 
   // ── Profile ──
   const storage = firebase.storage();
