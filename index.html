@@ -2756,7 +2756,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v72</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v73</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -4450,9 +4450,25 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           });
           renderConversations(convs);
           _chatConvsList = convs;
-          // Play chime when unread count goes up (skip first load: _chatUnreadCount === -1)
-          if (_chatUnreadCount >= 0 && unread > _chatUnreadCount) {
-            playNotifSound();
+          // Chime logic — like Lync:
+          // - Only after first load (skip initial snapshot)
+          // - Only for incoming messages (not my own sends)
+          // - Not when I'm actively viewing the conversation that got the message
+          if (_chatUnreadCount >= 0 && snap.docChanges) {
+            var shouldChime = false;
+            snap.docChanges().forEach(function(change) {
+              if (change.type !== 'modified') return;
+              var d = change.doc.data();
+              // Skip if I sent this message
+              if (d.lastSenderId === myUid) return;
+              // Skip if I'm viewing this exact conversation right now
+              if (_chatModalOpen && _chatActiveConvId === change.doc.id) return;
+              // This is an incoming message in a conversation I'm not looking at
+              if (d.lastReadBy && !d.lastReadBy.includes(myUid)) {
+                shouldChime = true;
+              }
+            });
+            if (shouldChime) playNotifSound();
           }
           _chatUnreadCount = unread;
           _chatUnreadByUser = unreadByUser;
@@ -4604,14 +4620,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             }).catch(function(){});
           }
 
-          // Play notification for new messages from others
-          if (snap.docChanges) {
-            snap.docChanges().forEach(function(change) {
-              if (change.type === 'added' && change.doc.data().senderId !== myUid) {
-                playNotifSound();
-              }
-            });
-          }
+          // Chime handled by conversations-level listener (not per-message)
         });
 
       // Highlight active conversation in sidebar
