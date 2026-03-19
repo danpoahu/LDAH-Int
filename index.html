@@ -1735,6 +1735,26 @@
 .ur-table th.sortable.asc::after { content:'↑'; opacity:.8; }
 .ur-table th.sortable.desc::after { content:'↓'; opacity:.8; }
 .ur-status-label { font-size:.65rem; font-weight:600; color:var(--text-soft); margin-left:6px; }
+.ur-archive-btn {
+  padding:4px 10px; border:1.5px solid #94a3b8; border-radius:6px; background:white; color:#64748b;
+  font-size:.75rem; font-weight:600; cursor:pointer; transition:all .15s;
+}
+.ur-archive-btn:hover { border-color:#DC2626; color:#DC2626; background:#fef2f2; }
+.ur-restore-btn {
+  padding:4px 10px; border:1.5px solid #22c55e; border-radius:6px; background:white; color:#16a34a;
+  font-size:.75rem; font-weight:600; cursor:pointer; transition:all .15s;
+}
+.ur-restore-btn:hover { background:#f0fdf4; }
+.ur-archived-row { opacity:.55; }
+.ur-archived-row td { font-style:italic; }
+.ur-archived-badge {
+  display:inline-block; background:#94a3b8; color:white; font-size:.65rem; font-weight:600;
+  padding:1px 7px; border-radius:999px; margin-left:6px; vertical-align:middle;
+}
+.ur-toggle-wrap {
+  display:flex; align-items:center; gap:8px; margin-bottom:1rem;
+}
+.ur-toggle-wrap label { font-size:.85rem; color:var(--text-soft); cursor:pointer; user-select:none; }
 
 /* ── Web/App Dashboard Analytics ── */
 .wa-section { padding: 0; }
@@ -3654,7 +3674,13 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
         <!-- Existing Users -->
         <div class="ur-card">
-          <div class="ur-card-header">Existing Users</div>
+          <div class="ur-card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+            <span>Existing Users</span>
+            <div class="ur-toggle-wrap" style="margin-bottom:0;">
+              <input type="checkbox" id="showArchivedToggle" onchange="renderUserRolesTable()">
+              <label for="showArchivedToggle">Show Archived</label>
+            </div>
+          </div>
           <div class="ur-card-body">
             <table class="ur-table">
               <thead>
@@ -5882,7 +5908,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   // Load and display all users from userRoles collection
   // User Roles — cached data for sorting
-  var _urCachedRows = []; // { uid, name, email, role, location, status, statusOrder }
+  var _urCachedRows = []; // { uid, name, email, role, location, status, statusOrder, isArchived }
   var _urCurrentSort = { col: 'status', dir: 'asc' }; // default: green first
   var _urLocationLabels = [];
 
@@ -5945,7 +5971,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           role: d.role || '',
           location: d.location || '',
           status: status,
-          statusOrder: statusOrder
+          statusOrder: statusOrder,
+          isArchived: d.isArchived === true
         });
       });
 
@@ -5962,8 +5989,13 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var tbody = document.getElementById('userRolesTableBody');
     if (!tbody) return;
 
+    // Filter archived
+    var showArchived = document.getElementById('showArchivedToggle') && document.getElementById('showArchivedToggle').checked;
+    var rows = _urCachedRows.filter(function(r) {
+      return showArchived ? true : !r.isArchived;
+    });
+
     // Sort rows
-    var rows = _urCachedRows.slice();
     var col = _urCurrentSort.col;
     var dir = _urCurrentSort.dir === 'asc' ? 1 : -1;
     rows.sort(function(a, b) {
@@ -5984,20 +6016,26 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var locationLabels = _urLocationLabels;
 
     rows.forEach(function(r) {
-      var statusLabel = r.status === 'green' ? 'Online' : r.status === 'yellow' ? 'Idle' : 'Offline';
+      var statusLabel = r.isArchived ? 'Archived' : r.status === 'green' ? 'Online' : r.status === 'yellow' ? 'Idle' : 'Offline';
+      var dotClass = r.isArchived ? '' : r.status;
+      var archivedBadge = r.isArchived ? '<span class="ur-archived-badge">ARCHIVED</span>' : '';
+      var archiveBtn = r.isArchived
+        ? '<button class="ur-restore-btn" data-uid="' + r.uid + '">Restore</button>'
+        : '<button class="ur-archive-btn" data-uid="' + r.uid + '">Archive</button>';
       var tr = document.createElement('tr');
+      if (r.isArchived) tr.className = 'ur-archived-row';
       tr.innerHTML =
-        '<td style="text-align:center;"><span class="ur-status-dot ' + r.status + '" title="' + statusLabel + '"></span></td>'
-        + '<td style="font-weight:600;">' + _wEsc(r.name) + '</td>'
+        '<td style="text-align:center;">' + (r.isArchived ? '<span style="color:#94a3b8;font-size:.7rem;">—</span>' : '<span class="ur-status-dot ' + dotClass + '" title="' + statusLabel + '"></span>') + '</td>'
+        + '<td style="font-weight:600;">' + _wEsc(r.name) + archivedBadge + '</td>'
         + '<td>' + _wEsc(r.email) + '</td>'
-        + '<td><select class="ur-role-select" data-uid="' + r.uid + '">'
+        + '<td>' + (r.isArchived ? '<span style="color:#94a3b8;font-size:.8rem;">— None —</span>' : '<select class="ur-role-select" data-uid="' + r.uid + '">'
         + VALID_ROLES.map(function(rl) { return '<option value="'+rl+'" '+(rl===r.role?'selected':'')+'>'+(ROLE_LABELS[rl]||rl)+'</option>'; }).join('')
-        + '</select></td>'
-        + '<td><select class="ur-loc-select" data-uid="' + r.uid + '">'
+        + '</select>') + '</td>'
+        + '<td>' + (r.isArchived ? '<span style="color:#94a3b8;font-size:.8rem;">—</span>' : '<select class="ur-loc-select" data-uid="' + r.uid + '">'
         + '<option value="">— None —</option>'
         + locationLabels.map(function(l) { return '<option value="'+l+'" '+(r.location===l?'selected':'')+'>'+l+'</option>'; }).join('')
-        + '</select></td>'
-        + '<td><button class="ur-save-btn" data-uid="' + r.uid + '">Save</button></td>';
+        + '</select>') + '</td>'
+        + '<td style="display:flex;gap:4px;align-items:center;">' + (r.isArchived ? '' : '<button class="ur-save-btn" data-uid="' + r.uid + '">Save</button>') + archiveBtn + '</td>';
       tbody.appendChild(tr);
     });
 
@@ -6024,6 +6062,53 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           }
         } catch (err) {
           alert('Error updating: ' + err.message);
+        }
+      });
+    });
+
+    // Archive handlers
+    tbody.querySelectorAll('.ur-archive-btn').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var uid = btn.getAttribute('data-uid');
+        var cached = _urCachedRows.find(function(rw) { return rw.uid === uid; });
+        if (!cached) return;
+        if (!confirm('Archive ' + cached.name + '? This will strip all roles and mark them as archived.')) return;
+        try {
+          await db.collection('userRoles').doc(uid).update({
+            isArchived: true,
+            role: '',
+            archivedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            archivedBy: currentUserData.uid,
+            previousRole: cached.role
+          });
+          cached.isArchived = true;
+          cached.role = '';
+          renderUserRolesTable();
+        } catch (err) {
+          alert('Error archiving: ' + err.message);
+        }
+      });
+    });
+
+    // Restore handlers
+    tbody.querySelectorAll('.ur-restore-btn').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var uid = btn.getAttribute('data-uid');
+        var cached = _urCachedRows.find(function(rw) { return rw.uid === uid; });
+        if (!cached) return;
+        if (!confirm('Restore ' + cached.name + '? They will be set to Daily User role.')) return;
+        try {
+          await db.collection('userRoles').doc(uid).update({
+            isArchived: false,
+            role: 'dailyUser',
+            restoredAt: firebase.firestore.FieldValue.serverTimestamp(),
+            restoredBy: currentUserData.uid
+          });
+          cached.isArchived = false;
+          cached.role = 'dailyUser';
+          renderUserRolesTable();
+        } catch (err) {
+          alert('Error restoring: ' + err.message);
         }
       });
     });
