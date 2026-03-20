@@ -3014,7 +3014,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v82</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v83</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -4491,9 +4491,16 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     }
 
     // ── Roster: Online / Offline Users ──
+    var _chatArchivedUids = new Set();
     window.initChatRoster = function() {
       var myUid = getMyUid();
       if (!myUid) return;
+
+      // Load archived UIDs first, then start presence listener
+      db().collection('userRoles').where('isArchived', '==', true).get().then(function(archivedSnap) {
+        _chatArchivedUids = new Set();
+        archivedSnap.forEach(function(doc) { _chatArchivedUids.add(doc.id); });
+      }).catch(function() { /* proceed without filter */ });
 
       if (_chatRosterUnsub) _chatRosterUnsub();
       _chatRosterUnsub = db().collection('chatPresence').onSnapshot(function(snap) {
@@ -4503,6 +4510,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         snap.forEach(function(doc) {
           var d = doc.data();
           if (d.uid === myUid) return; // exclude self
+          if (_chatArchivedUids.has(d.uid || doc.id)) return; // exclude archived
           // Treat as offline if lastSeen is stale (> 15 min) even if online flag is true
           var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
           var isStale = lastSeenMs < staleThreshold;
@@ -6326,6 +6334,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
       snapshot.forEach(doc => {
         const d = doc.data();
+        if (d.isArchived === true) return; // skip archived users
         const uid = doc.id;
         const name = d.displayName || d.email || uid;
         const ecName = d.emergencyContactName || '';
