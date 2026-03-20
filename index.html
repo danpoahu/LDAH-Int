@@ -597,6 +597,12 @@
     }
     .card-body{ padding:14px 16px 16px; }
 
+    /* Recent Interactions card: fixed height with scroll */
+    #dashInteractionsCard .card-body {
+      height: 420px;
+      overflow-y: auto;
+    }
+
     /* KPI row */
     /* Weather alerts banner */
     #weatherAlertsBanner { margin: 0 0 16px 0; }
@@ -3014,7 +3020,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v84</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v85</span>
         <div class="topbar-left">
           <div>
             <div class="crumb" id="topbarDateTime"></div>
@@ -5381,7 +5387,9 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (crSection) crSection.style.display = 'none';
       if (clSection) clSection.style.display = 'none';
       if (emSection) emSection.style.display = 'none';
-      // Reset: restore interactions card, hide in-grid overlays, return hosted sections
+      // Reset: close weather overlay if open, restore interactions card, hide in-grid overlays, return hosted sections
+      var _woOverlay = document.getElementById('weatherOverlay');
+      if (_woOverlay) _woOverlay.classList.remove('active');
       var _dIC = document.getElementById('dashInteractionsCard'); if (_dIC) _dIC.style.display = '';
       var _rIG = document.getElementById('reportsInGrid'); if (_rIG) _rIG.style.display = 'none';
       var _iGH = document.getElementById('inGridHost');
@@ -7028,7 +7036,45 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   var _weatherCache = {};       // keyed by location label
   var _weatherAlerts = [];      // active NWS alerts
   var _userLocations = {};      // uid → resolved location object
-  var _dismissedAlerts = new Set();
+  // Persistent dismissed alerts: stores { alertId: fingerprint } so updated alerts re-appear
+  var _dismissedAlertsData = JSON.parse(localStorage.getItem('ldah_dismissedAlerts') || '{}');
+  var _dismissedAlerts = new Set(Object.keys(_dismissedAlertsData));
+  // Also track "seen" alerts so we only show truly new/updated ones
+  var _seenAlerts = JSON.parse(localStorage.getItem('ldah_seenAlerts') || '{}');
+
+  function _alertFingerprint(a) {
+    return (a.event || '') + '|' + (a.headline || '') + '|' + (a.areaDesc || '') + '|' + (a.severity || '') + '|' + (a.expires || '');
+  }
+
+  function _persistDismissedAlerts() {
+    localStorage.setItem('ldah_dismissedAlerts', JSON.stringify(_dismissedAlertsData));
+  }
+
+  function _persistSeenAlerts() {
+    localStorage.setItem('ldah_seenAlerts', JSON.stringify(_seenAlerts));
+  }
+
+  // Clean up old dismissed/seen entries (older than 48 hours) to prevent unbounded growth
+  (function _cleanOldAlertEntries() {
+    var cutoff = Date.now() - (48 * 60 * 60 * 1000);
+    var changed = false;
+    for (var id in _dismissedAlertsData) {
+      if (_dismissedAlertsData[id].ts && _dismissedAlertsData[id].ts < cutoff) {
+        delete _dismissedAlertsData[id];
+        _dismissedAlerts.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) _persistDismissedAlerts();
+    var changedSeen = false;
+    for (var sid in _seenAlerts) {
+      if (_seenAlerts[sid].ts && _seenAlerts[sid].ts < cutoff) {
+        delete _seenAlerts[sid];
+        changedSeen = true;
+      }
+    }
+    if (changedSeen) _persistSeenAlerts();
+  })();
   window._lastRosterOnline = [];
   window._lastRosterOffline = [];
 
@@ -7673,12 +7719,32 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     var now = new Date();
     var active = _weatherAlerts.filter(function(a) {
-      if (_dismissedAlerts.has(a.id)) return false;
       if (a.expires && new Date(a.expires) < now) return false;
+      var fp = _alertFingerprint(a);
+
+      // If user explicitly dismissed this alert (and content hasn't changed), skip it
+      if (_dismissedAlerts.has(a.id)) {
+        var dismissedFp = _dismissedAlertsData[a.id] && _dismissedAlertsData[a.id].fp;
+        if (dismissedFp === fp) return false;
+        // Content changed since dismissal — remove old dismissal, show updated alert
+        _dismissedAlerts.delete(a.id);
+        delete _dismissedAlertsData[a.id];
+        _persistDismissedAlerts();
+      }
+
+      // If this alert was already seen (auto-hidden) and content hasn't changed, skip it
+      if (_seenAlerts[a.id] && _seenAlerts[a.id].fp === fp) return false;
+
       return true;
     });
 
     if (active.length === 0) { banner.style.display = 'none'; return; }
+
+    // Mark these alerts as seen (so they won't re-appear on next fetch unless updated)
+    active.forEach(function(a) {
+      _seenAlerts[a.id] = { fp: _alertFingerprint(a), ts: Date.now() };
+    });
+    _persistSeenAlerts();
 
     banner.style.display = 'block';
     var html = '';
@@ -7701,7 +7767,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         e.stopPropagation();
         var alertDiv = btn.closest('.weather-alert');
         var alertId = alertDiv.getAttribute('data-alert-id');
+        var fp = '';
+        // Find the fingerprint for this alert
+        _weatherAlerts.forEach(function(a) {
+          if (a.id === alertId) fp = _alertFingerprint(a);
+        });
         _dismissedAlerts.add(alertId);
+        _dismissedAlertsData[alertId] = { fp: fp, ts: Date.now() };
+        _persistDismissedAlerts();
         alertDiv.remove();
         if (banner.children.length === 0) banner.style.display = 'none';
       });
