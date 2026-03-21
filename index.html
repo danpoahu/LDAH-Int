@@ -4103,6 +4103,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             <div class="chat-modal-header-info">
               <h4 id="chatHeaderName">Team Messages</h4>
               <p id="chatHeaderStatus">Select a conversation</p>
+              <p id="chatHeaderLocalTime" style="font-size:.75rem;opacity:.85;margin:0;display:none;"></p>
             </div>
           </div>
           <button class="chat-modal-close" id="chatModalClose" type="button" aria-label="Close chat">×</button>
@@ -4428,6 +4429,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var _chatUnreadCount = -1; // -1 = first load (don't chime for existing unreads)
     var _chatUnreadByUser = {}; // uid -> unread count for roster badges
     var _chatConvsList = []; // cached conversations for auto-open
+    var _chatLocalTimeInterval = null; // interval for updating header local time
 
     // ── Favorites (localStorage, zero Firestore cost) ──
     var _chatFavorites = new Set(JSON.parse(localStorage.getItem('chatFavorites') || '[]'));
@@ -4473,6 +4475,35 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       } else {
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       }
+    }
+
+    // ── Header Local Time ──
+    function updateChatHeaderLocalTime() {
+      var el = document.getElementById('chatHeaderLocalTime');
+      if (!el || !_chatActiveOtherUid) { if (el) el.style.display = 'none'; return; }
+      if (!window.getUserLocalTimeStr) { el.style.display = 'none'; return; }
+      var uid = _chatActiveOtherUid;
+      // Get time and date from the user's timezone
+      var lt = window.getUserLocalTimeStr(uid);
+      if (!lt) { el.style.display = 'none'; return; }
+      // Get their local date
+      var loc = window._userLocations ? window._userLocations[uid] : null;
+      var tz = loc && loc.label && window.getTimezoneForLocation ? window.getTimezoneForLocation(loc.label) : null;
+      var dateStr = '';
+      if (tz) {
+        try {
+          dateStr = new Date().toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric' });
+        } catch(e) {}
+      }
+      var name = (chatHeaderName ? chatHeaderName.textContent : '').split(' ')[0] || 'Their';
+      el.textContent = name + "'s Local Time: " + lt + (dateStr ? ', ' + dateStr : '');
+      el.style.display = 'block';
+    }
+
+    function startChatLocalTimeTicker() {
+      if (_chatLocalTimeInterval) clearInterval(_chatLocalTimeInterval);
+      updateChatHeaderLocalTime();
+      _chatLocalTimeInterval = setInterval(updateChatHeaderLocalTime, 30000);
     }
 
     // ── Open / Close Modal ──
@@ -4895,6 +4926,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (chatHeaderName) chatHeaderName.textContent = otherName;
       if (chatHeaderStatus) chatHeaderStatus.textContent = 'Loading…';
       if (chatEmptyState) chatEmptyState.style.display = 'none';
+      startChatLocalTimeTicker();
 
       // Look for existing conversation
       var participants = [myUid, otherUid].sort();
@@ -4936,6 +4968,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       // Update header
       if (chatHeaderAvatar) chatHeaderAvatar.textContent = getInitials(otherName);
       if (chatHeaderName) chatHeaderName.textContent = otherName;
+      startChatLocalTimeTicker();
 
       // Check presence for status (real-time listener so it updates live)
       if (_chatHeaderPresenceUnsub) _chatHeaderPresenceUnsub();
@@ -5005,17 +5038,10 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var nameDisplay = isMe ? 'You' : escHTML(m.senderName || 'Unknown');
         var timeStr = m.createdAt ? formatTime(m.createdAt) : '';
         var clientTag = m.clientId && m.clientName ? '<span style="font-size:.72rem;background:rgba(8,145,178,.12);color:var(--ocean-deep);padding:2px 6px;border-radius:6px;font-weight:700;margin-left:8px;">📎 ' + escHTML(m.clientName) + '</span>' : '';
-        var localTimeTag = '';
-        if (window.getUserLocalTimeStr) {
-          var lt = window.getUserLocalTimeStr(m.senderId);
-          if (lt) {
-            localTimeTag = '<span style="font-size:.68rem;color:var(--text-soft);margin-left:6px;font-weight:600;opacity:.7;" title="Sender\'s local time">' + lt + '</span>';
-          }
-        }
 
         html += '<div class="' + cls + '">'
           + '<div class="chat-message-header">'
-          + '<div class="chat-message-name">' + nameDisplay + localTimeTag + clientTag + '</div>'
+          + '<div class="chat-message-name">' + nameDisplay + clientTag + '</div>'
           + '<div class="chat-message-time">' + timeStr + '</div>'
           + '</div>'
           + '<div class="chat-message-text">' + escHTML(m.text || '') + '</div>'
