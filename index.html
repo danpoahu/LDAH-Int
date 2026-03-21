@@ -4146,6 +4146,68 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         </div>
       </section>
 
+    <section id="cmsTeamBoardSection" style="display:none;">
+      <h2>Team &amp; Board</h2>
+
+      <div class="cms-tabs" id="cmsTeamBoardTabs">
+        <button class="cms-tab active" onclick="cmsSwitchTeamBoardTab('team')">Team Members</button>
+        <button class="cms-tab" onclick="cmsSwitchTeamBoardTab('board')">Board Members</button>
+      </div>
+
+      <!-- Team Tab -->
+      <div id="cmsTeamTab">
+        <div class="cms-toolbar">
+          <button class="btn btn-primary" onclick="cmsOpenPersonModal('team')">Add New Team Member</button>
+        </div>
+        <div class="cms-cards" id="cmsTeamCards">
+          <div class="cms-empty"><p>Loading team members...</p></div>
+        </div>
+      </div>
+
+      <!-- Board Tab -->
+      <div id="cmsBoardTab" style="display:none;">
+        <div class="cms-toolbar">
+          <button class="btn btn-primary" onclick="cmsOpenPersonModal('board')">Add New Board Member</button>
+        </div>
+        <div class="cms-cards" id="cmsBoardCards">
+          <div class="cms-empty"><p>Loading board members...</p></div>
+        </div>
+      </div>
+
+      <!-- Person Edit Modal -->
+      <div class="overlay" id="cmsPersonOverlay">
+        <div class="modal">
+          <div class="modal-header">
+            <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="cmsPersonModalTitle">Add Team Member</div></div>
+            <button class="close" type="button" onclick="cmsClosePersonModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="cmsPersonEditId">
+            <input type="hidden" id="cmsPersonEditType">
+            <div class="field"><label>Name</label><input id="cmsPersonName" placeholder="Full name"></div>
+            <div class="field"><label>Title / Role</label><input id="cmsPersonRole" placeholder="e.g. Executive Director"></div>
+            <div class="field" id="cmsPersonPhoneField"><label>Phone</label><input id="cmsPersonPhone" placeholder="Phone number"></div>
+            <div class="field" id="cmsPersonEmailField"><label>Email</label><input id="cmsPersonEmail" placeholder="Email address"></div>
+            <div class="field" style="grid-column: span 2;">
+              <label>Photo <span class="cms-info-tip" title="This photo appears on the Who We Are page of the website">i</span></label>
+              <div class="cms-photo-upload" id="cmsPersonPhotoUpload" onclick="document.getElementById('cmsPersonPhotoInput').click()">
+                <span class="cms-photo-label">Click to upload photo</span>
+              </div>
+              <input type="file" id="cmsPersonPhotoInput" accept="image/*" style="display:none" onchange="cmsPreviewPersonPhoto(this)">
+            </div>
+            <div class="field" style="grid-column: span 2;">
+              <label>Bio</label>
+              <textarea id="cmsPersonBio" placeholder="Short bio (shown on the website)" rows="3"></textarea>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="cmsClosePersonModal()">Cancel</button>
+            <button class="btn btn-primary" id="cmsPersonSaveBtn" onclick="cmsSavePerson()">Save</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     </main>
   </div>
 
@@ -5698,6 +5760,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (crSection) crSection.style.display = 'none';
       if (clSection) clSection.style.display = 'none';
       if (emSection) emSection.style.display = 'none';
+      var cmsTeamBoardSec = document.getElementById('cmsTeamBoardSection');
+      if (cmsTeamBoardSec) cmsTeamBoardSec.style.display = 'none';
       // Reset: close weather overlay if open, restore interactions card, hide in-grid overlays, return hosted sections
       var _woOverlay = document.getElementById('weatherOverlay');
       if (_woOverlay) _woOverlay.classList.remove('active');
@@ -5758,6 +5822,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         _showInGrid(ecSection, loadEmergencyContacts);
       } else if (section === 'chatlogs') {
         _showInGrid(clSection, function() { if (typeof loadChatLogs === 'function') loadChatLogs(); });
+      } else if (section === 'cmsTeamBoard') {
+        _showFullWidth(document.getElementById('cmsTeamBoardSection'), cmsLoadTeamBoard);
       } else if (section === 'reports') {
         dashboardSections.forEach(sel => {
           document.querySelectorAll(sel).forEach(e => e.style.display = '');
@@ -10944,6 +11010,230 @@ document.addEventListener('keydown', function(e) {
     }
   });
 })();
+
+/* ── CMS: Team & Board ── */
+var _cmsTeamMembers = [];
+var _cmsBoardMembers = [];
+var _cmsDraggedCard = null;
+
+function cmsSwitchTeamBoardTab(tab) {
+  document.getElementById('cmsTeamTab').style.display = tab === 'team' ? '' : 'none';
+  document.getElementById('cmsBoardTab').style.display = tab === 'board' ? '' : 'none';
+  document.querySelectorAll('#cmsTeamBoardTabs .cms-tab').forEach(function(b, i) {
+    b.classList.toggle('active', (tab === 'team' && i === 0) || (tab === 'board' && i === 1));
+  });
+  if (tab === 'board' && _cmsBoardMembers.length === 0) cmsLoadBoard();
+}
+
+window.cmsLoadTeamBoard = async function() { await cmsLoadTeam(); };
+
+async function cmsLoadTeam() {
+  var container = document.getElementById('cmsTeamCards');
+  container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
+  try {
+    var snap = await db.collection('teamMembers').orderBy('order').get();
+    _cmsTeamMembers = [];
+    snap.forEach(function(doc) {
+      var d = doc.data();
+      if (!d.archived) _cmsTeamMembers.push({ id: doc.id, ...d });
+    });
+    cmsRenderPeopleCards(_cmsTeamMembers, container, 'team');
+  } catch (err) {
+    container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + err.message + '</div>';
+  }
+}
+
+async function cmsLoadBoard() {
+  var container = document.getElementById('cmsBoardCards');
+  container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
+  try {
+    var snap = await db.collection('boardMembers').orderBy('order').get();
+    _cmsBoardMembers = [];
+    snap.forEach(function(doc) {
+      var d = doc.data();
+      if (!d.archived) _cmsBoardMembers.push({ id: doc.id, ...d });
+    });
+    cmsRenderPeopleCards(_cmsBoardMembers, container, 'board');
+  } catch (err) {
+    container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + err.message + '</div>';
+  }
+}
+
+function cmsRenderPeopleCards(people, container, type) {
+  if (!people.length) {
+    container.innerHTML = '<div class="cms-empty"><p>No ' + type + ' members yet.</p><p>Click "Add New" to get started.</p></div>';
+    return;
+  }
+  var html = '';
+  people.forEach(function(p) {
+    var photoHtml = p.photoUrl
+      ? '<img src="' + rsEscape(p.photoUrl) + '" class="cms-card-photo" alt="' + rsEscape(p.name) + '">'
+      : '<div class="cms-card-photo" style="display:flex;align-items:center;justify-content:center;font-size:1.8rem;color:var(--text-soft);">&#128100;</div>';
+    html += '<div class="cms-card" draggable="true" data-id="' + p.id + '" data-type="' + type + '">' +
+      '<div class="cms-drag-handle" title="Drag to reorder">&#9776;</div>' +
+      '<div class="cms-card-row">' + photoHtml +
+      '<div><div class="cms-card-title">' + rsEscape(p.name || '') + '</div>' +
+      '<div class="cms-card-subtitle">' + rsEscape(p.role || '') + '</div>';
+    if (type === 'team') {
+      if (p.phone) html += '<div class="cms-card-subtitle">' + rsEscape(p.phone) + '</div>';
+      if (p.email) html += '<div class="cms-card-subtitle">' + rsEscape(p.email) + '</div>';
+    }
+    html += '</div></div>';
+    if (p.bio) html += '<div class="cms-card-bio">' + rsEscape(p.bio || '') + '</div>';
+    html += '<div style="display:flex;gap:8px;margin-top:10px;">' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenPersonModal(\'' + type + '\',\'' + p.id + '\')">Edit</button>' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#DC2626;" onclick="event.stopPropagation();cmsArchivePerson(\'' + type + '\',\'' + p.id + '\',\'' + rsEscape(p.name || '') + '\')">Delete</button>' +
+      '</div></div>';
+  });
+  container.innerHTML = html;
+  container.querySelectorAll('.cms-card[draggable]').forEach(function(card) {
+    card.addEventListener('dragstart', cmsCardDragStart);
+    card.addEventListener('dragend', cmsCardDragEnd);
+    card.addEventListener('dragover', cmsCardDragOver);
+    card.addEventListener('dragleave', cmsCardDragLeave);
+    card.addEventListener('drop', function(e) { cmsCardDrop.call(this, e, type); });
+  });
+}
+
+function cmsCardDragStart(e) { _cmsDraggedCard = this; this.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }
+function cmsCardDragEnd() { this.classList.remove('dragging'); document.querySelectorAll('.cms-card').forEach(function(c) { c.classList.remove('drag-over'); }); }
+function cmsCardDragOver(e) { e.preventDefault(); if (this !== _cmsDraggedCard) this.classList.add('drag-over'); }
+function cmsCardDragLeave() { this.classList.remove('drag-over'); }
+
+async function cmsCardDrop(e, type) {
+  e.preventDefault();
+  this.classList.remove('drag-over');
+  if (this === _cmsDraggedCard) return;
+  var items = type === 'team' ? _cmsTeamMembers : _cmsBoardMembers;
+  var collection = type === 'team' ? 'teamMembers' : 'boardMembers';
+  var dragId = _cmsDraggedCard.getAttribute('data-id');
+  var targetId = this.getAttribute('data-id');
+  var dragIdx = items.findIndex(function(i) { return i.id === dragId; });
+  var targetIdx = items.findIndex(function(i) { return i.id === targetId; });
+  var moved = items.splice(dragIdx, 1)[0];
+  items.splice(targetIdx, 0, moved);
+  var batch = db.batch();
+  items.forEach(function(item, i) { batch.update(db.collection(collection).doc(item.id), { order: i }); });
+  try {
+    await batch.commit();
+    var container = type === 'team' ? document.getElementById('cmsTeamCards') : document.getElementById('cmsBoardCards');
+    cmsRenderPeopleCards(items, container, type);
+    _showToast('Order saved!', '#16A34A');
+  } catch (err) { _showToast('Error reordering: ' + err.message, '#DC2626'); }
+}
+
+window.cmsOpenPersonModal = async function(type, docId) {
+  document.getElementById('cmsPersonEditId').value = docId || '';
+  document.getElementById('cmsPersonEditType').value = type;
+  document.getElementById('cmsPersonModalTitle').textContent = docId ? 'Edit ' + (type === 'team' ? 'Team' : 'Board') + ' Member' : 'Add ' + (type === 'team' ? 'Team' : 'Board') + ' Member';
+  document.getElementById('cmsPersonName').value = '';
+  document.getElementById('cmsPersonRole').value = '';
+  document.getElementById('cmsPersonPhone').value = '';
+  document.getElementById('cmsPersonEmail').value = '';
+  document.getElementById('cmsPersonBio').value = '';
+  document.getElementById('cmsPersonPhoneField').style.display = type === 'team' ? '' : 'none';
+  document.getElementById('cmsPersonEmailField').style.display = type === 'team' ? '' : 'none';
+  var photoUpload = document.getElementById('cmsPersonPhotoUpload');
+  photoUpload.innerHTML = '<span class="cms-photo-label">Click to upload photo</span>';
+  document.getElementById('cmsPersonPhotoInput').value = '';
+
+  if (docId) {
+    try {
+      var doc = await db.collection(type === 'team' ? 'teamMembers' : 'boardMembers').doc(docId).get();
+      if (doc.exists) {
+        var d = doc.data();
+        document.getElementById('cmsPersonName').value = d.name || '';
+        document.getElementById('cmsPersonRole').value = d.role || '';
+        document.getElementById('cmsPersonPhone').value = d.phone || '';
+        document.getElementById('cmsPersonEmail').value = d.email || '';
+        document.getElementById('cmsPersonBio').value = d.bio || '';
+        if (d.photoUrl) {
+          photoUpload.innerHTML = '<img src="' + d.photoUrl + '" alt="Current photo"><span class="cms-photo-label">Click to change photo</span>';
+        }
+      }
+    } catch (e) { console.error(e); }
+  }
+  document.getElementById('cmsPersonOverlay').classList.add('active');
+  setTimeout(function() { document.getElementById('cmsPersonName').focus(); }, 50);
+};
+
+window.cmsClosePersonModal = function() {
+  document.getElementById('cmsPersonOverlay').classList.remove('active');
+};
+
+window.cmsPreviewPersonPhoto = function(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  if (file.size > 5 * 1024 * 1024) { alert('Photo must be under 5 MB.'); input.value = ''; return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var upload = document.getElementById('cmsPersonPhotoUpload');
+    upload.innerHTML = '<img src="' + e.target.result + '" alt="Preview"><span class="cms-photo-label">Click to change photo</span>';
+  };
+  reader.readAsDataURL(file);
+};
+
+window.cmsSavePerson = async function() {
+  var name = document.getElementById('cmsPersonName').value.trim();
+  if (!name) { alert('Name is required.'); return; }
+  var type = document.getElementById('cmsPersonEditType').value;
+  var editId = document.getElementById('cmsPersonEditId').value;
+  var collection = type === 'team' ? 'teamMembers' : 'boardMembers';
+
+  // Disable save button during upload
+  var saveBtn = document.getElementById('cmsPersonSaveBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+  var data = {
+    name: name,
+    role: document.getElementById('cmsPersonRole').value.trim(),
+    bio: document.getElementById('cmsPersonBio').value.trim(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  if (type === 'team') {
+    data.phone = document.getElementById('cmsPersonPhone').value.trim();
+    data.email = document.getElementById('cmsPersonEmail').value.trim();
+  }
+
+  try {
+    var fileInput = document.getElementById('cmsPersonPhotoInput');
+    if (fileInput.files && fileInput.files[0]) {
+      var file = fileInput.files[0];
+      _showToast('Uploading photo...', '#0891B2');
+      var storagePath = 'teamMembers/' + Date.now() + '_' + file.name;
+      var ref = storage.ref(storagePath);
+      await ref.put(file);
+      data.photoUrl = await ref.getDownloadURL();
+    }
+
+    if (editId) {
+      await db.collection(collection).doc(editId).update(data);
+    } else {
+      var items = type === 'team' ? _cmsTeamMembers : _cmsBoardMembers;
+      data.order = items.length;
+      data.archived = false;
+      data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection(collection).add(data);
+    }
+    cmsClosePersonModal();
+    if (type === 'team') cmsLoadTeam(); else cmsLoadBoard();
+    _showToast('Saved!', '#16A34A');
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+  }
+};
+
+window.cmsArchivePerson = async function(type, docId, name) {
+  if (!confirm('Delete "' + name + '" from the website? This can be undone by restoring from the database.')) return;
+  try {
+    var collection = type === 'team' ? 'teamMembers' : 'boardMembers';
+    await db.collection(collection).doc(docId).update({ archived: true });
+    if (type === 'team') cmsLoadTeam(); else cmsLoadBoard();
+    _showToast('Removed from website.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
 </script>
 
 </body>
