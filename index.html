@@ -94,6 +94,55 @@
       font-size:.9rem;
       margin-top:2px;
     }
+    /* Partner Clocks Ticker */
+    .partner-clocks{
+      margin-top:8px;
+      overflow:hidden;
+      position:relative;
+      background: linear-gradient(135deg, rgba(13,148,136,.08), rgba(8,145,178,.08));
+      border-radius:10px;
+      padding:6px 0;
+      border:1px solid rgba(13,148,136,.15);
+    }
+    .partner-clocks-label{
+      text-align:center;
+      font-size:.62rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.8px;
+      color:var(--ocean-deep);
+      margin-bottom:4px;
+    }
+    .partner-clocks-track{
+      display:flex;
+      animation: partnerScroll 24s linear infinite;
+      width:max-content;
+    }
+    .partner-clocks-track:hover{ animation-play-state:paused; }
+    .partner-clock-item{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      padding:0 14px;
+      white-space:nowrap;
+    }
+    .partner-clock-name{
+      font-size:.62rem;
+      font-weight:700;
+      color:var(--text-soft);
+      letter-spacing:.3px;
+    }
+    .partner-clock-time{
+      font-size:.78rem;
+      font-weight:800;
+      color:var(--text-dark);
+      font-variant-numeric:tabular-nums;
+    }
+    @keyframes partnerScroll{
+      0%{ transform:translateX(0); }
+      100%{ transform:translateX(-50%); }
+    }
+
     .nav{
       margin-top:10px;
       display:flex;
@@ -917,6 +966,7 @@
       .nav-group-header{ padding:6px 10px; font-size:.75rem; margin-top:2px; }
       .sidebar-footer{ padding:8px; }
       .tip-rotator, .tip-guide-link{ display:none; }
+      .partner-clocks{ display:none; }
       /* Hide last two KPIs */
       #kpiReview, #kpiClosed{ display:none; }
       .kpis{ grid-template-columns: repeat(3, 1fr); }
@@ -2898,6 +2948,11 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   <div class="app" id="appContainer" style="display:none">
     <aside class="sidebar">
       <div class="brand"> <img src="logo_transparent.png" alt="LDAH"/> </div>
+
+      <div class="partner-clocks" id="partnerClocks">
+        <div class="partner-clocks-label">Partner Local Times</div>
+        <div class="partner-clocks-track" id="partnerClocksTrack"></div>
+      </div>
 
       <nav class="nav" aria-label="Primary">
         <div class="nav-group" id="navGroupMain">
@@ -4935,10 +4990,17 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var nameDisplay = isMe ? 'You' : escHTML(m.senderName || 'Unknown');
         var timeStr = m.createdAt ? formatTime(m.createdAt) : '';
         var clientTag = m.clientId && m.clientName ? '<span style="font-size:.72rem;background:rgba(8,145,178,.12);color:var(--ocean-deep);padding:2px 6px;border-radius:6px;font-weight:700;margin-left:8px;">📎 ' + escHTML(m.clientName) + '</span>' : '';
+        var localTimeTag = '';
+        if (window.getUserLocalTimeStr) {
+          var lt = window.getUserLocalTimeStr(m.senderId);
+          if (lt) {
+            localTimeTag = '<span style="font-size:.68rem;color:var(--text-soft);margin-left:6px;font-weight:600;opacity:.7;" title="Sender\'s local time">' + lt + '</span>';
+          }
+        }
 
         html += '<div class="' + cls + '">'
           + '<div class="chat-message-header">'
-          + '<div class="chat-message-name">' + nameDisplay + clientTag + '</div>'
+          + '<div class="chat-message-name">' + nameDisplay + localTimeTag + clientTag + '</div>'
           + '<div class="chat-message-time">' + timeStr + '</div>'
           + '</div>'
           + '<div class="chat-message-text">' + escHTML(m.text || '') + '</div>'
@@ -7850,6 +7912,72 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       }, 360);
     }, 8000);
   })();
+
+  // ── Partner Clocks Ticker ──
+  var PARTNER_TIMEZONES = {
+    'American Samoa': 'Pacific/Pago_Pago',
+    'Guam':           'Pacific/Guam',
+    'CNMI':           'Pacific/Guam',
+    'Micronesia':     'Pacific/Pohnpei',
+    'Marshall Islands':'Pacific/Majuro',
+    'Palau':          'Pacific/Palau'
+  };
+
+  // Map location labels to IANA timezones (includes Hawaiian islands)
+  var LOCATION_TIMEZONES = {
+    "O'ahu":           'Pacific/Honolulu',
+    'Maui':            'Pacific/Honolulu',
+    'Hawai\u02BBi Island':'Pacific/Honolulu',
+    'Kaua\u02BBi':     'Pacific/Honolulu',
+    'Moloka\u02BBi':   'Pacific/Honolulu',
+    'American Samoa':  'Pacific/Pago_Pago',
+    'Guam':            'Pacific/Guam',
+    'CNMI':            'Pacific/Guam',
+    'Micronesia':      'Pacific/Pohnpei',
+    'Marshall Islands':'Pacific/Majuro',
+    'Palau':           'Pacific/Palau'
+  };
+
+  function getLocalTimeStr(tz) {
+    try {
+      return new Date().toLocaleTimeString('en-US', {
+        timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true
+      });
+    } catch(e) { return ''; }
+  }
+
+  function updatePartnerClocks() {
+    var track = document.getElementById('partnerClocksTrack');
+    if (!track) return;
+    var html = '';
+    for (var name in PARTNER_TIMEZONES) {
+      html += '<div class="partner-clock-item">'
+        + '<span class="partner-clock-name">' + name + '</span>'
+        + '<span class="partner-clock-time">' + getLocalTimeStr(PARTNER_TIMEZONES[name]) + '</span>'
+        + '</div>';
+    }
+    // Duplicate for seamless scroll loop
+    track.innerHTML = html + html;
+  }
+
+  // Init clocks and update every 30 seconds
+  updatePartnerClocks();
+  setInterval(updatePartnerClocks, 30000);
+
+  // Expose timezone lookup for chat
+  window.getTimezoneForLocation = function(label) {
+    if (!label) return null;
+    return LOCATION_TIMEZONES[label] || null;
+  };
+
+  window.getUserLocalTimeStr = function(uid) {
+    if (!uid || typeof _userLocations === 'undefined') return '';
+    var loc = _userLocations[uid];
+    if (!loc || !loc.label) return '';
+    var tz = LOCATION_TIMEZONES[loc.label];
+    if (!tz) return '';
+    return getLocalTimeStr(tz);
+  };
 
   // ── List Management CRUD ──
 
