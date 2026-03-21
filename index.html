@@ -289,6 +289,7 @@
       padding:10px 12px;
       border-radius: 14px;
       min-width: 180px;
+      position:relative;
     }
     .search input{
       width:100%;
@@ -298,6 +299,46 @@
       font-size:1rem;
       color:var(--text-dark);
     }
+    /* Global Search Dropdown */
+    .gs-dropdown{
+      position:absolute;
+      top:calc(100% + 4px);
+      left:0; right:0;
+      max-height:420px;
+      overflow-y:auto;
+      background:#fff;
+      border:1px solid rgba(8,145,178,.18);
+      border-radius:14px;
+      box-shadow:0 12px 30px rgba(0,0,0,.12);
+      z-index:9999;
+      display:none;
+    }
+    .gs-dropdown.open{ display:block; }
+    .gs-group-label{
+      padding:8px 14px;
+      font-size:.72rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      color:var(--ocean-deep);
+      background:var(--sand-light);
+      border-bottom:1px solid rgba(8,145,178,.08);
+      position:sticky; top:0;
+    }
+    .gs-item{
+      padding:10px 14px;
+      cursor:pointer;
+      border-bottom:1px solid rgba(0,0,0,.04);
+      transition:background .12s;
+    }
+    .gs-item:hover, .gs-item.active{ background:rgba(8,145,178,.06); }
+    .gs-item-title{ font-weight:600; font-size:.92rem; }
+    .gs-item-title mark{ background:rgba(251,191,36,.35); border-radius:2px; padding:0 1px; color:inherit; }
+    .gs-item-sub{ font-size:.8rem; color:var(--text-soft); margin-top:2px; }
+    .gs-item-sub mark{ background:rgba(251,191,36,.25); border-radius:2px; padding:0 1px; color:inherit; }
+    .gs-item-icon{ margin-right:6px; }
+    .gs-empty{ padding:20px; text-align:center; color:var(--text-soft); font-size:.9rem; }
+    .gs-loading{ padding:14px; text-align:center; color:var(--text-soft); font-size:.85rem; }
     .topbar-actions{
       display:flex;
       align-items:center;
@@ -3120,7 +3161,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
         <div class="search" role="search">
           <span aria-hidden="true">🔎</span>
-          <input placeholder="Search interactions, clients, grants, tags…" />
+          <input id="globalSearchInput" placeholder="Search interactions, clients, grants, tags…" autocomplete="off" />
+          <div class="gs-dropdown" id="globalSearchResults"></div>
         </div>
 
         <div class="topbar-actions">
@@ -6719,6 +6761,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     setTimeout(function() { progressDiv.style.display = 'none'; }, 3000);
     loadResources();
+    if (window._gsRefreshResources) window._gsRefreshResources();
   }
 
   window.deleteResource = async function(docId, filename) {
@@ -8722,6 +8765,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
       // Refresh interaction list if visible
       if (typeof loadInteractions === 'function') loadInteractions();
+      // Refresh search cache
+      if (window._gsRefreshInteractions) window._gsRefreshInteractions();
     } catch (err) {
       alert('Error saving interaction: ' + err.message);
     }
@@ -10437,6 +10482,291 @@ document.addEventListener('keydown', function(e) {
     closeGuideModal();
   }
 });
+</script>
+
+<!-- Global Search -->
+<script>
+(function() {
+  var input = document.getElementById('globalSearchInput');
+  var dropdown = document.getElementById('globalSearchResults');
+  if (!input || !dropdown) return;
+
+  // ── Search Cache ──
+  var _gsCache = { interactions: [], resources: [] };
+  var _gsCacheLoaded = false;
+
+  window._gsRefreshInteractions = async function() {
+    try {
+      var db = firebase.firestore();
+      var snap = await db.collection('interactions').orderBy('createdAt', 'desc').limit(1000).get();
+      _gsCache.interactions = [];
+      snap.forEach(function(doc) {
+        var d = doc.data();
+        d._id = doc.id;
+        _gsCache.interactions.push(d);
+      });
+    } catch(e) { console.warn('Search cache (interactions):', e.message); }
+  };
+
+  window._gsRefreshResources = async function() {
+    try {
+      var db = firebase.firestore();
+      var snap = await db.collection('resources').orderBy('displayName').get();
+      _gsCache.resources = [];
+      snap.forEach(function(doc) {
+        _gsCache.resources.push({ id: doc.id, data: doc.data() });
+      });
+    } catch(e) { console.warn('Search cache (resources):', e.message); }
+  };
+
+  // Load cache after login
+  function waitAndLoadCache() {
+    if (!window.currentUserData) { setTimeout(waitAndLoadCache, 1000); return; }
+    if (_gsCacheLoaded) return;
+    _gsCacheLoaded = true;
+    window._gsRefreshInteractions();
+    window._gsRefreshResources();
+  }
+  waitAndLoadCache();
+
+  // ── HTML Escape ──
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  // ── Highlight matching text ──
+  function highlight(text, query) {
+    if (!text || !query) return esc(text);
+    var escaped = esc(text);
+    var qEsc = esc(query);
+    var re = new RegExp('(' + qEsc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    return escaped.replace(re, '<mark>$1</mark>');
+  }
+
+  // ── Search Function ──
+  function globalSearch(query) {
+    if (!query || query.length < 2) return null;
+    var q = query.toLowerCase();
+    var results = {};
+    var role = window.currentUserData ? window.currentUserData.role : '';
+    var myUid = window.currentUserData ? window.currentUserData.uid : '';
+    var isAdmin = ['superAdmin', 'admin'].includes(role);
+
+    // Contacts (from global _allContacts)
+    if (typeof _allContacts !== 'undefined' && _allContacts.length) {
+      results.contacts = [];
+      _allContacts.forEach(function(c) {
+        var s = [c.displayName, c.email, c.phone, c.organization, c.location, c.grantProgram, c.type, c.notes].join(' ').toLowerCase();
+        if (s.includes(q) && results.contacts.length < 5) {
+          results.contacts.push({
+            title: c.displayName || '',
+            sub: [c.type, c.organization, c.location].filter(Boolean).join(' \u00B7 '),
+            id: c.id,
+            action: 'contact'
+          });
+        }
+      });
+      if (!results.contacts.length) delete results.contacts;
+    }
+
+    // Interactions
+    if (_gsCache.interactions.length) {
+      results.interactions = [];
+      _gsCache.interactions.forEach(function(ix) {
+        // dailyUser/dataUser only see own interactions
+        if (!isAdmin && ix.ownerUid !== myUid) return;
+        var s = [ix.contactName, ix.summary, ix.notes, ix.channel, ix.interactionType, ix.grantProgram, ix.owner, ix.status].join(' ').toLowerCase();
+        if (s.includes(q) && results.interactions.length < 5) {
+          results.interactions.push({
+            title: ix.summary || '(no summary)',
+            sub: [ix.contactName, ix.channel, ix.status].filter(Boolean).join(' \u00B7 '),
+            id: ix._id,
+            action: 'interaction'
+          });
+        }
+      });
+      if (!results.interactions.length) delete results.interactions;
+    }
+
+    // Resources
+    if (_gsCache.resources.length) {
+      results.resources = [];
+      _gsCache.resources.forEach(function(r) {
+        var d = r.data;
+        var s = [d.displayName, d.filename, d.uploadedBy, d.fileType].join(' ').toLowerCase();
+        if (s.includes(q) && results.resources.length < 5) {
+          results.resources.push({
+            title: d.displayName || d.filename || '',
+            sub: (d.fileType || '').toUpperCase() + ' \u00B7 uploaded by ' + (d.uploadedBy || 'Unknown'),
+            id: r.id,
+            action: 'resource'
+          });
+        }
+      });
+      if (!results.resources.length) delete results.resources;
+    }
+
+    // Events (from dashboard calendar cache)
+    if (typeof _dashCalEvents !== 'undefined' && _dashCalEvents && _dashCalEvents.length) {
+      results.events = [];
+      _dashCalEvents.forEach(function(ev) {
+        var s = [ev.title, ev.location, ev.description].join(' ').toLowerCase();
+        if (s.includes(q) && results.events.length < 5) {
+          var dateStr = ev.date ? ev.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+          results.events.push({
+            title: ev.title || '',
+            sub: [dateStr, ev.location].filter(Boolean).join(' \u00B7 '),
+            id: ev.id,
+            action: 'event'
+          });
+        }
+      });
+      if (!results.events.length) delete results.events;
+    }
+
+    return results;
+  }
+
+  // ── Render Results ──
+  var activeIndex = -1;
+  var allItems = [];
+
+  var typeConfig = {
+    interactions: { label: 'Interactions', icon: '\uD83D\uDCAC' },
+    contacts:     { label: 'Contacts',     icon: '\uD83D\uDC64' },
+    resources:    { label: 'Resources',     icon: '\uD83D\uDCC4' },
+    events:       { label: 'Events',        icon: '\uD83D\uDCC5' }
+  };
+  var typeOrder = ['interactions', 'contacts', 'resources', 'events'];
+
+  function renderResults(query) {
+    var results = globalSearch(query);
+    activeIndex = -1;
+    allItems = [];
+
+    if (!results || Object.keys(results).length === 0) {
+      if (query.length >= 2) {
+        dropdown.innerHTML = '<div class="gs-empty">No results for \u201C' + esc(query) + '\u201D</div>';
+        dropdown.classList.add('open');
+      } else {
+        dropdown.classList.remove('open');
+      }
+      return;
+    }
+
+    var html = '';
+    typeOrder.forEach(function(type) {
+      var items = results[type];
+      if (!items || !items.length) return;
+      var cfg = typeConfig[type];
+      html += '<div class="gs-group-label">' + cfg.icon + ' ' + cfg.label + '</div>';
+      items.forEach(function(item) {
+        var idx = allItems.length;
+        allItems.push(item);
+        html += '<div class="gs-item" data-idx="' + idx + '">'
+          + '<div class="gs-item-title">' + highlight(item.title, query) + '</div>'
+          + '<div class="gs-item-sub">' + highlight(item.sub, query) + '</div>'
+          + '</div>';
+      });
+    });
+
+    dropdown.innerHTML = html;
+    dropdown.classList.add('open');
+
+    // Click handlers
+    dropdown.querySelectorAll('.gs-item').forEach(function(el) {
+      el.addEventListener('click', function() {
+        var idx = parseInt(el.getAttribute('data-idx'));
+        executeResult(allItems[idx]);
+      });
+    });
+  }
+
+  // ── Execute Result Action ──
+  function executeResult(item) {
+    if (!item) return;
+    dropdown.classList.remove('open');
+    input.value = '';
+
+    if (item.action === 'contact') {
+      var navLink = document.querySelector('[data-section="contacts"]');
+      if (navLink) navLink.click();
+      setTimeout(function() {
+        if (window.openContactDetail) window.openContactDetail(item.id);
+      }, 400);
+    } else if (item.action === 'interaction') {
+      var navLink = document.querySelector('[data-section="interactions"]');
+      if (navLink) navLink.click();
+      setTimeout(function() {
+        if (window.viewInteraction) window.viewInteraction(item.id);
+      }, 400);
+    } else if (item.action === 'resource') {
+      var navLink = document.querySelector('[data-section="resources"]');
+      if (navLink) navLink.click();
+    } else if (item.action === 'event') {
+      var navLink = document.querySelector('[data-section="dashboard"]');
+      if (navLink) navLink.click();
+    }
+  }
+
+  // ── Input Wiring ──
+  var debounceTimer = null;
+
+  input.addEventListener('input', function() {
+    clearTimeout(debounceTimer);
+    var val = input.value.trim();
+    if (val.length < 2) {
+      dropdown.classList.remove('open');
+      dropdown.innerHTML = '';
+      return;
+    }
+    debounceTimer = setTimeout(function() { renderResults(val); }, 200);
+  });
+
+  // Keyboard navigation
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      dropdown.classList.remove('open');
+      input.blur();
+      return;
+    }
+    if (!dropdown.classList.contains('open')) return;
+
+    var items = dropdown.querySelectorAll('.gs-item');
+    if (!items.length) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, items.length - 1);
+      highlightActive(items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      highlightActive(items);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex >= 0 && allItems[activeIndex]) {
+        executeResult(allItems[activeIndex]);
+      }
+    }
+  });
+
+  function highlightActive(items) {
+    items.forEach(function(el, i) {
+      el.classList.toggle('active', i === activeIndex);
+    });
+    if (items[activeIndex]) items[activeIndex].scrollIntoView({ block: 'nearest' });
+  }
+
+  // Close on click outside
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.search')) {
+      dropdown.classList.remove('open');
+    }
+  });
+})();
 </script>
 
 </body>
