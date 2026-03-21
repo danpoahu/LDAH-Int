@@ -3234,8 +3234,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
                 style="padding:8px 10px;border-radius:12px;border:1px solid rgba(8,145,178,.16);
                 background:var(--sand-light);font-weight:700;min-width:160px;">
     
-              <span class="tag">Last 7 days</span>
-              <button class="btn btn-ghost" type="button">View all</button>
+              <span class="tag" id="dashLast7Btn" style="cursor:pointer;" onclick="loadDashRecentInteractions('7days')">Last 7 days</span>
+              <button class="btn btn-ghost" type="button" onclick="document.querySelector('[data-section=interactions]').click()">View all</button>
             </div>
           </div>
           <div class="card-body" style="position:relative;">
@@ -8798,16 +8798,42 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   // ── Dashboard: Recent Interactions from Firestore ──
 
-  window.loadDashRecentInteractions = async function() {
+  var _dashRecentFilter = null; // null = recent 10, '7days' = last 7 days
+
+  window.loadDashRecentInteractions = async function(filter) {
+    // Toggle filter
+    if (typeof filter !== 'undefined') {
+      _dashRecentFilter = (_dashRecentFilter === filter) ? null : filter;
+    }
+
     var tbody = document.querySelector('table[aria-label="Recent interactions list"] tbody');
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-soft);padding:14px;">Loading interactions...</td></tr>';
 
+    // Update button active state
+    var btn7 = document.getElementById('dashLast7Btn');
+    if (btn7) {
+      if (_dashRecentFilter === '7days') {
+        btn7.style.background = 'var(--ocean-deep)';
+        btn7.style.color = '#fff';
+      } else {
+        btn7.style.background = '';
+        btn7.style.color = '';
+      }
+    }
+
     try {
-      var snap = await db.collection('interactions')
-        .orderBy('createdAt', 'desc')
-        .limit(20)
-        .get();
+      var query = db.collection('interactions').orderBy('createdAt', 'desc');
+
+      if (_dashRecentFilter === '7days') {
+        var sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        query = query.where('createdAt', '>=', sevenDaysAgo);
+      } else {
+        query = query.limit(20);
+      }
+
+      var snap = await query.get();
 
       // Filter out Internal Chat interactions from dashboard
       var docs = [];
@@ -8816,7 +8842,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         if (d.channel === 'Internal Chat') return;
         docs.push({ id: doc.id, data: d });
       });
-      docs = docs.slice(0, 10);
+      if (!_dashRecentFilter) docs = docs.slice(0, 10);
 
       if (docs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-soft);padding:14px;">No interactions yet. Click "+ New Interaction" to log one.</td></tr>';
