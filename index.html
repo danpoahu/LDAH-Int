@@ -4208,6 +4208,33 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       </div>
     </section>
 
+
+    <section id="cmsGalleriesSection" style="display:none;">
+      <h2>Galleries</h2>
+
+      <!-- Gallery 1 -->
+      <div class="cms-section-note">Who We Are Page Photos &mdash; These photos appear in the gallery on the Who We Are page of the website.</div>
+      <div class="cms-toolbar">
+        <button class="btn btn-primary" onclick="cmsAddGalleryPhoto('gallery')">Add Photo</button>
+        <input type="file" id="cmsGallery1FileInput" accept="image/*" style="display:none" onchange="cmsUploadGalleryPhoto(this, 'gallery')">
+      </div>
+      <div class="cms-cards" id="cmsGallery1Cards" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+        <div class="cms-empty"><p>Loading...</p></div>
+      </div>
+
+      <hr style="margin: 32px 0; border: none; border-top: 2px solid rgba(8,145,178,.1);">
+
+      <!-- Gallery 2 -->
+      <div class="cms-section-note">Volunteer Page Photos &mdash; These photos appear in the gallery on the Volunteer page of the website.</div>
+      <div class="cms-toolbar">
+        <button class="btn btn-primary" onclick="cmsAddGalleryPhoto('gallery2')">Add Photo</button>
+        <input type="file" id="cmsGallery2FileInput" accept="image/*" style="display:none" onchange="cmsUploadGalleryPhoto(this, 'gallery2')">
+      </div>
+      <div class="cms-cards" id="cmsGallery2Cards" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+        <div class="cms-empty"><p>Loading...</p></div>
+      </div>
+    </section>
+
     </main>
   </div>
 
@@ -5762,6 +5789,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (emSection) emSection.style.display = 'none';
       var cmsTeamBoardSec = document.getElementById('cmsTeamBoardSection');
       if (cmsTeamBoardSec) cmsTeamBoardSec.style.display = 'none';
+      var cmsGalleriesSec = document.getElementById('cmsGalleriesSection'); if (cmsGalleriesSec) cmsGalleriesSec.style.display = 'none';
       // Reset: close weather overlay if open, restore interactions card, hide in-grid overlays, return hosted sections
       var _woOverlay = document.getElementById('weatherOverlay');
       if (_woOverlay) _woOverlay.classList.remove('active');
@@ -5824,6 +5852,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         _showInGrid(clSection, function() { if (typeof loadChatLogs === 'function') loadChatLogs(); });
       } else if (section === 'cmsTeamBoard') {
         _showFullWidth(document.getElementById('cmsTeamBoardSection'), cmsLoadTeamBoard);
+      } else if (section === 'cmsGalleries') {
+        _showFullWidth(document.getElementById('cmsGalleriesSection'), cmsLoadGalleries);
       } else if (section === 'reports') {
         dashboardSections.forEach(sel => {
           document.querySelectorAll(sel).forEach(e => e.style.display = '');
@@ -11234,6 +11264,113 @@ window.cmsArchivePerson = async function(type, docId, name) {
     _showToast('Removed from website.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
+
+/* ── CMS: Galleries ── */
+var _cmsGallery1 = [];
+var _cmsGallery2 = [];
+
+window.cmsLoadGalleries = async function() {
+  await Promise.all([cmsLoadGallery('gallery', 'cmsGallery1Cards'), cmsLoadGallery('gallery2', 'cmsGallery2Cards')]);
+};
+
+async function cmsLoadGallery(collection, containerId) {
+  var container = document.getElementById(containerId);
+  container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
+  try {
+    var snap = await db.collection(collection).orderBy('order').get();
+    var items = [];
+    snap.forEach(function(doc) { var d = doc.data(); if (!d.archived) items.push({ id: doc.id, ...d }); });
+    if (collection === 'gallery') _cmsGallery1 = items; else _cmsGallery2 = items;
+    cmsRenderGalleryCards(items, container, collection);
+  } catch (err) {
+    container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + err.message + '</div>';
+  }
+}
+
+function cmsRenderGalleryCards(items, container, collection) {
+  if (!items.length) {
+    container.innerHTML = '<div class="cms-empty"><p>No photos yet. Click "Add Photo" to get started.</p></div>';
+    return;
+  }
+  var html = '';
+  items.forEach(function(item) {
+    html += '<div class="cms-card" draggable="true" data-id="' + item.id + '" data-collection="' + collection + '" style="padding:8px;">' +
+      '<div class="cms-drag-handle" title="Drag to reorder" style="top:12px;">&#9776;</div>' +
+      '<img src="' + rsEscape(item.imageUrl || '') + '" alt="' + rsEscape(item.caption || 'Gallery photo') + '" style="width:100%;height:160px;object-fit:cover;border-radius:10px;">' +
+      '<div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">' +
+      '<span style="font-size:.85rem;color:var(--text-soft);">' + rsEscape(item.caption || '') + '</span>' +
+      '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;color:#DC2626;" onclick="event.stopPropagation();cmsDeleteGalleryPhoto(\'' + collection + '\',\'' + item.id + '\',\'' + rsEscape(item.imageUrl || '').replace(/\'/g, "\\'") + '\')">Delete</button>' +
+      '</div></div>';
+  });
+  container.innerHTML = html;
+  container.querySelectorAll('.cms-card[draggable]').forEach(function(card) {
+    card.addEventListener('dragstart', cmsCardDragStart);
+    card.addEventListener('dragend', cmsCardDragEnd);
+    card.addEventListener('dragover', cmsCardDragOver);
+    card.addEventListener('dragleave', cmsCardDragLeave);
+    card.addEventListener('drop', function(e) { cmsGalleryDrop.call(this, e, collection); });
+  });
+}
+
+window.cmsAddGalleryPhoto = function(collection) {
+  document.getElementById(collection === 'gallery' ? 'cmsGallery1FileInput' : 'cmsGallery2FileInput').click();
+};
+
+window.cmsUploadGalleryPhoto = async function(input, collection) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  if (file.size > 5 * 1024 * 1024) { alert('Photo must be under 5 MB.'); input.value = ''; return; }
+  _showToast('Uploading...', '#0891B2');
+  try {
+    var storagePath = collection + '/' + Date.now() + '_' + file.name;
+    var ref = storage.ref(storagePath);
+    await ref.put(file);
+    var url = await ref.getDownloadURL();
+    var items = collection === 'gallery' ? _cmsGallery1 : _cmsGallery2;
+    await db.collection(collection).add({
+      imageUrl: url, caption: '', order: items.length,
+      archived: false, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    input.value = '';
+    var containerId = collection === 'gallery' ? 'cmsGallery1Cards' : 'cmsGallery2Cards';
+    await cmsLoadGallery(collection, containerId);
+    _showToast('Photo added!', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+window.cmsDeleteGalleryPhoto = async function(collection, docId, imageUrl) {
+  if (!confirm('Delete this photo from the website?')) return;
+  try {
+    await db.collection(collection).doc(docId).update({ archived: true });
+    if (imageUrl && imageUrl.includes('firebase')) {
+      try { await storage.refFromURL(imageUrl).delete(); } catch(e) {}
+    }
+    var containerId = collection === 'gallery' ? 'cmsGallery1Cards' : 'cmsGallery2Cards';
+    await cmsLoadGallery(collection, containerId);
+    _showToast('Photo removed.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+async function cmsGalleryDrop(e, collection) {
+  e.preventDefault();
+  this.classList.remove('drag-over');
+  if (this === _cmsDraggedCard) return;
+  var items = collection === 'gallery' ? _cmsGallery1 : _cmsGallery2;
+  var dragId = _cmsDraggedCard.getAttribute('data-id');
+  var targetId = this.getAttribute('data-id');
+  var dragIdx = items.findIndex(function(i) { return i.id === dragId; });
+  var targetIdx = items.findIndex(function(i) { return i.id === targetId; });
+  var moved = items.splice(dragIdx, 1)[0];
+  items.splice(targetIdx, 0, moved);
+  var batch = db.batch();
+  items.forEach(function(item, i) { batch.update(db.collection(collection).doc(item.id), { order: i }); });
+  try {
+    await batch.commit();
+    var containerId = collection === 'gallery' ? 'cmsGallery1Cards' : 'cmsGallery2Cards';
+    cmsRenderGalleryCards(items, document.getElementById(containerId), collection);
+    _showToast('Order saved!', '#16A34A');
+  } catch (err) { _showToast('Error reordering: ' + err.message, '#DC2626'); }
+}
 </script>
 
 </body>
