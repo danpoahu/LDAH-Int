@@ -3507,7 +3507,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v16</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v17</span>
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -4569,6 +4569,13 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             <div class="field"><label>Phone</label><input id="cmsResourcePhone" placeholder="Phone number"></div>
             <div class="field"><label>Email</label><input id="cmsResourceEmail" placeholder="Email address"></div>
             <div class="field" style="grid-column: span 2;"><label>Website URL <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The website link for this resource. Visitors can click to visit the resource\'s website.')">i</span></label><input type="url" id="cmsResourceWebsite" placeholder="https://example.com"></div>
+            <div id="cmsResourceIframeWarning" style="display:none;grid-column:span 2;background:#FFF7ED;border:1px solid #F97316;border-radius:8px;padding:12px 14px;">
+              <div style="color:#9A3412;font-size:.88rem;font-weight:600;margin-bottom:8px;">This website cannot be displayed inside our app because it blocks embedded viewing.</div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:.88rem;color:#7C2D12;cursor:pointer;">
+                <input type="checkbox" id="cmsResourceAllowExternal" style="width:16px;height:16px;cursor:pointer;">
+                Allow visitors to open this website in a new browser tab
+              </label>
+            </div>
             <div class="field" style="grid-column: span 2;">
               <label>Services <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Describe the services this resource provides. This text is searchable and helps families find the right support.')">i</span></label>
               <textarea id="cmsResourceServices" placeholder="Services offered..." rows="3"></textarea>
@@ -12507,7 +12514,16 @@ function cmsRenderResources(items) {
     html += '<div class="cms-card-buttons">' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenResourceModal(\'' + rsEscape(r.id) + '\')">Edit</button>';
     if (r.website) {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.website) + '\',\'_blank\')">Visit Website</button>';
+      if (!r.iframeBlocked) {
+        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.website) + '\',\'_blank\')">Visit Website</button>';
+      } else if (r.allowExternal) {
+        html += '<span style="display:inline-flex;align-items:center;gap:6px;">' +
+          '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.website) + '\',\'_blank\')">Visit Website</button>' +
+          '<span style="font-size:.75rem;color:#92400E;">(opens new tab)</span>' +
+          '</span>';
+      } else {
+        html += '<span style="font-size:.82rem;color:#B45309;padding:6px 4px;" title="This website blocks embedded viewing. Edit this resource to allow opening in a new tab.">Website restricted (i)</span>';
+      }
     }
     if (isArchived) {
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'resources\',\'' + rsEscape(r.id) + '\',cmsLoadResources)">Restore</button>';
@@ -12541,6 +12557,10 @@ window.cmsOpenResourceModal = async function(docId) {
   document.getElementById('cmsResourcePhone').value = '';
   document.getElementById('cmsResourceEmail').value = '';
   document.getElementById('cmsResourceWebsite').value = '';
+  var warnDivReset = document.getElementById('cmsResourceIframeWarning');
+  if (warnDivReset) warnDivReset.style.display = 'none';
+  var allowExtReset = document.getElementById('cmsResourceAllowExternal');
+  if (allowExtReset) allowExtReset.checked = false;
   var logoUpload = document.getElementById('cmsResourceLogoUpload');
   logoUpload.innerHTML = '<span class="cms-photo-label">Click to upload logo</span>';
   document.getElementById('cmsResourceLogoInput').value = '';
@@ -12558,6 +12578,10 @@ window.cmsOpenResourceModal = async function(docId) {
         document.getElementById('cmsResourcePhone').value = d.phone || '';
         document.getElementById('cmsResourceEmail').value = d.email || '';
         document.getElementById('cmsResourceWebsite').value = d.website || '';
+        var warnDiv = document.getElementById('cmsResourceIframeWarning');
+        if (warnDiv) warnDiv.style.display = d.iframeBlocked ? '' : 'none';
+        var allowExt = document.getElementById('cmsResourceAllowExternal');
+        if (allowExt) allowExt.checked = d.allowExternal || false;
         if (d.logo) {
           logoUpload.innerHTML = '<img src="' + rsEscape(d.logo) + '" alt="Current logo" style="max-height:80px;object-fit:contain;"><span class="cms-photo-label">Click to change logo</span>';
         }
@@ -12603,6 +12627,31 @@ window.cmsSaveResource = async function() {
     website: document.getElementById('cmsResourceWebsite').value.trim(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
+
+  if (data.website) {
+    try {
+      var checkResp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/checkResourceUrl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: data.website })
+      });
+      var checkResult = await checkResp.json();
+      data.iframeBlocked = checkResult.iframeBlocked || false;
+      if (checkResult.iframeBlocked) {
+        data.allowExternal = document.getElementById('cmsResourceAllowExternal').checked;
+        _showToast('This website blocks embedded viewing. Use the checkbox to allow opening in a new tab.', '#F97316');
+      } else {
+        data.allowExternal = false;
+      }
+    } catch (e) {
+      console.error('URL check failed:', e);
+      data.iframeBlocked = false;
+      data.allowExternal = false;
+    }
+  } else {
+    data.iframeBlocked = false;
+    data.allowExternal = false;
+  }
 
   try {
     var fileInput = document.getElementById('cmsResourceLogoInput');
