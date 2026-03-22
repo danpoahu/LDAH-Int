@@ -638,6 +638,18 @@
     }
     .notif-type-badge.approved { background:rgba(16,185,129,.12); color:#059669; }
     .notif-type-badge.rejected { background:rgba(220,38,38,.10); color:#DC2626; }
+    .notif-item.cms-alert {
+      border-left:3px solid var(--ocean-deep);
+      background:rgba(8,145,178,.05);
+    }
+    .notif-item.cms-alert:hover { background:rgba(8,145,178,.10); }
+    .notif-item.cms-alert .notif-title { color:var(--ocean-deep); }
+    .notif-cms-section-label {
+      padding:8px 14px 4px; font-size:.72rem; font-weight:800;
+      text-transform:uppercase; letter-spacing:.05em; color:var(--ocean-deep);
+      border-bottom:1px solid rgba(8,145,178,.12);
+      background:rgba(8,145,178,.03);
+    }
 
     /* ── Edit Mode ── */
     .ix-edit-input {
@@ -3495,7 +3507,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v15</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v16</span>
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -4372,10 +4384,10 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       </div>
 
       <div class="cms-dash-kpis">
-        <div class="cms-dash-kpi accent-teal" style="cursor:pointer;" onclick="document.querySelector('[data-section=&quot;cmsWebData&quot;]').click();setTimeout(function(){cmsSwitchWebDataTab('contactMessages');},300);" onmouseover="this.style.opacity='.85';" onmouseout="this.style.opacity='1';">
-          <div class="cms-dash-kpi-number" id="cmsDashKpiContacts">--</div>
+        <div class="cms-dash-kpi accent-teal" style="cursor:pointer;" onclick="document.querySelector('[data-section=&quot;cmsWebData&quot;]').click();setTimeout(function(){cmsSwitchWebDataTab('pledges');},300);" onmouseover="this.style.opacity='.85';" onmouseout="this.style.opacity='1';">
+          <div class="cms-dash-kpi-number" id="cmsDashKpiPledges">--</div>
           <div class="cms-dash-kpi-label">Total</div>
-          <div class="cms-dash-kpi-desc">Contact Messages</div>
+          <div class="cms-dash-kpi-desc">Anti-Bullying Pledges</div>
         </div>
         <div class="cms-dash-kpi accent-green" style="cursor:pointer;" onclick="document.querySelector('[data-section=&quot;cmsVolunteers&quot;]').click();setTimeout(function(){cmsSwitchVolunteersTab('applications');},300);" onmouseover="this.style.opacity='.85';" onmouseout="this.style.opacity='1';">
           <div class="cms-dash-kpi-number" id="cmsDashKpiVolunteers">--</div>
@@ -10850,6 +10862,50 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   // ── Notifications System ──
 
+  // Cached CMS alert counts — populated by cmsGetAlertCounts() after CMS dashboard loads
+  var _cmsAlertCounts = null;
+
+  // Roles that can see CMS alerts
+  var _cmsAlertRoles = ['superAdmin', 'admin', 'webAdmin', 'appAdmin'];
+
+  // Clear cached CMS alert counts and refresh the Alerts badge — call after CMS data changes
+  window.cmsRefreshAlertBadge = function() {
+    _cmsAlertCounts = null; // clear cache so cmsGetAlertCounts fetches fresh data
+    updateNotifBadge();
+  };
+
+  // Fetch CMS alert counts (items needing attention, not archived)
+  window.cmsGetAlertCounts = async function() {
+    if (!currentUserData || !_cmsAlertRoles.includes(currentUserData.role)) {
+      _cmsAlertCounts = null;
+      return null;
+    }
+    try {
+      var [volSnap, contactSnap, provSnap, eventReqSnap] = await Promise.all([
+        db.collection('volunteers').where('status', '==', 'new').get(),
+        db.collection('contactSubmissions').where('status', '==', 'new').get(),
+        db.collection('providers').where('status', '==', 'new').get(),
+        db.collection('eventRequests').where('status', '==', 'pending').get()
+      ]);
+      // Filter out archived docs client-side (avoids composite index requirements)
+      function _countActive(snap) {
+        var n = 0;
+        snap.forEach(function(doc) { if (doc.data().archived !== true) n++; });
+        return n;
+      }
+      _cmsAlertCounts = {
+        volunteers:    _countActive(volSnap),
+        contacts:      _countActive(contactSnap),
+        providers:     _countActive(provSnap),
+        eventRequests: _countActive(eventReqSnap)
+      };
+      return _cmsAlertCounts;
+    } catch (e) {
+      console.warn('CMS alert count error:', e.message);
+      return null;
+    }
+  };
+
   window.toggleNotifications = function() {
     var ov = document.getElementById('notifOverlay');
     if (!ov) return;
@@ -10871,6 +10927,50 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     if (!body || !currentUserData) return;
     body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">Loading...</p>';
 
+    // Build CMS alert items for eligible roles (fetch fresh counts if not cached yet)
+    var cmsHtml = '';
+    if (_cmsAlertRoles.includes(currentUserData.role)) {
+      var counts = _cmsAlertCounts || await cmsGetAlertCounts();
+      if (counts) {
+        var cmsItems = [];
+        if (counts.volunteers > 0) {
+          cmsItems.push(
+            '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=\\\"cmsVolunteers\\\"]\').click();setTimeout(function(){cmsSwitchVolunteersTab(\'applications\');},300);">' +
+            '<div class="notif-title">' + counts.volunteers + ' new volunteer application' + (counts.volunteers !== 1 ? 's' : '') + ' need review</div>' +
+            '<div class="notif-msg">Volunteers &rsaquo; Applications</div>' +
+            '</div>'
+          );
+        }
+        if (counts.contacts > 0) {
+          cmsItems.push(
+            '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=\\\"cmsWebData\\\"]\').click();setTimeout(function(){cmsSwitchWebDataTab(\'contactMessages\');},300);">' +
+            '<div class="notif-title">' + counts.contacts + ' new contact message' + (counts.contacts !== 1 ? 's' : '') + '</div>' +
+            '<div class="notif-msg">Website Data &rsaquo; Contact Messages</div>' +
+            '</div>'
+          );
+        }
+        if (counts.providers > 0) {
+          cmsItems.push(
+            '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=\\\"cmsWebData\\\"]\').click();setTimeout(function(){cmsSwitchWebDataTab(\'providers\');},300);">' +
+            '<div class="notif-title">' + counts.providers + ' new provider request' + (counts.providers !== 1 ? 's' : '') + '</div>' +
+            '<div class="notif-msg">Website Data &rsaquo; Provider Requests</div>' +
+            '</div>'
+          );
+        }
+        if (counts.eventRequests > 0) {
+          cmsItems.push(
+            '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=\\\"cmsWebData\\\"]\').click();setTimeout(function(){cmsSwitchWebDataTab(\'eventRequests\');},300);">' +
+            '<div class="notif-title">' + counts.eventRequests + ' pending event request' + (counts.eventRequests !== 1 ? 's' : '') + '</div>' +
+            '<div class="notif-msg">Website Data &rsaquo; Event Requests</div>' +
+            '</div>'
+          );
+        }
+        if (cmsItems.length > 0) {
+          cmsHtml = '<div class="notif-cms-section-label">Website Alerts</div>' + cmsItems.join('');
+        }
+      }
+    }
+
     try {
       var snap = await db.collection('notifications')
         .where('recipientUid', '==', currentUserData.uid)
@@ -10878,35 +10978,44 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         .limit(50)
         .get();
 
-      if (snap.empty) {
-        body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">No notifications yet.</p>';
-        return;
+      var notifHtml = '';
+      if (!snap.empty) {
+        if (cmsHtml) notifHtml += '<div class="notif-cms-section-label">Your Notifications</div>';
+        snap.forEach(function(doc) {
+          var n = doc.data();
+          var ts = n.createdAt ? n.createdAt.toDate() : null;
+          var timeStr = ts ? ts.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ' ' +
+            ts.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+          var typeBadge = '';
+          if (n.type === 'cr_approved') typeBadge = '<span class="notif-type-badge approved">Approved</span>';
+          if (n.type === 'cr_rejected') typeBadge = '<span class="notif-type-badge rejected">Rejected</span>';
+          var unreadClass = n.read ? '' : ' unread';
+          var editHint = (n.type === 'cr_approved' && !n.editUsed) ? '<div style="font-size:.78rem;color:var(--ocean-deep);font-weight:700;margin-top:3px;">📝 Click to edit interaction</div>' : '';
+
+          notifHtml += '<div class="notif-item' + unreadClass + '" onclick="handleNotifClick(\'' +
+            doc.id + '\',\'' + (n.type || '') + '\',\'' +
+            (n.interactionId || '') + '\',\'' + (n.changeRequestId || '') + '\')">' +
+            '<div class="notif-title">' + rsEscape(n.title || '') + typeBadge + '</div>' +
+            '<div class="notif-msg">' + rsEscape(n.message || '') + '</div>' +
+            editHint +
+            '<div class="notif-time">' + timeStr + '</div>' +
+          '</div>';
+        });
       }
 
-      var html = '';
-      snap.forEach(function(doc) {
-        var n = doc.data();
-        var ts = n.createdAt ? n.createdAt.toDate() : null;
-        var timeStr = ts ? ts.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ' ' +
-          ts.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-        var typeBadge = '';
-        if (n.type === 'cr_approved') typeBadge = '<span class="notif-type-badge approved">Approved</span>';
-        if (n.type === 'cr_rejected') typeBadge = '<span class="notif-type-badge rejected">Rejected</span>';
-        var unreadClass = n.read ? '' : ' unread';
-        var editHint = (n.type === 'cr_approved' && !n.editUsed) ? '<div style="font-size:.78rem;color:var(--ocean-deep);font-weight:700;margin-top:3px;">📝 Click to edit interaction</div>' : '';
-
-        html += '<div class="notif-item' + unreadClass + '" onclick="handleNotifClick(\'' +
-          doc.id + '\',\'' + (n.type || '') + '\',\'' +
-          (n.interactionId || '') + '\',\'' + (n.changeRequestId || '') + '\')">' +
-          '<div class="notif-title">' + rsEscape(n.title || '') + typeBadge + '</div>' +
-          '<div class="notif-msg">' + rsEscape(n.message || '') + '</div>' +
-          editHint +
-          '<div class="notif-time">' + timeStr + '</div>' +
-        '</div>';
-      });
-      body.innerHTML = html;
+      var combined = cmsHtml + notifHtml;
+      if (!combined) {
+        body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">No notifications yet.</p>';
+      } else {
+        body.innerHTML = combined;
+      }
     } catch (err) {
-      body.innerHTML = '<p style="color:#DC2626;text-align:center;padding:20px;">Error loading notifications.</p>';
+      // Still show CMS alerts even if personal notifications fail
+      if (cmsHtml) {
+        body.innerHTML = cmsHtml + '<p style="color:#DC2626;font-size:.8rem;text-align:center;padding:10px 20px;">Error loading personal notifications.</p>';
+      } else {
+        body.innerHTML = '<p style="color:#DC2626;text-align:center;padding:20px;">Error loading notifications.</p>';
+      }
       console.error('Notif load error:', err);
     }
   };
@@ -10933,10 +11042,23 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         .where('recipientUid', '==', currentUserData.uid)
         .where('read', '==', false)
         .get();
+      var personalCount = snap.size;
+
+      // Add CMS alert counts for eligible roles
+      var cmsCount = 0;
+      if (_cmsAlertRoles.includes(currentUserData.role)) {
+        var counts = _cmsAlertCounts || await cmsGetAlertCounts();
+        if (counts) {
+          cmsCount = (counts.volunteers || 0) + (counts.contacts || 0) +
+                     (counts.providers || 0) + (counts.eventRequests || 0);
+        }
+      }
+
+      var total = personalCount + cmsCount;
       var badge = document.getElementById('notifBadge');
       if (badge) {
-        if (snap.size > 0) {
-          badge.textContent = snap.size;
+        if (total > 0) {
+          badge.textContent = total;
           badge.style.display = '';
         } else {
           badge.style.display = 'none';
@@ -15163,7 +15285,7 @@ window.cmsLoadCmsDashboard = async function() {
   }
   _set('cmsDashKpiSignups', '...');
   _set('cmsDashKpiVolunteers', '...');
-  _set('cmsDashKpiContacts', '...');
+  _set('cmsDashKpiPledges', '...');
   _set('cmsDashKpiProviders', '...');
   _set('cmsDashTeam', '...');
   _set('cmsDashBoard', '...');
@@ -15184,9 +15306,9 @@ window.cmsLoadCmsDashboard = async function() {
     var volSnap = await db.collection('volunteers').get();
     _set('cmsDashKpiVolunteers', _countNotArchived(volSnap));
 
-    // KPI: Contact Messages (not archived)
-    var ctSnap = await db.collection('contactSubmissions').get();
-    _set('cmsDashKpiContacts', _countNotArchived(ctSnap));
+    // KPI: Anti-Bullying Pledges (not archived)
+    var pledgeSnap = await db.collection('pledges').get();
+    _set('cmsDashKpiPledges', _countNotArchived(pledgeSnap));
 
     // KPI: Provider Requests (not archived)
     var prSnap = await db.collection('providers').get();
@@ -15223,6 +15345,9 @@ window.cmsLoadCmsDashboard = async function() {
 
     var faqSnap = await db.collection('faqs').get();
     _set('cmsDashFaqs', _countNotArchived(faqSnap));
+
+    // Refresh CMS alert counts and update the Alerts badge
+    if (typeof cmsRefreshAlertBadge === 'function') cmsRefreshAlertBadge();
   } catch (err) {
     console.error('CMS Dashboard load error:', err);
   }
