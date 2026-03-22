@@ -3334,7 +3334,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v99</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v01</span>
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -4369,6 +4369,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       <div id="cmsFaqItemsTab">
         <div class="cms-toolbar">
           <button class="btn btn-primary" onclick="cmsOpenFaqModal()">Add FAQ</button>
+          <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsExportFaqsCsv()">Export CSV</button>
           <button class="btn btn-ghost" id="cmsArchiveToggle_faqItems" style="font-size:.82rem;" onclick="cmsToggleArchived('faqItems')">Show Archived</button>
         </div>
         <div id="cmsFaqItemsList">
@@ -12608,6 +12609,76 @@ window.cmsDeleteFaq = async function(docId, question) {
     await cmsLoadFaqs();
     _showToast('FAQ archived.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+window.cmsExportFaqsCsv = function() {
+  // Group by category, active categories first, archived at bottom
+  var activeCats = _cmsFaqCategories.filter(function(c) { return c.archived !== true; });
+  var archivedCats = _cmsFaqCategories.filter(function(c) { return c.archived === true; });
+  var orderedCats = activeCats.concat(archivedCats);
+
+  var grouped = {};
+  var uncatKey = '__uncat__';
+  // Include ALL faqs (not just visible ones)
+  _cmsFaqs.forEach(function(faq) {
+    var key = faq.categoryId || uncatKey;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(faq);
+  });
+
+  var headers = ['Category', 'Question', 'Answer/Summary', 'Action Steps', 'Contact', 'Status'];
+  var rows = [];
+
+  orderedCats.forEach(function(cat) {
+    if (!grouped[cat.id] || !grouped[cat.id].length) return;
+    var catLabel = cat.name + (cat.archived === true ? ' (Archived)' : '');
+    grouped[cat.id].forEach(function(faq) {
+      var steps = '';
+      if (faq.steps && faq.steps.length) {
+        steps = faq.steps.map(function(s, i) { return (i + 1) + '. ' + s; }).join('; ');
+      }
+      var summary = (faq.summary || '').replace(/<[^>]*>/g, '').replace(/"/g, '""');
+      rows.push([
+        catLabel,
+        (faq.question || '').replace(/"/g, '""'),
+        summary,
+        steps.replace(/"/g, '""'),
+        (faq.contact || '').replace(/"/g, '""'),
+        faq.archived === true ? 'Archived' : 'Active'
+      ]);
+    });
+  });
+
+  // Uncategorized
+  if (grouped[uncatKey] && grouped[uncatKey].length) {
+    grouped[uncatKey].forEach(function(faq) {
+      var steps = '';
+      if (faq.steps && faq.steps.length) {
+        steps = faq.steps.map(function(s, i) { return (i + 1) + '. ' + s; }).join('; ');
+      }
+      var summary = (faq.summary || '').replace(/<[^>]*>/g, '').replace(/"/g, '""');
+      rows.push([
+        'Uncategorized',
+        (faq.question || '').replace(/"/g, '""'),
+        summary,
+        steps.replace(/"/g, '""'),
+        (faq.contact || '').replace(/"/g, '""'),
+        faq.archived === true ? 'Archived' : 'Active'
+      ]);
+    });
+  }
+
+  var csv = [headers.join(',')].concat(rows.map(function(r) {
+    return r.map(function(v) { return '"' + v + '"'; }).join(',');
+  })).join('\n');
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'ldah_faqs_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  _showToast('FAQ export downloaded.', '#16A34A');
 };
 
 /* ── CMS: Events & Programs ── */
