@@ -3125,6 +3125,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 .cms-faq-card.expanded .cms-faq-card-body { display: block; }
 .cms-faq-card-contact { font-size: .82rem; color: var(--text-soft); margin-top: 8px; }
 .cms-faq-card-actions { display: flex; gap: 8px; margin-top: 12px; }
+.cms-faq-accordion { margin-top: 12px; }
+.cms-faq-cat-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: white; border-radius: var(--radius); margin-bottom: 2px; box-shadow: var(--shadow-soft); cursor: pointer; user-select: none; border-left: 4px solid var(--ocean-deep); }
+.cms-faq-cat-header:hover { box-shadow: var(--shadow); }
+.cms-faq-cat-header .cms-faq-cat-name { font-weight: 800; font-size: 1rem; color: var(--ocean-deep); flex: 1; }
+.cms-faq-cat-header .cms-faq-cat-arrow { font-size: .8rem; color: var(--text-soft); transition: transform .2s; }
+.cms-faq-cat-header .cms-faq-cat-arrow.open { transform: rotate(90deg); }
+.cms-faq-cat-body { padding: 8px 0 16px 20px; }
+.cms-faq-cat-header .cms-faq-cat-actions { display: flex; gap: 6px; margin-left: auto; }
 
 /* ── Page Editor Section ── */
 .cms-pe-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 18px; }
@@ -3334,7 +3342,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v02</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v03</span>
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -4349,32 +4357,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     <section id="cmsFaqsSection" style="display:none;">
       <h2>FAQs</h2>
 
-      <div class="cms-tabs" id="cmsFaqsTabs">
-        <button class="cms-tab active" onclick="cmsSwitchFaqTab('items')">FAQ Items</button>
-        <button class="cms-tab" onclick="cmsSwitchFaqTab('categories')">Categories</button>
+      <div class="cms-toolbar">
+        <button class="btn btn-primary" onclick="cmsOpenCategoryModal()">Add Category</button>
+        <button class="btn btn-primary" onclick="cmsOpenFaqModal()">Add FAQ</button>
+        <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsExportFaqsCsv()">Export CSV</button>
+        <button class="btn btn-ghost" id="cmsArchiveToggle_faqs" style="font-size:.82rem;" onclick="cmsToggleArchived('faqs')">Show Archived</button>
       </div>
-
-      <!-- Categories Tab -->
-      <div id="cmsFaqCategoriesTab" style="display:none;">
-        <div class="cms-toolbar">
-          <button class="btn btn-primary" onclick="cmsOpenCategoryModal()">Add Category</button>
-          <button class="btn btn-ghost" id="cmsArchiveToggle_faqCategories" style="font-size:.82rem;" onclick="cmsToggleArchived('faqCategories')">Show Archived</button>
-        </div>
-        <div class="cms-cards" id="cmsFaqCategoryCards">
-          <div class="cms-empty"><p>Loading categories...</p></div>
-        </div>
-      </div>
-
-      <!-- FAQ Items Tab -->
-      <div id="cmsFaqItemsTab">
-        <div class="cms-toolbar">
-          <button class="btn btn-primary" onclick="cmsOpenFaqModal()">Add FAQ</button>
-          <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsExportFaqsCsv()">Export CSV</button>
-          <button class="btn btn-ghost" id="cmsArchiveToggle_faqItems" style="font-size:.82rem;" onclick="cmsToggleArchived('faqItems')">Show Archived</button>
-        </div>
-        <div id="cmsFaqItemsList">
-          <div class="cms-empty"><p>Loading FAQs...</p></div>
-        </div>
+      <div id="cmsFaqAccordion" class="cms-faq-accordion">
+        <div class="cms-empty"><p>Loading FAQs...</p></div>
       </div>
 
       <!-- Category Edit Modal -->
@@ -11699,7 +11689,7 @@ function cmsToggleArchived(section) {
     case 'gallery': cmsLoadGallery('gallery', 'cmsGallery1Cards'); break;
     case 'gallery2': cmsLoadGallery('gallery2', 'cmsGallery2Cards'); break;
     case 'resources': cmsLoadResources(); break;
-    case 'faqCategories': case 'faqItems': cmsLoadFaqs(); break;
+    case 'faqs': case 'faqCategories': case 'faqItems': cmsLoadFaqs(); break;
     case 'events': cmsLoadEvents(); break;
     case 'programs': cmsLoadPrograms(); break;
     case 'volunteers': cmsLoadVolunteers(); break;
@@ -12254,29 +12244,21 @@ window.cmsExportResourcesCsv = function() {
 var _cmsFaqCategories = [];
 var _cmsFaqs = [];
 var _cmsFaqSteps = [];
+var _cmsFaqExpanded = {}; // track which categories are expanded; default all open on first load
+var _cmsFaqFirstLoad = true;
 
 // Shared rich-text command helper (also used by Task 9: Page Editor)
 window.cmsExecCmd = function(cmd, val) { document.execCommand(cmd, false, val || null); };
 
-function cmsSwitchFaqTab(tab) {
-  document.getElementById('cmsFaqCategoriesTab').style.display = tab === 'categories' ? '' : 'none';
-  document.getElementById('cmsFaqItemsTab').style.display = tab === 'items' ? '' : 'none';
-  document.querySelectorAll('#cmsFaqsTabs .cms-tab').forEach(function(b, i) {
-    b.classList.toggle('active', (tab === 'items' && i === 0) || (tab === 'categories' && i === 1));
-  });
-}
-
 window.cmsLoadFaqs = async function() {
-  var catContainer = document.getElementById('cmsFaqCategoryCards');
-  var faqContainer = document.getElementById('cmsFaqItemsList');
-  catContainer.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
-  faqContainer.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
+  var container = document.getElementById('cmsFaqAccordion');
+  container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
   try {
     var catSnap = await db.collection('categories').orderBy('order').get();
     _cmsFaqCategories = [];
     catSnap.forEach(function(doc) {
       var d = doc.data();
-      if (d.archived !== true || _cmsShowArchived['faqCategories']) _cmsFaqCategories.push({ id: doc.id, ...d });
+      if (d.archived !== true || _cmsShowArchived['faqs']) _cmsFaqCategories.push({ id: doc.id, ...d });
     });
   } catch (e) {
     _cmsFaqCategories = [];
@@ -12286,51 +12268,29 @@ window.cmsLoadFaqs = async function() {
     _cmsFaqs = [];
     faqSnap.forEach(function(doc) {
       var d = doc.data();
-      if (d.archived !== true || _cmsShowArchived['faqItems']) _cmsFaqs.push({ id: doc.id, ...d });
+      if (d.archived !== true || _cmsShowArchived['faqs']) _cmsFaqs.push({ id: doc.id, ...d });
     });
   } catch (e) {
     _cmsFaqs = [];
   }
-  cmsRenderCategories();
-  cmsRenderFaqItems();
+  // On first load, expand all categories
+  if (_cmsFaqFirstLoad) {
+    _cmsFaqCategories.forEach(function(cat) { _cmsFaqExpanded[cat.id] = true; });
+    _cmsFaqExpanded['__uncat__'] = true;
+    _cmsFaqFirstLoad = false;
+  }
+  cmsRenderFaqAccordion();
 };
 
-function cmsRenderCategories() {
-  var container = document.getElementById('cmsFaqCategoryCards');
-  if (!_cmsFaqCategories.length) {
-    container.innerHTML = '<div class="cms-empty"><p>No categories yet.</p><p>Click "Add Category" to create one.</p></div>';
-    return;
-  }
-  var html = '';
-  _cmsFaqCategories.forEach(function(cat) {
-    var isArchived = cat.archived === true;
-    html += '<div class="cms-card" draggable="true" data-id="' + rsEscape(cat.id) + '"' + (isArchived ? ' style="opacity:0.5;"' : '') + '>' +
-      '<div class="cms-drag-handle" title="Drag to reorder">&#9776;</div>' +
-      (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;">Archived</span>' : '') +
-      '<div class="cms-card-row"><div><div class="cms-card-title">' + rsEscape(cat.name || '') + '</div></div></div>' +
-      '<div style="display:flex;gap:8px;margin-top:10px;">' +
-      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenCategoryModal(\'' + rsEscape(cat.id) + '\')">Edit</button>';
-    if (isArchived) {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'categories\',\'' + rsEscape(cat.id) + '\',cmsLoadFaqs)">Restore</button>';
-    } else {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsDeleteCategory(\'' + rsEscape(cat.id) + '\',\'' + rsEscape(cat.name || '') + '\')">Archive</button>';
-    }
-    html += '</div></div>';
-  });
-  container.innerHTML = html;
-  container.querySelectorAll('.cms-card[draggable]').forEach(function(card) {
-    card.addEventListener('dragstart', cmsCardDragStart);
-    card.addEventListener('dragend', cmsCardDragEnd);
-    card.addEventListener('dragover', cmsCardDragOver);
-    card.addEventListener('dragleave', cmsCardDragLeave);
-    card.addEventListener('drop', cmsCategoryDrop);
-  });
-}
+window.cmsToggleFaqCategory = function(catId) {
+  _cmsFaqExpanded[catId] = !_cmsFaqExpanded[catId];
+  cmsRenderFaqAccordion();
+};
 
-function cmsRenderFaqItems() {
-  var container = document.getElementById('cmsFaqItemsList');
-  if (!_cmsFaqs.length) {
-    container.innerHTML = '<div class="cms-empty"><p>No FAQs yet.</p><p>Click "Add FAQ" to create one.</p></div>';
+function cmsRenderFaqAccordion() {
+  var container = document.getElementById('cmsFaqAccordion');
+  if (!_cmsFaqCategories.length && !_cmsFaqs.length) {
+    container.innerHTML = '<div class="cms-empty"><p>No categories or FAQs yet.</p><p>Click "Add Category" or "Add FAQ" to get started.</p></div>';
     return;
   }
   // Group FAQs by categoryId
@@ -12342,25 +12302,30 @@ function cmsRenderFaqItems() {
     grouped[key].push(faq);
   });
   var html = '';
-  // Render by category order, then uncategorized last
-  var renderedKeys = [];
-  _cmsFaqCategories.forEach(function(cat) {
-    if (grouped[cat.id]) {
-      renderedKeys.push(cat.id);
-      html += '<div class="cms-faq-group">';
-      html += '<div class="cms-faq-group-title">' + rsEscape(cat.name || '') + '</div>';
-      grouped[cat.id].forEach(function(faq) { html += _cmsFaqCardHtml(faq); });
-      html += '</div>';
-    }
+  // Non-archived categories first
+  var activeCats = _cmsFaqCategories.filter(function(c) { return c.archived !== true; });
+  var archivedCats = _cmsFaqCategories.filter(function(c) { return c.archived === true; });
+  activeCats.forEach(function(cat) {
+    html += _cmsFaqCatSectionHtml(cat, grouped[cat.id] || [], false);
   });
-  if (grouped[uncatKey]) {
-    html += '<div class="cms-faq-group">';
-    html += '<div class="cms-faq-group-title">Uncategorized</div>';
-    grouped[uncatKey].forEach(function(faq) { html += _cmsFaqCardHtml(faq); });
-    html += '</div>';
+  // Uncategorized section
+  if (grouped[uncatKey] && grouped[uncatKey].length) {
+    html += _cmsFaqCatSectionHtml({ id: uncatKey, name: 'Uncategorized' }, grouped[uncatKey], false);
   }
+  // Archived categories at the bottom (dimmed)
+  archivedCats.forEach(function(cat) {
+    html += _cmsFaqCatSectionHtml(cat, grouped[cat.id] || [], true);
+  });
   container.innerHTML = html;
-  // Attach drag handlers within each group
+  // Attach drag handlers to category headers
+  container.querySelectorAll('.cms-faq-cat-header[draggable]').forEach(function(header) {
+    header.addEventListener('dragstart', cmsCardDragStart);
+    header.addEventListener('dragend', cmsCardDragEnd);
+    header.addEventListener('dragover', cmsCardDragOver);
+    header.addEventListener('dragleave', cmsCardDragLeave);
+    header.addEventListener('drop', cmsCategoryDrop);
+  });
+  // Attach drag handlers to FAQ cards
   container.querySelectorAll('.cms-faq-card[draggable]').forEach(function(card) {
     card.addEventListener('dragstart', cmsCardDragStart);
     card.addEventListener('dragend', cmsCardDragEnd);
@@ -12368,6 +12333,45 @@ function cmsRenderFaqItems() {
     card.addEventListener('dragleave', cmsCardDragLeave);
     card.addEventListener('drop', cmsFaqDrop);
   });
+}
+
+function _cmsFaqCatSectionHtml(cat, faqs, isArchived) {
+  var expanded = _cmsFaqExpanded[cat.id] !== false; // default expanded
+  var isUncat = cat.id === '__uncat__';
+  var html = '<div class="cms-faq-cat-section" data-cat-id="' + rsEscape(cat.id) + '"' + (isArchived ? ' style="opacity:0.5;"' : '') + '>';
+  // Header row (draggable for real categories, not uncategorized)
+  html += '<div class="cms-faq-cat-header"' + (!isUncat ? ' draggable="true" data-id="' + rsEscape(cat.id) + '"' : '') + ' onclick="cmsToggleFaqCategory(\'' + rsEscape(cat.id) + '\')">';
+  if (!isUncat) html += '<div class="cms-drag-handle" title="Drag to reorder" onclick="event.stopPropagation()">&#9776;</div>';
+  html += '<span class="cms-faq-cat-arrow' + (expanded ? ' open' : '') + '">&#9654;</span>';
+  if (isArchived) html += '<span style="background:#94A3B8;color:#fff;font-size:.65rem;font-weight:700;border-radius:10px;padding:1px 7px;margin-right:4px;">Archived</span>';
+  html += '<span class="cms-faq-cat-name">' + rsEscape(cat.name || '') + '</span>';
+  html += '<span style="font-size:.78rem;color:var(--text-soft);margin-right:4px;">' + faqs.length + ' item' + (faqs.length !== 1 ? 's' : '') + '</span>';
+  // Action buttons
+  html += '<div class="cms-faq-cat-actions">';
+  if (!isUncat) {
+    html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="event.stopPropagation();cmsOpenCategoryModal(\'' + rsEscape(cat.id) + '\')">Edit</button>';
+    if (isArchived) {
+      html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'categories\',\'' + rsEscape(cat.id) + '\',cmsLoadFaqs)">Restore</button>';
+    } else {
+      html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;color:#F97316;" onclick="event.stopPropagation();cmsDeleteCategory(\'' + rsEscape(cat.id) + '\',\'' + rsEscape(cat.name || '') + '\')">Archive</button>';
+    }
+  }
+  if (!isArchived && !isUncat) {
+    html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;color:var(--ocean-deep);" onclick="event.stopPropagation();cmsOpenFaqModal(null,\'' + rsEscape(cat.id) + '\')">+ FAQ</button>';
+  }
+  html += '</div></div>';
+  // Body (FAQ cards)
+  if (expanded) {
+    html += '<div class="cms-faq-cat-body">';
+    if (faqs.length === 0) {
+      html += '<div style="color:var(--text-soft);font-size:.88rem;padding:8px 0;">No FAQs in this category.</div>';
+    } else {
+      faqs.forEach(function(faq) { html += _cmsFaqCardHtml(faq); });
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 function _cmsFaqCardHtml(faq) {
@@ -12475,7 +12479,7 @@ async function cmsCategoryDrop(e) {
   _cmsFaqCategories.forEach(function(cat, i) { batch.update(db.collection('categories').doc(cat.id), { order: i }); });
   try {
     await batch.commit();
-    cmsRenderCategories();
+    cmsRenderFaqAccordion();
     _showToast('Order saved!', '#16A34A');
   } catch (err) { _showToast('Error reordering: ' + err.message, '#DC2626'); }
 }
@@ -12494,12 +12498,12 @@ async function cmsFaqDrop(e) {
   _cmsFaqs.forEach(function(faq, i) { batch.update(db.collection('faqs').doc(faq.id), { order: i }); });
   try {
     await batch.commit();
-    cmsRenderFaqItems();
+    cmsRenderFaqAccordion();
     _showToast('Order saved!', '#16A34A');
   } catch (err) { _showToast('Error reordering: ' + err.message, '#DC2626'); }
 }
 
-window.cmsOpenFaqModal = async function(docId) {
+window.cmsOpenFaqModal = async function(docId, presetCategoryId) {
   document.getElementById('cmsFaqModalTitle').textContent = docId ? 'Edit FAQ' : 'Add FAQ';
   document.getElementById('cmsFaqEditId').value = docId || '';
   document.getElementById('cmsFaqQuestion').value = '';
@@ -12510,6 +12514,7 @@ window.cmsOpenFaqModal = async function(docId) {
   var catSel = document.getElementById('cmsFaqCategory');
   catSel.innerHTML = '<option value="">Uncategorized</option>';
   _cmsFaqCategories.forEach(function(cat) {
+    if (cat.archived === true) return; // don't show archived categories in dropdown
     var opt = document.createElement('option');
     opt.value = cat.id;
     opt.textContent = cat.name || '';
@@ -12527,6 +12532,8 @@ window.cmsOpenFaqModal = async function(docId) {
         _cmsFaqSteps = Array.isArray(d.steps) ? d.steps.slice() : [];
       }
     } catch (e) { console.error(e); }
+  } else if (presetCategoryId) {
+    catSel.value = presetCategoryId;
   }
   cmsRenderFaqSteps();
   document.getElementById('cmsFaqOverlay').classList.add('active');
@@ -12592,8 +12599,6 @@ window.cmsSaveFaq = async function() {
     }
     cmsCloseFaqModal();
     await cmsLoadFaqs();
-    // Stay on FAQ Items tab after saving
-    cmsSwitchFaqTab('items');
     _showToast(docId ? 'FAQ updated.' : 'FAQ added.', '#16A34A');
   } catch (err) {
     _showToast('Error: ' + err.message, '#DC2626');
