@@ -3522,7 +3522,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v24</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v25</span>
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -4868,6 +4868,23 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
                   <div id="cmsRecurringQuestionsList" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
                 </div>
 
+                <hr style="margin:1.5rem 0;border-color:#e2e8f0;">
+                <h4 style="color:var(--primary-blue);margin-bottom:0.5rem;">Cancelled Dates</h4>
+                <p style="font-size:0.85rem;color:var(--text-soft);margin-bottom:0.75rem;">Cancel individual session dates (e.g., holiday, no training this week). These dates will be flagged on the program card.</p>
+                <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;align-items:end;">
+                  <div style="flex:1;">
+                    <label style="font-size:0.8rem;font-weight:600;color:var(--primary-blue);display:block;margin-bottom:3px;">Date to Cancel</label>
+                    <input type="date" id="cmsRecurringCancelDate" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.85rem;">
+                  </div>
+                  <div style="flex:1;">
+                    <label style="font-size:0.8rem;font-weight:600;color:var(--primary-blue);display:block;margin-bottom:3px;">Reason (optional)</label>
+                    <input type="text" id="cmsRecurringCancelReason" placeholder="e.g., Holiday" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.85rem;">
+                  </div>
+                  <button type="button" class="btn btn-primary" style="padding:8px 14px;font-size:.85rem;background:#DC2626;border-color:#DC2626;white-space:nowrap;" onclick="cmsAddCancelledDate()">Cancel Date</button>
+                </div>
+                <div id="cmsRecurringCancelledDatesList" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
+
+                <hr style="margin:1.5rem 0;border-color:#e2e8f0;">
                 <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:#f8f9fa;border-radius:8px;border:1px solid #e2e8f0;margin-top:1rem;">
                   <input type="checkbox" id="cmsRecurringShowGroupField" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;">
                   <label for="cmsRecurringShowGroupField" style="margin:0;cursor:pointer;font-weight:500;">Show "Individual or Group?" question in signup form</label>
@@ -13196,6 +13213,7 @@ var _cmsEventSignupDates = [];
 var _cmsEventCustomQuestions = [];
 var _cmsRecurringSchedules = [];
 var _cmsRecurringQuestions = [];
+var _cmsRecurringCancelledDates = [];
 var _CMS_DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 var _CMS_ORDINAL = ['','1st','2nd','3rd','4th','5th'];
 
@@ -13305,6 +13323,13 @@ function cmsRenderEvents(items, container, isRecurring) {
       }).join('<br>');
       html += '<div class="cms-card-subtitle" style="font-size:.8rem;line-height:1.5;margin-top:4px;">' + schedSummary + '</div>';
     }
+    if (isRecurring && ev.cancelledDates && ev.cancelledDates.length > 0) {
+      var today = new Date().toISOString().split('T')[0];
+      var upcoming = ev.cancelledDates.filter(function(cd) { return cd.date >= today; });
+      if (upcoming.length > 0) {
+        html += '<div style="font-size:.78rem;color:#DC2626;margin-top:4px;font-weight:600;">Cancelled: ' + upcoming.map(function(cd) { return rsEscape(cd.date) + (cd.reason ? ' (' + rsEscape(cd.reason) + ')' : ''); }).join(', ') + '</div>';
+      }
+    }
     if (isRecurring && ev.flyerOnly) {
       html += '<div class="cms-card-subtitle" style="font-style:italic;color:#F59E0B;">Flyer Only (no sign-up)</div>';
     }
@@ -13358,8 +13383,10 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
   document.getElementById('cmsRecurringShowGroupField').checked = false;
   _cmsRecurringSchedules = [];
   _cmsRecurringQuestions = [];
+  _cmsRecurringCancelledDates = [];
   cmsRenderRecurringScheduleRows();
   cmsRenderRecurringQuestions();
+  cmsRenderCancelledDates();
   cmsToggleRecurringScheduleSection();
 
   if (docId) {
@@ -13389,8 +13416,10 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
           document.getElementById('cmsRecurringShowGroupField').checked = !!d.showGroupField;
           if (d.schedules) d.schedules.forEach(function(s) { _cmsRecurringSchedules.push(Object.assign({}, s)); });
           if (d.customQuestions) _cmsRecurringQuestions = d.customQuestions.slice();
+          if (d.cancelledDates) _cmsRecurringCancelledDates = d.cancelledDates.map(function(cd) { return Object.assign({}, cd); });
           cmsRenderRecurringScheduleRows();
           cmsRenderRecurringQuestions();
+          cmsRenderCancelledDates();
           cmsToggleRecurringScheduleSection();
         } else {
           // Populate one-time event fields
@@ -13599,6 +13628,40 @@ function cmsRenderRecurringQuestions() {
   }).join('');
 }
 
+/* ── Recurring: Cancelled Dates helpers ── */
+window.cmsAddCancelledDate = function() {
+  var dateInput = document.getElementById('cmsRecurringCancelDate');
+  var reasonInput = document.getElementById('cmsRecurringCancelReason');
+  var d = dateInput.value;
+  if (!d) { _showToast('Please select a date.', '#DC2626'); return; }
+  if (_cmsRecurringCancelledDates.some(function(cd) { return cd.date === d; })) { _showToast('Date already cancelled.', '#D97706'); return; }
+  _cmsRecurringCancelledDates.push({ date: d, reason: reasonInput.value.trim() });
+  _cmsRecurringCancelledDates.sort(function(a, b) { return a.date.localeCompare(b.date); });
+  dateInput.value = '';
+  reasonInput.value = '';
+  cmsRenderCancelledDates();
+};
+
+window.cmsRemoveCancelledDate = function(idx) {
+  _cmsRecurringCancelledDates.splice(idx, 1);
+  cmsRenderCancelledDates();
+};
+
+function cmsRenderCancelledDates() {
+  var list = document.getElementById('cmsRecurringCancelledDatesList');
+  if (!list) return;
+  if (!_cmsRecurringCancelledDates.length) { list.innerHTML = '<div style="font-size:.83rem;color:var(--text-soft);font-style:italic;">No cancelled dates.</div>'; return; }
+  list.innerHTML = _cmsRecurringCancelledDates.map(function(cd, i) {
+    var isPast = cd.date < new Date().toISOString().split('T')[0];
+    return '<div style="display:flex;align-items:center;gap:0.5rem;padding:6px 10px;background:' + (isPast ? '#f1f5f9' : '#FEF2F2') + ';border-radius:6px;border:1px solid ' + (isPast ? '#e2e8f0' : '#FECACA') + ';' + (isPast ? 'opacity:0.5;' : '') + '">' +
+      '<span style="font-size:.85rem;font-weight:600;color:#DC2626;">' + rsEscape(cd.date) + '</span>' +
+      (cd.reason ? '<span style="font-size:.82rem;color:var(--text-soft);">— ' + rsEscape(cd.reason) + '</span>' : '') +
+      (isPast ? '<span style="font-size:.72rem;color:#94A3B8;margin-left:auto;">past</span>' : '') +
+      '<button type="button" class="btn btn-ghost" style="padding:2px 8px;font-size:.75rem;color:#DC2626;margin-left:' + (isPast ? '4px' : 'auto') + ';" onclick="cmsRemoveCancelledDate(' + i + ')">&times;</button>' +
+      '</div>';
+  }).join('');
+}
+
 /* ── Recurring: Toggle flyer-only section ── */
 window.cmsToggleRecurringScheduleSection = function() {
   var hidden = document.getElementById('cmsRecurringFlyerOnly').checked;
@@ -13629,6 +13692,7 @@ window.cmsSaveEvent = async function() {
     payload.flyerOnly = isFlyerOnly;
     payload.schedules = isFlyerOnly ? [] : _cmsRecurringSchedules;
     payload.customQuestions = isFlyerOnly ? [] : _cmsRecurringQuestions;
+    payload.cancelledDates = _cmsRecurringCancelledDates;
     payload.showGroupField = isFlyerOnly ? false : document.getElementById('cmsRecurringShowGroupField').checked;
   } else {
     payload.eventDate = document.getElementById('cmsEventDate').value;
@@ -13717,22 +13781,32 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
   }
 };
 
+var _cmsSignupsShowArchived = false;
+
 function cmsRenderSignupsList(signups, collection, eventId) {
   var container = document.getElementById('cmsSignupsList');
-  if (!signups.length) {
-    container.innerHTML = '<div class="cms-empty"><p>No signups yet for this event.</p></div>';
+  var active = signups.filter(function(s) { return s.archived !== true; });
+  var archived = signups.filter(function(s) { return s.archived === true; });
+  var displayList = _cmsSignupsShowArchived ? signups : active;
+  if (!displayList.length) {
+    var msg = _cmsSignupsShowArchived ? 'No signups (including archived).' : 'No active signups.' + (archived.length ? ' (' + archived.length + ' archived)' : '');
+    container.innerHTML = '<div class="cms-empty"><p>' + msg + '</p></div>' +
+      (archived.length ? '<div style="text-align:center;margin-top:8px;"><button class="btn btn-ghost" style="font-size:.8rem;" onclick="_cmsSignupsShowArchived=true;cmsRenderSignupsList(_cmsSignupsModalData.signups,\'' + collection + '\',\'' + rsEscape(eventId) + '\')">Show Archived (' + archived.length + ')</button></div>' : '');
     return;
   }
   var statusColors = { new: '#64748B', pending: '#D97706', confirmed: '#16A34A', cancelled: '#DC2626' };
   var html = '';
-  signups.forEach(function(s) {
+  if (archived.length > 0) {
+    html += '<div style="text-align:right;margin-bottom:10px;"><button class="btn btn-ghost" style="font-size:.8rem;" onclick="_cmsSignupsShowArchived=!_cmsSignupsShowArchived;cmsRenderSignupsList(_cmsSignupsModalData.signups,\'' + collection + '\',\'' + rsEscape(eventId) + '\')">' + (_cmsSignupsShowArchived ? 'Hide' : 'Show') + ' Archived (' + archived.length + ')</button></div>';
+  }
+  displayList.forEach(function(s) {
     var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
     var statusColor = statusColors[s.status] || '#64748B';
     var notesId = 'cmsNotes_' + s.id;
-    html += '<div style="border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px;margin-bottom:12px;background:#FAFCFF;">' +
+    html += '<div style="border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px;margin-bottom:12px;background:' + (s.archived ? '#f1f5f9' : '#FAFCFF') + ';' + (s.archived ? 'opacity:0.55;' : '') + '">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
       '<div>' +
-      '<div style="font-weight:600;font-size:.97rem;">' + name + '</div>';
+      '<div style="font-weight:600;font-size:.97rem;">' + name + (s.archived ? ' <span style="font-size:.75rem;color:#94A3B8;font-weight:400;">(archived)</span>' : '') + '</div>';
     if (s.email) html += '<div style="font-size:.85rem;color:var(--text-soft);">' + rsEscape(s.email) + '</div>';
     if (s.phone) html += '<div style="font-size:.85rem;color:var(--text-soft);">' + rsEscape(s.phone) + '</div>';
     if (s.preferredContact) html += '<div style="font-size:.83rem;color:var(--text-soft);">Preferred contact: ' + rsEscape(s.preferredContact) + '</div>';
@@ -13753,6 +13827,7 @@ function cmsRenderSignupsList(signups, collection, eventId) {
       '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#F0FDF4;color:#16A34A;" onclick="cmsUpdateSignupStatus(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',\'confirmed\')">Confirm</button>' +
       '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="cmsUpdateSignupStatus(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',\'new\')">Mark New</button>' +
       '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#FEF2F2;color:#DC2626;" onclick="cmsUpdateSignupStatus(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',\'cancelled\')">Cancel</button>' +
+      (s.archived ? '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#F0FDF4;color:#16A34A;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',false)">Restore</button>' : '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#F5F3FF;color:#7C3AED;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',true)">Archive</button>') +
       '</div>' +
       '<div style="margin-top:10px;">' +
       '<label style="font-size:.8rem;color:var(--text-soft);display:block;margin-bottom:4px;">Admin Notes</label>' +
@@ -13786,6 +13861,16 @@ window.cmsSaveSignupNotes = async function(collection, eventId, signupId, textar
     var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
     if (s) s.adminNotes = notes;
     _showToast('Notes saved.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+window.cmsArchiveSignup = async function(collection, eventId, signupId, archive) {
+  try {
+    await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ archived: archive });
+    var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+    if (s) s.archived = archive;
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+    _showToast(archive ? 'Signup archived.' : 'Signup restored.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
