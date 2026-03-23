@@ -3522,7 +3522,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v21</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v22</span>
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -4396,12 +4396,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       <div class="cms-dash-header">
         <h2>Website CMS</h2>
         <p>Welcome back! Here's what's happening with LDAH's website.</p>
-      </div>
-
-      <!-- Needs Your Attention Banner -->
-      <div id="cmsDashAttentionBanner" style="display:none;background:linear-gradient(135deg,#F59E0B,#D97706);border-radius:12px;padding:0;margin-bottom:20px;overflow:hidden;">
-        <div style="padding:12px 18px;font-weight:700;color:#fff;font-size:.92rem;">Needs Your Attention</div>
-        <div id="cmsDashAttentionItems" style="background:#FFFBEB;padding:4px 0;"></div>
       </div>
 
       <div class="cms-dash-kpis">
@@ -10922,11 +10916,26 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         snap.forEach(function(doc) { if (doc.data().archived !== true) n++; });
         return n;
       }
+      // Count pending event signups from subcollections
+      var pendingSignups = 0;
+      var evSnap = await db.collection('events').get();
+      var recSnap = await db.collection('recurringEvents').get();
+      var signupProms = [];
+      evSnap.forEach(function(doc) { signupProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
+      recSnap.forEach(function(doc) { signupProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
+      var signupSnaps = await Promise.all(signupProms);
+      signupSnaps.forEach(function(snap) {
+        snap.forEach(function(doc) {
+          var st = doc.data().status;
+          if (st === 'pending' || st === 'new') pendingSignups++;
+        });
+      });
       _cmsAlertCounts = {
         volunteers:    _countActive(volSnap),
         contacts:      _countActive(contactSnap),
         providers:     _countActive(provSnap),
-        eventRequests: _countActive(eventReqSnap)
+        eventRequests: _countActive(eventReqSnap),
+        eventSignups:  pendingSignups
       };
       return _cmsAlertCounts;
     } catch (e) {
@@ -10991,6 +11000,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=cmsWebData]\').click();setTimeout(function(){cmsSwitchWebDataTab(\'eventRequests\');},300);">' +
             '<div class="notif-title">' + counts.eventRequests + ' pending event request' + (counts.eventRequests !== 1 ? 's' : '') + '</div>' +
             '<div class="notif-msg">Website Data &rsaquo; Event Requests</div>' +
+            '</div>'
+          );
+        }
+        if (counts.eventSignups > 0) {
+          cmsItems.push(
+            '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=cmsEvents]\').click();">' +
+            '<div class="notif-title">' + counts.eventSignups + ' new event signup' + (counts.eventSignups !== 1 ? 's' : '') + ' to review</div>' +
+            '<div class="notif-msg">Events &amp; Programs</div>' +
             '</div>'
           );
         }
@@ -11079,7 +11096,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var counts = _cmsAlertCounts || await cmsGetAlertCounts();
         if (counts) {
           cmsCount = (counts.volunteers || 0) + (counts.contacts || 0) +
-                     (counts.providers || 0) + (counts.eventRequests || 0);
+                     (counts.providers || 0) + (counts.eventRequests || 0) +
+                     (counts.eventSignups || 0);
         }
       }
 
@@ -15434,35 +15452,6 @@ window.cmsLoadCmsDashboard = async function() {
         pendingEl.textContent = pendingSignups + ' PENDING';
         pendingEl.style.display = '';
       } else { pendingEl.style.display = 'none'; }
-    }
-
-    // "Needs Your Attention" banner
-    var attentionItems = [];
-    if (pendingSignups > 0) {
-      attentionItems.push({ label: pendingSignups + ' new event signup' + (pendingSignups !== 1 ? 's' : '') + ' to review', count: pendingSignups, onclick: "document.querySelector('[data-section=\"cmsEvents\"]').click();" });
-    }
-    // Also count new volunteers, contacts, providers for attention banner
-    var newVolCount = 0; volSnap.forEach(function(doc) { var d = doc.data(); if (d.status === 'new' && d.archived !== true) newVolCount++; });
-    if (newVolCount > 0) {
-      attentionItems.push({ label: newVolCount + ' new volunteer application' + (newVolCount !== 1 ? 's' : '') + ' need review', count: newVolCount, onclick: "document.querySelector('[data-section=\"cmsVolunteers\"]').click();setTimeout(function(){cmsSwitchVolunteersTab('applications');},300);" });
-    }
-    var newContactCount = 0;
-    var contactSnap2 = await db.collection('contactSubmissions').get();
-    contactSnap2.forEach(function(doc) { var d = doc.data(); if (d.status === 'new' && d.archived !== true) newContactCount++; });
-    if (newContactCount > 0) {
-      attentionItems.push({ label: newContactCount + ' new contact message' + (newContactCount !== 1 ? 's' : ''), count: newContactCount, onclick: "document.querySelector('[data-section=\"cmsWebData\"]').click();setTimeout(function(){cmsSwitchWebDataTab('contactMessages');},300);" });
-    }
-    var banner = document.getElementById('cmsDashAttentionBanner');
-    var bannerItems = document.getElementById('cmsDashAttentionItems');
-    if (banner && bannerItems) {
-      if (attentionItems.length > 0) {
-        banner.style.display = '';
-        bannerItems.innerHTML = attentionItems.map(function(item) {
-          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;cursor:pointer;border-bottom:1px solid rgba(217,119,6,.1);" onclick="' + item.onclick.replace(/"/g, '&quot;') + '" onmouseover="this.style.background=\'rgba(217,119,6,.06)\'" onmouseout="this.style.background=\'transparent\'">' +
-            '<span style="font-size:.9rem;color:#92400E;">' + item.label + '</span>' +
-            '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:999px;background:#DC2626;color:#fff;font-size:.78rem;font-weight:700;padding:0 7px;">' + item.count + '</span></div>';
-        }).join('');
-      } else { banner.style.display = 'none'; }
     }
 
     // Events nav badge for pending signups
