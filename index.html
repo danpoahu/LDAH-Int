@@ -249,16 +249,67 @@
     /* Topbar */
     .topbar{
       display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:14px;
-      padding:14px 14px;
+      flex-direction:column;
       border-radius: var(--radius);
       background: rgba(255,255,255,.92);
       backdrop-filter: blur(10px);
       border: 1px solid rgba(8,145,178,.10);
       box-shadow: var(--shadow-soft);
       position: relative;
+      padding:0;
+    }
+    .topbar-presence-strip{
+      display:flex;
+      align-items:center;
+      gap:0;
+      padding:6px 14px;
+      border-bottom:1px solid rgba(8,145,178,.08);
+      min-height:28px;
+      overflow:hidden;
+    }
+    .topbar-presence-scroll{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      overflow-x:auto;
+      flex:1;
+      scrollbar-width:none;
+      -ms-overflow-style:none;
+    }
+    .topbar-presence-scroll::-webkit-scrollbar{ display:none; }
+    .topbar-presence-fixed{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      flex-shrink:0;
+      margin-left:8px;
+      padding-left:8px;
+      border-left:1px solid rgba(8,145,178,.12);
+    }
+    .tp-user{
+      display:inline-flex;
+      align-items:center;
+      gap:3px;
+      font-size:.72rem;
+      font-weight:700;
+      white-space:nowrap;
+      padding:2px 6px;
+      border-radius:10px;
+      cursor:default;
+      flex-shrink:0;
+    }
+    .tp-user .tp-dot{
+      width:7px;height:7px;border-radius:50%;flex-shrink:0;
+    }
+    .tp-dot.green{ background:#16A34A; }
+    .tp-dot.yellow{ background:#EAB308; }
+    .tp-dot.red{ background:#DC2626; opacity:.6; }
+    .topbar-controls{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      padding:8px 14px 20px;
     }
     .topbar-logo{
       height: 94px; width: auto; flex-shrink: 0;
@@ -3522,7 +3573,16 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v28</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v29</span>
+
+        <!-- Presence Strip -->
+        <div class="topbar-presence-strip">
+          <div class="topbar-presence-scroll" id="presenceScrollOnline"></div>
+          <div class="topbar-presence-fixed" id="presenceFixedOffline"></div>
+        </div>
+
+        <!-- Controls Row -->
+        <div class="topbar-controls">
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -3555,6 +3615,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   </div>
 </div>
         </div>
+        </div><!-- /topbar-controls -->
       </header>
 
       <div id="weatherAlertsBanner" style="display:none;"></div>
@@ -6401,6 +6462,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             online: true,
             lastSeen: firebase.firestore.FieldValue.serverTimestamp()
           }, { merge: true }).catch(function(e){ console.warn('Chat presence write failed (update Firestore rules):', e.message); });
+          // Initialize topbar presence strip
+          if (typeof initPresenceStrip === 'function') initPresenceStrip();
           // Initialize weather system, then auto-show overlay on load with 30s revert
           if (window.initWeatherSystem) {
             window.initWeatherSystem().then(function() {
@@ -7005,6 +7068,75 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         '</div></div>';
     });
     container.innerHTML = html;
+  }
+
+  // ── Topbar Presence Strip ──
+  var _presenceUnsubscribe = null;
+
+  function initPresenceStrip() {
+    if (_presenceUnsubscribe) _presenceUnsubscribe();
+    // Real-time listener on chatPresence collection
+    _presenceUnsubscribe = db.collection('chatPresence').onSnapshot(function(snap) {
+      renderPresenceStrip(snap);
+    }, function(err) {
+      console.warn('Presence strip error:', err.message);
+    });
+  }
+
+  function renderPresenceStrip(snap) {
+    var scrollEl = document.getElementById('presenceScrollOnline');
+    var fixedEl = document.getElementById('presenceFixedOffline');
+    if (!scrollEl || !fixedEl) return;
+
+    var staleThreshold = Date.now() - (15 * 60 * 1000); // 15 min
+    var greens = [], yellows = [], reds = [];
+
+    snap.forEach(function(doc) {
+      var d = doc.data();
+      if (!d.displayName) return;
+      var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
+      var isStale = lastSeenMs < staleThreshold;
+      var nameParts = (d.displayName || '').trim().split(/\s+/);
+      var initial = nameParts.length > 1 ? nameParts[nameParts.length - 1].charAt(0).toUpperCase() : nameParts[0].charAt(0).toUpperCase();
+      var firstName = nameParts[0] || '';
+
+      var entry = { initial: initial, firstName: firstName, name: d.displayName, lastSeenMs: lastSeenMs };
+
+      if (d.online && !isStale) {
+        entry.status = 'green';
+        greens.push(entry);
+      } else if (d.online && isStale) {
+        entry.status = 'yellow';
+        yellows.push(entry);
+      } else if (lastSeenMs > 0) {
+        entry.status = 'red';
+        reds.push(entry);
+      }
+    });
+
+    // Sort greens alpha, reds by most recent first
+    greens.sort(function(a, b) { return a.name.localeCompare(b.name); });
+    reds.sort(function(a, b) { return b.lastSeenMs - a.lastSeenMs; });
+
+    // Green dots go in scrollable area
+    scrollEl.innerHTML = greens.map(function(u) {
+      return '<span class="tp-user" title="' + u.name + ' (online)"><span class="tp-dot green"></span>' + u.initial + '</span>';
+    }).join('');
+
+    // Yellow + red go in fixed area (never scroll)
+    var fixedHtml = '';
+    yellows.forEach(function(u) {
+      fixedHtml += '<span class="tp-user" title="' + u.name + ' (idle)"><span class="tp-dot yellow"></span>' + u.initial + '</span>';
+    });
+    // Only show reds if there's room (up to fill the strip, max 8)
+    var redsToShow = reds.slice(0, Math.max(0, 8 - greens.length - yellows.length));
+    redsToShow.forEach(function(u) {
+      fixedHtml += '<span class="tp-user" title="' + u.name + ' (offline)" style="opacity:.5;"><span class="tp-dot red"></span>' + u.initial + '</span>';
+    });
+
+    fixedEl.innerHTML = fixedHtml;
+    // Hide divider if no fixed items
+    fixedEl.style.display = fixedHtml ? '' : 'none';
   }
 
   // ── Toast helper ──
