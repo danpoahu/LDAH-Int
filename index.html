@@ -3522,7 +3522,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v25</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v26</span>
         <div class="topbar-left">
           <img src="logo_blue.png" alt="LDAH" class="topbar-logo" style="cursor:pointer;" onclick="document.querySelector('[data-section=dashboard]').click()" title="Home">
         </div>
@@ -4867,22 +4867,6 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
                   </div>
                   <div id="cmsRecurringQuestionsList" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
                 </div>
-
-                <hr style="margin:1.5rem 0;border-color:#e2e8f0;">
-                <h4 style="color:var(--primary-blue);margin-bottom:0.5rem;">Cancelled Dates</h4>
-                <p style="font-size:0.85rem;color:var(--text-soft);margin-bottom:0.75rem;">Cancel individual session dates (e.g., holiday, no training this week). These dates will be flagged on the program card.</p>
-                <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;align-items:end;">
-                  <div style="flex:1;">
-                    <label style="font-size:0.8rem;font-weight:600;color:var(--primary-blue);display:block;margin-bottom:3px;">Date to Cancel</label>
-                    <input type="date" id="cmsRecurringCancelDate" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.85rem;">
-                  </div>
-                  <div style="flex:1;">
-                    <label style="font-size:0.8rem;font-weight:600;color:var(--primary-blue);display:block;margin-bottom:3px;">Reason (optional)</label>
-                    <input type="text" id="cmsRecurringCancelReason" placeholder="e.g., Holiday" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.85rem;">
-                  </div>
-                  <button type="button" class="btn btn-primary" style="padding:8px 14px;font-size:.85rem;background:#DC2626;border-color:#DC2626;white-space:nowrap;" onclick="cmsAddCancelledDate()">Cancel Date</button>
-                </div>
-                <div id="cmsRecurringCancelledDatesList" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
 
                 <hr style="margin:1.5rem 0;border-color:#e2e8f0;">
                 <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:#f8f9fa;border-radius:8px;border:1px solid #e2e8f0;margin-top:1rem;">
@@ -13213,7 +13197,6 @@ var _cmsEventSignupDates = [];
 var _cmsEventCustomQuestions = [];
 var _cmsRecurringSchedules = [];
 var _cmsRecurringQuestions = [];
-var _cmsRecurringCancelledDates = [];
 var _CMS_DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 var _CMS_ORDINAL = ['','1st','2nd','3rd','4th','5th'];
 
@@ -13383,10 +13366,8 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
   document.getElementById('cmsRecurringShowGroupField').checked = false;
   _cmsRecurringSchedules = [];
   _cmsRecurringQuestions = [];
-  _cmsRecurringCancelledDates = [];
   cmsRenderRecurringScheduleRows();
   cmsRenderRecurringQuestions();
-  cmsRenderCancelledDates();
   cmsToggleRecurringScheduleSection();
 
   if (docId) {
@@ -13416,10 +13397,8 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
           document.getElementById('cmsRecurringShowGroupField').checked = !!d.showGroupField;
           if (d.schedules) d.schedules.forEach(function(s) { _cmsRecurringSchedules.push(Object.assign({}, s)); });
           if (d.customQuestions) _cmsRecurringQuestions = d.customQuestions.slice();
-          if (d.cancelledDates) _cmsRecurringCancelledDates = d.cancelledDates.map(function(cd) { return Object.assign({}, cd); });
           cmsRenderRecurringScheduleRows();
           cmsRenderRecurringQuestions();
-          cmsRenderCancelledDates();
           cmsToggleRecurringScheduleSection();
         } else {
           // Populate one-time event fields
@@ -13628,38 +13607,41 @@ function cmsRenderRecurringQuestions() {
   }).join('');
 }
 
-/* ── Recurring: Cancelled Dates helpers ── */
-window.cmsAddCancelledDate = function() {
-  var dateInput = document.getElementById('cmsRecurringCancelDate');
-  var reasonInput = document.getElementById('cmsRecurringCancelReason');
-  var d = dateInput.value;
-  if (!d) { _showToast('Please select a date.', '#DC2626'); return; }
-  if (_cmsRecurringCancelledDates.some(function(cd) { return cd.date === d; })) { _showToast('Date already cancelled.', '#D97706'); return; }
-  _cmsRecurringCancelledDates.push({ date: d, reason: reasonInput.value.trim() });
-  _cmsRecurringCancelledDates.sort(function(a, b) { return a.date.localeCompare(b.date); });
-  dateInput.value = '';
-  reasonInput.value = '';
-  cmsRenderCancelledDates();
-};
+/* ── Recurring: Generate upcoming session dates from schedule patterns ── */
+function cmsGenerateSessionDates(schedules, cancelledDates, days) {
+  var sessions = [];
+  var today = new Date(); today.setHours(0,0,0,0);
+  var end = new Date(today); end.setDate(end.getDate() + (days || 30));
+  var cancelled = (cancelledDates || []).reduce(function(m, cd) { m[cd.date] = cd.reason || true; return m; }, {});
 
-window.cmsRemoveCancelledDate = function(idx) {
-  _cmsRecurringCancelledDates.splice(idx, 1);
-  cmsRenderCancelledDates();
-};
-
-function cmsRenderCancelledDates() {
-  var list = document.getElementById('cmsRecurringCancelledDatesList');
-  if (!list) return;
-  if (!_cmsRecurringCancelledDates.length) { list.innerHTML = '<div style="font-size:.83rem;color:var(--text-soft);font-style:italic;">No cancelled dates.</div>'; return; }
-  list.innerHTML = _cmsRecurringCancelledDates.map(function(cd, i) {
-    var isPast = cd.date < new Date().toISOString().split('T')[0];
-    return '<div style="display:flex;align-items:center;gap:0.5rem;padding:6px 10px;background:' + (isPast ? '#f1f5f9' : '#FEF2F2') + ';border-radius:6px;border:1px solid ' + (isPast ? '#e2e8f0' : '#FECACA') + ';' + (isPast ? 'opacity:0.5;' : '') + '">' +
-      '<span style="font-size:.85rem;font-weight:600;color:#DC2626;">' + rsEscape(cd.date) + '</span>' +
-      (cd.reason ? '<span style="font-size:.82rem;color:var(--text-soft);">— ' + rsEscape(cd.reason) + '</span>' : '') +
-      (isPast ? '<span style="font-size:.72rem;color:#94A3B8;margin-left:auto;">past</span>' : '') +
-      '<button type="button" class="btn btn-ghost" style="padding:2px 8px;font-size:.75rem;color:#DC2626;margin-left:' + (isPast ? '4px' : 'auto') + ';" onclick="cmsRemoveCancelledDate(' + i + ')">&times;</button>' +
-      '</div>';
-  }).join('');
+  (schedules || []).forEach(function(sch) {
+    var d = new Date(today);
+    while (d <= end) {
+      var dow = d.getDay();
+      var dominated = false;
+      if (sch.frequency === 'weekly' && dow === sch.dayOfWeek) dominated = true;
+      if (sch.frequency === 'monthly-nth' && dow === sch.dayOfWeek) {
+        var weekNum = Math.ceil(d.getDate() / 7);
+        if (weekNum === sch.weekOfMonth) dominated = true;
+      }
+      if (dominated) {
+        var iso = d.toISOString().split('T')[0];
+        sessions.push({
+          date: iso,
+          dayName: _CMS_DAY_NAMES[dow],
+          location: sch.location || '',
+          venue: sch.venue || '',
+          startTime: sch.startTime || '',
+          endTime: sch.endTime || '',
+          cancelled: !!cancelled[iso],
+          cancelReason: cancelled[iso] === true ? '' : (cancelled[iso] || '')
+        });
+      }
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  sessions.sort(function(a, b) { return a.date.localeCompare(b.date); });
+  return sessions;
 }
 
 /* ── Recurring: Toggle flyer-only section ── */
@@ -13692,7 +13674,6 @@ window.cmsSaveEvent = async function() {
     payload.flyerOnly = isFlyerOnly;
     payload.schedules = isFlyerOnly ? [] : _cmsRecurringSchedules;
     payload.customQuestions = isFlyerOnly ? [] : _cmsRecurringQuestions;
-    payload.cancelledDates = _cmsRecurringCancelledDates;
     payload.showGroupField = isFlyerOnly ? false : document.getElementById('cmsRecurringShowGroupField').checked;
   } else {
     payload.eventDate = document.getElementById('cmsEventDate').value;
@@ -13764,6 +13745,8 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
   _cmsSignupsModalData.isRecurring = !!isRecurring;
   _cmsSignupsModalData.eventTitle = eventTitle;
   _cmsSignupsModalData.signups = [];
+  _cmsSignupsModalData.programDoc = null;
+  _cmsSignupsShowArchived = false;
   document.getElementById('cmsSignupsModalTitle').textContent = 'Signups: ' + eventTitle;
   document.getElementById('cmsSignupsList').innerHTML = '<div class="cms-empty"><p>Loading signups...</p></div>';
   document.getElementById('cmsSignupsOverlay').classList.add('active');
@@ -13775,6 +13758,11 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
     snap.forEach(function(doc) {
       _cmsSignupsModalData.signups.push({ id: doc.id, ...doc.data() });
     });
+    // For recurring programs, fetch the program doc for schedule + cancelledDates
+    if (isRecurring) {
+      var progDoc = await db.collection('recurringEvents').doc(eventId).get();
+      if (progDoc.exists) _cmsSignupsModalData.programDoc = progDoc.data();
+    }
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
   } catch (err) {
     document.getElementById('cmsSignupsList').innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
@@ -13787,6 +13775,13 @@ function cmsRenderSignupsList(signups, collection, eventId) {
   var container = document.getElementById('cmsSignupsList');
   var active = signups.filter(function(s) { return s.archived !== true; });
   var archived = signups.filter(function(s) { return s.archived === true; });
+
+  // For recurring programs, render date-grouped view
+  if (_cmsSignupsModalData.isRecurring && _cmsSignupsModalData.programDoc) {
+    cmsRenderRecurringSignupsByDate(active, archived, collection, eventId);
+    return;
+  }
+
   var displayList = _cmsSignupsShowArchived ? signups : active;
   if (!displayList.length) {
     var msg = _cmsSignupsShowArchived ? 'No signups (including archived).' : 'No active signups.' + (archived.length ? ' (' + archived.length + ' archived)' : '');
@@ -13838,6 +13833,125 @@ function cmsRenderSignupsList(signups, collection, eventId) {
   });
   container.innerHTML = html;
 }
+
+function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) {
+  var container = document.getElementById('cmsSignupsList');
+  var prog = _cmsSignupsModalData.programDoc;
+  var sessions = cmsGenerateSessionDates(prog.schedules, prog.cancelledDates, 30);
+  var statusColors = { new: '#64748B', pending: '#D97706', confirmed: '#16A34A', cancelled: '#DC2626' };
+  var html = '';
+
+  if (archived.length > 0) {
+    html += '<div style="text-align:right;margin-bottom:10px;"><button class="btn btn-ghost" style="font-size:.8rem;" onclick="_cmsSignupsShowArchived=!_cmsSignupsShowArchived;cmsRenderSignupsList(_cmsSignupsModalData.signups,\'' + collection + '\',\'' + rsEscape(eventId) + '\')">' + (_cmsSignupsShowArchived ? 'Hide' : 'Show') + ' Archived (' + archived.length + ')</button></div>';
+  }
+
+  sessions.forEach(function(sess) {
+    // Find signups for this session date
+    var dateSignups = active.filter(function(s) {
+      var sDates = s.selectedSessions || s.selectedDates || [];
+      return sDates.some(function(sd) { return sd.indexOf(sess.date) !== -1; });
+    });
+    var sessLabel = sess.dayName + ', ' + sess.date + ' — ' + cmsFmt12(sess.startTime) + ' - ' + cmsFmt12(sess.endTime) + ' @ ' + sess.location + (sess.venue ? ' (' + sess.venue + ')' : '');
+
+    html += '<div style="margin-bottom:16px;border:1px solid ' + (sess.cancelled ? '#FECACA' : '#e2e8f0') + ';border-radius:10px;overflow:hidden;' + (sess.cancelled ? 'background:#FEF2F2;' : '') + '">';
+    // Date header with cancel checkbox
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:' + (sess.cancelled ? '#FEE2E2' : '#f0f9ff') + ';border-bottom:1px solid ' + (sess.cancelled ? '#FECACA' : '#e2e8f0') + ';">';
+    html += '<input type="checkbox" ' + (sess.cancelled ? 'checked' : '') + ' onchange="cmsToggleSessionCancel(\'' + rsEscape(eventId) + '\',\'' + rsEscape(sess.date) + '\',this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#DC2626;">';
+    html += '<div style="flex:1;">';
+    html += '<div style="font-weight:600;font-size:.88rem;' + (sess.cancelled ? 'color:#DC2626;text-decoration:line-through;' : 'color:var(--primary-blue);') + '">' + rsEscape(sessLabel) + '</div>';
+    if (sess.cancelled) html += '<div style="font-size:.78rem;color:#DC2626;font-weight:600;">CANCELLED' + (sess.cancelReason ? ' — ' + rsEscape(sess.cancelReason) : '') + '</div>';
+    html += '</div>';
+    html += '<span style="font-size:.78rem;color:var(--text-soft);">' + dateSignups.length + ' signup' + (dateSignups.length !== 1 ? 's' : '') + '</span>';
+    html += '</div>';
+
+    // Participants for this date
+    if (!sess.cancelled && dateSignups.length > 0) {
+      dateSignups.forEach(function(s) {
+        var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
+        var statusColor = statusColors[s.status] || '#64748B';
+        html += '<div style="padding:8px 14px 8px 38px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+        html += '<div style="flex:1;"><span style="font-weight:500;font-size:.88rem;">' + name + '</span>';
+        if (s.email) html += '<span style="font-size:.8rem;color:var(--text-soft);margin-left:8px;">' + rsEscape(s.email) + '</span>';
+        if (s.phone) html += '<span style="font-size:.8rem;color:var(--text-soft);margin-left:8px;">' + rsEscape(s.phone) + '</span>';
+        html += '</div>';
+        html += '<span style="background:' + statusColor + ';color:#fff;font-size:.7rem;font-weight:600;border-radius:20px;padding:2px 8px;">' + rsEscape(s.status || 'pending') + '</span>';
+        html += '</div>';
+      });
+    } else if (!sess.cancelled) {
+      html += '<div style="padding:8px 14px 8px 38px;font-size:.83rem;color:var(--text-soft);font-style:italic;">No signups for this date</div>';
+    }
+    html += '</div>';
+  });
+
+  // Show unmatched signups (signed up but not matched to a specific upcoming date)
+  var matchedIds = {};
+  sessions.forEach(function(sess) {
+    active.forEach(function(s) {
+      var sDates = s.selectedSessions || s.selectedDates || [];
+      if (sDates.some(function(sd) { return sd.indexOf(sess.date) !== -1; })) matchedIds[s.id] = true;
+    });
+  });
+  var unmatched = active.filter(function(s) { return !matchedIds[s.id]; });
+  if (unmatched.length > 0) {
+    html += '<div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">';
+    html += '<div style="padding:10px 14px;background:#FFFBEB;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:.88rem;color:#92400E;">Other Signups (no specific date matched)</div>';
+    unmatched.forEach(function(s) {
+      var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
+      var statusColor = statusColors[s.status] || '#64748B';
+      var sessions = s.selectedSessions || s.selectedDates || [];
+      html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+      html += '<div style="flex:1;"><span style="font-weight:500;font-size:.88rem;">' + name + '</span>';
+      if (sessions.length) html += '<div style="font-size:.78rem;color:var(--text-soft);">Sessions: ' + rsEscape(sessions.join(', ')) + '</div>';
+      html += '</div>';
+      html += '<span style="background:' + statusColor + ';color:#fff;font-size:.7rem;font-weight:600;border-radius:20px;padding:2px 8px;">' + rsEscape(s.status || 'pending') + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // Show archived if toggled
+  if (_cmsSignupsShowArchived && archived.length > 0) {
+    html += '<div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;opacity:0.55;">';
+    html += '<div style="padding:10px 14px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:.88rem;color:#94A3B8;">Archived Signups</div>';
+    archived.forEach(function(s) {
+      var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
+      html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+      html += '<span style="font-size:.88rem;">' + name + '</span>';
+      html += '<button class="btn btn-ghost" style="font-size:.75rem;padding:2px 8px;color:#16A34A;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',false)">Restore</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  if (!sessions.length && !active.length) {
+    html = '<div class="cms-empty"><p>No upcoming sessions in the next 30 days.</p></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+window.cmsToggleSessionCancel = async function(eventId, dateStr, isCancelled) {
+  try {
+    var docRef = db.collection('recurringEvents').doc(eventId);
+    var doc = await docRef.get();
+    if (!doc.exists) return;
+    var data = doc.data();
+    var cancelledDates = data.cancelledDates || [];
+
+    if (isCancelled) {
+      if (!cancelledDates.some(function(cd) { return cd.date === dateStr; })) {
+        cancelledDates.push({ date: dateStr, reason: '' });
+      }
+    } else {
+      cancelledDates = cancelledDates.filter(function(cd) { return cd.date !== dateStr; });
+    }
+
+    await docRef.update({ cancelledDates: cancelledDates });
+    _cmsSignupsModalData.programDoc.cancelledDates = cancelledDates;
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
+    _showToast(isCancelled ? 'Session cancelled.' : 'Session restored.', isCancelled ? '#DC2626' : '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
 
 window.cmsCloseSignupsModal = function() {
   document.getElementById('cmsSignupsOverlay').classList.remove('active');
