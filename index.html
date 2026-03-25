@@ -3481,6 +3481,13 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 .pe2-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:7999;}
 .pe2-backdrop.open{display:block;}
 .pe2-loading{display:flex;align-items:center;justify-content:center;padding:60px;color:var(--text-soft);font-size:.95rem;}
+.pe2-publish-bar{display:none;align-items:center;gap:12px;padding:10px 20px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-bottom:2px solid #f59e0b;position:sticky;top:0;z-index:10;}
+.pe2-publish-bar.has-changes{display:flex;}
+.pe2-publish-bar-text{flex:1;font-size:.88rem;font-weight:600;color:#92400e;}
+.pe2-publish-btn{padding:8px 24px;border-radius:10px;border:none;background:#166534;color:white;font-size:.88rem;font-weight:700;cursor:pointer;font-family:'Source Sans 3',sans-serif;transition:all .15s;}
+.pe2-publish-btn:hover{background:#15803d;}
+.pe2-discard-btn{padding:8px 18px;border-radius:10px;border:1px solid #dc2626;background:white;color:#dc2626;font-size:.85rem;font-weight:600;cursor:pointer;font-family:'Source Sans 3',sans-serif;transition:all .15s;}
+.pe2-discard-btn:hover{background:#fef2f2;}
 @media(max-width:768px){
 .pe2-container{flex-direction:column;}
 .pe2-sidebar{width:100%;min-width:0;flex-direction:row;overflow-x:auto;border-radius:var(--radius) var(--radius) 0 0;padding:10px;}
@@ -3684,7 +3691,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v38</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v39</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5297,6 +5304,11 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           <div class="pe2-sidebar-title">Pages</div>
         </div>
         <div class="pe2-preview-area" id="pe2PreviewArea">
+          <div class="pe2-publish-bar" id="pe2PublishBar">
+            <div class="pe2-publish-bar-text" id="pe2PublishText">You have unpublished changes</div>
+            <button class="pe2-discard-btn" onclick="pe2Discard()">Discard</button>
+            <button class="pe2-publish-btn" onclick="pe2Publish()">Publish to Website</button>
+          </div>
           <div class="pe2-preview" id="pe2Preview">
             <div class="pe2-loading">Loading page preview...</div>
           </div>
@@ -15729,6 +15741,8 @@ var _pe2Active = 'home';
 var _pe2Timers = {};
 var _pe2SavedTimer = null;
 var _pe2Cache = {};
+var _pe2Draft = {};
+var _pe2DirtyFields = {};
 var _pe2EditingPage = '';
 var _pe2EditingField = '';
 
@@ -15797,7 +15811,9 @@ window.pe2LoadPageContent = async function(pageKey) {
     var doc = await firebase.firestore().collection('pageContent').doc(docId).get();
     var data = doc.exists ? doc.data() : {};
     _pe2Cache[docId] = data;
-    pe2RenderPage(pageKey, data);
+    if (!_pe2Draft[docId]) _pe2Draft[docId] = JSON.parse(JSON.stringify(data));
+    pe2RenderPage(pageKey, _pe2Draft[docId]);
+    _pe2UpdatePublishBar();
   } catch (err) {
     preview.innerHTML = '<div class="pe2-loading" style="color:#DC2626;">Error loading: ' + err.message + '</div>';
   }
@@ -15825,7 +15841,9 @@ window.pe2RenderPage = function(pageKey, data) {
   };
   var fn = renderers[pageKey];
   if (fn) {
-    var html = fn(data);
+    var docId = _cmsPageEditorDocId(pageKey);
+    var draftData = _pe2Draft[docId] || data;
+    var html = fn(draftData);
     document.getElementById('pe2Preview').innerHTML = html;
   } else {
     document.getElementById('pe2Preview').innerHTML = '<div class="pe2-loading">No preview available.</div>';
@@ -16222,7 +16240,7 @@ window.pe2Edit = function(page, fieldKey, label, type) {
   var bodyEl = document.getElementById('pe2PanelBody');
   bodyEl.innerHTML = '';
   var docId = _cmsPageEditorDocId(page);
-  var data = _pe2Cache[docId] || {};
+  var data = _pe2Draft[docId] || _pe2Cache[docId] || {};
   var currentVal = data[fieldKey] || '';
   if (type === 'text') {
     bodyEl.innerHTML = '<div class="pe2-panel-hint">Edit the text below. Changes save automatically.</div><input type="text" class="cms-pe-text-input" id="pe2FieldInput" value="" style="width:100%;padding:10px 14px;font-size:1rem;">';
@@ -16256,7 +16274,7 @@ window.pe2ClosePanel = function() {
   document.getElementById('pe2Backdrop').classList.remove('open');
   var pa = document.getElementById('pe2PreviewArea'); if (pa) pa.classList.remove('panel-open');
   var docId = _cmsPageEditorDocId(_pe2Active);
-  pe2RenderPage(_pe2Active, _pe2Cache[docId] || {});
+  pe2RenderPage(_pe2Active, _pe2Draft[docId] || _pe2Cache[docId] || {});
 };
 
 window.pe2BuildToolbar = function() {
@@ -16279,9 +16297,12 @@ window.pe2ExecCmd = function(cmd, val) {
 };
 
 window.pe2AutoSave = function(page, fieldKey, value) {
-  var tk = page + '_' + fieldKey;
-  if (_pe2Timers[tk]) clearTimeout(_pe2Timers[tk]);
-  _pe2Timers[tk] = setTimeout(function() { pe2SaveField(page, fieldKey, value); }, 500);
+  var docId = _cmsPageEditorDocId(page);
+  if (!_pe2Draft[docId]) _pe2Draft[docId] = JSON.parse(JSON.stringify(_pe2Cache[docId] || {}));
+  _pe2Draft[docId][fieldKey] = value;
+  if (!_pe2DirtyFields[docId]) _pe2DirtyFields[docId] = {};
+  _pe2DirtyFields[docId][fieldKey] = true;
+  _pe2UpdatePublishBar();
 };
 
 window.pe2SaveField = async function(page, fieldKey, value) {
@@ -16292,7 +16313,6 @@ window.pe2SaveField = async function(page, fieldKey, value) {
     await firebase.firestore().collection('pageContent').doc(docId).set(update, { merge: true });
     if (!_pe2Cache[docId]) _pe2Cache[docId] = {};
     _pe2Cache[docId][fieldKey] = value;
-    pe2ShowSaved();
   } catch (err) { console.error('PE2 save error:', err); }
 };
 
@@ -16306,17 +16326,72 @@ window.pe2UploadPhoto = async function(page, fieldKey, file, imgEl) {
     var url = await ref.getDownloadURL();
     imgEl.src = url;
     imgEl.style.opacity = '1';
-    var update = {};
-    update[fieldKey] = url;
-    await firebase.firestore().collection('pageContent').doc(docId).set(update, { merge: true });
-    if (!_pe2Cache[docId]) _pe2Cache[docId] = {};
-    _pe2Cache[docId][fieldKey] = url;
-    pe2ShowSaved();
+    if (!_pe2Draft[docId]) _pe2Draft[docId] = JSON.parse(JSON.stringify(_pe2Cache[docId] || {}));
+    _pe2Draft[docId][fieldKey] = url;
+    if (!_pe2DirtyFields[docId]) _pe2DirtyFields[docId] = {};
+    _pe2DirtyFields[docId][fieldKey] = true;
+    _pe2UpdatePublishBar();
   } catch (err) {
     console.error('PE2 photo upload error:', err);
     imgEl.style.opacity = '1';
     alert('Photo upload failed: ' + err.message);
   }
+};
+
+window._pe2UpdatePublishBar = function() {
+  var bar = document.getElementById('pe2PublishBar');
+  var textEl = document.getElementById('pe2PublishText');
+  if (!bar) return;
+  var totalDirty = 0;
+  for (var docId in _pe2DirtyFields) {
+    for (var fk in _pe2DirtyFields[docId]) {
+      if (_pe2DirtyFields[docId][fk]) totalDirty++;
+    }
+  }
+  if (totalDirty > 0) {
+    bar.classList.add('has-changes');
+    textEl.textContent = totalDirty + ' unpublished change' + (totalDirty > 1 ? 's' : '');
+  } else {
+    bar.classList.remove('has-changes');
+  }
+};
+
+window.pe2Publish = async function() {
+  var btn = document.querySelector('.pe2-publish-btn');
+  if (btn) { btn.textContent = 'Publishing...'; btn.disabled = true; }
+  try {
+    for (var docId in _pe2DirtyFields) {
+      var fields = _pe2DirtyFields[docId];
+      var update = {};
+      var hasFields = false;
+      for (var fk in fields) {
+        if (fields[fk] && _pe2Draft[docId]) {
+          update[fk] = _pe2Draft[docId][fk];
+          hasFields = true;
+        }
+      }
+      if (hasFields) {
+        await firebase.firestore().collection('pageContent').doc(docId).set(update, { merge: true });
+        if (!_pe2Cache[docId]) _pe2Cache[docId] = {};
+        for (var uk in update) { _pe2Cache[docId][uk] = update[uk]; }
+      }
+    }
+    _pe2DirtyFields = {};
+    _pe2UpdatePublishBar();
+    pe2ShowSaved();
+  } catch (err) {
+    console.error('PE2 publish error:', err);
+    alert('Publish failed: ' + err.message);
+  }
+  if (btn) { btn.textContent = 'Publish to Website'; btn.disabled = false; }
+};
+
+window.pe2Discard = function() {
+  if (!confirm('Discard all unpublished changes?')) return;
+  _pe2Draft = {};
+  _pe2DirtyFields = {};
+  _pe2UpdatePublishBar();
+  pe2LoadPageContent(_pe2Active);
 };
 
 window.pe2ShowSaved = function() {
