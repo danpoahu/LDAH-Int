@@ -3569,6 +3569,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             <a href="javascript:void(0)" data-section="chatlogs" data-roles="superAdmin,admin">Chat Logs</a>
             <a href="javascript:void(0)" data-section="userroles" data-roles="superAdmin">User Roles</a>
             <a href="javascript:void(0)" data-section="listmanagement" data-roles="superAdmin">List Management</a>
+            <a href="javascript:void(0)" data-section="auditlog" data-roles="superAdmin,admin">Audit Log</a>
           </div>
         </div>
         <div class="nav-group collapsed" id="navGroupWebsite" data-roles="superAdmin,admin,webAdmin,appAdmin,partner">
@@ -3691,7 +3692,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v48</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v49</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4571,6 +4572,18 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           </div>
         </div>
       </section>
+
+    <!-- ── Audit Log ── -->
+    <section id="auditLogSection" style="display:none;">
+      <div class="cms-sticky-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <h2 class="section-title">Audit Log <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'A record of all administrative changes made to the system, including who made the change and when.')">i</span></h2>
+        </div>
+      </div>
+      <div id="auditLogContent" style="margin-top:12px;">
+        <div class="cms-empty"><p>Loading audit log...</p></div>
+      </div>
+    </section>
 
     <!-- ── CMS: Dashboard ── -->
     <section id="cmsHomeDashSection" style="display:none;">
@@ -6930,6 +6943,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var cmsWebDataSec = document.getElementById('cmsWebDataSection'); if (cmsWebDataSec) cmsWebDataSec.style.display = 'none';
       var cmsPageEditorSec = document.getElementById('cmsPageEditorSection'); if (cmsPageEditorSec) cmsPageEditorSec.style.display = 'none';
       var cmsPageEditor2Sec = document.getElementById('cmsPageEditor2Section'); if (cmsPageEditor2Sec) cmsPageEditor2Sec.style.display = 'none';
+      var auditLogSec = document.getElementById('auditLogSection'); if (auditLogSec) auditLogSec.style.display = 'none';
       var pe2Panel = document.getElementById('pe2Panel'); if (pe2Panel) pe2Panel.classList.remove('open');
       var pe2Backdrop = document.getElementById('pe2Backdrop'); if (pe2Backdrop) pe2Backdrop.classList.remove('open');
       // Reset: close weather overlay if open, restore interactions card, hide in-grid overlays, return hosted sections
@@ -7022,6 +7036,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       } else if (section === 'cmsPageEditor2') {
         _showFullWidth(document.getElementById('cmsPageEditor2Section'), pe2Init);
         cmsShowAiHelper('Page Editor 2');
+      } else if (section === 'auditlog') {
+        _showFullWidth(document.getElementById('auditLogSection'), loadAuditLog);
       } else if (section === 'reports') {
         cmsHideAiHelper();
         dashboardSections.forEach(sel => {
@@ -7571,6 +7587,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         createdBy: currentUserData.uid
       });
+      auditLog('Added user role', 'Created user ' + name + ' (' + email + ') with role ' + role);
 
       msgDiv.innerHTML = '✅ User created! Temp password: <code style="background:#F1F5F9;padding:2px 8px;border-radius:6px;font-weight:700;">' + tempPassword + '</code> — share securely.';
       msgDiv.style.color = '#16A34A';
@@ -7736,6 +7753,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           var updates = { role: roleSelect.value };
           if (locSelect) updates.location = locSelect.value;
           await db.collection('userRoles').doc(uid).update(updates);
+          var cachedForLog = _urCachedRows.find(function(rw) { return rw.uid === uid; });
+          auditLog('Updated user role', 'Set ' + ((cachedForLog && cachedForLog.email) || uid) + ' to ' + roleSelect.value);
           btn.textContent = '✓ Saved';
           btn.style.background = '#16A34A';
           setTimeout(function() { btn.textContent = 'Save'; btn.style.background = ''; }, 1500);
@@ -7768,6 +7787,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             archivedBy: currentUserData.uid,
             previousRole: cached.role
           });
+          auditLog('Removed user role', 'Archived ' + cached.name + ' (' + (cached.email || uid) + ')');
           cached.isArchived = true;
           cached.role = '';
           // Show archived toggle so user can see the result
@@ -7794,6 +7814,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             restoredAt: firebase.firestore.FieldValue.serverTimestamp(),
             restoredBy: currentUserData.uid
           });
+          auditLog('Updated user role', 'Restored ' + cached.name + ' (' + (cached.email || uid) + ') to dailyUser');
           cached.isArchived = false;
           cached.role = 'dailyUser';
           renderUserRolesTable();
@@ -16654,6 +16675,7 @@ window.pe2Publish = async function() {
     _pe2DirtyFields = {};
     _pe2UpdatePublishBar();
     pe2ShowSaved();
+    auditLog('Published page content', 'Published changes to page editor');
   } catch (err) {
     console.error('PE2 publish error:', err);
     alert('Publish failed: ' + err.message);
@@ -16675,6 +16697,64 @@ window.pe2ShowSaved = function() {
   el.classList.add('show');
   if (_pe2SavedTimer) clearTimeout(_pe2SavedTimer);
   _pe2SavedTimer = setTimeout(function() { el.classList.remove('show'); }, 1500);
+};
+
+// ── Audit Log ──
+window.auditLog = async function(action, details) {
+  try {
+    await firebase.firestore().collection('auditLog').add({
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      action: action,
+      details: details,
+      performedBy: (window.currentUserData && window.currentUserData.email) || 'unknown',
+      performedByRole: (window.currentUserData && window.currentUserData.role) || 'unknown'
+    });
+  } catch (err) { console.error('Audit log error:', err); }
+};
+
+window.loadAuditLog = async function() {
+  var container = document.getElementById('auditLogContent');
+  container.innerHTML = '<div class="cms-empty"><p>Loading audit log...</p></div>';
+  try {
+    var snapshot = await firebase.firestore().collection('auditLog')
+      .orderBy('timestamp', 'desc').limit(200).get();
+    if (snapshot.empty) {
+      container.innerHTML = '<div class="cms-empty"><p>No audit entries yet.</p></div>';
+      return;
+    }
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
+    html += '<thead><tr style="background:var(--sand-light);text-align:left;">';
+    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Date & Time</th>';
+    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Action</th>';
+    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Details</th>';
+    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">By</th>';
+    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Role</th>';
+    html += '</tr></thead><tbody>';
+    snapshot.forEach(function(doc) {
+      var d = doc.data();
+      var ts = d.timestamp ? d.timestamp.toDate() : new Date();
+      var dateStr = ts.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
+      var timeStr = ts.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true});
+      var actionColors = {
+        'Updated user role': '#0891B2',
+        'Added user role': '#65A30D',
+        'Removed user role': '#DC2626',
+        'Published page content': '#F97316'
+      };
+      var color = actionColors[d.action] || 'var(--text-dark)';
+      html += '<tr style="border-bottom:1px solid #f1f5f9;">';
+      html += '<td style="padding:10px 14px;white-space:nowrap;">' + dateStr + ' ' + timeStr + '</td>';
+      html += '<td style="padding:10px 14px;"><span style="color:' + color + ';font-weight:600;">' + (d.action || '') + '</span></td>';
+      html += '<td style="padding:10px 14px;color:var(--text-soft);">' + (d.details || '') + '</td>';
+      html += '<td style="padding:10px 14px;">' + (d.performedBy || '') + '</td>';
+      html += '<td style="padding:10px 14px;"><span style="background:rgba(8,145,178,.08);color:var(--ocean-deep);padding:2px 8px;border-radius:6px;font-size:.8rem;font-weight:600;">' + (d.performedByRole || '') + '</span></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = '<div class="cms-empty"><p>Error loading audit log: ' + err.message + '</p></div>';
+  }
 };
 </script>
 
