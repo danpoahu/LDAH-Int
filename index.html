@@ -3702,7 +3702,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v68</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v69</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13633,16 +13633,26 @@ window.cmsLoadEvents = async function(forceRefresh) {
       if (d.archived !== true || _cmsShowArchived['events']) _cmsEvents.push({ id: doc.id, ...d });
     });
     _cmsEvents.sort(function(a, b) { return (b.eventDate || '').localeCompare(a.eventDate || ''); });
-    // load signup counts for each event (N+1 acceptable; cached in item)
-    await Promise.all(_cmsEvents.map(async function(ev) {
-      try {
-        var cSnap = await db.collection('events').doc(ev.id).collection('signups').get();
-        ev._signupCount = cSnap.size;
-        var pc = 0;
-        cSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
-        ev._pendingCount = pc;
-      } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
-    }));
+    // Use denormalized counts if available, fall back to subcollection fetch
+    var needsFetch = _cmsEvents.filter(function(ev) {
+      if (typeof ev.signupCount === 'number') {
+        ev._signupCount = ev.signupCount;
+        ev._pendingCount = ev.pendingCount || 0;
+        return false;
+      }
+      return true;
+    });
+    if (needsFetch.length) {
+      await Promise.all(needsFetch.map(async function(ev) {
+        try {
+          var cSnap = await db.collection('events').doc(ev.id).collection('signups').get();
+          ev._signupCount = cSnap.size;
+          var pc = 0;
+          cSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
+          ev._pendingCount = pc;
+        } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
+      }));
+    }
     _cmsEvents.sort(function(a, b) { return (b._pendingCount || 0) - (a._pendingCount || 0) || (b.eventDate || '').localeCompare(a.eventDate || ''); });
     _cmsEventsLoadedAt = Date.now();
     cmsRenderEvents(_cmsEvents, container, false);
@@ -13679,15 +13689,26 @@ window.cmsLoadPrograms = async function(forceRefresh) {
       if (d.archived !== true || _cmsShowArchived['programs']) _cmsPrograms.push({ id: doc.id, ...d });
     });
     _cmsPrograms.sort(function(a, b) { return (b.startDate || '').localeCompare(a.startDate || ''); });
-    await Promise.all(_cmsPrograms.map(async function(ev) {
-      try {
-        var cSnap = await db.collection('recurringEvents').doc(ev.id).collection('signups').get();
-        ev._signupCount = cSnap.size;
-        var pc = 0;
-        cSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
-        ev._pendingCount = pc;
-      } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
-    }));
+    // Use denormalized counts if available, fall back to subcollection fetch
+    var needsFetch = _cmsPrograms.filter(function(ev) {
+      if (typeof ev.signupCount === 'number') {
+        ev._signupCount = ev.signupCount;
+        ev._pendingCount = ev.pendingCount || 0;
+        return false;
+      }
+      return true;
+    });
+    if (needsFetch.length) {
+      await Promise.all(needsFetch.map(async function(ev) {
+        try {
+          var cSnap = await db.collection('recurringEvents').doc(ev.id).collection('signups').get();
+          ev._signupCount = cSnap.size;
+          var pc = 0;
+          cSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
+          ev._pendingCount = pc;
+        } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
+      }));
+    }
     _cmsPrograms.sort(function(a, b) { return (b._pendingCount || 0) - (a._pendingCount || 0) || (b.startDate || '').localeCompare(a.startDate || ''); });
     _cmsProgramsLoadedAt = Date.now();
     cmsRenderEvents(_cmsPrograms, container, true);
@@ -14666,6 +14687,11 @@ window.cmsCloseSignupsModal = function() {
 window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, status) {
   try {
     await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ status: status });
+    // Update denormalized pendingCount on parent doc
+    var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
+    var pc = 0;
+    allSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
+    await db.collection(collection).doc(eventId).update({ pendingCount: pc });
     // Update local cache and re-render
     var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
     if (s) s.status = status;
@@ -14693,6 +14719,11 @@ window.cmsSaveSignupNotes = async function(collection, eventId, signupId, textar
 window.cmsArchiveSignup = async function(collection, eventId, signupId, archive) {
   try {
     await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ archived: archive });
+    // Update denormalized pendingCount on parent doc
+    var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
+    var pc = 0;
+    allSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
+    await db.collection(collection).doc(eventId).update({ pendingCount: pc });
     var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
     if (s) s.archived = archive;
     var sName = s ? (s.name || signupId) : signupId;
