@@ -3702,7 +3702,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v67</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v68</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12552,8 +12552,8 @@ function cmsToggleArchived(section) {
     case 'gallery2': cmsLoadGallery('gallery2', 'cmsGallery2Cards'); break;
     case 'resources': cmsLoadResources(); break;
     case 'faqs': case 'faqCategories': case 'faqItems': cmsLoadFaqs(); break;
-    case 'events': cmsLoadEvents(); break;
-    case 'programs': cmsLoadPrograms(); break;
+    case 'events': cmsLoadEvents(true); break;
+    case 'programs': cmsLoadPrograms(true); break;
     case 'volunteers': cmsLoadVolunteers(); break;
   }
 }
@@ -13592,6 +13592,9 @@ window.cmsExportFaqsCsv = function() {
 /* ── CMS: Events & Programs ── */
 var _cmsEvents = [];
 var _cmsPrograms = [];
+var _cmsEventsLoadedAt = 0;
+var _cmsProgramsLoadedAt = 0;
+var _cmsCacheTTL = 60000; // 60s cache — navigating back won't re-fetch
 var _cmsSignupsModalData = { eventId: null, isRecurring: false, eventTitle: '', signups: [] };
 var _cmsEventSignupDates = [];
 var _cmsEventCustomQuestions = [];
@@ -13609,8 +13612,18 @@ function cmsSwitchEventsTab(tab) {
   if (tab === 'programs') cmsLoadPrograms();
 }
 
-window.cmsLoadEvents = async function() {
+window.cmsLoadEvents = async function(forceRefresh) {
   var container = document.getElementById('cmsEventsCards');
+  // Serve from cache if fresh
+  if (!forceRefresh && _cmsEvents.length && (Date.now() - _cmsEventsLoadedAt < _cmsCacheTTL)) {
+    cmsRenderEvents(_cmsEvents, container, false);
+    var pendingOT = 0;
+    _cmsEvents.forEach(function(ev) { pendingOT += (ev._pendingCount || 0); });
+    cmsSetTabBadge('cmsEventsTabs', 0, pendingOT);
+    var ac = window._cmsAlertCounts;
+    if (ac && typeof ac.pendingOngoing === 'number') cmsSetTabBadge('cmsEventsTabs', 1, ac.pendingOngoing);
+    return;
+  }
   container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
   try {
     var snap = await db.collection('events').get();
@@ -13631,6 +13644,7 @@ window.cmsLoadEvents = async function() {
       } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
     }));
     _cmsEvents.sort(function(a, b) { return (b._pendingCount || 0) - (a._pendingCount || 0) || (b.eventDate || '').localeCompare(a.eventDate || ''); });
+    _cmsEventsLoadedAt = Date.now();
     cmsRenderEvents(_cmsEvents, container, false);
     // Set One-Time Events tab badge from loaded data
     var pendingOT = 0;
@@ -13646,8 +13660,16 @@ window.cmsLoadEvents = async function() {
   }
 };
 
-window.cmsLoadPrograms = async function() {
+window.cmsLoadPrograms = async function(forceRefresh) {
   var container = document.getElementById('cmsProgramsCards');
+  // Serve from cache if fresh
+  if (!forceRefresh && _cmsPrograms.length && (Date.now() - _cmsProgramsLoadedAt < _cmsCacheTTL)) {
+    cmsRenderEvents(_cmsPrograms, container, true);
+    var pendingOG = 0;
+    _cmsPrograms.forEach(function(ev) { pendingOG += (ev._pendingCount || 0); });
+    cmsSetTabBadge('cmsEventsTabs', 1, pendingOG);
+    return;
+  }
   container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
   try {
     var snap = await db.collection('recurringEvents').get();
@@ -13667,6 +13689,7 @@ window.cmsLoadPrograms = async function() {
       } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
     }));
     _cmsPrograms.sort(function(a, b) { return (b._pendingCount || 0) - (a._pendingCount || 0) || (b.startDate || '').localeCompare(a.startDate || ''); });
+    _cmsProgramsLoadedAt = Date.now();
     cmsRenderEvents(_cmsPrograms, container, true);
     // Update Ongoing Programs tab badge from loaded data
     var pendingOG = 0;
@@ -13733,7 +13756,7 @@ function cmsRenderEvents(items, container, isRecurring) {
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenEventModal(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ')">Edit</button>' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsViewSignups(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',\'' + rsEscape(ev.title || '') + '\')">View Signups</button>';
     if (isArchived) {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',function(){' + (isRecurring ? 'cmsLoadPrograms' : 'cmsLoadEvents') + '();})">Restore</button>';
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',function(){' + (isRecurring ? 'cmsLoadPrograms' : 'cmsLoadEvents') + '(true);})">Restore</button>';
     } else {
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveEvent(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Archive</button>';
     }
@@ -14129,9 +14152,9 @@ window.cmsSaveEvent = async function() {
     auditLog(docId ? 'Updated event' : 'Created event', (isRecurring ? 'Program' : 'Event') + ': ' + title);
     cmsCloseEventModal();
     if (isRecurring) {
-      await cmsLoadPrograms();
+      await cmsLoadPrograms(true);
     } else {
-      await cmsLoadEvents();
+      await cmsLoadEvents(true);
     }
     _showToast(docId ? (isRecurring ? 'Program updated.' : 'Event updated.') : (isRecurring ? 'Program added.' : 'Event added.'), '#16A34A');
   } catch (err) {
@@ -14147,9 +14170,9 @@ window.cmsArchiveEvent = async function(collection, docId, title) {
     await db.collection(collection).doc(docId).update({ archived: true });
     auditLog('Archived event', (collection === 'recurringEvents' ? 'Program' : 'Event') + ': ' + title);
     if (collection === 'recurringEvents') {
-      await cmsLoadPrograms();
+      await cmsLoadPrograms(true);
     } else {
-      await cmsLoadEvents();
+      await cmsLoadEvents(true);
     }
     _showToast('Removed.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
@@ -14649,6 +14672,8 @@ window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, sta
     var sName = s ? (s.name || signupId) : signupId;
     auditLog('Updated signup status', sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — Status: ' + status);
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+    // Invalidate cache so counts refresh on next nav
+    _cmsEventsLoadedAt = 0; _cmsProgramsLoadedAt = 0;
     _showToast('Status updated.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
