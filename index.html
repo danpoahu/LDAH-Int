@@ -3702,7 +3702,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v66</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v67</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11277,18 +11277,28 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         snap.forEach(function(doc) { if (doc.data().archived !== true) n++; });
         return n;
       }
-      // Count pending event signups from subcollections
+      // Count pending event signups from subcollections (one-time vs ongoing)
       var pendingSignups = 0;
+      var pendingOneTime = 0;
+      var pendingOngoing = 0;
       var evSnap = await db.collection('events').get();
       var recSnap = await db.collection('recurringEvents').get();
-      var signupProms = [];
-      evSnap.forEach(function(doc) { signupProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
-      recSnap.forEach(function(doc) { signupProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
-      var signupSnaps = await Promise.all(signupProms);
-      signupSnaps.forEach(function(snap) {
+      var otProms = [];
+      evSnap.forEach(function(doc) { otProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
+      var ogProms = [];
+      recSnap.forEach(function(doc) { ogProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
+      var otSnaps = await Promise.all(otProms);
+      otSnaps.forEach(function(snap) {
         snap.forEach(function(doc) {
           var st = doc.data().status;
-          if (st === 'pending' || st === 'new') pendingSignups++;
+          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOneTime++; }
+        });
+      });
+      var ogSnaps = await Promise.all(ogProms);
+      ogSnaps.forEach(function(snap) {
+        snap.forEach(function(doc) {
+          var st = doc.data().status;
+          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOngoing++; }
         });
       });
       _cmsAlertCounts = {
@@ -11296,8 +11306,11 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         contacts:      _countActive(contactSnap),
         providers:     _countActive(provSnap),
         eventRequests: _countActive(eventReqSnap),
-        eventSignups:  pendingSignups
+        eventSignups:  pendingSignups,
+        pendingOneTime: pendingOneTime,
+        pendingOngoing: pendingOngoing
       };
+      window._cmsAlertCounts = _cmsAlertCounts;
       return _cmsAlertCounts;
     } catch (e) {
       console.warn('CMS alert count error:', e.message);
@@ -13623,18 +13636,11 @@ window.cmsLoadEvents = async function() {
     var pendingOT = 0;
     _cmsEvents.forEach(function(ev) { pendingOT += (ev._pendingCount || 0); });
     cmsSetTabBadge('cmsEventsTabs', 0, pendingOT);
-    // Also fetch Ongoing Programs pending count so both tab badges show
-    (async function() {
-      try {
-        var pendingOG = 0;
-        var recSnap = await db.collection('recurringEvents').get();
-        var proms = [];
-        recSnap.forEach(function(doc) { proms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
-        var results = await Promise.all(proms);
-        results.forEach(function(s) { s.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pendingOG++; }); });
-        cmsSetTabBadge('cmsEventsTabs', 1, pendingOG);
-      } catch(e) {}
-    })();
+    // Set Ongoing Programs tab badge from cached alert counts (no extra Firestore reads)
+    var ac = window._cmsAlertCounts;
+    if (ac && typeof ac.pendingOngoing === 'number') {
+      cmsSetTabBadge('cmsEventsTabs', 1, ac.pendingOngoing);
+    }
   } catch (err) {
     container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
   }
