@@ -3702,7 +3702,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v69</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v70</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11255,6 +11255,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   // Clear cached CMS alert counts and refresh the Alerts badge — call after CMS data changes
   window.cmsRefreshAlertBadge = function() {
     _cmsAlertCounts = null; // clear cache so cmsGetAlertCounts fetches fresh data
+    window._cmsSignupCountCache = null; // clear shared signup cache too
     updateNotifBadge();
   };
 
@@ -11278,29 +11279,42 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         return n;
       }
       // Count pending event signups from subcollections (one-time vs ongoing)
+      // Also cache per-event counts so cmsLoadEvents/Dashboard can reuse them
       var pendingSignups = 0;
       var pendingOneTime = 0;
       var pendingOngoing = 0;
+      var totalSignups = 0;
       var evSnap = await db.collection('events').get();
       var recSnap = await db.collection('recurringEvents').get();
+      var otIds = [];
       var otProms = [];
-      evSnap.forEach(function(doc) { otProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
+      evSnap.forEach(function(doc) { otIds.push(doc.id); otProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
+      var ogIds = [];
       var ogProms = [];
-      recSnap.forEach(function(doc) { ogProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
+      recSnap.forEach(function(doc) { ogIds.push(doc.id); ogProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
+      var evCache = {};
       var otSnaps = await Promise.all(otProms);
-      otSnaps.forEach(function(snap) {
+      otSnaps.forEach(function(snap, i) {
+        var pc = 0;
+        totalSignups += snap.size;
         snap.forEach(function(doc) {
           var st = doc.data().status;
-          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOneTime++; }
+          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOneTime++; pc++; }
         });
+        evCache[otIds[i]] = { signupCount: snap.size, pendingCount: pc };
       });
+      var pgCache = {};
       var ogSnaps = await Promise.all(ogProms);
-      ogSnaps.forEach(function(snap) {
+      ogSnaps.forEach(function(snap, i) {
+        var pc = 0;
+        totalSignups += snap.size;
         snap.forEach(function(doc) {
           var st = doc.data().status;
-          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOngoing++; }
+          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOngoing++; pc++; }
         });
+        pgCache[ogIds[i]] = { signupCount: snap.size, pendingCount: pc };
       });
+      window._cmsSignupCountCache = { events: evCache, programs: pgCache, loadedAt: Date.now() };
       _cmsAlertCounts = {
         volunteers:    _countActive(volSnap),
         contacts:      _countActive(contactSnap),
@@ -11308,7 +11322,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         eventRequests: _countActive(eventReqSnap),
         eventSignups:  pendingSignups,
         pendingOneTime: pendingOneTime,
-        pendingOngoing: pendingOngoing
+        pendingOngoing: pendingOngoing,
+        totalSignups:  totalSignups
       };
       window._cmsAlertCounts = _cmsAlertCounts;
       return _cmsAlertCounts;
@@ -13633,11 +13648,18 @@ window.cmsLoadEvents = async function(forceRefresh) {
       if (d.archived !== true || _cmsShowArchived['events']) _cmsEvents.push({ id: doc.id, ...d });
     });
     _cmsEvents.sort(function(a, b) { return (b.eventDate || '').localeCompare(a.eventDate || ''); });
-    // Use denormalized counts if available, fall back to subcollection fetch
+    // Use denormalized doc counts -> shared signup cache -> subcollection fetch (last resort)
+    var _sc = window._cmsSignupCountCache;
+    var _scFresh = _sc && (Date.now() - _sc.loadedAt < _cmsCacheTTL);
     var needsFetch = _cmsEvents.filter(function(ev) {
       if (typeof ev.signupCount === 'number') {
         ev._signupCount = ev.signupCount;
         ev._pendingCount = ev.pendingCount || 0;
+        return false;
+      }
+      if (_scFresh && _sc.events[ev.id]) {
+        ev._signupCount = _sc.events[ev.id].signupCount;
+        ev._pendingCount = _sc.events[ev.id].pendingCount;
         return false;
       }
       return true;
@@ -13689,11 +13711,18 @@ window.cmsLoadPrograms = async function(forceRefresh) {
       if (d.archived !== true || _cmsShowArchived['programs']) _cmsPrograms.push({ id: doc.id, ...d });
     });
     _cmsPrograms.sort(function(a, b) { return (b.startDate || '').localeCompare(a.startDate || ''); });
-    // Use denormalized counts if available, fall back to subcollection fetch
+    // Use denormalized doc counts -> shared signup cache -> subcollection fetch (last resort)
+    var _sc = window._cmsSignupCountCache;
+    var _scFresh = _sc && (Date.now() - _sc.loadedAt < _cmsCacheTTL);
     var needsFetch = _cmsPrograms.filter(function(ev) {
       if (typeof ev.signupCount === 'number') {
         ev._signupCount = ev.signupCount;
         ev._pendingCount = ev.pendingCount || 0;
+        return false;
+      }
+      if (_scFresh && _sc.programs[ev.id]) {
+        ev._signupCount = _sc.programs[ev.id].signupCount;
+        ev._pendingCount = _sc.programs[ev.id].pendingCount;
         return false;
       }
       return true;
@@ -17449,49 +17478,11 @@ window.cmsLoadCmsDashboard = async function() {
   }
 
   try {
-    // KPI: Volunteer Applications (not archived)
-    var volSnap = await db.collection('volunteers').get();
-    _set('cmsDashKpiVolunteers', _countNotArchived(volSnap));
-
-    // KPI: Anti-Bullying Pledges (not archived)
-    var pledgeSnap = await db.collection('pledges').get();
-    _set('cmsDashKpiPledges', _countNotArchived(pledgeSnap));
-
-    // KPI: Provider Requests (not archived)
-    var prSnap = await db.collection('providers').get();
-    _set('cmsDashKpiProviders', _countNotArchived(prSnap));
-
-    // KPI: Event Signups — sum from events/{id}/signups AND recurringEvents/{id}/signups
-    var totalSignups = 0;
-    var pendingSignups = 0;
-    var pendingOneTime = 0;
-    var pendingOngoing = 0;
-    var eventsSnap = await db.collection('events').get();
-    var oneTimePromises = [];
-    eventsSnap.forEach(function(doc) {
-      oneTimePromises.push(db.collection('events').doc(doc.id).collection('signups').get());
-    });
-    var recSnap = await db.collection('recurringEvents').get();
-    var ongoingPromises = [];
-    recSnap.forEach(function(doc) {
-      ongoingPromises.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get());
-    });
-    var oneTimeResults = await Promise.all(oneTimePromises);
-    oneTimeResults.forEach(function(snap) {
-      totalSignups += snap.size;
-      snap.forEach(function(doc) {
-        var st = doc.data().status;
-        if (st === 'pending' || st === 'new') { pendingSignups++; pendingOneTime++; }
-      });
-    });
-    var ongoingResults = await Promise.all(ongoingPromises);
-    ongoingResults.forEach(function(snap) {
-      totalSignups += snap.size;
-      snap.forEach(function(doc) {
-        var st = doc.data().status;
-        if (st === 'pending' || st === 'new') { pendingSignups++; pendingOngoing++; }
-      });
-    });
+    // KPI: Event Signups — reuse cached alert counts (already fetched at startup)
+    // This eliminates dozens of redundant subcollection reads
+    var ac = window._cmsAlertCounts || await cmsGetAlertCounts();
+    var totalSignups = (ac && ac.totalSignups) || 0;
+    var pendingSignups = (ac && ac.eventSignups) || 0;
     _set('cmsDashKpiSignups', totalSignups);
     var pendingEl = document.getElementById('cmsDashKpiSignupsPending');
     if (pendingEl) {
@@ -17500,30 +17491,31 @@ window.cmsLoadCmsDashboard = async function() {
         pendingEl.style.display = '';
       } else { pendingEl.style.display = 'none'; }
     }
-
-    // Events nav badge for pending signups
     if (pendingSignups > 0) cmsSetNavBadge('cmsEvents', pendingSignups);
+    cmsSetTabBadge('cmsEventsTabs', 0, (ac && ac.pendingOneTime) || 0);
+    cmsSetTabBadge('cmsEventsTabs', 1, (ac && ac.pendingOngoing) || 0);
 
-    // Tab badges for One-Time Events / Ongoing Programs
-    cmsSetTabBadge('cmsEventsTabs', 0, pendingOneTime);
-    cmsSetTabBadge('cmsEventsTabs', 1, pendingOngoing);
-
-    // Content Overview counts (not archived)
-    var teamSnap = await db.collection('teamMembers').get();
-    _set('cmsDashTeam', _countNotArchived(teamSnap));
-
-    var boardSnap = await db.collection('boardMembers').get();
-    _set('cmsDashBoard', _countNotArchived(boardSnap));
-
-    var resSnap = await db.collection('resources').get();
-    _set('cmsDashResources', _countNotArchived(resSnap));
-
-    _set('cmsDashEvents', _countNotArchived(eventsSnap));
-
-    _set('cmsDashPrograms', _countNotArchived(recSnap));
-
-    var faqSnap = await db.collection('faqs').get();
-    _set('cmsDashFaqs', _countNotArchived(faqSnap));
+    // Fetch remaining collection counts in parallel (no subcollection reads needed)
+    var results = await Promise.all([
+      db.collection('volunteers').get(),
+      db.collection('pledges').get(),
+      db.collection('providers').get(),
+      db.collection('teamMembers').get(),
+      db.collection('boardMembers').get(),
+      db.collection('resources').get(),
+      db.collection('events').get(),
+      db.collection('recurringEvents').get(),
+      db.collection('faqs').get()
+    ]);
+    _set('cmsDashKpiVolunteers', _countNotArchived(results[0]));
+    _set('cmsDashKpiPledges', _countNotArchived(results[1]));
+    _set('cmsDashKpiProviders', _countNotArchived(results[2]));
+    _set('cmsDashTeam', _countNotArchived(results[3]));
+    _set('cmsDashBoard', _countNotArchived(results[4]));
+    _set('cmsDashResources', _countNotArchived(results[5]));
+    _set('cmsDashEvents', _countNotArchived(results[6]));
+    _set('cmsDashPrograms', _countNotArchived(results[7]));
+    _set('cmsDashFaqs', _countNotArchived(results[8]));
 
     // Refresh CMS alert counts and update the Alerts badge
     if (typeof cmsRefreshAlertBadge === 'function') cmsRefreshAlertBadge();
