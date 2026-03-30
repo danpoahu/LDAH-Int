@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LDAH-Int: Backfill Contact IDs on Interactions</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #f8fafc; }
+    h1 { color: #1a6b8a; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin: 16px 0; }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: .9rem; }
+    .btn-primary { background: #1a6b8a; color: #fff; }
+    .btn-danger { background: #DC2626; color: #fff; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    #log { white-space: pre-wrap; font-family: monospace; font-size: .85rem; max-height: 500px; overflow-y: auto; background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 8px; margin-top: 16px; }
+    .green { color: #4ade80; } .yellow { color: #fbbf24; } .red { color: #f87171; } .cyan { color: #22d3ee; }
+  </style>
+</head>
+<body>
+  <h1>Backfill Contact IDs on Interactions</h1>
+  <div class="card">
+    <p>This script finds interactions that have <code>contactName</code> or <code>clientName</code> but no <code>contactId</code>/<code>clientId</code>, looks up the contact by name, and writes the ID back.</p>
+    <p><strong>Step 1:</strong> Scan to see how many need fixing (dry run).</p>
+    <p><strong>Step 2:</strong> Apply the fix (writes to Firestore).</p>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn btn-primary" id="scanBtn" onclick="runScan()">Scan (Dry Run)</button>
+      <button class="btn btn-danger" id="applyBtn" onclick="runApply()" disabled>Apply Fixes</button>
+    </div>
+  </div>
+  <div id="log"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script>
+    var firebaseConfig = {
+      apiKey: "AIzaSyAU3CQ07bCVKlJ1qGak-150kaJEyPKldLk",
+      authDomain: "ldah-932d5.firebaseapp.com",
+      projectId: "ldah-932d5",
+      storageBucket: "ldah-932d5.firebasestorage.app",
+      messagingSenderId: "662130454003",
+      appId: "1:662130454003:web:437576d5a5811ecd8df686"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    var db = firebase.firestore();
+    var auth = firebase.auth();
+
+    var logEl = document.getElementById('log');
+    var _fixes = []; // populated by scan
+
+    function log(msg, cls) {
+      var span = document.createElement('span');
+      if (cls) span.className = cls;
+      span.textContent = msg + '\n';
+      logEl.appendChild(span);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Build a name->id lookup from contacts collection
+    async function buildContactLookup() {
+      log('Loading contacts collection...');
+      var snap = await db.collection('contacts').orderBy('displayName').get();
+      var byName = {};
+      snap.forEach(function(doc) {
+        var d = doc.data();
+        var name = (d.displayName || '').trim().toLowerCase();
+        if (name) byName[name] = doc.id;
+      });
+      log('Loaded ' + snap.size + ' contacts.', 'green');
+      return byName;
+    }
+
+    async function ensureAuth() {
+      if (auth.currentUser) return true;
+      var email = prompt('Enter your LDAH-Int admin email:');
+      var pass = prompt('Enter your password:');
+      if (!email || !pass) { log('Auth cancelled.', 'red'); return false; }
+      try {
+        await auth.signInWithEmailAndPassword(email, pass);
+        log('Authenticated as ' + auth.currentUser.email, 'green');
+        return true;
+      } catch(e) { log('Auth failed: ' + e.message, 'red'); return false; }
+    }
+
+    async function runScan() {
+      logEl.innerHTML = '';
+      if (!await ensureAuth()) return;
+
+      var lookup = await buildContactLookup();
+
+      log('\nScanning interactions...');
+      var snap = await db.collection('interactions').get();
+      log('Total interactions: ' + snap.size, 'cyan');
+
+      _fixes = [];
+      var alreadyLinked = 0;
+      var noName = 0;
+      var nameNotFound = [];
+
+      snap.forEach(function(doc) {
+        var d = doc.data();
+        var hasContactId = !!d.contactId;
+        var hasClientId = !!d.clientId;
+        var contactName = (d.contactName || '').trim();
+        var clientName = (d.clientName || '').trim();
+
+        // If it already has contactId, check if clientId is also needed
+        if (hasContactId && hasClientId) { alreadyLinked++; return; }
+        if (hasContactId && !clientName) { alreadyLinked++; return; }
+        if (hasClientId && !contactName) { alreadyLinked++; return; }
+
+        var update = {};
+
+        // Try to fill contactId from contactName
+        if (!hasContactId && contactName) {
+          var match = lookup[contactName.toLowerCase()];
+          if (match) {
+            update.contactId = match;
+          } else {
+            nameNotFound.push({ id: doc.id, field: 'contactName', name: contactName });
+          }
+        }
+
+        // Try to fill clientId from clientName
+        if (!hasClientId && clientName) {
+          var match2 = lookup[clientName.toLowerCase()];
+          if (match2) {
+            update.clientId = match2;
+          } else {
+            if (!nameNotFound.some(function(x) { return x.id === doc.id; })) {
+              nameNotFound.push({ id: doc.id, field: 'clientName', name: clientName });
+            }
+          }
+        }
+
+        if (!hasContactId && !contactName && !hasClientId && !clientName) {
+          noName++;
+          return;
+        }
+
+        if (Object.keys(update).length > 0) {
+          _fixes.push({ id: doc.id, update: update, name: contactName || clientName });
+        } else if (hasContactId || hasClientId) {
+          alreadyLinked++;
+        }
+      });
+
+      log('\n--- SCAN RESULTS ---', 'cyan');
+      log('Already linked (have IDs): ' + alreadyLinked, 'green');
+      log('No contact name at all: ' + noName, 'yellow');
+      log('Can be fixed (name matched): ' + _fixes.length, 'green');
+      log('Name not found in contacts: ' + nameNotFound.length, 'yellow');
+
+      if (nameNotFound.length > 0) {
+        log('\nUnmatched names (may be deleted contacts or typos):');
+        var unique = {};
+        nameNotFound.forEach(function(x) { unique[x.name] = (unique[x.name] || 0) + 1; });
+        Object.keys(unique).sort().forEach(function(name) {
+          log('  "' + name + '" (' + unique[name] + ' interactions)', 'yellow');
+        });
+      }
+
+      if (_fixes.length > 0) {
+        log('\nFixes ready to apply:', 'green');
+        _fixes.forEach(function(f) {
+          var fields = Object.keys(f.update).join(', ');
+          log('  ' + f.id.substring(0, 8) + '... "' + f.name + '" -> set ' + fields);
+        });
+        document.getElementById('applyBtn').disabled = false;
+        log('\nClick "Apply Fixes" to write these changes to Firestore.', 'cyan');
+      } else {
+        log('\nNothing to fix!', 'green');
+      }
+    }
+
+    async function runApply() {
+      if (!_fixes.length) { log('No fixes to apply.', 'yellow'); return; }
+      if (!confirm('Write ' + _fixes.length + ' updates to Firestore?')) return;
+
+      document.getElementById('applyBtn').disabled = true;
+      document.getElementById('scanBtn').disabled = true;
+      log('\n--- APPLYING FIXES ---', 'cyan');
+
+      var success = 0, fail = 0;
+      // Batch writes (max 500 per batch)
+      for (var i = 0; i < _fixes.length; i += 450) {
+        var batch = db.batch();
+        var chunk = _fixes.slice(i, i + 450);
+        chunk.forEach(function(f) {
+          batch.update(db.collection('interactions').doc(f.id), f.update);
+        });
+        try {
+          await batch.commit();
+          success += chunk.length;
+          log('Batch ' + Math.floor(i/450 + 1) + ': ' + chunk.length + ' updated', 'green');
+        } catch(e) {
+          fail += chunk.length;
+          log('Batch ' + Math.floor(i/450 + 1) + ' FAILED: ' + e.message, 'red');
+        }
+      }
+
+      log('\n--- DONE ---', 'cyan');
+      log('Updated: ' + success, 'green');
+      if (fail) log('Failed: ' + fail, 'red');
+      log('\nYou can now re-scan to verify all records are linked.', 'cyan');
+      document.getElementById('scanBtn').disabled = false;
+    }
+  </script>
+</body>
+</html>
