@@ -14242,14 +14242,25 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
 
   try {
     var collection = isRecurring ? 'recurringEvents' : 'events';
-    var snap = await db.collection(collection).doc(eventId).collection('signups').orderBy('timestamp', 'desc').get();
+    // Fetch signups + program doc in parallel (program doc reused from cache when available)
+    var signupProm = db.collection(collection).doc(eventId).collection('signups').orderBy('timestamp', 'desc').get();
+    var progProm = null;
+    if (isRecurring) {
+      // Reuse cached program data if already loaded
+      var cached = _cmsPrograms.find(function(p) { return p.id === eventId; });
+      if (cached) {
+        _cmsSignupsModalData.programDoc = cached;
+      } else {
+        progProm = db.collection('recurringEvents').doc(eventId).get();
+      }
+    }
+    var snap = await signupProm;
     _cmsSignupsModalData.signups = [];
     snap.forEach(function(doc) {
       _cmsSignupsModalData.signups.push({ id: doc.id, ...doc.data() });
     });
-    // For recurring programs, fetch the program doc for schedule + cancelledDates
-    if (isRecurring) {
-      var progDoc = await db.collection('recurringEvents').doc(eventId).get();
+    if (progProm) {
+      var progDoc = await progProm;
       if (progDoc.exists) _cmsSignupsModalData.programDoc = progDoc.data();
     }
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
