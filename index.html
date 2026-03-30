@@ -3702,7 +3702,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v71</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v72</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4192,7 +4192,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         <div class="ct-toolbar">
           <input type="search" id="ctSearch" placeholder="Search contacts by name, type, org…">
           <button class="ct-btn-add" id="ctAddBtn" data-roles="superAdmin,admin" onclick="openContactForm()">+ Add Contact</button>
-          <button class="section-refresh-btn" onclick="loadContacts()">Refresh</button>
+          <button class="section-refresh-btn" onclick="loadContacts(true)">Refresh</button>
         </div>
 
         <div class="ct-list">
@@ -7071,6 +7071,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   var _dashCalYear, _dashCalMonth, _dashCalSelectedDay = null;
   var _dashCalEvents = null; // cache
   var _dashCalEventsLoading = false;
+  var _eventsSnapCache = null; // shared cache for events + recurringEvents snapshots
   Object.defineProperty(window, '_dashCalEvents', {
     get: function() { return _dashCalEvents; },
     configurable: true
@@ -7082,10 +7083,13 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     renderMiniCalendar(_dashCalYear, _dashCalMonth);
     if (!_dashCalEvents && !_dashCalEventsLoading) {
       _dashCalEventsLoading = true;
-      Promise.all([
-        db.collection('events').get(),
-        db.collection('recurringEvents').where('active', '==', true).get()
-      ]).then(function(results) {
+      var cached = _eventsSnapCache && (Date.now() - _eventsSnapCache.loadedAt < 60000);
+      (cached ? Promise.resolve([_eventsSnapCache.evSnap, _eventsSnapCache.recSnap]) :
+        Promise.all([
+          db.collection('events').get(),
+          db.collection('recurringEvents').where('active', '==', true).get()
+        ])
+      ).then(function(results) {
         var eventsSnap = results[0], recurSnap = results[1];
         var merged = [];
         var now = new Date(); now.setHours(0,0,0,0);
@@ -7111,6 +7115,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         // Recurring events: generate occurrences for next 90 days
         recurSnap.docs.forEach(function(doc) {
           var d = doc.data();
+          if (d.active === false) return; // skip inactive (needed when using shared cache)
           if (!d.title) return;
           var occs = _calGetOccurrences(d.schedules, 90);
           occs.forEach(function(occ) {
@@ -9865,18 +9870,20 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     });
   })();
 
-  window.loadContacts = async function() {
+  window.loadContacts = async function(forceRefresh) {
     var list = document.getElementById('contactsList');
     if (!list) return;
     list.innerHTML = '<div class="ct-empty">Loading contacts...</div>';
 
     try {
-      var snap = await db.collection('contacts').orderBy('displayName').get();
-      _allContacts = [];
-      snap.forEach(function(doc) {
-        _allContacts.push({ id: doc.id, ...doc.data() });
-      });
-      buildContactDatalist();
+      if (forceRefresh || !_allContacts.length) {
+        var snap = await db.collection('contacts').orderBy('displayName').get();
+        _allContacts = [];
+        snap.forEach(function(doc) {
+          _allContacts.push({ id: doc.id, ...doc.data() });
+        });
+        buildContactDatalist();
+      }
 
       if (_allContacts.length === 0) {
         list.innerHTML = '<div class="ct-empty">No contacts yet. Click "+ Add Contact" to get started.</div>';
@@ -10008,7 +10015,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         await db.collection('contacts').add(data);
       }
       closeContactForm();
-      loadContacts();
+      loadContacts(true);
       // Quick-add: return to interaction modal with new contact selected
       if (_quickAddReturnToInteraction) {
         _quickAddReturnToInteraction = false;
@@ -10026,7 +10033,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     if (!confirm('Delete contact "' + name + '"? This cannot be undone.')) return;
     try {
       await db.collection('contacts').doc(docId).delete();
-      loadContacts();
+      loadContacts(true);
     } catch (err) {
       alert('Error deleting contact: ' + err.message);
     }
@@ -10281,7 +10288,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       window.closeModal();
       // Reset modal fields
       resetInteractionModal();
-      // Update KPIs
+      // Update KPIs (clear cache so fresh data is fetched)
+      _dashKpiCache = null;
       if (typeof updateDashKPIs === 'function') updateDashKPIs();
       // Refresh dashboard
       if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
@@ -10417,11 +10425,18 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   };
 
   // Update dashboard KPI counters from Firestore
+  var _dashKpiCache = null;
   async function updateDashKPIs() {
     try {
-      var snap = await db.collection('interactions')
-        .orderBy('createdAt', 'desc')
-        .get();
+      var snap;
+      if (_dashKpiCache && (Date.now() - _dashKpiCache.loadedAt < 60000)) {
+        snap = _dashKpiCache.snap;
+      } else {
+        snap = await db.collection('interactions')
+          .orderBy('createdAt', 'desc')
+          .get();
+        _dashKpiCache = { snap: snap, loadedAt: Date.now() };
+      }
 
       var now = new Date();
       var dayOfWeek = now.getDay();
@@ -10929,7 +10944,8 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
 
-      // Refresh lists & KPIs
+      // Refresh lists & KPIs (clear cache so fresh data is fetched)
+      _dashKpiCache = null;
       if (typeof loadInteractions === 'function') loadInteractions();
       if (typeof updateDashKPIs === 'function') updateDashKPIs();
       if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
@@ -11234,6 +11250,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       }
 
       // 4. Close and refresh
+      _dashKpiCache = null;
       closeIxView();
       if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
       updateCrBadge();
@@ -11286,6 +11303,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var totalSignups = 0;
       var evSnap = await db.collection('events').get();
       var recSnap = await db.collection('recurringEvents').get();
+      _eventsSnapCache = { evSnap: evSnap, recSnap: recSnap, loadedAt: Date.now() };
       var otIds = [];
       var otProms = [];
       evSnap.forEach(function(doc) { otIds.push(doc.id); otProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
