@@ -3702,7 +3702,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v78</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v79</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5109,6 +5109,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="cmsSignupsModalTitle">Signups</div><span class="cms-ib cms-ib-light" onclick="event.stopPropagation();cmsIbShow(this,'<b>View Signups:</b> See who registered, update their status, add admin notes, and export to CSV.<br><br><b>Cancel a session:</b> For recurring programs, each upcoming date has a checkbox. Check the box to cancel that specific date (e.g., holiday or schedule change). Uncheck to restore it. Cancelled sessions appear with a red strikethrough.<br><br><b>Archive:</b> Use the Archive button on individual signups to move them out of the active list once handled.')" style="margin-left:8px;">i</span></div>
           <div style="display:flex;align-items:center;gap:10px;">
             <button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="cmsExportSignupsCsvFromModal()">Export CSV</button>
+            <button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:rgba(0,78,124,.08);color:#004E7C;" onclick="cmsOpenSessionSheet()">Session Sheet</button>
             <button class="close" type="button" onclick="cmsCloseSignupsModal()">&times;</button>
           </div>
         </div>
@@ -14882,6 +14883,295 @@ window.cmsExportSignupsCsv = function(eventTitle, signups) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+};
+
+// ── Session Sheet Generator ────────────────────────────────────────────────
+
+window.cmsOpenSessionSheet = async function() {
+  var d = _cmsSignupsModalData;
+  if (d.isRecurring) {
+    cmsGenerateRecurringSessionSheet(d);
+  } else {
+    await cmsGenerateAllEventsSessionSheet();
+  }
+};
+
+window.cmsGenerateRecurringSessionSheet = function(d) {
+  var signups = d.signups || [];
+  var title = d.eventTitle || 'Program';
+  var today = new Date().toISOString().slice(0, 10);
+
+  // Parse signups into session groups
+  var sessions = {};
+  var archived = [];
+  var legacy = [];
+
+  signups.forEach(function(s) {
+    var sName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Unknown';
+    var entry = {
+      name: sName, email: s.email || '', phone: s.phone || '',
+      registrantType: s.registrantType || '', studentName: s.studentName || '',
+      grade: s.grade || s.studentGrade || '', school: s.currentSchool || s.studentSchool || '',
+      careCoordinator: s.careCoordinator || '', iepReview: s.iepReviewDate || '',
+      reevalDate: s.reevalDate || '', comments: s.additionalComments || '',
+      status: s.status || 'confirmed', adminNotes: s.adminNotes || '',
+      registration: s.registration || null
+    };
+
+    if (s.status === 'cancelled' || s.archived) {
+      archived.push(entry);
+      return;
+    }
+
+    var dates = s.selectedDates || s.selectedSessions || [];
+    if (typeof dates === 'string') dates = [dates];
+    if (!dates.length && s.selectedDates) dates = s.selectedDates;
+
+    var hasRealDate = false;
+    dates.forEach(function(ds) {
+      var dateMatch = String(ds).match(/(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) {
+        hasRealDate = true;
+        var dateKey = dateMatch[1];
+        var loc = '';
+        var time = '';
+        var parts = String(ds).split('|');
+        if (parts.length >= 3) {
+          loc = parts[1] ? parts[1].trim() : '';
+          time = parts[2] ? parts[2].trim() : '';
+        } else {
+          // Try other format: "Thursday, 2026-04-09 — 11:00 AM - 1:00 PM @ Location"
+          var atMatch = String(ds).match(/@\s*(.+)/);
+          if (atMatch) loc = atMatch[1].trim();
+          var timeMatch = String(ds).match(/(\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M)/i);
+          if (timeMatch) time = timeMatch[1].trim();
+        }
+        var key = dateKey + '|' + loc + '|' + time;
+        if (!sessions[key]) sessions[key] = { date: dateKey, location: loc, time: time, signups: [] };
+        sessions[key].signups.push(entry);
+      }
+    });
+
+    if (!hasRealDate) {
+      // Legacy entry with no real date
+      var rawDates = dates.join('; ') || 'No date assigned';
+      entry._legacySession = rawDates;
+      legacy.push(entry);
+    }
+  });
+
+  // Sort sessions by date
+  var sortedSessions = Object.values(sessions).sort(function(a, b) {
+    return a.date.localeCompare(b.date);
+  });
+
+  // Filter: upcoming first, then past
+  var upcoming = sortedSessions.filter(function(s) { return s.date >= today; });
+  var past = sortedSessions.filter(function(s) { return s.date < today; });
+
+  // Merge legacy and archived
+  var allArchived = archived.concat(legacy);
+  // Also add past session signups to archived
+  past.forEach(function(ps) {
+    ps.signups.forEach(function(s) {
+      s._legacySession = cmsSessionSheetFormatDate(ps.date) + ' ' + (ps.time || '');
+      allArchived.push(s);
+    });
+  });
+
+  var html = cmsSessionSheetBuildHtml(title, upcoming, allArchived);
+  cmsSessionSheetOpen(html);
+};
+
+window.cmsGenerateAllEventsSessionSheet = async function() {
+  // Fetch all upcoming one-time events with signups
+  var evSnap = await db.collection('events').get();
+  var today = new Date().toISOString().slice(0, 10);
+  var events = [];
+
+  evSnap.forEach(function(doc) {
+    var d = doc.data();
+    var eventDate = d.eventDate || d.date || '';
+    var moveToPast = d.moveToPastDate || '';
+    // Include if upcoming or no moveToPastDate
+    if (moveToPast && moveToPast < today) return;
+    if (eventDate && eventDate < today) return;
+    events.push({ id: doc.id, title: d.title || 'Event', date: eventDate, location: d.location || '', time: d.eventTime || '', data: d });
+  });
+
+  events.sort(function(a, b) { return a.date.localeCompare(b.date); });
+
+  // Fetch signups for each event
+  var proms = events.map(function(ev) {
+    return db.collection('events').doc(ev.id).collection('signups').get();
+  });
+  var snaps = await Promise.all(proms);
+
+  var sessions = [];
+  var allArchived = [];
+
+  snaps.forEach(function(snap, i) {
+    var ev = events[i];
+    var confirmed = [];
+    snap.forEach(function(doc) {
+      var s = doc.data();
+      var sName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Unknown';
+      var entry = {
+        name: sName, email: s.email || '', phone: s.phone || '',
+        registrantType: s.registrantType || '', studentName: s.studentName || '',
+        grade: s.grade || s.studentGrade || '', school: s.currentSchool || s.studentSchool || '',
+        careCoordinator: s.careCoordinator || '', iepReview: s.iepReviewDate || '',
+        comments: s.additionalComments || '', status: s.status || 'confirmed',
+        adminNotes: s.adminNotes || '', registration: s.registration || null
+      };
+      if (s.status === 'cancelled' || s.archived) {
+        entry._legacySession = ev.title + ' (' + cmsSessionSheetFormatDate(ev.date) + ')';
+        allArchived.push(entry);
+      } else {
+        confirmed.push(entry);
+      }
+    });
+    if (confirmed.length > 0) {
+      sessions.push({ date: ev.date, location: ev.location, time: ev.time, signups: confirmed, eventTitle: ev.title });
+    }
+  });
+
+  var html = cmsSessionSheetBuildHtml('Upcoming Events', sessions, allArchived, true);
+  cmsSessionSheetOpen(html);
+};
+
+window.cmsSessionSheetFormatDate = function(dateStr) {
+  if (!dateStr) return '';
+  try {
+    var d = new Date(dateStr + 'T00:00:00');
+    var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return days[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+  } catch(e) { return dateStr; }
+};
+
+window.cmsSessionSheetBuildHtml = function(title, sessions, archived, isEvents) {
+  var today = new Date();
+  var dateStr = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  var h = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Session Sheet - ' + cmsEsc(title) + '</title>';
+  h += '<style>';
+  h += '@page{size:letter;margin:.5in}';
+  h += '*{margin:0;padding:0;box-sizing:border-box}';
+  h += 'body{font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:11px;color:#1a1a1a;width:7.5in;margin:0 auto;padding:.5in;line-height:1.4}';
+  h += '.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #004E7C;padding-bottom:8px;margin-bottom:14px}';
+  h += '.header h1{font-size:18px;color:#004E7C;font-weight:700}';
+  h += '.header .sub{font-size:11px;color:#555;margin-top:2px}';
+  h += '.header .meta{font-size:10px;color:#888;text-align:right}';
+  h += '.session{margin-bottom:16px;break-inside:avoid}';
+  h += '.session-hdr{background:#004E7C;color:#fff;padding:6px 10px;border-radius:4px 4px 0 0;display:flex;justify-content:space-between;align-items:center}';
+  h += '.session-hdr h2{font-size:13px;font-weight:700}';
+  h += '.session-hdr .cnt{font-size:11px;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px}';
+  h += '.session-loc{background:#e8f4f8;padding:4px 10px;font-size:10px;color:#004E7C;border-left:1px solid #ccc;border-right:1px solid #ccc}';
+  h += 'table{width:100%;border-collapse:collapse;font-size:10.5px}';
+  h += 'th{background:#f0f4f7;color:#004E7C;font-weight:600;text-align:left;padding:4px 6px;border:1px solid #d0d8df;font-size:9.5px;text-transform:uppercase;letter-spacing:.3px}';
+  h += 'td{padding:4px 6px;border:1px solid #d0d8df;vertical-align:top}';
+  h += 'tr:nth-child(even){background:#fafbfc}';
+  h += '.name{font-weight:600;white-space:nowrap}';
+  h += '.phone{white-space:nowrap;font-size:10px}';
+  h += '.notes{font-size:9.5px;color:#555;max-width:2in}';
+  h += '.badge{display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:600}';
+  h += '.b-conf{background:#d1fae5;color:#065f46}';
+  h += '.b-canc{background:#fee2e2;color:#991b1b}';
+  h += '.b-leg{background:#e5e7eb;color:#374151}';
+  h += '.b-par{background:#e0e7ff;color:#3730a3}';
+  h += '.b-pro{background:#fef3c7;color:#92400e}';
+  h += '.chk{width:12px;height:12px;border:1.5px solid #004E7C;border-radius:2px;display:inline-block}';
+  h += '.archived .session-hdr{background:#6b7280;cursor:pointer}';
+  h += '.archived td{color:#666}';
+  h += '.archived .name{color:#888}';
+  h += '.footer{margin-top:12px;padding-top:6px;border-top:1px solid #ddd;font-size:9px;color:#999;display:flex;justify-content:space-between}';
+  h += '.print-bar{background:#004E7C;color:#fff;padding:8px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-radius:6px}';
+  h += '.print-bar button{background:#fff;color:#004E7C;border:none;padding:6px 16px;border-radius:4px;font-weight:600;cursor:pointer;font-size:12px}';
+  h += '@media print{.print-bar{display:none}body{padding:0;width:100%}.session{break-inside:avoid}}';
+  h += '</style></head><body>';
+
+  // Print bar
+  h += '<div class="print-bar"><span>' + cmsEsc(title) + ' -- Session Sheet</span><button onclick="window.print()">Print</button></div>';
+
+  // Header
+  h += '<div class="header"><div><h1>' + cmsEsc(title) + ' -- Session Sheet</h1>';
+  h += '<div class="sub">LDAH -- Leadership in Disabilities &amp; Achievement of Hawai\'i</div></div>';
+  h += '<div class="meta">Printed: ' + dateStr + '<br>Internal Use Only</div></div>';
+
+  // Sessions
+  sessions.forEach(function(sess) {
+    var confirmed = sess.signups.filter(function(s) { return s.status !== 'cancelled'; });
+    var dateLabel = cmsSessionSheetFormatDate(sess.date);
+    var timeLabel = sess.time || '';
+    var headerText = isEvents && sess.eventTitle ? sess.eventTitle + ' -- ' + dateLabel : dateLabel + (timeLabel ? ' -- ' + timeLabel : '');
+
+    h += '<div class="session"><div class="session-hdr"><h2>' + cmsEsc(headerText) + '</h2>';
+    h += '<span class="cnt">' + confirmed.length + ' confirmed</span></div>';
+    if (sess.location) h += '<div class="session-loc">' + cmsEsc(sess.location) + (isEvents && timeLabel ? ' -- ' + cmsEsc(timeLabel) : '') + '</div>';
+
+    h += '<table><tr><th style="width:20px"></th><th>Name</th><th>Phone</th><th>Type</th><th>Student</th><th>Grade</th><th>School</th><th>Notes</th></tr>';
+    confirmed.forEach(function(s) {
+      var notes = [];
+      if (s.careCoordinator) notes.push('Care coord: ' + s.careCoordinator);
+      if (s.iepReview) notes.push('IEP review: ' + s.iepReview);
+      if (s.comments) notes.push('"' + (s.comments.length > 60 ? s.comments.slice(0, 60) + '...' : s.comments) + '"');
+      if (s.adminNotes) notes.push(s.adminNotes.length > 40 ? s.adminNotes.slice(0, 40) + '...' : s.adminNotes);
+      // Pull demographics from registration if available
+      if (s.registration) {
+        var r = s.registration;
+        var demo = [];
+        if (r.ethnicity) demo.push(r.ethnicity);
+        if (r.disabilityCategories && r.disabilityCategories.length) demo.push(r.disabilityCategories.join(', '));
+        if (r.militaryBranch) demo.push('Military: ' + r.militaryBranch);
+        if (demo.length) notes.push(demo.join('. '));
+      }
+      var typeLabel = s.registrantType || '';
+      var typeBadge = typeLabel.toLowerCase().indexOf('prof') >= 0 ? 'b-pro' : 'b-par';
+
+      h += '<tr><td style="text-align:center"><span class="chk"></span></td>';
+      h += '<td class="name">' + cmsEsc(s.name) + '</td>';
+      h += '<td class="phone">' + cmsEsc(s.phone) + '</td>';
+      h += '<td><span class="badge ' + typeBadge + '">' + cmsEsc(typeLabel || 'Parent') + '</span></td>';
+      h += '<td>' + cmsEsc(s.studentName) + '</td>';
+      h += '<td>' + cmsEsc(s.grade) + '</td>';
+      h += '<td>' + cmsEsc(s.school) + '</td>';
+      h += '<td class="notes">' + cmsEsc(notes.join('. ')) + '</td></tr>';
+    });
+    h += '</table></div>';
+  });
+
+  // Archived section (collapsible)
+  if (archived.length > 0) {
+    h += '<div class="session archived"><div class="session-hdr" onclick="var t=this.nextElementSibling;var c=this.querySelector(\'.chev\');if(t.style.display===\'none\'){t.style.display=\'table\';c.textContent=\'\\u25BE\'}else{t.style.display=\'none\';c.textContent=\'\\u25B8\'}">';
+    h += '<h2><span class="chev" style="margin-right:6px;">&#9656;</span>Archived / Cancelled / Legacy</h2>';
+    h += '<span class="cnt">' + archived.length + ' total</span></div>';
+    h += '<table style="display:none"><tr><th>Name</th><th>Phone</th><th>Original Session</th><th>Status</th><th>Notes</th></tr>';
+    archived.forEach(function(s) {
+      var statusBadge = s.status === 'cancelled' ? '<span class="badge b-canc">Cancelled</span>' : '<span class="badge b-leg">Legacy</span>';
+      var sessionInfo = s._legacySession || '';
+      var notes = [];
+      if (s.comments) notes.push(s.comments.length > 60 ? s.comments.slice(0, 60) + '...' : s.comments);
+      if (s.adminNotes) notes.push(s.adminNotes.length > 40 ? s.adminNotes.slice(0, 40) + '...' : s.adminNotes);
+
+      h += '<tr><td class="name">' + cmsEsc(s.name) + '</td>';
+      h += '<td class="phone">' + cmsEsc(s.phone) + '</td>';
+      h += '<td>' + cmsEsc(sessionInfo) + '</td>';
+      h += '<td>' + statusBadge + '</td>';
+      h += '<td class="notes">' + cmsEsc(notes.join('. ')) + '</td></tr>';
+    });
+    h += '</table></div>';
+  }
+
+  h += '<div class="footer"><span>LDAH -- Leadership in Disabilities &amp; Achievement of Hawai\'i</span><span>Confidential</span></div>';
+  h += '</body></html>';
+  return h;
+};
+
+window.cmsSessionSheetOpen = function(html) {
+  var w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
 };
 
 // ── Volunteers CMS ─────────────────────────────────────────────────────────
