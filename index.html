@@ -14903,7 +14903,15 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
   var title = d.eventTitle || 'Program';
   var today = new Date().toISOString().slice(0, 10);
 
-  // Parse signups into session groups
+  // Build cancelled dates set from program doc
+  var cancelledSet = {};
+  if (d.programDoc && d.programDoc.cancelledDates) {
+    d.programDoc.cancelledDates.forEach(function(cd) {
+      cancelledSet[cd.date] = cd.reason || true;
+    });
+  }
+
+  // Parse signups into session groups — only UPCOMING, NON-CANCELLED dates
   var sessions = {};
   var archived = [];
   var legacy = [];
@@ -14920,6 +14928,7 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
       registration: s.registration || null
     };
 
+    // Cancelled/archived signups go straight to archived
     if (s.status === 'cancelled' || s.archived) {
       archived.push(entry);
       return;
@@ -14930,11 +14939,19 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
     if (!dates.length && s.selectedDates) dates = s.selectedDates;
 
     var hasRealDate = false;
+    var hasUpcomingDate = false;
     dates.forEach(function(ds) {
       var dateMatch = String(ds).match(/(\d{4}-\d{2}-\d{2})/);
       if (dateMatch) {
         hasRealDate = true;
         var dateKey = dateMatch[1];
+
+        // Skip past dates
+        if (dateKey < today) return;
+        // Skip cancelled dates
+        if (cancelledSet[dateKey]) return;
+
+        hasUpcomingDate = true;
         var loc = '';
         var time = '';
         var parts = String(ds).split('|');
@@ -14942,26 +14959,27 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
           loc = parts[1] ? parts[1].trim() : '';
           time = parts[2] ? parts[2].trim() : '';
         } else {
-          // Try other format: "Thursday, 2026-04-09 — 11:00 AM - 1:00 PM @ Location"
           var atMatch = String(ds).match(/@\s*(.+)/);
           if (atMatch) loc = atMatch[1].trim();
           var timeMatch = String(ds).match(/(\d{1,2}:\d{2}\s*[AP]M\s*[-\u2013\u2014]\s*\d{1,2}:\d{2}\s*[AP]M)/i);
           if (timeMatch) time = timeMatch[1].trim();
         }
-        // Normalize: extract island name for grouping (Oahu, Hawai'i, Maui, etc.)
+        // Normalize: extract island name for grouping
         var island = (loc.match(/^(Oahu|Hawai[\u02BBi']*i?|Maui|Kauai|Moloka[\u02BBi']*i?)/i) || [''])[0] || loc;
-        // Normalize time: replace em-dash/en-dash with hyphen for consistent grouping
         var normTime = time.replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ').trim();
         var key = dateKey + '|' + island + '|' + normTime;
         if (!sessions[key]) sessions[key] = { date: dateKey, location: loc, time: time, signups: [] };
-        // Keep the longest/most complete location string
         if (loc.length > sessions[key].location.length) sessions[key].location = loc;
         if (time.length > sessions[key].time.length) sessions[key].time = time;
         sessions[key].signups.push(entry);
       }
     });
 
-    if (!hasRealDate) {
+    // If signup has real dates but NONE are upcoming, they're done — archive them
+    if (hasRealDate && !hasUpcomingDate) {
+      entry._legacySession = 'All sessions completed or cancelled';
+      archived.push(entry);
+    } else if (!hasRealDate) {
       // Legacy entry with no real date
       var rawDates = dates.join('; ') || 'No date assigned';
       entry._legacySession = rawDates;
@@ -14969,24 +14987,13 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
     }
   });
 
-  // Sort sessions by date
-  var sortedSessions = Object.values(sessions).sort(function(a, b) {
+  // Sort sessions by date (upcoming only — past already filtered out)
+  var upcoming = Object.values(sessions).sort(function(a, b) {
     return a.date.localeCompare(b.date);
   });
 
-  // Filter: upcoming first, then past
-  var upcoming = sortedSessions.filter(function(s) { return s.date >= today; });
-  var past = sortedSessions.filter(function(s) { return s.date < today; });
-
   // Merge legacy and archived
   var allArchived = archived.concat(legacy);
-  // Also add past session signups to archived
-  past.forEach(function(ps) {
-    ps.signups.forEach(function(s) {
-      s._legacySession = cmsSessionSheetFormatDate(ps.date) + ' ' + (ps.time || '');
-      allArchived.push(s);
-    });
-  });
 
   var html = cmsSessionSheetBuildHtml(title, upcoming, allArchived);
   cmsSessionSheetOpen(html);
