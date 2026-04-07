@@ -14901,21 +14901,17 @@ window.cmsOpenSessionSheet = async function() {
 window.cmsGenerateRecurringSessionSheet = function(d) {
   var signups = d.signups || [];
   var title = d.eventTitle || 'Program';
-  var today = new Date().toISOString().slice(0, 10);
+  var programDoc = d.programDoc || {};
 
-  // Build cancelled dates set from program doc
-  var cancelledSet = {};
-  if (d.programDoc && d.programDoc.cancelledDates) {
-    d.programDoc.cancelledDates.forEach(function(cd) {
-      cancelledSet[cd.date] = cd.reason || true;
-    });
-  }
+  // Use the SAME session generation as the CMS modal
+  var allSessions = cmsGenerateSessionDates(programDoc.schedules, programDoc.cancelledDates, 90);
 
-  // Parse signups into session groups — only UPCOMING, NON-CANCELLED dates
-  var sessions = {};
+  // Only upcoming, non-cancelled sessions
+  var upcomingSessions = allSessions.filter(function(sess) { return !sess.cancelled; });
+
+  // Separate active vs archived signups
+  var active = [];
   var archived = [];
-  var legacy = [];
-
   signups.forEach(function(s) {
     var sName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Unknown';
     var entry = {
@@ -14925,77 +14921,56 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
       careCoordinator: s.careCoordinator || '', iepReview: s.iepReviewDate || '',
       reevalDate: s.reevalDate || '', comments: s.additionalComments || '',
       status: s.status || 'confirmed', adminNotes: s.adminNotes || '',
-      registration: s.registration || null
+      registration: s.registration || null, _raw: s
     };
-
-    // Cancelled/archived signups go straight to archived
     if (s.status === 'cancelled' || s.archived) {
       archived.push(entry);
-      return;
+    } else {
+      active.push(entry);
     }
+  });
 
-    var dates = s.selectedDates || s.selectedSessions || [];
-    if (typeof dates === 'string') dates = [dates];
-    if (!dates.length && s.selectedDates) dates = s.selectedDates;
-
-    var hasRealDate = false;
-    var hasUpcomingDate = false;
-    dates.forEach(function(ds) {
-      var dateMatch = String(ds).match(/(\d{4}-\d{2}-\d{2})/);
-      if (dateMatch) {
-        hasRealDate = true;
-        var dateKey = dateMatch[1];
-
-        // Skip past dates
-        if (dateKey < today) return;
-        // Skip cancelled dates
-        if (cancelledSet[dateKey]) return;
-
-        hasUpcomingDate = true;
-        var loc = '';
-        var time = '';
-        var parts = String(ds).split('|');
-        if (parts.length >= 3) {
-          loc = parts[1] ? parts[1].trim() : '';
-          time = parts[2] ? parts[2].trim() : '';
-        } else {
-          var atMatch = String(ds).match(/@\s*(.+)/);
-          if (atMatch) loc = atMatch[1].trim();
-          var timeMatch = String(ds).match(/(\d{1,2}:\d{2}\s*[AP]M\s*[-\u2013\u2014]\s*\d{1,2}:\d{2}\s*[AP]M)/i);
-          if (timeMatch) time = timeMatch[1].trim();
+  // Match signups to sessions using the SAME logic as cmsRenderRecurringSignupsByDate
+  var sessionGroups = [];
+  upcomingSessions.forEach(function(sess) {
+    var dateSignups = active.filter(function(e) {
+      var sDates = e._raw.selectedSessions || e._raw.selectedDates || [];
+      return sDates.some(function(sd) {
+        if (String(sd).indexOf(sess.date) === -1) return false;
+        // Match on location to prevent cross-location duplication
+        if (sess.location && (String(sd).indexOf('|') !== -1 || String(sd).indexOf('@ ') !== -1)) {
+          return String(sd).indexOf(sess.location) !== -1;
         }
-        // Normalize: extract island name for grouping
-        var island = (loc.match(/^(Oahu|Hawai[\u02BBi']*i?|Maui|Kauai|Moloka[\u02BBi']*i?)/i) || [''])[0] || loc;
-        var normTime = time.replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ').trim();
-        var key = dateKey + '|' + island + '|' + normTime;
-        if (!sessions[key]) sessions[key] = { date: dateKey, location: loc, time: time, signups: [] };
-        if (loc.length > sessions[key].location.length) sessions[key].location = loc;
-        if (time.length > sessions[key].time.length) sessions[key].time = time;
-        sessions[key].signups.push(entry);
-      }
+        return true;
+      });
     });
 
-    // If signup has real dates but NONE are upcoming, they're done — archive them
-    if (hasRealDate && !hasUpcomingDate) {
-      entry._legacySession = 'All sessions completed or cancelled';
-      archived.push(entry);
-    } else if (!hasRealDate) {
-      // Legacy entry with no real date
-      var rawDates = dates.join('; ') || 'No date assigned';
-      entry._legacySession = rawDates;
-      legacy.push(entry);
+    if (dateSignups.length > 0) {
+      var loc = sess.location ? (sess.location + (sess.venue ? ' (' + sess.venue + ')' : '')) : '';
+      var time = '';
+      if (sess.startTime && sess.endTime) time = sess.startTime + ' - ' + sess.endTime;
+      sessionGroups.push({
+        date: sess.date,
+        location: loc,
+        time: time,
+        signups: dateSignups
+      });
     }
   });
 
-  // Sort sessions by date (upcoming only — past already filtered out)
-  var upcoming = Object.values(sessions).sort(function(a, b) {
-    return a.date.localeCompare(b.date);
+  // Anyone active but not matched to any upcoming session goes to archived
+  var matchedNames = {};
+  sessionGroups.forEach(function(sg) {
+    sg.signups.forEach(function(e) { matchedNames[e.name + '|' + e.email] = true; });
+  });
+  active.forEach(function(e) {
+    if (!matchedNames[e.name + '|' + e.email]) {
+      e._legacySession = 'No upcoming sessions';
+      archived.push(e);
+    }
   });
 
-  // Merge legacy and archived
-  var allArchived = archived.concat(legacy);
-
-  var html = cmsSessionSheetBuildHtml(title, upcoming, allArchived);
+  var html = cmsSessionSheetBuildHtml(title, sessionGroups, archived);
   cmsSessionSheetOpen(html);
 };
 
