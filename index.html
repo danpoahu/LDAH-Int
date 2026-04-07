@@ -14975,25 +14975,25 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
 };
 
 window.cmsGenerateAllEventsSessionSheet = async function() {
-  // Fetch all upcoming one-time events with signups
-  var evSnap = await db.collection('events').get();
+  // Use already-loaded _cmsEvents instead of re-fetching
   var today = new Date().toISOString().slice(0, 10);
-  var events = [];
 
-  evSnap.forEach(function(doc) {
-    var d = doc.data();
-    var eventDate = d.eventDate || d.date || '';
-    var moveToPast = d.moveToPastDate || '';
-    // Include if upcoming or no moveToPastDate
-    if (moveToPast && moveToPast < today) return;
-    if (eventDate && eventDate < today) return;
-    events.push({ id: doc.id, title: d.title || 'Event', date: eventDate, location: d.location || '', time: d.eventTime || '', data: d });
+  // Include non-archived events that have signups
+  var upcoming = (_cmsEvents || []).filter(function(ev) {
+    if (ev.archived) return false;
+    // Include if event date is future or empty (don't exclude based on date alone)
+    var eventDate = ev.eventDate || ev.date || '';
+    var moveToPast = ev.moveToPastDate || '';
+    if (moveToPast && moveToPast < today) return false;
+    if (eventDate && eventDate < today) return false;
+    // Include if it has any signups
+    return (ev._signupCount || 0) > 0 || (ev.signupCount || 0) > 0;
   });
 
-  events.sort(function(a, b) { return a.date.localeCompare(b.date); });
+  upcoming.sort(function(a, b) { return (a.eventDate || a.date || '').localeCompare(b.eventDate || b.date || ''); });
 
   // Fetch signups for each event
-  var proms = events.map(function(ev) {
+  var proms = upcoming.map(function(ev) {
     return db.collection('events').doc(ev.id).collection('signups').get();
   });
   var snaps = await Promise.all(proms);
@@ -15002,7 +15002,11 @@ window.cmsGenerateAllEventsSessionSheet = async function() {
   var allArchived = [];
 
   snaps.forEach(function(snap, i) {
-    var ev = events[i];
+    var ev = upcoming[i];
+    var eventDate = ev.eventDate || ev.date || '';
+    var eventTitle = ev.title || 'Event';
+    var eventLoc = ev.location || ev.venue || '';
+    var eventTime = ev.eventTime || ev.time || '';
     var confirmed = [];
     snap.forEach(function(doc) {
       var s = doc.data();
@@ -15016,14 +15020,14 @@ window.cmsGenerateAllEventsSessionSheet = async function() {
         adminNotes: s.adminNotes || '', registration: s.registration || null
       };
       if (s.status === 'cancelled' || s.archived) {
-        entry._legacySession = ev.title + ' (' + cmsSessionSheetFormatDate(ev.date) + ')';
+        entry._legacySession = eventTitle;
         allArchived.push(entry);
       } else {
         confirmed.push(entry);
       }
     });
     if (confirmed.length > 0) {
-      sessions.push({ date: ev.date, location: ev.location, time: ev.time, signups: confirmed, eventTitle: ev.title });
+      sessions.push({ date: eventDate, location: eventLoc, time: eventTime, signups: confirmed, eventTitle: eventTitle });
     }
   });
 
