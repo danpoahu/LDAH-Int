@@ -3702,7 +3702,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v83</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v84</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14974,64 +14974,39 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
   cmsSessionSheetOpen(html);
 };
 
-window.cmsGenerateAllEventsSessionSheet = async function() {
-  // Use already-loaded _cmsEvents instead of re-fetching
-  var today = new Date().toISOString().slice(0, 10);
+window.cmsGenerateAllEventsSessionSheet = function() {
+  // Use the same data source as CSV export — _cmsSignupsModalData
+  var d = _cmsSignupsModalData;
+  var signups = d.signups || [];
+  var title = d.eventTitle || 'Event';
 
-  // Include all non-archived events that aren't explicitly moved to past
-  var upcoming = (_cmsEvents || []).filter(function(ev) {
-    if (ev.archived) return false;
-    // Only exclude if moveToPastDate is set AND is a valid past YYYY-MM-DD date
-    var moveToPast = ev.moveToPastDate || '';
-    if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast < today) return false;
-    // Only exclude by eventDate if it's a clean YYYY-MM-DD format AND is past
-    var eventDate = ev.eventDate || ev.date || '';
-    if (/^\d{4}-\d{2}-\d{2}$/.test(eventDate) && eventDate < today) return false;
-    return true;
-  });
+  var confirmed = [];
+  var archived = [];
 
-  upcoming.sort(function(a, b) { return (a.eventDate || a.date || '').localeCompare(b.eventDate || b.date || ''); });
-
-  // Fetch signups for each event
-  var proms = upcoming.map(function(ev) {
-    return db.collection('events').doc(ev.id).collection('signups').get();
-  });
-  var snaps = await Promise.all(proms);
-
-  var sessions = [];
-  var allArchived = [];
-
-  snaps.forEach(function(snap, i) {
-    var ev = upcoming[i];
-    var eventDate = ev.eventDate || ev.date || '';
-    var eventTitle = ev.title || 'Event';
-    var eventLoc = ev.location || ev.venue || '';
-    var eventTime = ev.eventTime || ev.time || '';
-    var confirmed = [];
-    snap.forEach(function(doc) {
-      var s = doc.data();
-      var sName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Unknown';
-      var entry = {
-        name: sName, email: s.email || '', phone: s.phone || '',
-        registrantType: s.registrantType || '', studentName: s.studentName || '',
-        grade: s.grade || s.studentGrade || '', school: s.currentSchool || s.studentSchool || '',
-        careCoordinator: s.careCoordinator || '', iepReview: s.iepReviewDate || '',
-        comments: s.additionalComments || '', status: s.status || 'confirmed',
-        adminNotes: s.adminNotes || '', registration: s.registration || null
-      };
-      if (s.status === 'cancelled' || s.archived) {
-        entry._legacySession = eventTitle;
-        allArchived.push(entry);
-      } else {
-        confirmed.push(entry);
-      }
-    });
-    if (confirmed.length > 0) {
-      sessions.push({ date: eventDate, location: eventLoc, time: eventTime, signups: confirmed, eventTitle: eventTitle });
+  signups.forEach(function(s) {
+    var sName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Unknown';
+    var entry = {
+      name: sName, email: s.email || '', phone: s.phone || '',
+      registrantType: s.registrantType || '', studentName: s.studentName || '',
+      grade: s.grade || s.studentGrade || '', school: s.currentSchool || s.studentSchool || '',
+      careCoordinator: s.careCoordinator || '', iepReview: s.iepReviewDate || '',
+      comments: s.additionalComments || '', status: s.status || 'confirmed',
+      adminNotes: s.adminNotes || '', registration: s.registration || null
+    };
+    if (s.status === 'cancelled' || s.archived) {
+      archived.push(entry);
+    } else {
+      confirmed.push(entry);
     }
   });
 
-  var html = cmsSessionSheetBuildHtml('Upcoming Events', sessions, allArchived, true);
+  // Build a single session group for this event
+  var sessions = [];
+  if (confirmed.length > 0) {
+    sessions.push({ date: '', location: '', time: '', signups: confirmed, eventTitle: title });
+  }
+
+  var html = cmsSessionSheetBuildHtml(title, sessions, archived, true);
   cmsSessionSheetOpen(html);
 };
 
