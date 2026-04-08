@@ -3701,7 +3701,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v91.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v92</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4251,6 +4251,12 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
               <option value="Email">Email</option>
               <option value="Chat">Chat</option>
               <option value="Other">Other</option>
+              <option value="Signup">Signup</option>
+              <option value="Contact Form">Contact Form</option>
+              <option value="Provider">Provider</option>
+              <option value="Pledge">Pledge</option>
+              <option value="Event Request">Event Request</option>
+              <option value="Volunteer">Volunteer</option>
             </select>
           </div>
           <div style="display:flex;gap:8px;align-self:flex-end;">
@@ -11638,6 +11644,114 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       });
       _ixFollowUpOnly = false;
 
+      // ── Merge form submissions & signups (cost-efficient: cached via persistence) ──
+      var _formChannels = ['Signup','Contact Form','Provider','Pledge','Event Request','Volunteer'];
+      var _isFormFilter = channelFilter && _formChannels.indexOf(channelFilter) !== -1;
+      // Skip form queries if user filtered to a non-form channel
+      if (!channelFilter || _isFormFilter) {
+        var _dfrom = dateFrom ? new Date(dateFrom) : null;
+        var _dto = dateTo ? (function(){ var e = new Date(dateTo); e.setDate(e.getDate()+1); return e; })() : null;
+        function _tsToDate(t) { return t && t.toDate ? t.toDate() : (t ? new Date(t) : null); }
+        function _inDateRange(ts) {
+          var dt = _tsToDate(ts);
+          if (!dt) return false;
+          if (_dfrom && dt < _dfrom) return false;
+          if (_dto && dt >= _dto) return false;
+          return true;
+        }
+        function _pushForm(channel, name, summary, status, ts) {
+          if (channelFilter && channel !== channelFilter) return;
+          if (statusFilter && status !== statusFilter) return;
+          if (contactFilter) return; // form entries don't have contactId
+          var dt = _tsToDate(ts);
+          if (!_inDateRange(ts) && (dateFrom || dateTo)) return;
+          rows.push({
+            _id: null, _isFormEntry: true, channel: channel,
+            contactName: name, contactType: '', summary: summary,
+            status: status || 'new', owner: 'Web Form',
+            createdAt: ts || { toDate: function(){ return new Date(); } }
+          });
+        }
+
+        try {
+          // Contact messages
+          if (!channelFilter || channelFilter === 'Contact Form') {
+            var _cmSnap = await db.collection('contactSubmissions').orderBy('timestamp','desc').limit(200).get();
+            _cmSnap.forEach(function(doc) { var d = doc.data();
+              _pushForm('Contact Form', d.name||'—', d.message||'—', d.status||'new', d.timestamp);
+            });
+          }
+          // Providers
+          if (!channelFilter || channelFilter === 'Provider') {
+            var _pvSnap = await db.collection('providers').orderBy('submittedAt','desc').limit(200).get();
+            _pvSnap.forEach(function(doc) { var d = doc.data();
+              var name = d.organizationName || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
+              _pushForm('Provider', name, (d.serviceType||'') + (d.message ? ' — '+d.message : ''), d.status||'new', d.submittedAt);
+            });
+          }
+          // Pledges
+          if (!channelFilter || channelFilter === 'Pledge') {
+            var _plSnap = await db.collection('pledges').orderBy('submittedAt','desc').limit(200).get();
+            _plSnap.forEach(function(doc) { var d = doc.data();
+              _pushForm('Pledge', d.name||'—', 'Anti-bullying pledge' + (d.role ? ' ('+d.role+')' : ''), d.status||'new', d.submittedAt);
+            });
+          }
+          // Event requests
+          if (!channelFilter || channelFilter === 'Event Request') {
+            var _erSnap = await db.collection('eventRequests').orderBy('timestamp','desc').limit(200).get();
+            _erSnap.forEach(function(doc) { var d = doc.data();
+              _pushForm('Event Request', d.name||'—', d.eventInfo||'—', d.status||'pending', d.timestamp||d.submittedAt);
+            });
+          }
+          // Volunteers
+          if (!channelFilter || channelFilter === 'Volunteer') {
+            var _vlSnap = await db.collection('volunteers').orderBy('submittedAt','desc').limit(200).get();
+            _vlSnap.forEach(function(doc) { var d = doc.data();
+              var name = [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
+              _pushForm('Volunteer', name, d.opportunityTitle || d.notes || d.subject || '—', d.status||'new', d.submittedAt);
+            });
+          }
+          // Event signups — only active events (cheap: ~3 events)
+          if (!channelFilter || channelFilter === 'Signup') {
+            var _today = new Date().toISOString().split('T')[0];
+            var _evSnap = await db.collection('events').get();
+            var _activeEvIds = [];
+            _evSnap.forEach(function(doc) {
+              var d = doc.data();
+              if (d.archived === true) return;
+              var moveToPast = d.moveToPastDate || '';
+              var removeDate = d.removeDate || '';
+              if (removeDate && removeDate <= _today) return;
+              if (moveToPast && moveToPast <= _today) return;
+              _activeEvIds.push({ id: doc.id, title: d.title || d.name || 'Event' });
+            });
+            var _pgSnap = await db.collection('recurringEvents').get();
+            _pgSnap.forEach(function(doc) {
+              var d = doc.data();
+              if (d.archived !== true) _activeEvIds.push({ id: doc.id, title: d.title || d.name || 'Program', isRecurring: true });
+            });
+            for (var _ei = 0; _ei < _activeEvIds.length; _ei++) {
+              var _ev = _activeEvIds[_ei];
+              var _col = _ev.isRecurring ? 'recurringEvents' : 'events';
+              var _sSnap = await db.collection(_col).doc(_ev.id).collection('signups').get();
+              _sSnap.forEach(function(doc) { var d = doc.data();
+                var sName = d.name || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
+                _pushForm('Signup', sName, _ev.title + (d.participationType === 'Group' ? ' (Group: '+(d.groupName||'')+')' : ''), d.status||'pending', d.timestamp);
+              });
+            }
+          }
+        } catch (formErr) {
+          console.warn('Form submission merge:', formErr);
+        }
+
+        // Sort merged rows by date descending
+        rows.sort(function(a, b) {
+          var ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+          var tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+          return tb - ta;
+        });
+      }
+
       // Counters
       var total = rows.length;
       var openCount = rows.filter(function(r) { return r.status === 'Open'; }).length;
@@ -11660,24 +11774,33 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
         var isDraft = d.status === 'Draft' || d.isDraft;
-        var statusCls = d.status === 'Closed' ? 'closed' :
+        var isForm = d._isFormEntry;
+        var statusCls = d.status === 'Closed' || d.status === 'confirmed' ? 'closed' :
                         d.status === 'Draft' ? 'draft' :
-                        d.status === 'Needs admin review' ? 'needs' : 'open';
-        var statusLabel = d.status === 'Needs admin review' ? 'Review' : (d.status || 'Open');
+                        d.status === 'Needs admin review' || d.status === 'pending' || d.status === 'new' ? 'needs' : 'open';
+        var statusLabel = d.status === 'Needs admin review' ? 'Review' :
+                          d.status === 'confirmed' ? 'Confirmed' :
+                          d.status === 'new' ? 'New' :
+                          d.status === 'pending' ? 'Pending' : (d.status || 'Open');
+
+        var _formTagColors = { 'Signup':'#10b981', 'Contact Form':'#6366f1', 'Provider':'#8b5cf6',
+          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2' };
+        var _chTagStyle = isForm ? ' style="background:' + (_formTagColors[d.channel]||'#64748b') + ';color:#fff;"' : '';
 
         var notesBadge = _notesBadgeHtml(d.notes);
         html += '<div class="ix-row">' +
           '<span style="font-size:.84rem;">' + dateStr + '</span>' +
-          '<span><span class="ix-channel-tag">' + rsEscape(d.channel || '') + '</span></span>' +
+          '<span><span class="ix-channel-tag"' + _chTagStyle + '>' + rsEscape(d.channel || '') + '</span></span>' +
           '<span><b>' + rsEscape(d.contactName || '—') + '</b>' +
             (d.contactType ? '<br><span style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(d.contactType) + '</span>' : '') +
           '</span>' +
           '<span>' + rsEscape(d.summary || '—') + (notesBadge ? '<div style="margin-top:3px;">' + notesBadge + '</div>' : '') + '</span>' +
           '<span><span class="ix-status-badge ' + statusCls + '">' + rsEscape(statusLabel) + '</span></span>' +
           '<span>' + (function(o){ var p=o.split(/\s+/).filter(Boolean); return p.length>=2 ? rsEscape(p[0]+' '+p[1][0]+'.') : rsEscape(o); })(d.owner||'—') + '</span>' +
+          (isForm ? '<span class="ix-row-actions"></span>' :
           '<span class="ix-row-actions"><button onclick="viewInteraction(\'' + d._id + '\')">View</button>' +
             (isDraft ? '<button onclick="editDraft(\'' + d._id + '\')" style="margin-left:4px;background:#F59E0B;">Edit</button>' : '') +
-          '</span>' +
+          '</span>') +
           '</div>';
       });
 
