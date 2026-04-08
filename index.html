@@ -3706,7 +3706,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v92.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v93</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6464,6 +6464,69 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
   })();
 </script>
 
+<!-- Auto-crop whitespace utility (shared across all image uploads) -->
+<script>
+window.autoCropImage = function(file) {
+  return new Promise(function(resolve) {
+    // Skip non-image files (PDFs, etc.)
+    if (!file || !file.type || !file.type.startsWith('image/')) { resolve(file); return; }
+    var img = new Image();
+    img.onload = function() {
+      var c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      var ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      var px = ctx.getImageData(0, 0, c.width, c.height).data;
+      var w = c.width, h = c.height;
+      var thresh = 245; // pixels brighter than this = "white"
+      function isWhite(i) { return px[i] >= thresh && px[i+1] >= thresh && px[i+2] >= thresh; }
+      // Scan edges
+      var top = 0, bot = h - 1, left = 0, right = w - 1;
+      // Top
+      scanTop: for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) { if (!isWhite((y * w + x) * 4)) { top = y; break scanTop; } }
+      }
+      // Bottom
+      scanBot: for (var y = h - 1; y >= top; y--) {
+        for (var x = 0; x < w; x++) { if (!isWhite((y * w + x) * 4)) { bot = y; break scanBot; } }
+      }
+      // Left
+      scanLeft: for (var x = 0; x < w; x++) {
+        for (var y = top; y <= bot; y++) { if (!isWhite((y * w + x) * 4)) { left = x; break scanLeft; } }
+      }
+      // Right
+      scanRight: for (var x = w - 1; x >= left; x--) {
+        for (var y = top; y <= bot; y++) { if (!isWhite((y * w + x) * 4)) { right = x; break scanRight; } }
+      }
+      // Add small padding (2% of dimension, min 2px)
+      var padX = Math.max(2, Math.round((right - left) * 0.02));
+      var padY = Math.max(2, Math.round((bot - top) * 0.02));
+      top = Math.max(0, top - padY); bot = Math.min(h - 1, bot + padY);
+      left = Math.max(0, left - padX); right = Math.min(w - 1, right + padX);
+      var cw = right - left + 1, ch = bot - top + 1;
+      // Skip if crop is trivial (< 5% whitespace removed)
+      if (cw >= w * 0.95 && ch >= h * 0.95) { resolve(file); URL.revokeObjectURL(img.src); return; }
+      // Draw cropped
+      var c2 = document.createElement('canvas');
+      c2.width = cw; c2.height = ch;
+      c2.getContext('2d').drawImage(img, left, top, cw, ch, 0, 0, cw, ch);
+      URL.revokeObjectURL(img.src);
+      var outType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      var quality = outType === 'image/jpeg' ? 0.92 : undefined;
+      c2.toBlob(function(blob) {
+        if (!blob) { resolve(file); return; }
+        // Preserve original filename
+        var cropped = new File([blob], file.name, { type: outType, lastModified: Date.now() });
+        console.log('Auto-crop: ' + w + 'x' + h + ' → ' + cw + 'x' + ch + ' (' + Math.round((1 - (cw*ch)/(w*h)) * 100) + '% trimmed)');
+        resolve(cropped);
+      }, outType, quality);
+    };
+    img.onerror = function() { resolve(file); };
+    img.src = URL.createObjectURL(file);
+  });
+};
+</script>
+
 <!-- Firebase Auth + User Roles Management -->
 <script>
 (function(){
@@ -7859,8 +7922,9 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     msgEl.style.color = 'var(--ocean-deep)';
 
     try {
+      var croppedFile = await autoCropImage(file);
       const ref = storage.ref('profilePhotos/' + currentUserData.uid);
-      await ref.put(file);
+      await ref.put(croppedFile);
       const url = await ref.getDownloadURL();
 
       await db.collection('userRoles').doc(currentUserData.uid).update({ photoURL: url });
@@ -8167,6 +8231,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
       try {
         var storagePath = 'resources/' + Date.now() + '_' + file.name;
+        file = await autoCropImage(file);
         var ref = storage.ref(storagePath);
         await ref.put(file);
         var url = await ref.getDownloadURL();
@@ -8232,6 +8297,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
         // Upload new file
         var storagePath = 'resources/' + Date.now() + '_' + file.name;
+        file = await autoCropImage(file);
         var fileRef = storage.ref(storagePath);
         await fileRef.put(file);
         var url = await fileRef.getDownloadURL();
@@ -12901,6 +12967,7 @@ window.cmsSavePerson = async function() {
     if (fileInput.files && fileInput.files[0]) {
       var file = fileInput.files[0];
       _showToast('Uploading photo...', '#0891B2');
+      file = await autoCropImage(file);
       var storagePath = 'teamMembers/' + Date.now() + '_' + file.name;
       var ref = storage.ref(storagePath);
       await ref.put(file);
@@ -13002,6 +13069,7 @@ window.cmsUploadGalleryPhoto = async function(input, collection) {
   if (file.size > 5 * 1024 * 1024) { alert('Photo must be under 5 MB.'); input.value = ''; return; }
   _showToast('Uploading...', '#0891B2');
   try {
+    file = await autoCropImage(file);
     var storagePath = collection + '/' + Date.now() + '_' + file.name;
     var ref = storage.ref(storagePath);
     await ref.put(file);
@@ -13241,6 +13309,7 @@ window.cmsSaveResource = async function() {
     if (fileInput.files && fileInput.files[0]) {
       var file = fileInput.files[0];
       _showToast('Uploading logo...', '#0891B2');
+      file = await autoCropImage(file);
       var storagePath = 'resources/' + Date.now() + '_' + file.name;
       var ref = storage.ref(storagePath);
       await ref.put(file);
@@ -14372,6 +14441,7 @@ window.cmsSaveEvent = async function() {
     var fileInput = document.getElementById('cmsEventImageInput');
     if (fileInput.files && fileInput.files[0]) {
       var file = fileInput.files[0];
+      file = await autoCropImage(file);
       _showToast('Uploading image...', '#0891B2');
       var storagePath = 'event-images/' + Date.now() + '_' + file.name;
       var ref = storage.ref(storagePath);
@@ -15540,6 +15610,7 @@ window.cmsSaveOpportunity = async function() {
     if (fileInput.files && fileInput.files[0]) {
       var file = fileInput.files[0];
       _showToast('Uploading image...', '#0891B2');
+      file = await autoCropImage(file);
       var storagePath = 'volunteerOpportunities/' + Date.now() + '_' + file.name;
       var ref = storage.ref(storagePath);
       await ref.put(file);
@@ -16760,6 +16831,7 @@ window.cmsSavePageField = async function(pageName, fieldKey, value) {
 };
 
 window.cmsUploadPagePhoto = async function(pageName, fieldKey, file, imgEl) {
+  file = await autoCropImage(file);
   var docId = _cmsPageEditorDocId(pageName);
   var timestamp = Date.now();
   var path = 'gallery/' + docId + '_' + fieldKey + '_' + timestamp + '.jpg';
@@ -17666,6 +17738,7 @@ window.pe2SaveField = async function(page, fieldKey, value) {
 };
 
 window.pe2UploadPhoto = async function(page, fieldKey, file, imgEl) {
+  file = await autoCropImage(file);
   var docId = _cmsPageEditorDocId(page);
   var path = 'gallery/' + docId + '_' + fieldKey + '_' + Date.now() + '.jpg';
   try {
