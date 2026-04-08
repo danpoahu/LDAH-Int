@@ -2946,6 +2946,11 @@
 }
 
 /* Zebra striping — every other row gets a subtle tint */
+table[aria-label="Recent interactions list"] { table-layout: fixed; width: 100%; }
+table[aria-label="Recent interactions list"] td:nth-child(1) { width: 90px; }
+table[aria-label="Recent interactions list"] td:nth-child(2) { width: 80px; }
+table[aria-label="Recent interactions list"] td:nth-child(4) { width: 75px; }
+table[aria-label="Recent interactions list"] td:nth-child(5) { width: 55px; }
 table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { background: rgba(8,145,178,.07); }
 .ct-row:nth-child(even) { background: rgba(8,145,178,.07); }
 .ix-row:nth-child(even) { background: rgba(8,145,178,.07); }
@@ -3701,7 +3706,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v92.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v92.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10300,38 +10305,88 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       snap.forEach(function(doc) {
         var d = doc.data();
         if (d.channel === 'Internal Chat') return;
-        docs.push({ id: doc.id, data: d });
+        docs.push({ id: doc.id, data: d, _ts: d.createdAt });
       });
-      if (!_dashRecentFilter) docs = docs.slice(0, 10);
+
+      // ── Merge form submissions into dashboard feed ──
+      try {
+        var _formTagColors = { 'Signup':'#10b981', 'Contact Form':'#6366f1', 'Provider':'#8b5cf6',
+          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2' };
+        function _pushDashForm(channel, name, summary, status, ts) {
+          docs.push({ id: null, _isForm: true, data: {
+            channel: channel, contactName: name, summary: summary,
+            status: status || 'new', owner: 'Web Form', createdAt: ts
+          }, _ts: ts });
+        }
+        var _cmS = await db.collection('contactSubmissions').orderBy('timestamp','desc').limit(10).get();
+        _cmS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Contact Form', d.name||'—', d.message||'—', d.status, d.timestamp); });
+        var _pvS = await db.collection('providers').orderBy('submittedAt','desc').limit(10).get();
+        _pvS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Provider', d.organizationName||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.serviceType||d.message||'—', d.status, d.submittedAt); });
+        var _plS = await db.collection('pledges').orderBy('submittedAt','desc').limit(10).get();
+        _plS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Pledge', d.name||'—', 'Anti-bullying pledge'+(d.role?' ('+d.role+')':''), d.status, d.submittedAt); });
+        var _erS = await db.collection('eventRequests').orderBy('timestamp','desc').limit(10).get();
+        _erS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Event Request', d.name||'—', d.eventInfo||'—', d.status, d.timestamp||d.submittedAt); });
+        var _vlS = await db.collection('volunteers').orderBy('submittedAt','desc').limit(10).get();
+        _vlS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Volunteer', [d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.opportunityTitle||d.notes||'—', d.status, d.submittedAt); });
+        // Signups from active events only
+        var _tdy = new Date().toISOString().split('T')[0];
+        var _evS = await db.collection('events').get();
+        var _actEv = [];
+        _evS.forEach(function(doc) { var d = doc.data(); if (d.archived) return; var mp=d.moveToPastDate||'',rd=d.removeDate||''; if(rd&&rd<=_tdy)return; if(mp&&mp<=_tdy)return; _actEv.push({id:doc.id,title:d.title||d.name||'Event'}); });
+        var _pgS = await db.collection('recurringEvents').get();
+        _pgS.forEach(function(doc) { var d = doc.data(); if(!d.archived) _actEv.push({id:doc.id,title:d.title||d.name||'Program',isRec:true}); });
+        for (var _i=0;_i<_actEv.length;_i++) {
+          var _e=_actEv[_i], _c=_e.isRec?'recurringEvents':'events';
+          var _sS = await db.collection(_c).doc(_e.id).collection('signups').orderBy('timestamp','desc').limit(10).get();
+          _sS.forEach(function(doc) { var d=doc.data(); _pushDashForm('Signup', d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', _e.title+(d.participationType==='Group'?' (Group)':''), d.status, d.timestamp); });
+        }
+      } catch(_fe) { console.warn('Dashboard form merge:', _fe); }
+
+      // Sort all by timestamp descending
+      docs.sort(function(a, b) {
+        var ta = a._ts && a._ts.toDate ? a._ts.toDate().getTime() : (a._ts ? new Date(a._ts).getTime() : 0);
+        var tb = b._ts && b._ts.toDate ? b._ts.toDate().getTime() : (b._ts ? new Date(b._ts).getTime() : 0);
+        return tb - ta;
+      });
+      if (!_dashRecentFilter) docs = docs.slice(0, 15);
 
       if (docs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-soft);padding:14px;">No interactions yet. Click "+ New Interaction" to log one.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-soft);padding:14px;">No activity yet.</td></tr>';
         return;
       }
 
+      var _formTagColors = _formTagColors || {};
       var html = '';
       docs.forEach(function(item) {
         var doc = { id: item.id };
         var d = item.data;
+        var isForm = item._isForm;
         var ts = d.createdAt ? (d.createdAt.toDate ? d.createdAt.toDate() : new Date(d.createdAt)) : new Date();
         var dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
+        var _fColors = { 'Signup':'#10b981', 'Contact Form':'#6366f1', 'Provider':'#8b5cf6',
+          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2' };
         var channelEmoji = d.channel === 'Phone' ? '📞' :
                           d.channel === 'Web' ? '🌐' :
                           d.channel === 'Office' ? '🏢' :
-                          d.channel === 'Email' ? '✉️' : '📋';
+                          d.channel === 'Email' ? '✉️' : '';
+        var tagStyle = isForm
+          ? 'font-size:.76rem;padding:5px 9px;background:' + (_fColors[d.channel]||'#64748b') + ';color:#fff;border-radius:8px;'
+          : 'font-size:.76rem;padding:5px 9px;';
 
         var statusCls = '';
         var statusRaw = d.status || 'Open';
-        var statusText = statusRaw === 'Needs admin review' ? 'Review' : statusRaw;
-        if (statusRaw === 'Closed') statusCls = 'closed';
+        var statusText = statusRaw === 'Needs admin review' ? 'Review' :
+                         statusRaw === 'confirmed' ? 'Confirmed' :
+                         statusRaw === 'new' ? 'New' :
+                         statusRaw === 'pending' ? 'Pending' : statusRaw;
+        if (statusRaw === 'Closed' || statusRaw === 'confirmed') statusCls = 'closed';
         else if (statusRaw === 'Draft') statusCls = 'draft';
-        else if (statusRaw === 'Needs admin review') statusCls = 'needs';
+        else if (statusRaw === 'Needs admin review' || statusRaw === 'pending' || statusRaw === 'new') statusCls = 'needs';
 
         var contactDisplay = rsEscape(d.contactName || '—');
         var summaryDisplay = rsEscape(d.summary || '—');
-        var topicLine = contactDisplay + (d.summary ? ' — ' + summaryDisplay : '');
-        var notesBadge = _notesBadgeHtml(d.notes);
+        var topicFull = contactDisplay + (d.summary ? ' — ' + summaryDisplay : '');
 
         // Shorten owner to "First L." format
         var ownerRaw = d.owner || '—';
@@ -10339,15 +10394,17 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var ownerShort = ownerRaw;
         if (ownerParts.length >= 2) ownerShort = ownerParts[0] + ' ' + ownerParts[1][0] + '.';
 
-        html += '<tr data-owner="' + rsEscape(d.owner || '') + '" data-doc-id="' + doc.id + '">' +
-          '<td>' + dateStr + '</td>' +
+        html += '<tr data-owner="' + rsEscape(d.owner || '') + '"' + (doc.id ? ' data-doc-id="' + doc.id + '"' : '') + '>' +
+          '<td style="white-space:nowrap;">' + dateStr + '</td>' +
           '<td><span class="status ' + statusCls + '" style="font-size:.75rem;padding:4px 8px;">' + rsEscape(statusText) + '</span></td>' +
-          '<td><span class="tag" style="font-size:.76rem; padding:5px 9px;">' + channelEmoji + ' ' + rsEscape(d.channel || '') + '</span><div style="height:8px"></div>' +
-            topicLine + (notesBadge ? '<div style="margin-top:4px;">' + notesBadge + '</div>' : '') + '</td>' +
-          '<td class="owner-cell">' + rsEscape(ownerShort) + '</td>' +
+          '<td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + topicFull.replace(/"/g,'&quot;') + '">' +
+            '<span class="tag" style="' + tagStyle + '">' + (channelEmoji ? channelEmoji + ' ' : '') + rsEscape(d.channel || '') + '</span> ' +
+            topicFull + '</td>' +
+          '<td class="owner-cell" style="white-space:nowrap;">' + rsEscape(ownerShort) + '</td>' +
+          (isForm ? '<td></td>' :
           '<td><div class="row-actions" style="justify-content:flex-end;">' +
             '<button class="iconbtn" style="padding:6px 8px;font-size:.8rem;" type="button" onclick="viewInteraction(\'' + doc.id + '\')">View</button>' +
-          '</div></td>' +
+          '</div></td>') +
           '</tr>';
       });
 
