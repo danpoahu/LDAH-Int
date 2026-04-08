@@ -872,10 +872,10 @@
       flex-direction: column;
       min-height: 110px;
     }
-    #kpiInteractions, #kpiFollowUps, #kpiReview, #kpiClosed {
+    #kpiActiveEvents, #kpiInteractions, #kpiFollowUps, #kpiReview, #kpiClosed {
       cursor: pointer; transition: transform .15s, box-shadow .15s, border-color .15s;
     }
-    #kpiInteractions:hover, #kpiFollowUps:hover, #kpiReview:hover, #kpiClosed:hover {
+    #kpiActiveEvents:hover, #kpiInteractions:hover, #kpiFollowUps:hover, #kpiReview:hover, #kpiClosed:hover {
       transform: translateY(-2px); box-shadow: 0 4px 16px rgba(8,145,178,.18);
       border-color: rgba(8,145,178,.3);
     }
@@ -3701,7 +3701,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v91.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v91.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -3751,10 +3751,10 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       <div id="weatherAlertsBanner" style="display:none;"></div>
 
       <section class="kpis" aria-label="KPIs">
-        <div class="kpi">
-          <div class="label">Inbox emails <span class="tag">NOW</span></div>
-          <div class="value">9</div>
-          <div class="trend">2 flagged follow-up</div>
+        <div class="kpi" id="kpiActiveEvents" style="cursor:default;">
+          <div class="label">Active Events / Programs <span class="tag">NOW</span></div>
+          <div class="value">&mdash;</div>
+          <div class="trend" style="font-size:.78rem;"></div>
         </div>
         <div class="kpi" id="kpiInteractions">
           <div class="label">Interactions logged <span class="tag">WTD</span></div>
@@ -10431,6 +10431,45 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     } catch (err) {
       console.error('KPI update failed:', err);
+    }
+
+    // ── Active Events/Programs KPI ──
+    try {
+      var today = new Date().toISOString().split('T')[0];
+      var evSnap = await db.collection('events').get();
+      var activeCount = 0, pendingCount = 0;
+      evSnap.forEach(function(doc) {
+        var d = doc.data();
+        if (d.archived === true) return;
+        // Active = has a future date or ongoing (no endDate or endDate >= today)
+        var start = d.eventDate || d.startDate || '';
+        var end = d.endDate || d.eventDate || start;
+        if (end >= today || d.isRecurring) { activeCount++; pendingCount += (d.pendingCount || 0); }
+      });
+      var pgSnap = await db.collection('recurringEvents').get();
+      pgSnap.forEach(function(doc) {
+        var d = doc.data();
+        if (d.archived === true) return;
+        activeCount++; pendingCount += (d.pendingCount || 0);
+      });
+      var kpiEv = document.getElementById('kpiActiveEvents');
+      if (kpiEv) {
+        kpiEv.querySelector('.value').textContent = activeCount;
+        kpiEv.querySelector('.trend').textContent = pendingCount > 0
+          ? pendingCount + ' pending signup' + (pendingCount !== 1 ? 's' : '')
+          : 'No pending signups';
+        // Clickable for CMS-permitted roles
+        var cmsClickRoles = ['superAdmin','admin','webAdmin','appAdmin'];
+        if (currentUserData && cmsClickRoles.includes(currentUserData.role)) {
+          kpiEv.style.cursor = 'pointer';
+          kpiEv.onclick = function() {
+            var evLink = document.querySelector('a[data-section="cmsEvents"]');
+            if (evLink) evLink.click();
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Active Events KPI failed:', err);
     }
   }
 
