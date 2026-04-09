@@ -3706,7 +3706,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v93.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v94</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14498,7 +14498,7 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
     var snap = await signupProm;
     _cmsSignupsModalData.signups = [];
     snap.forEach(function(doc) {
-      _cmsSignupsModalData.signups.push({ id: doc.id, ...doc.data() });
+      _cmsSignupsModalData.signups.push({ id: doc.id, ...doc.data(), _collection: collection, _eventId: eventId });
     });
     // Sort client-side (newest first) — avoids Firestore index requirement
     _cmsSignupsModalData.signups.sort(function(a, b) {
@@ -14540,14 +14540,17 @@ function cmsRegAdminNote(s) {
       h += '<div style="background:#FFFBEB;border-left:4px solid #F59E0B;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#92400E;margin-top:8px;">Registration completed at signup</div>';
     }
   } else if (s.status === 'pending') {
+    var _resendBtn = '<button onclick="cmsResendRegistrationEmail(this,\'' + rsEscape(s._collection || '') + '\',\'' + rsEscape(s._eventId || '') + '\',\'' + rsEscape(s.id) + '\')" style="margin-left:10px;padding:4px 12px;border:1px solid #D97706;background:#FEF3C7;color:#92400E;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Resend Email</button>';
     if (s.registrationEmailError) {
-      h += '<div style="background:#FEF2F2;border-left:4px solid #DC2626;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#DC2626;margin-top:8px;">Registration email failed: ' + rsEscape(s.registrationEmailError) + '</div>';
+      h += '<div style="background:#FEF2F2;border-left:4px solid #DC2626;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#DC2626;margin-top:8px;">Registration email failed: ' + rsEscape(s.registrationEmailError) + _resendBtn + '</div>';
     } else if (s.registrationEmailSentAt) {
       var sentDate = '';
       if (s.registrationEmailSentAt.toDate) sentDate = s.registrationEmailSentAt.toDate().toLocaleDateString();
       else if (s.registrationEmailSentAt.seconds) sentDate = new Date(s.registrationEmailSentAt.seconds * 1000).toLocaleDateString();
       else if (typeof s.registrationEmailSentAt === 'string') sentDate = s.registrationEmailSentAt;
-      h += '<div style="background:#FFFBEB;border-left:4px solid #F59E0B;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#92400E;margin-top:8px;">Registration email sent on ' + rsEscape(sentDate) + '. Awaiting completion.</div>';
+      h += '<div style="background:#FFFBEB;border-left:4px solid #F59E0B;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#92400E;margin-top:8px;">Registration email sent on ' + rsEscape(sentDate) + '. Awaiting completion. ' + _resendBtn + '</div>';
+    } else {
+      h += '<div style="background:#FFFBEB;border-left:4px solid #F59E0B;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#92400E;margin-top:8px;">Pending registration — no email sent yet. ' + _resendBtn + '</div>';
     }
   }
   return h;
@@ -15048,6 +15051,32 @@ window.cmsToggleSessionCancel = async function(eventId, dateStr, isCancelled) {
 
 window.cmsCloseSignupsModal = function() {
   document.getElementById('cmsSignupsOverlay').classList.remove('active');
+};
+
+window.cmsResendRegistrationEmail = async function(btn, collection, eventId, signupId) {
+  var origText = btn.textContent;
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+  try {
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/resendRegistrationEmail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection: collection, eventId: eventId, signupId: signupId })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Unknown error');
+    // Update local cache
+    var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+    if (s) { s.registrationEmailSentAt = { seconds: Math.floor(Date.now() / 1000) }; delete s.registrationEmailError; }
+    var sName = s ? (s.name || signupId) : signupId;
+    auditLog('Resent registration email', sName + ' (' + (data.email || '') + ') — ' + (_cmsSignupsModalData.eventTitle || 'Event'));
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+    _showToast('Registration email resent to ' + (data.email || 'recipient'), '#16A34A');
+  } catch (err) {
+    _showToast('Email failed: ' + err.message, '#DC2626');
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
 };
 
 window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, status) {
