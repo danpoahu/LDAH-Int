@@ -2935,6 +2935,23 @@
 .ct-ix-card-notes { font-size: .82rem; color: var(--text-soft); margin-top: 3px; white-space: pre-wrap; }
 .ct-ix-card-owner { font-size: .75rem; color: var(--text-soft); margin-top: 4px; font-style: italic; }
 .ct-ix-empty { text-align: center; padding: 30px 16px; color: var(--text-soft); font-size: .9rem; }
+.ct-signup-card {
+  background: white; border-radius: 10px; padding: 12px 14px;
+  border: 1.5px solid rgba(13,148,136,.12);
+  box-shadow: 0 1px 4px rgba(0,40,80,.04);
+  transition: border-color .15s, box-shadow .15s;
+}
+.ct-signup-card:hover {
+  border-color: rgba(13,148,136,.3);
+  box-shadow: 0 2px 8px rgba(0,40,80,.08);
+}
+.ct-signup-card-top {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;
+}
+.ct-signup-badge {
+  font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px;
+  background: #CCFBF1; color: #0F766E;
+}
 
 /* Make contact rows clickable */
 .ct-row { cursor: pointer; transition: background .15s, box-shadow .15s; }
@@ -3706,7 +3723,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v95.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v96</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10073,76 +10090,127 @@ window.autoCropImage = function(file) {
           (c.notes ? '<div class="ct-info-field span2"><label>Notes</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(c.notes) + '</div></div>' : '') +
         '</div>';
 
-      // Now load all interactions for this contact
+      // Now load all interactions + signups for this contact
       // Regular interactions use contactId, chat-linked use clientId
-      var interactionsHtml = '<div class="ct-detail-section-label">📋 Interaction History</div>';
-      interactionsHtml += '<div class="ct-ix-timeline" id="ctDetailTimeline"><p style="color:var(--text-soft);font-size:.85rem;">Loading interactions…</p></div>';
+      var timelineLabel = '<div class="ct-detail-section-label">Activity Timeline</div>';
+      var timelineHtml = '<div class="ct-ix-timeline" id="ctDetailTimeline"><p style="color:var(--text-soft);font-size:.85rem;">Loading activity…</p></div>';
 
-      body.innerHTML = infoHtml + interactionsHtml;
+      body.innerHTML = infoHtml + timelineLabel + timelineHtml;
 
-      // Query contactId and clientId in parallel (name-based fallbacks removed —
-      // old records backfilled via backfill-contact-ids.html migration script)
+      // Query contactId, clientId, and signups in parallel
       var results = [];
       var seen = {};
 
       function addResult(d) {
         if (!seen[d.id]) {
           seen[d.id] = true;
-          results.push({ id: d.id, ...d.data() });
+          results.push({ id: d.id, ...d.data(), _entryType: 'interaction' });
         }
       }
 
-      var [snap1, snap2] = await Promise.all([
+      var [snap1, snap2, signupSnap] = await Promise.all([
         db.collection('interactions').where('contactId', '==', contactId).limit(200).get(),
-        db.collection('interactions').where('clientId', '==', contactId).limit(200).get()
+        db.collection('interactions').where('clientId', '==', contactId).limit(200).get(),
+        db.collectionGroup('signups').where('linkedContactId', '==', contactId).get()
       ]);
       snap1.forEach(addResult);
       snap2.forEach(addResult);
 
-      // Sort all results by createdAt descending
+      // Add signup entries to the merged timeline
+      signupSnap.forEach(function(d) {
+        var sData = d.data();
+        sData.id = d.id;
+        sData._entryType = 'signup';
+        // Store ref path for potential future use
+        sData._refPath = d.ref.path;
+        results.push(sData);
+      });
+
+      // Unified sort — newest first. Use createdAt for interactions, timestamp for signups.
+      function _getEntryTime(entry) {
+        var raw = entry._entryType === 'signup' ? (entry.timestamp || entry.createdAt) : entry.createdAt;
+        if (!raw) return 0;
+        if (raw.toDate) return raw.toDate().getTime();
+        if (raw.seconds) return raw.seconds * 1000;
+        return new Date(raw).getTime() || 0;
+      }
       results.sort(function(a, b) {
-        var aTime = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime()) : 0;
-        var bTime = b.createdAt ? (b.createdAt.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime()) : 0;
-        return bTime - aTime;
+        return _getEntryTime(b) - _getEntryTime(a);
       });
 
       var timeline = document.getElementById('ctDetailTimeline');
       if (!timeline) return;
 
       if (results.length === 0) {
-        timeline.innerHTML = '<div class="ct-ix-empty">No interactions recorded for this contact yet.</div>';
+        timeline.innerHTML = '<div class="ct-ix-empty">No interactions or signups recorded for this contact yet.</div>';
         return;
       }
 
       var tHtml = '';
-      results.forEach(function(ix) {
-        var ts = ix.createdAt ? (ix.createdAt.toDate ? ix.createdAt.toDate() : new Date(ix.createdAt)) : null;
-        var dateStr = ts ? ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
-          ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+      results.forEach(function(entry) {
+        if (entry._entryType === 'signup') {
+          // ── Signup timeline card ──
+          var sts = entry.timestamp || entry.createdAt;
+          var sDate = null;
+          if (sts) {
+            if (sts.toDate) sDate = sts.toDate();
+            else if (sts.seconds) sDate = new Date(sts.seconds * 1000);
+            else sDate = new Date(sts);
+          }
+          var sDateStr = sDate ? sDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
+            sDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+          var evTitle = entry.eventTitle || entry.programTitle || 'Unknown Event';
 
-        var channel = ix.channel || ix.type || '—';
-        var ixType = ix.interactionType || ix.type || '—';
-        var statusCls = ix.status === 'Closed' ? 'closed' :
-                        ix.status === 'Needs admin review' ? 'needs' : 'open';
-        var statusLabel = ix.status === 'Needs admin review' ? 'Review' : (ix.status || 'Open');
+          // Build a unique ID for this signup's expandable section
+          var regDetailId = 'ctSignupRegDetails_' + entry.id;
 
-        var summary = ix.summary || ix.notes || '—';
-        var notes = ix.notes && ix.summary ? ix.notes : '';
-        var owner = ix.owner || ix.createdBy || '—';
-        var notesBadge = _notesBadgeHtml(ix.notes);
+          tHtml += '<div class="ct-signup-card">' +
+            '<div class="ct-signup-card-top">' +
+              '<span class="ct-ix-card-date">' + sDateStr + '</span>' +
+              '<span class="ct-signup-badge">Signup</span>' +
+              cmsRegStatusBadge(entry) +
+            '</div>' +
+            '<div class="ct-ix-card-summary">' + rsEscape(evTitle) + '</div>' +
+            (entry.sessionDate ? '<div class="ct-ix-card-notes">Session: ' + rsEscape(entry.sessionDate) + '</div>' : '') +
+            (entry.source ? '<div class="ct-ix-card-owner">Source: ' + rsEscape(entry.source) + '</div>' : '');
 
-        tHtml += '<div class="ct-ix-card" onclick="viewInteraction(\'' + ix.id + '\')">' +
-          '<div class="ct-ix-card-top">' +
-            '<span class="ct-ix-card-date">' + dateStr + '</span>' +
-            '<span class="ct-ix-card-channel">' + rsEscape(channel) + '</span>' +
-            '<span class="ct-ix-card-type">' + rsEscape(ixType) + '</span>' +
-            (notesBadge ? notesBadge : '') +
-            '<span class="ct-ix-card-status ' + statusCls + '">' + rsEscape(statusLabel) + '</span>' +
-          '</div>' +
-          '<div class="ct-ix-card-summary">' + rsEscape(summary.length > 200 ? summary.substring(0, 200) + '…' : summary) + '</div>' +
-          (notes ? '<div class="ct-ix-card-notes">' + rsEscape(notes.length > 150 ? notes.substring(0, 150) + '…' : notes) + '</div>' : '') +
-          '<div class="ct-ix-card-owner">By: ' + rsEscape(owner) + '</div>' +
-        '</div>';
+          // If registration is completed, show expandable registration details
+          if (entry.registration && typeof entry.registration === 'object') {
+            tHtml += cmsRegDetailsSection(entry);
+          }
+
+          tHtml += '</div>';
+        } else {
+          // ── Interaction timeline card (existing) ──
+          var ix = entry;
+          var ts = ix.createdAt ? (ix.createdAt.toDate ? ix.createdAt.toDate() : new Date(ix.createdAt)) : null;
+          var dateStr = ts ? ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
+            ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+
+          var channel = ix.channel || ix.type || '—';
+          var ixType = ix.interactionType || ix.type || '—';
+          var statusCls = ix.status === 'Closed' ? 'closed' :
+                          ix.status === 'Needs admin review' ? 'needs' : 'open';
+          var statusLabel = ix.status === 'Needs admin review' ? 'Review' : (ix.status || 'Open');
+
+          var summary = ix.summary || ix.notes || '—';
+          var notes = ix.notes && ix.summary ? ix.notes : '';
+          var owner = ix.owner || ix.createdBy || '—';
+          var notesBadge = _notesBadgeHtml(ix.notes);
+
+          tHtml += '<div class="ct-ix-card" onclick="viewInteraction(\'' + ix.id + '\')">' +
+            '<div class="ct-ix-card-top">' +
+              '<span class="ct-ix-card-date">' + dateStr + '</span>' +
+              '<span class="ct-ix-card-channel">' + rsEscape(channel) + '</span>' +
+              '<span class="ct-ix-card-type">' + rsEscape(ixType) + '</span>' +
+              (notesBadge ? notesBadge : '') +
+              '<span class="ct-ix-card-status ' + statusCls + '">' + rsEscape(statusLabel) + '</span>' +
+            '</div>' +
+            '<div class="ct-ix-card-summary">' + rsEscape(summary.length > 200 ? summary.substring(0, 200) + '…' : summary) + '</div>' +
+            (notes ? '<div class="ct-ix-card-notes">' + rsEscape(notes.length > 150 ? notes.substring(0, 150) + '…' : notes) + '</div>' : '') +
+            '<div class="ct-ix-card-owner">By: ' + rsEscape(owner) + '</div>' +
+          '</div>';
+        }
       });
 
       timeline.innerHTML = tHtml;

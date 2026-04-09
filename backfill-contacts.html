@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LDAH-Int: Backfill Contacts from Signups</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f4f6f8; color: #222; }
+    .header { background: #004E7C; color: #fff; padding: 20px 32px; }
+    .header h1 { font-size: 22px; font-weight: 600; }
+    .header p { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+    .container { max-width: 900px; margin: 32px auto; padding: 0 24px; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
+    .card h2 { font-size: 16px; color: #004E7C; margin-bottom: 12px; }
+    .card p { font-size: 14px; line-height: 1.6; color: #444; margin-bottom: 12px; }
+    .btn { display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 600; color: #fff; background: #004E7C; border: none; border-radius: 6px; cursor: pointer; }
+    .btn:hover { background: #003a5c; }
+    .btn:disabled { background: #999; cursor: not-allowed; }
+    #login-section { text-align: center; margin-top: 60px; }
+    #login-section input { display: block; width: 280px; margin: 8px auto; padding: 10px 14px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; }
+    #login-error { color: #c0392b; font-size: 13px; margin-top: 8px; }
+    #app-section { display: none; }
+    #log-box { background: #1a1a2e; color: #e0e0e0; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 12px; line-height: 1.7; padding: 16px; border-radius: 6px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+    .log-skip { color: #888; }
+    .log-match { color: #2ecc71; }
+    .log-create { color: #f39c12; }
+    .log-error { color: #e74c3c; }
+    .log-info { color: #3498db; }
+    .log-heading { color: #fff; font-weight: bold; }
+    #summary-box { display: none; margin-top: 16px; padding: 16px; background: #eaf6ec; border: 1px solid #b2dfbc; border-radius: 6px; }
+    #summary-box.has-errors { background: #fdf0e6; border-color: #f5c6a0; }
+    #summary-box h3 { font-size: 15px; color: #004E7C; margin-bottom: 8px; }
+    #summary-box p { font-size: 14px; margin: 2px 0; }
+    .progress-bar { height: 6px; background: #ddd; border-radius: 3px; margin: 12px 0; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: #004E7C; width: 0%; transition: width 0.2s; }
+    #progress-text { font-size: 13px; color: #666; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Backfill Contacts from Signups</h1>
+  <p>One-time migration: link signups to contact records (idempotent, safe to re-run)</p>
+</div>
+
+<div class="container">
+
+  <!-- Login -->
+  <div id="login-section" class="card">
+    <h2>Admin Login Required</h2>
+    <input type="email" id="login-email" placeholder="Email" />
+    <input type="password" id="login-password" placeholder="Password" />
+    <div id="login-error"></div>
+    <br>
+    <button class="btn" id="login-btn" onclick="doLogin()">Sign In</button>
+  </div>
+
+  <!-- Main app (shown after auth) -->
+  <div id="app-section">
+    <div class="card">
+      <h2>What This Does</h2>
+      <p>Scans every signup across <strong>events</strong> and <strong>recurringEvents</strong> and links each one to a contact record:</p>
+      <p>1. If the signup already has a <code>linkedContactId</code>, it is skipped.<br>
+         2. If a matching contact exists (by email or phone), the signup is linked to it.<br>
+         3. If no match, a new contact is created and linked.<br>
+         4. The parent event's title is written as <code>eventTitle</code> on the signup.</p>
+      <p style="color:#888; font-size:13px;">This is idempotent. Running it again will only process signups that were missed or added since the last run.</p>
+    </div>
+    <div class="card">
+      <button class="btn" id="run-btn" onclick="startBackfill()">Run Backfill</button>
+      <div id="progress-text" style="margin-top:12px;"></div>
+      <div class="progress-bar" style="display:none;" id="progress-bar"><div class="fill" id="progress-fill"></div></div>
+    </div>
+    <div class="card" style="display:none;" id="log-card">
+      <h2>Progress Log</h2>
+      <div id="log-box"></div>
+      <div id="summary-box">
+        <h3>Summary</h3>
+        <div id="summary-content"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDKs (compat, same version as LDAH-Int) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<script>
+(function() {
+  // ── Firebase Configuration (same as LDAH-Int index.html) ──
+  const firebaseConfig = {
+    apiKey: "AIzaSyAU3CQ07bCVKlJ1qGak-150kaJEyPKldLk",
+    authDomain: "ldah-932d5.firebaseapp.com",
+    projectId: "ldah-932d5",
+    storageBucket: "ldah-932d5.firebasestorage.app",
+    messagingSenderId: "662130454003",
+    appId: "1:662130454003:web:437576d5a5811ecd8df686"
+  };
+
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  // ── Auth ──
+  window.doLogin = async function() {
+    var email = document.getElementById('login-email').value.trim();
+    var pwd = document.getElementById('login-password').value;
+    var errDiv = document.getElementById('login-error');
+    errDiv.textContent = '';
+    try {
+      await auth.signInWithEmailAndPassword(email, pwd);
+    } catch(e) {
+      errDiv.textContent = (e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential')
+        ? 'Invalid email or password.' : e.message;
+    }
+  };
+
+  auth.onAuthStateChanged(async function(user) {
+    if (user) {
+      // Verify admin role
+      var roleDoc = await db.collection('userRoles').doc(user.uid).get();
+      if (!roleDoc.exists || roleDoc.data().role !== 'admin') {
+        document.getElementById('login-error').textContent = 'Admin access required.';
+        auth.signOut();
+        return;
+      }
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('app-section').style.display = 'block';
+    }
+  });
+
+  // ── Logging ──
+  var logBox = document.getElementById('log-box');
+  function log(msg, cls) {
+    var span = document.createElement('span');
+    span.className = cls || '';
+    span.textContent = msg + '\n';
+    logBox.appendChild(span);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  // ── Helpers ──
+  function normalizeEmail(e) { return e ? e.trim().toLowerCase() : ''; }
+  function normalizePhone(p) { return p ? p.replace(/\D/g, '') : ''; }
+
+  function buildDisplayName(data) {
+    var fn = (data.firstName || '').trim();
+    var ln = (data.lastName || '').trim();
+    if (fn && ln) return fn + ' ' + ln;
+    if (data.name) return data.name.trim();
+    return fn || ln || 'Unknown';
+  }
+
+  // ── Main Backfill ──
+  window.startBackfill = async function() {
+    if (!confirm('This will scan all signups and link them to contacts. Existing links will be skipped.\n\nProceed?')) return;
+
+    var btn = document.getElementById('run-btn');
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    document.getElementById('log-card').style.display = 'block';
+    document.getElementById('progress-bar').style.display = 'block';
+
+    var stats = { total: 0, skipped: 0, matched: 0, created: 0, noIdentifier: 0, errors: 0 };
+
+    try {
+      log('=== Backfill Contacts from Signups ===', 'log-heading');
+      log('Started at ' + new Date().toLocaleString(), 'log-info');
+      log('');
+
+      // Step 1: Gather all signups from both collections
+      log('Fetching events and recurringEvents...', 'log-info');
+
+      var collections = ['events', 'recurringEvents'];
+      var allWork = []; // { col, eventId, eventTitle, signupDoc }
+
+      for (var ci = 0; ci < collections.length; ci++) {
+        var colName = collections[ci];
+        var evSnap = await db.collection(colName).get();
+        log('  ' + colName + ': ' + evSnap.size + ' event docs', 'log-info');
+
+        for (var ei = 0; ei < evSnap.docs.length; ei++) {
+          var evDoc = evSnap.docs[ei];
+          var evData = evDoc.data();
+          var evTitle = evData.title || evData.name || '(untitled)';
+
+          var sigSnap = await db.collection(colName).doc(evDoc.id).collection('signups').get();
+          sigSnap.forEach(function(sDoc) {
+            allWork.push({ col: colName, eventId: evDoc.id, eventTitle: evTitle, signupId: sDoc.id, signupData: sDoc.data() });
+          });
+        }
+      }
+
+      stats.total = allWork.length;
+      log('');
+      log('Total signups to process: ' + stats.total, 'log-heading');
+      log('');
+
+      // Step 2: Build contacts cache (email -> id, phone -> id)
+      log('Building contacts index...', 'log-info');
+      var contactsByEmail = {}; // normalized email -> contactId
+      var contactsByPhone = {}; // normalized phone -> contactId
+      var contactsSnap = await db.collection('contacts').get();
+      contactsSnap.forEach(function(cDoc) {
+        var cd = cDoc.data();
+        var em = normalizeEmail(cd.email);
+        if (em) contactsByEmail[em] = cDoc.id;
+        var ph = normalizePhone(cd.phone);
+        if (ph && ph.length >= 7) contactsByPhone[ph] = cDoc.id;
+      });
+      log('  Indexed ' + contactsSnap.size + ' contacts (' + Object.keys(contactsByEmail).length + ' emails, ' + Object.keys(contactsByPhone).length + ' phones)', 'log-info');
+      log('');
+
+      // Step 3: Process each signup
+      var progressFill = document.getElementById('progress-fill');
+      var progressText = document.getElementById('progress-text');
+
+      for (var i = 0; i < allWork.length; i++) {
+        var w = allWork[i];
+        var sd = w.signupData;
+        var label = (i + 1) + '/' + allWork.length + ' [' + w.col + '/' + w.eventId + '] ';
+
+        // Update progress
+        var pct = Math.round(((i + 1) / allWork.length) * 100);
+        progressFill.style.width = pct + '%';
+        progressText.textContent = 'Processing ' + (i + 1) + ' of ' + allWork.length + ' (' + pct + '%)';
+
+        // Skip if already linked
+        if (sd.linkedContactId) {
+          stats.skipped++;
+          log(label + 'SKIP (already linked to ' + sd.linkedContactId + ')', 'log-skip');
+          continue;
+        }
+
+        var email = normalizeEmail(sd.email);
+        var phone = normalizePhone(sd.phone);
+        var signupName = buildDisplayName(sd);
+        var contactId = null;
+        var action = '';
+
+        try {
+          // Try email match first
+          if (email) {
+            if (contactsByEmail[email]) {
+              contactId = contactsByEmail[email];
+              action = 'MATCHED by email';
+            }
+          }
+
+          // Try phone match if no email match
+          if (!contactId && phone && phone.length >= 7) {
+            if (contactsByPhone[phone]) {
+              contactId = contactsByPhone[phone];
+              action = 'MATCHED by phone';
+            }
+          }
+
+          // No identifier at all?
+          if (!contactId && !email && (!phone || phone.length < 7)) {
+            stats.noIdentifier++;
+            // Still write eventTitle if missing
+            if (!sd.eventTitle) {
+              await db.collection(w.col).doc(w.eventId).collection('signups').doc(w.signupId).update({ eventTitle: w.eventTitle });
+            }
+            log(label + signupName + ' - NO EMAIL/PHONE, skipped contact link', 'log-skip');
+            continue;
+          }
+
+          // Create new contact if no match
+          if (!contactId) {
+            var fn = (sd.firstName || '').trim();
+            var ln = (sd.lastName || '').trim();
+            if (!fn && !ln && sd.name) {
+              var parts = sd.name.trim().split(/\s+/);
+              fn = parts[0] || '';
+              ln = parts.slice(1).join(' ') || '';
+            }
+
+            var newContact = {
+              displayName: buildDisplayName(sd),
+              firstName: fn,
+              lastName: ln,
+              email: email || '',
+              phone: sd.phone || '',
+              type: '',
+              source: 'event-signup',
+              createdBy: 'auto-signup',
+              createdByName: 'Auto-Signup',
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            var newDoc = await db.collection('contacts').add(newContact);
+            contactId = newDoc.id;
+            action = 'CREATED new contact';
+
+            // Update local cache
+            if (email) contactsByEmail[email] = contactId;
+            if (phone && phone.length >= 7) contactsByPhone[phone] = contactId;
+          }
+
+          // Write linkedContactId + eventTitle on signup
+          var updateData = { linkedContactId: contactId };
+          if (!sd.eventTitle) updateData.eventTitle = w.eventTitle;
+          await db.collection(w.col).doc(w.eventId).collection('signups').doc(w.signupId).update(updateData);
+
+          if (action.startsWith('MATCHED')) {
+            stats.matched++;
+            log(label + signupName + ' (' + (email || phone) + ') - ' + action + ' -> ' + contactId, 'log-match');
+          } else {
+            stats.created++;
+            log(label + signupName + ' (' + (email || phone) + ') - ' + action + ' -> ' + contactId, 'log-create');
+          }
+
+        } catch(err) {
+          stats.errors++;
+          log(label + signupName + ' - ERROR: ' + err.message, 'log-error');
+        }
+
+        // Yield to UI every 20 items
+        if ((i + 1) % 20 === 0) {
+          await new Promise(function(r) { setTimeout(r, 0); });
+        }
+      }
+
+      // Done
+      log('');
+      log('=== Backfill Complete ===', 'log-heading');
+      log('Finished at ' + new Date().toLocaleString(), 'log-info');
+
+    } catch(err) {
+      log('FATAL ERROR: ' + err.message, 'log-error');
+      stats.errors++;
+    }
+
+    // Show summary
+    var summaryBox = document.getElementById('summary-box');
+    var summaryContent = document.getElementById('summary-content');
+    summaryBox.style.display = 'block';
+    if (stats.errors > 0) summaryBox.className = 'has-errors';
+
+    summaryContent.innerHTML =
+      '<p><strong>Total signups scanned:</strong> ' + stats.total + '</p>' +
+      '<p><strong>Already linked (skipped):</strong> ' + stats.skipped + '</p>' +
+      '<p><strong>Matched to existing contact:</strong> ' + stats.matched + '</p>' +
+      '<p><strong>New contacts created:</strong> ' + stats.created + '</p>' +
+      '<p><strong>No email/phone (skipped):</strong> ' + stats.noIdentifier + '</p>' +
+      (stats.errors > 0 ? '<p style="color:#c0392b;"><strong>Errors:</strong> ' + stats.errors + '</p>' : '<p style="color:#27ae60;"><strong>Errors:</strong> 0</p>');
+
+    btn.textContent = 'Done - Run Again?';
+    btn.disabled = false;
+    document.getElementById('progress-text').textContent = 'Complete';
+  };
+
+})();
+</script>
+
+</body>
+</html>
