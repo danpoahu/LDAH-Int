@@ -3706,7 +3706,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v94.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v95</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -3724,7 +3724,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
         <div class="search" role="search">
           <span aria-hidden="true">🔎</span>
-          <input id="globalSearchInput" placeholder="Search interactions, clients, grants, tags…" autocomplete="off" />
+          <input id="globalSearchInput" placeholder="Search signups, interactions, clients, grants…" autocomplete="off" />
           <div class="gs-dropdown" id="globalSearchResults"></div>
         </div>
 
@@ -12392,7 +12392,7 @@ document.addEventListener('click', function(e) {
   if (!input || !dropdown) return;
 
   // ── Search Cache ──
-  var _gsCache = { interactions: [], resources: [] };
+  var _gsCache = { interactions: [], resources: [], signups: [] };
   var _gsCacheLoaded = false;
 
   window._gsRefreshInteractions = async function() {
@@ -12419,6 +12419,45 @@ document.addEventListener('click', function(e) {
     } catch(e) { console.warn('Search cache (resources):', e.message); }
   };
 
+  window._gsRefreshSignups = async function() {
+    try {
+      var db = firebase.firestore();
+      _gsCache.signups = [];
+      // Load recent signups from both events and recurringEvents
+      var collections = ['events', 'recurringEvents'];
+      for (var ci = 0; ci < collections.length; ci++) {
+        var colName = collections[ci];
+        var evSnap = await db.collection(colName).get();
+        for (var ei = 0; ei < evSnap.docs.length; ei++) {
+          var evDoc = evSnap.docs[ei];
+          var evData = evDoc.data();
+          var supSnap = await db.collection(colName).doc(evDoc.id).collection('signups').orderBy('timestamp', 'desc').limit(50).get();
+          supSnap.forEach(function(sDoc) {
+            var sd = sDoc.data();
+            _gsCache.signups.push({
+              id: sDoc.id,
+              name: sd.name || [sd.firstName, sd.lastName].filter(Boolean).join(' ') || '',
+              email: sd.email || '',
+              phone: sd.phone || '',
+              status: sd.status || '',
+              eventTitle: evData.title || '',
+              eventId: evDoc.id,
+              collection: colName,
+              isRecurring: colName === 'recurringEvents',
+              timestamp: sd.timestamp
+            });
+          });
+        }
+      }
+      // Sort all signups newest first
+      _gsCache.signups.sort(function(a, b) {
+        var ta = a.timestamp ? (a.timestamp.toMillis ? a.timestamp.toMillis() : a.timestamp) : 0;
+        var tb = b.timestamp ? (b.timestamp.toMillis ? b.timestamp.toMillis() : b.timestamp) : 0;
+        return tb - ta;
+      });
+    } catch(e) { console.warn('Search cache (signups):', e.message); }
+  };
+
   // Load cache after login
   function waitAndLoadCache() {
     if (!window.currentUserData) { setTimeout(waitAndLoadCache, 1000); return; }
@@ -12426,6 +12465,7 @@ document.addEventListener('click', function(e) {
     _gsCacheLoaded = true;
     window._gsRefreshInteractions();
     window._gsRefreshResources();
+    window._gsRefreshSignups();
   }
   waitAndLoadCache();
 
@@ -12509,6 +12549,40 @@ document.addEventListener('click', function(e) {
       if (!results.resources.length) delete results.resources;
     }
 
+    // Signups (keyword match: "signup", "signups", "sign up", "sign ups", or name/email search)
+    if (_gsCache.signups.length) {
+      var isSignupKeyword = ['signup', 'signups', 'sign up', 'sign ups', 'registration', 'registrations'].some(function(kw) { return q.includes(kw); });
+      results.signups = [];
+      _gsCache.signups.forEach(function(su) {
+        if (results.signups.length >= 8) return;
+        if (isSignupKeyword) {
+          results.signups.push({
+            title: su.name || '(No name)',
+            sub: [su.eventTitle, su.email, su.status].filter(Boolean).join(' \u00B7 '),
+            _eventId: su.eventId,
+            _collection: su.collection,
+            _isRecurring: su.isRecurring,
+            _eventTitle: su.eventTitle,
+            action: 'signup'
+          });
+        } else {
+          var s = [su.name, su.email, su.phone, su.eventTitle].join(' ').toLowerCase();
+          if (s.includes(q)) {
+            results.signups.push({
+              title: su.name || '(No name)',
+              sub: [su.eventTitle, su.email, su.status].filter(Boolean).join(' \u00B7 '),
+              _eventId: su.eventId,
+              _collection: su.collection,
+              _isRecurring: su.isRecurring,
+              _eventTitle: su.eventTitle,
+              action: 'signup'
+            });
+          }
+        }
+      });
+      if (!results.signups.length) delete results.signups;
+    }
+
     // Events (from dashboard calendar cache)
     var calEvents = window._dashCalEvents;
     if (calEvents && calEvents.length) {
@@ -12536,12 +12610,13 @@ document.addEventListener('click', function(e) {
   var allItems = [];
 
   var typeConfig = {
+    signups:      { label: 'Signups',       icon: '\uD83D\uDCDD' },
     interactions: { label: 'Interactions', icon: '\uD83D\uDCAC' },
     contacts:     { label: 'Contacts',     icon: '\uD83D\uDC64' },
     resources:    { label: 'Resources',     icon: '\uD83D\uDCC4' },
     events:       { label: 'Events',        icon: '\uD83D\uDCC5' }
   };
-  var typeOrder = ['interactions', 'contacts', 'resources', 'events'];
+  var typeOrder = ['signups', 'interactions', 'contacts', 'resources', 'events'];
 
   function renderResults(query) {
     var results = globalSearch(query);
@@ -12610,6 +12685,12 @@ document.addEventListener('click', function(e) {
     } else if (item.action === 'event') {
       var navLink = document.querySelector('[data-section="dashboard"]');
       if (navLink) navLink.click();
+    } else if (item.action === 'signup') {
+      var navLink = document.querySelector('[data-section="cmsEvents"]');
+      if (navLink) navLink.click();
+      setTimeout(function() {
+        if (window.cmsViewSignups) window.cmsViewSignups(item._eventId, item._isRecurring, item._eventTitle);
+      }, 500);
     }
   }
 
@@ -15682,18 +15763,28 @@ window.cmsOpportunityDrop = async function() {
   } catch (err) { _showToast('Error saving order: ' + err.message, '#DC2626'); }
 };
 
+var _cmsVolAppsShowArchived = false;
+
 function cmsRenderApplications() {
   var filtered = _cmsVolAppFilter === 'all'
     ? _cmsVolunteerApps
     : _cmsVolunteerApps.filter(function(a) { return a.status === _cmsVolAppFilter; });
+  var active = filtered.filter(function(a) { return a.archived !== true; });
+  var archived = filtered.filter(function(a) { return a.archived === true; });
+  var displayList = _cmsVolAppsShowArchived ? filtered : active;
   var container = document.getElementById('cmsVolunteersAppsCards');
-  if (!filtered.length) {
-    container.innerHTML = '<div class="cms-empty"><p>No applications' + (_cmsVolAppFilter !== 'all' ? ' with status "' + rsEscape(_cmsVolAppFilter) + '"' : '') + '.</p></div>';
+  if (!displayList.length) {
+    var msg = 'No ' + (_cmsVolAppsShowArchived ? '' : 'active ') + 'applications' + (_cmsVolAppFilter !== 'all' ? ' with status "' + rsEscape(_cmsVolAppFilter) + '"' : '') + '.';
+    container.innerHTML = '<div class="cms-empty"><p>' + msg + '</p></div>' +
+      (archived.length && !_cmsVolAppsShowArchived ? '<div style="text-align:center;margin-top:8px;"><button class="btn btn-ghost" style="font-size:.8rem;" onclick="_cmsVolAppsShowArchived=true;cmsRenderApplications()">Show Archived (' + archived.length + ')</button></div>' : '');
     return;
   }
   var statusColors = { new: '#64748B', contacted: '#0891B2', interviewing: '#7C3AED', accepted: '#16A34A', declined: '#DC2626' };
   var html = '';
-  filtered.forEach(function(app) {
+  if (archived.length > 0) {
+    html += '<div style="text-align:right;margin-bottom:10px;"><button class="btn btn-ghost" style="font-size:.8rem;" onclick="_cmsVolAppsShowArchived=!_cmsVolAppsShowArchived;cmsRenderApplications()">' + (_cmsVolAppsShowArchived ? 'Hide' : 'Show') + ' Archived (' + archived.length + ')</button></div>';
+  }
+  displayList.forEach(function(app) {
     var opp = _cmsVolunteerOpps.find(function(o) { return o.id === app.opportunityId; });
     var oppTitle = opp ? rsEscape(opp.title) : (app.opportunityId ? rsEscape(app.opportunityId) : 'General');
     var name = rsEscape([app.firstName, app.lastName].filter(Boolean).join(' ')) || '(No name)';
@@ -15704,10 +15795,11 @@ function cmsRenderApplications() {
     var ts = '';
     if (app.submittedAt && app.submittedAt.toDate) { try { ts = app.submittedAt.toDate().toLocaleDateString(); } catch(e) {} }
     else if (app.submittedAt) { try { ts = new Date(app.submittedAt).toLocaleDateString(); } catch(e) {} }
-    html += '<div style="border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px;margin-bottom:12px;background:#FAFCFF;">' +
+    var isAppArchived = app.archived === true;
+    html += '<div style="border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px;margin-bottom:12px;background:' + (isAppArchived ? '#f1f5f9' : '#FAFCFF') + ';' + (isAppArchived ? 'opacity:0.55;' : '') + '">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
       '<div>' +
-      '<div style="font-weight:600;font-size:.97rem;">' + name + '</div>';
+      '<div style="font-weight:600;font-size:.97rem;">' + name + (isAppArchived ? ' <span style="font-size:.75rem;color:#94A3B8;font-weight:400;">(archived)</span>' : '') + '</div>';
     if (app.email) html += '<div style="font-size:.85rem;color:var(--text-soft);">' + rsEscape(app.email) + '</div>';
     if (app.phone) html += '<div style="font-size:.85rem;color:var(--text-soft);">' + rsEscape(app.phone) + '</div>';
     html += '<div style="font-size:.83rem;color:var(--text-soft);margin-top:2px;">Opportunity: ' + oppTitle + '</div>';
@@ -15722,6 +15814,7 @@ function cmsRenderApplications() {
       '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#F5F3FF;color:#7C3AED;" onclick="cmsUpdateAppStatus(\'' + rsEscape(app.id) + '\',\'interviewing\')">Interviewing</button>' +
       '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#F0FDF4;color:#16A34A;" onclick="cmsUpdateAppStatus(\'' + rsEscape(app.id) + '\',\'accepted\')">Accepted</button>' +
       '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#FEF2F2;color:#DC2626;" onclick="cmsUpdateAppStatus(\'' + rsEscape(app.id) + '\',\'declined\')">Declined</button>' +
+      (app.archived ? '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#F0FDF4;color:#16A34A;" onclick="cmsArchiveApp(\'' + rsEscape(app.id) + '\',false)">Restore</button>' : '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#F5F3FF;color:#7C3AED;" onclick="cmsArchiveApp(\'' + rsEscape(app.id) + '\',true)">Archive</button>') +
       '</div>' +
       '<div style="margin-top:10px;">' +
       '<label style="font-size:.8rem;color:var(--text-soft);display:block;margin-bottom:4px;">Admin Notes</label>' +
@@ -15762,6 +15855,18 @@ window.cmsSaveAppNotes = async function(appId, textareaId) {
     var appName = app ? (app.name || appId) : appId;
     auditLog('Updated application notes', appName);
     _showToast('Notes saved.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+window.cmsArchiveApp = async function(appId, archive) {
+  try {
+    await db.collection('volunteers').doc(appId).update({ archived: !!archive });
+    var app = _cmsVolunteerApps.find(function(a) { return a.id === appId; });
+    var appName = app ? [app.firstName, app.lastName].filter(Boolean).join(' ') || appId : appId;
+    if (app) app.archived = !!archive;
+    auditLog(archive ? 'Archived volunteer application' : 'Restored volunteer application', appName);
+    cmsRenderApplications();
+    _showToast(archive ? 'Application archived.' : 'Application restored.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
