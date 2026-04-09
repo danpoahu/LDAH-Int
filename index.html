@@ -3706,7 +3706,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v93.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v93.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10324,37 +10324,42 @@ window.autoCropImage = function(file) {
         docs.push({ id: doc.id, data: d, _ts: d.createdAt });
       });
 
-      // ── Merge form submissions into dashboard feed ──
+      // ── Merge form submissions into dashboard feed (all queries in parallel) ──
       try {
-        var _formTagColors = { 'Signup':'#10b981', 'Contact Form':'#6366f1', 'Provider':'#8b5cf6',
-          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2' };
         function _pushDashForm(channel, name, summary, status, ts) {
           docs.push({ id: null, _isForm: true, data: {
             channel: channel, contactName: name, summary: summary,
             status: status || 'new', owner: 'Web Form', createdAt: ts
           }, _ts: ts });
         }
-        var _cmS = await db.collection('contactSubmissions').orderBy('timestamp','desc').limit(10).get();
-        _cmS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Contact Form', d.name||'—', d.message||'—', d.status, d.timestamp); });
-        var _pvS = await db.collection('providers').orderBy('submittedAt','desc').limit(10).get();
-        _pvS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Provider', d.organizationName||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.serviceType||d.message||'—', d.status, d.submittedAt); });
-        var _plS = await db.collection('pledges').orderBy('submittedAt','desc').limit(10).get();
-        _plS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Pledge', d.name||'—', 'Anti-bullying pledge'+(d.role?' ('+d.role+')':''), d.status, d.submittedAt); });
-        var _erS = await db.collection('eventRequests').orderBy('timestamp','desc').limit(10).get();
-        _erS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Event Request', d.name||'—', d.eventInfo||'—', d.status, d.timestamp||d.submittedAt); });
-        var _vlS = await db.collection('volunteers').orderBy('submittedAt','desc').limit(10).get();
-        _vlS.forEach(function(doc) { var d = doc.data(); _pushDashForm('Volunteer', [d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.opportunityTitle||d.notes||'—', d.status, d.submittedAt); });
-        // Signups from active events only
+        // Fire all top-level queries at once
+        var _results = await Promise.all([
+          db.collection('contactSubmissions').orderBy('timestamp','desc').limit(10).get(),
+          db.collection('providers').orderBy('submittedAt','desc').limit(10).get(),
+          db.collection('pledges').orderBy('submittedAt','desc').limit(10).get(),
+          db.collection('eventRequests').orderBy('timestamp','desc').limit(10).get(),
+          db.collection('volunteers').orderBy('submittedAt','desc').limit(10).get(),
+          db.collection('events').get(),
+          db.collection('recurringEvents').get()
+        ]);
+        _results[0].forEach(function(doc) { var d = doc.data(); _pushDashForm('Contact Form', d.name||'—', d.message||'—', d.status, d.timestamp); });
+        _results[1].forEach(function(doc) { var d = doc.data(); _pushDashForm('Provider', d.organizationName||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.serviceType||d.message||'—', d.status, d.submittedAt); });
+        _results[2].forEach(function(doc) { var d = doc.data(); _pushDashForm('Pledge', d.name||'—', 'Anti-bullying pledge'+(d.role?' ('+d.role+')':''), d.status, d.submittedAt); });
+        _results[3].forEach(function(doc) { var d = doc.data(); _pushDashForm('Event Request', d.name||'—', d.eventInfo||'—', d.status, d.timestamp||d.submittedAt); });
+        _results[4].forEach(function(doc) { var d = doc.data(); _pushDashForm('Volunteer', [d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.opportunityTitle||d.notes||'—', d.status, d.submittedAt); });
+        // Signups from active events only — also in parallel
         var _tdy = new Date().toISOString().split('T')[0];
-        var _evS = await db.collection('events').get();
         var _actEv = [];
-        _evS.forEach(function(doc) { var d = doc.data(); if (d.archived) return; var mp=d.moveToPastDate||'',rd=d.removeDate||''; if(rd&&rd<=_tdy)return; if(mp&&mp<=_tdy)return; _actEv.push({id:doc.id,title:d.title||d.name||'Event'}); });
-        var _pgS = await db.collection('recurringEvents').get();
-        _pgS.forEach(function(doc) { var d = doc.data(); if(!d.archived) _actEv.push({id:doc.id,title:d.title||d.name||'Program',isRec:true}); });
-        for (var _i=0;_i<_actEv.length;_i++) {
-          var _e=_actEv[_i], _c=_e.isRec?'recurringEvents':'events';
-          var _sS = await db.collection(_c).doc(_e.id).collection('signups').orderBy('timestamp','desc').limit(10).get();
-          _sS.forEach(function(doc) { var d=doc.data(); _pushDashForm('Signup', d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', _e.title+(d.participationType==='Group'?' (Group)':''), d.status, d.timestamp); });
+        _results[5].forEach(function(doc) { var d = doc.data(); if (d.archived) return; var mp=d.moveToPastDate||'',rd=d.removeDate||''; if(rd&&rd<=_tdy)return; if(mp&&mp<=_tdy)return; _actEv.push({id:doc.id,title:d.title||d.name||'Event'}); });
+        _results[6].forEach(function(doc) { var d = doc.data(); if(!d.archived) _actEv.push({id:doc.id,title:d.title||d.name||'Program',isRec:true}); });
+        if (_actEv.length) {
+          var _signupProms = _actEv.map(function(_e) {
+            var _c = _e.isRec ? 'recurringEvents' : 'events';
+            return db.collection(_c).doc(_e.id).collection('signups').orderBy('timestamp','desc').limit(10).get().then(function(sSnap) {
+              sSnap.forEach(function(doc) { var d=doc.data(); _pushDashForm('Signup', d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', _e.title+(d.participationType==='Group'?' (Group)':''), d.status, d.timestamp); });
+            });
+          });
+          await Promise.all(_signupProms);
         }
       } catch(_fe) { console.warn('Dashboard form merge:', _fe); }
 
@@ -10515,20 +10520,18 @@ window.autoCropImage = function(file) {
     // ── Active Events/Programs KPI ──
     try {
       var today = new Date().toISOString().split('T')[0];
-      var evSnap = await db.collection('events').get();
+      var _kpiEvResults = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
       var activeCount = 0, pendingCount = 0;
-      evSnap.forEach(function(doc) {
+      _kpiEvResults[0].forEach(function(doc) {
         var d = doc.data();
         if (d.archived === true) return;
-        // Use same categorization as CMS: moveToPastDate and removeDate
         var moveToPast = d.moveToPastDate || '';
         var removeDate = d.removeDate || '';
         if (removeDate && /^\d{4}-\d{2}-\d{2}$/.test(removeDate) && removeDate <= today) return;
         if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast <= today) return;
         activeCount++; pendingCount += (d.pendingCount || 0);
       });
-      var pgSnap = await db.collection('recurringEvents').get();
-      pgSnap.forEach(function(doc) {
+      _kpiEvResults[1].forEach(function(doc) {
         var d = doc.data();
         if (d.archived === true) return;
         activeCount++; pendingCount += (d.pendingCount || 0);
@@ -11747,72 +11750,46 @@ window.autoCropImage = function(file) {
         }
 
         try {
-          // Contact messages
-          if (!channelFilter || channelFilter === 'Contact Form') {
-            var _cmSnap = await db.collection('contactSubmissions').orderBy('timestamp','desc').limit(200).get();
-            _cmSnap.forEach(function(doc) { var d = doc.data();
-              _pushForm('Contact Form', d.name||'—', d.message||'—', d.status||'new', d.timestamp);
-            });
-          }
-          // Providers
-          if (!channelFilter || channelFilter === 'Provider') {
-            var _pvSnap = await db.collection('providers').orderBy('submittedAt','desc').limit(200).get();
-            _pvSnap.forEach(function(doc) { var d = doc.data();
-              var name = d.organizationName || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
-              _pushForm('Provider', name, (d.serviceType||'') + (d.message ? ' — '+d.message : ''), d.status||'new', d.submittedAt);
-            });
-          }
-          // Pledges
-          if (!channelFilter || channelFilter === 'Pledge') {
-            var _plSnap = await db.collection('pledges').orderBy('submittedAt','desc').limit(200).get();
-            _plSnap.forEach(function(doc) { var d = doc.data();
-              _pushForm('Pledge', d.name||'—', 'Anti-bullying pledge' + (d.role ? ' ('+d.role+')' : ''), d.status||'new', d.submittedAt);
-            });
-          }
-          // Event requests
-          if (!channelFilter || channelFilter === 'Event Request') {
-            var _erSnap = await db.collection('eventRequests').orderBy('timestamp','desc').limit(200).get();
-            _erSnap.forEach(function(doc) { var d = doc.data();
-              _pushForm('Event Request', d.name||'—', d.eventInfo||'—', d.status||'pending', d.timestamp||d.submittedAt);
-            });
-          }
-          // Volunteers
-          if (!channelFilter || channelFilter === 'Volunteer') {
-            var _vlSnap = await db.collection('volunteers').orderBy('submittedAt','desc').limit(200).get();
-            _vlSnap.forEach(function(doc) { var d = doc.data();
-              var name = [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
-              _pushForm('Volunteer', name, d.opportunityTitle || d.notes || d.subject || '—', d.status||'new', d.submittedAt);
-            });
-          }
-          // Event signups — only active events (cheap: ~3 events)
+          // Fire all form queries in parallel
+          var _ixFormProms = [];
+          if (!channelFilter || channelFilter === 'Contact Form')
+            _ixFormProms.push(db.collection('contactSubmissions').orderBy('timestamp','desc').limit(200).get().then(function(s) {
+              s.forEach(function(doc) { var d = doc.data(); _pushForm('Contact Form', d.name||'—', d.message||'—', d.status||'new', d.timestamp); });
+            }));
+          if (!channelFilter || channelFilter === 'Provider')
+            _ixFormProms.push(db.collection('providers').orderBy('submittedAt','desc').limit(200).get().then(function(s) {
+              s.forEach(function(doc) { var d = doc.data(); var name = d.organizationName || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
+                _pushForm('Provider', name, (d.serviceType||'') + (d.message ? ' — '+d.message : ''), d.status||'new', d.submittedAt); });
+            }));
+          if (!channelFilter || channelFilter === 'Pledge')
+            _ixFormProms.push(db.collection('pledges').orderBy('submittedAt','desc').limit(200).get().then(function(s) {
+              s.forEach(function(doc) { var d = doc.data(); _pushForm('Pledge', d.name||'—', 'Anti-bullying pledge' + (d.role ? ' ('+d.role+')' : ''), d.status||'new', d.submittedAt); });
+            }));
+          if (!channelFilter || channelFilter === 'Event Request')
+            _ixFormProms.push(db.collection('eventRequests').orderBy('timestamp','desc').limit(200).get().then(function(s) {
+              s.forEach(function(doc) { var d = doc.data(); _pushForm('Event Request', d.name||'—', d.eventInfo||'—', d.status||'pending', d.timestamp||d.submittedAt); });
+            }));
+          if (!channelFilter || channelFilter === 'Volunteer')
+            _ixFormProms.push(db.collection('volunteers').orderBy('submittedAt','desc').limit(200).get().then(function(s) {
+              s.forEach(function(doc) { var d = doc.data(); var name = [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
+                _pushForm('Volunteer', name, d.opportunityTitle || d.notes || d.subject || '—', d.status||'new', d.submittedAt); });
+            }));
           if (!channelFilter || channelFilter === 'Signup') {
             var _today = new Date().toISOString().split('T')[0];
-            var _evSnap = await db.collection('events').get();
-            var _activeEvIds = [];
-            _evSnap.forEach(function(doc) {
-              var d = doc.data();
-              if (d.archived === true) return;
-              var moveToPast = d.moveToPastDate || '';
-              var removeDate = d.removeDate || '';
-              if (removeDate && removeDate <= _today) return;
-              if (moveToPast && moveToPast <= _today) return;
-              _activeEvIds.push({ id: doc.id, title: d.title || d.name || 'Event' });
-            });
-            var _pgSnap = await db.collection('recurringEvents').get();
-            _pgSnap.forEach(function(doc) {
-              var d = doc.data();
-              if (d.archived !== true) _activeEvIds.push({ id: doc.id, title: d.title || d.name || 'Program', isRecurring: true });
-            });
-            for (var _ei = 0; _ei < _activeEvIds.length; _ei++) {
-              var _ev = _activeEvIds[_ei];
-              var _col = _ev.isRecurring ? 'recurringEvents' : 'events';
-              var _sSnap = await db.collection(_col).doc(_ev.id).collection('signups').get();
-              _sSnap.forEach(function(doc) { var d = doc.data();
-                var sName = d.name || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
-                _pushForm('Signup', sName, _ev.title + (d.participationType === 'Group' ? ' (Group: '+(d.groupName||'')+')' : ''), d.status||'pending', d.timestamp);
-              });
-            }
+            _ixFormProms.push(Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]).then(function(r) {
+              var _activeEvIds = [];
+              r[0].forEach(function(doc) { var d = doc.data(); if (d.archived) return; var mp=d.moveToPastDate||'',rd=d.removeDate||''; if(rd&&rd<=_today)return; if(mp&&mp<=_today)return; _activeEvIds.push({id:doc.id,title:d.title||d.name||'Event'}); });
+              r[1].forEach(function(doc) { var d = doc.data(); if(!d.archived) _activeEvIds.push({id:doc.id,title:d.title||d.name||'Program',isRecurring:true}); });
+              return Promise.all(_activeEvIds.map(function(_ev) {
+                var _col = _ev.isRecurring ? 'recurringEvents' : 'events';
+                return db.collection(_col).doc(_ev.id).collection('signups').get().then(function(sSnap) {
+                  sSnap.forEach(function(doc) { var d = doc.data(); var sName = d.name || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
+                    _pushForm('Signup', sName, _ev.title + (d.participationType === 'Group' ? ' (Group: '+(d.groupName||'')+')' : ''), d.status||'pending', d.timestamp); });
+                });
+              }));
+            }));
           }
+          await Promise.all(_ixFormProms);
         } catch (formErr) {
           console.warn('Form submission merge:', formErr);
         }
