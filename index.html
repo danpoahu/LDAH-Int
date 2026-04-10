@@ -3818,7 +3818,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v101.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v101.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6901,6 +6901,7 @@ window.autoCropImage = function(file) {
   const VALID_ROLES = ['superAdmin','admin','appAdmin','webAdmin','dailyUser','dataUser','partner'];
   const ROLE_LABELS = { superAdmin:'Super Admin', admin:'Admin', appAdmin:'App Admin', webAdmin:'Web Admin', dailyUser:'Daily User', dataUser:'Data User', partner:'Partner' };
   let currentUserData = null;
+  let _userRolesUnsubscribe = null; // real-time listener on current user's userRoles doc
   // Expose on window for cross-script access (chat system etc.)
   Object.defineProperty(window, 'currentUserData', {
     get: function() { return currentUserData; },
@@ -6952,6 +6953,9 @@ window.autoCropImage = function(file) {
   auth.onAuthStateChanged(async (user) => {
     if (user) {
       try {
+        // Unsubscribe previous listener if any (handles re-auth without refresh)
+        if (_userRolesUnsubscribe) { _userRolesUnsubscribe(); _userRolesUnsubscribe = null; }
+        // One-time get for initial load, then attach real-time listener
         const roleDoc = await db.collection('userRoles').doc(user.uid).get();
         if (roleDoc.exists && roleDoc.data().role) {
           currentUserData = {
@@ -6963,6 +6967,21 @@ window.autoCropImage = function(file) {
             location: roleDoc.data().location || '',
             alertPrefs: roleDoc.data().alertPrefs || null
           };
+          // Real-time listener: keep currentUserData in sync with Firestore changes
+          _userRolesUnsubscribe = db.collection('userRoles').doc(user.uid).onSnapshot(function(snap) {
+            if (!snap.exists || !currentUserData) return;
+            var d = snap.data();
+            var changed = false;
+            if (d.displayName && d.displayName !== currentUserData.displayName) { currentUserData.displayName = d.displayName; changed = true; }
+            if (d.role && d.role !== currentUserData.role) { currentUserData.role = d.role; changed = true; }
+            if ((d.island || '') !== currentUserData.island) { currentUserData.island = d.island || ''; changed = true; }
+            if ((d.location || '') !== currentUserData.location) { currentUserData.location = d.location || ''; changed = true; }
+            if (d.alertPrefs !== undefined) { currentUserData.alertPrefs = d.alertPrefs || null; }
+            if (changed) {
+              updateUserUI();
+              applyRolePermissions();
+            }
+          });
           showApp();
           // Re-init chat for new user (handles logout/login without refresh)
           if (typeof window.reinitChat === 'function') window.reinitChat();
@@ -7024,6 +7043,8 @@ window.autoCropImage = function(file) {
         showAccessDenied();
       }
     } else {
+      // Clean up listener on sign-out
+      if (_userRolesUnsubscribe) { _userRolesUnsubscribe(); _userRolesUnsubscribe = null; }
       showLogin();
     }
   });
@@ -7060,6 +7081,8 @@ window.autoCropImage = function(file) {
 
   // ── Logout (global) ──
   window.handleLogout = function() {
+    // Unsubscribe userRoles real-time listener
+    if (_userRolesUnsubscribe) { _userRolesUnsubscribe(); _userRolesUnsubscribe = null; }
     // Clear presence heartbeat
     if (window._presenceHeartbeat) { clearInterval(window._presenceHeartbeat); window._presenceHeartbeat = null; }
     // Set presence offline before signing out
