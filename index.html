@@ -1817,6 +1817,66 @@
       display:flex; align-items:center; gap:8px;
     }
 
+    /* ── WebRTC Screen Share Viewer ── */
+    .screenshare-overlay{
+      display:none; position:fixed; inset:0; z-index:20000;
+      background:rgba(0,0,0,.92); flex-direction:column;
+    }
+    .screenshare-overlay.active{ display:flex; }
+    .screenshare-toolbar{
+      padding:8px 16px; background:#111; display:flex;
+      align-items:center; justify-content:space-between;
+      flex-shrink:0; border-bottom:2px solid #333;
+    }
+    .screenshare-toolbar-left{
+      display:flex; align-items:center; gap:10px;
+    }
+    .screenshare-status{
+      width:10px; height:10px; border-radius:50%;
+      background:#22c55e; animation:ssPulse 2s ease infinite;
+    }
+    @keyframes ssPulse{
+      0%,100%{ opacity:1; } 50%{ opacity:.4; }
+    }
+    .screenshare-label{
+      color:white; font-weight:700; font-size:.88rem;
+    }
+    .screenshare-toolbar-right{
+      display:flex; align-items:center; gap:8px;
+    }
+    .screenshare-btn{
+      border:none; cursor:pointer; border-radius:8px;
+      padding:6px 14px; font-family:'Outfit',sans-serif;
+      font-weight:800; font-size:.8rem; transition:all .15s;
+    }
+    .screenshare-btn.fullscreen{
+      background:#2563eb; color:white;
+    }
+    .screenshare-btn.fullscreen:hover{ background:#1d4ed8; }
+    .screenshare-btn.stop{
+      background:#dc2626; color:white;
+    }
+    .screenshare-btn.stop:hover{ background:#b91c1c; }
+    .screenshare-video-wrap{
+      flex:1; display:flex; align-items:center;
+      justify-content:center; min-height:0; padding:8px;
+    }
+    .screenshare-video-wrap video{
+      max-width:100%; max-height:100%;
+      border-radius:8px; background:#000;
+    }
+    /* In-chat share button sent to the other person */
+    .chat-share-btn{
+      display:inline-block; margin-top:8px; padding:10px 20px;
+      border:none; cursor:pointer; border-radius:12px;
+      background:linear-gradient(135deg,#2563eb,#0B5CFF);
+      color:white; font-family:'Outfit',sans-serif;
+      font-weight:800; font-size:.88rem;
+      box-shadow:0 4px 12px rgba(37,99,235,.3);
+      transition:all .18s; text-decoration:none;
+    }
+    .chat-share-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 16px rgba(37,99,235,.4); }
+
     /* ── Chat Responsive ── */
     @media(max-width:1024px){
       .chat-modal{
@@ -3893,7 +3953,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v102.8</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5735,6 +5795,23 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     </div>
   </div>
 
+  <!-- Screen Share Viewer Overlay -->
+  <div class="screenshare-overlay" id="screenshareOverlay">
+    <div class="screenshare-toolbar">
+      <div class="screenshare-toolbar-left">
+        <div class="screenshare-status"></div>
+        <span class="screenshare-label" id="screenshareLabel">Viewing screen...</span>
+      </div>
+      <div class="screenshare-toolbar-right">
+        <button class="screenshare-btn fullscreen" id="screenshareFull" type="button">Fullscreen</button>
+        <button class="screenshare-btn stop" id="screenshareStop" type="button">End Session</button>
+      </div>
+    </div>
+    <div class="screenshare-video-wrap">
+      <video id="screenshareVideo" autoplay playsinline></video>
+    </div>
+  </div>
+
   <!-- Chat notification sound (generated via Web Audio API) -->
   <script>
   // Create a pleasant notification chime programmatically
@@ -6297,22 +6374,14 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     var chatZoomBtn = document.getElementById('chatZoomBtn');
     if (chatZoomBtn) {
       chatZoomBtn.addEventListener('click', function() {
-        if (!_chatActiveOtherUid) {
-          alert('Select a conversation first, then click Screen Share to invite them.');
+        if (!_chatActiveOtherUid || !_chatActiveConvId) {
+          alert('Select a conversation first, then click Screen Share.');
           return;
         }
-        var myName = currentUserData ? currentUserData.displayName : 'Staff';
-        var msg = '📺 ' + myName + ' would like to view your screen to help you. '
-          + 'Please open AnyDesk and send me your AnyDesk ID (the number under "Your Address"). '
-          + 'If you don\'t have AnyDesk yet, download it free here: https://anydesk.com/en/downloads '
-          + '-- Once installed, open it and send me the number shown under "Your Address".';
-        if (!confirm('Send a screen share request to this person?')) return;
-        var input = document.getElementById('chatModalInput');
-        if (input) {
-          input.value = msg;
-          var sendBtn = document.getElementById('chatModalSend');
-          if (sendBtn) sendBtn.click();
-        }
+        if (!confirm('Request this person to share their screen with you?')) return;
+        // Use WebRTC screen share
+        window.rtcRequestScreenShare(_chatActiveConvId, _chatActiveOtherUid,
+          document.getElementById('chatHeaderName') ? document.getElementById('chatHeaderName').textContent : 'User');
       });
     }
 
@@ -6815,12 +6884,25 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         var timeStr = m.createdAt ? formatTime(m.createdAt) : '';
         var clientTag = m.clientId && m.clientName ? '<span style="font-size:.72rem;background:rgba(8,145,178,.12);color:var(--ocean-deep);padding:2px 6px;border-radius:6px;font-weight:700;margin-left:8px;">📎 ' + escHTML(m.clientName) + '</span>' : '';
 
+        var textHtml = linkifyURLs(escHTML(m.text || ''));
+
+        // If this is a screen share request message (sent by other person, not me),
+        // add the "Share My Screen" button
+        var shareBtn = '';
+        if (!isMe && m.text && m.text.indexOf('📺') === 0 && m.text.indexOf('Share My Screen') > -1 && m.screenShareSession) {
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(m.screenShareConvId || _chatActiveConvId) + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+        }
+        // Also detect the standard request message pattern and show button
+        if (!isMe && m.screenShareSession && m.text && m.text.indexOf('would like to see your screen') > -1) {
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(_chatActiveConvId) + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+        }
+
         html += '<div class="' + cls + '">'
           + '<div class="chat-message-header">'
           + '<div class="chat-message-name">' + nameDisplay + clientTag + '</div>'
           + '<div class="chat-message-time">' + timeStr + '</div>'
           + '</div>'
-          + '<div class="chat-message-text">' + linkifyURLs(escHTML(m.text || '')) + '</div>'
+          + '<div class="chat-message-text">' + textHtml + shareBtn + '</div>'
           + '</div>';
       });
       chatModalMessages.innerHTML = html;
@@ -6951,6 +7033,341 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
     // Re-init if auth state changes (handled by presence code in auth block)
 
   })();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════
+     WebRTC Screen Share System
+     Uses Firestore for signaling (offers/answers/ICE candidates).
+     Actual video stream is peer-to-peer — no Firebase bandwidth cost.
+     ══════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+  'use strict';
+
+  var _rtcPeer = null;        // RTCPeerConnection
+  var _rtcStream = null;      // MediaStream (local screen capture)
+  var _rtcSignalUnsub = null; // Firestore listener on signals
+  var _rtcRole = null;        // 'viewer' or 'sharer'
+  var _rtcConvId = null;      // conversation ID for signal path
+  var _rtcSessionId = null;   // unique session ID
+
+  var STUN_SERVERS = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  };
+
+  function rtcDb() { return firebase.firestore(); }
+  function rtcMyUid() { return window.currentUserData ? window.currentUserData.uid : null; }
+  function rtcMyName() { return window.currentUserData ? window.currentUserData.displayName : 'Unknown'; }
+  function rtcMyRole() { return window.currentUserData ? window.currentUserData.role : ''; }
+
+  // Signal path: chatConversations/{convId}/webrtcSignals
+  function signalCol(convId) {
+    return rtcDb().collection('chatConversations').doc(convId).collection('webrtcSignals');
+  }
+
+  // Clean up old signals for a conversation
+  function cleanSignals(convId) {
+    signalCol(convId).get().then(function(snap) {
+      var batch = rtcDb().batch();
+      snap.forEach(function(doc) { batch.delete(doc.ref); });
+      if (snap.size > 0) batch.commit().catch(function(){});
+    }).catch(function(){});
+  }
+
+  // ── VIEWER SIDE (Daniel / admin — requests to see someone's screen) ──
+
+  window.rtcRequestScreenShare = function(convId, otherUid, otherName) {
+    if (!convId || !otherUid) return;
+    _rtcConvId = convId;
+    _rtcSessionId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+
+    // Clean old signals first
+    cleanSignals(convId);
+
+    // Write a "request" signal so the other person sees the share button
+    signalCol(convId).add({
+      type: 'request',
+      sessionId: _rtcSessionId,
+      fromUid: rtcMyUid(),
+      fromName: rtcMyName(),
+      toUid: otherUid,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Send a chat message with the share button (write directly to include screenShareSession field)
+    var msgText = '📺 ' + rtcMyName() + ' would like to see your screen. Please click the "Share My Screen" button below.';
+    rtcDb().collection('chatConversations').doc(convId).collection('messages').add({
+      senderId: rtcMyUid(),
+      senderName: rtcMyName(),
+      text: msgText,
+      screenShareSession: _rtcSessionId,
+      clientId: null,
+      clientName: null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      readBy: [rtcMyUid()]
+    }).then(function() {
+      rtcDb().collection('chatConversations').doc(convId).update({
+        lastMessage: '📺 Screen share request',
+        lastMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
+        lastSenderId: rtcMyUid(),
+        lastReadBy: [rtcMyUid()]
+      });
+    });
+
+    _rtcRole = 'viewer';
+
+    // Listen for the answer (the sharer's SDP answer + ICE candidates)
+    _rtcSignalUnsub = signalCol(convId)
+      .where('sessionId', '==', _rtcSessionId)
+      .onSnapshot(function(snap) {
+        snap.docChanges().forEach(function(change) {
+          if (change.type !== 'added') return;
+          var d = change.doc.data();
+          if (d.fromUid === rtcMyUid()) return; // skip own signals
+
+          if (d.type === 'offer') {
+            // Sharer sent an offer — create answer
+            handleOffer(d, convId);
+          } else if (d.type === 'candidate' && _rtcPeer) {
+            _rtcPeer.addIceCandidate(new RTCIceCandidate(JSON.parse(d.data)))
+              .catch(function(){});
+          }
+        });
+      });
+  };
+
+  function handleOffer(signal, convId) {
+    _rtcPeer = new RTCPeerConnection(STUN_SERVERS);
+
+    _rtcPeer.ontrack = function(e) {
+      var video = document.getElementById('screenshareVideo');
+      if (video && e.streams && e.streams[0]) {
+        video.srcObject = e.streams[0];
+        showViewer(signal.fromName || 'Staff');
+      }
+    };
+
+    _rtcPeer.onicecandidate = function(e) {
+      if (e.candidate) {
+        signalCol(convId).add({
+          type: 'candidate',
+          sessionId: _rtcSessionId,
+          fromUid: rtcMyUid(),
+          data: JSON.stringify(e.candidate),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    };
+
+    _rtcPeer.onconnectionstatechange = function() {
+      if (_rtcPeer && (_rtcPeer.connectionState === 'disconnected' || _rtcPeer.connectionState === 'failed')) {
+        rtcStop();
+      }
+    };
+
+    _rtcPeer.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)))
+      .then(function() { return _rtcPeer.createAnswer(); })
+      .then(function(answer) { return _rtcPeer.setLocalDescription(answer); })
+      .then(function() {
+        signalCol(convId).add({
+          type: 'answer',
+          sessionId: _rtcSessionId,
+          fromUid: rtcMyUid(),
+          data: JSON.stringify(_rtcPeer.localDescription),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      })
+      .catch(function(err) { console.error('WebRTC offer handling failed:', err); rtcStop(); });
+  }
+
+  // ── SHARER SIDE (staff member — shares their screen) ──
+
+  window.rtcStartSharing = function(convId, sessionId) {
+    if (!convId) return;
+    _rtcConvId = convId;
+    _rtcSessionId = sessionId;
+    _rtcRole = 'sharer';
+
+    // Prompt user to pick screen
+    navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      .then(function(stream) {
+        _rtcStream = stream;
+
+        // If they stop sharing via the browser's built-in "Stop sharing" button
+        stream.getVideoTracks()[0].onended = function() { rtcStop(); };
+
+        _rtcPeer = new RTCPeerConnection(STUN_SERVERS);
+
+        stream.getTracks().forEach(function(track) {
+          _rtcPeer.addTrack(track, stream);
+        });
+
+        _rtcPeer.onicecandidate = function(e) {
+          if (e.candidate) {
+            signalCol(convId).add({
+              type: 'candidate',
+              sessionId: _rtcSessionId,
+              fromUid: rtcMyUid(),
+              data: JSON.stringify(e.candidate),
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }
+        };
+
+        _rtcPeer.onconnectionstatechange = function() {
+          if (_rtcPeer && (_rtcPeer.connectionState === 'disconnected' || _rtcPeer.connectionState === 'failed')) {
+            rtcStop();
+          }
+        };
+
+        // Listen for the viewer's answer
+        _rtcSignalUnsub = signalCol(convId)
+          .where('sessionId', '==', _rtcSessionId)
+          .onSnapshot(function(snap) {
+            snap.docChanges().forEach(function(change) {
+              if (change.type !== 'added') return;
+              var d = change.doc.data();
+              if (d.fromUid === rtcMyUid()) return;
+
+              if (d.type === 'answer' && _rtcPeer) {
+                _rtcPeer.setRemoteDescription(new RTCSessionDescription(JSON.parse(d.data)))
+                  .catch(function(err) { console.error('Set answer failed:', err); });
+              } else if (d.type === 'candidate' && _rtcPeer) {
+                _rtcPeer.addIceCandidate(new RTCIceCandidate(JSON.parse(d.data)))
+                  .catch(function(){});
+              }
+            });
+          });
+
+        // Create and send the offer
+        return _rtcPeer.createOffer();
+      })
+      .then(function(offer) {
+        return _rtcPeer.setLocalDescription(offer);
+      })
+      .then(function() {
+        signalCol(_rtcConvId).add({
+          type: 'offer',
+          sessionId: _rtcSessionId,
+          fromUid: rtcMyUid(),
+          fromName: rtcMyName(),
+          data: JSON.stringify(_rtcPeer.localDescription),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      })
+      .catch(function(err) {
+        // User cancelled the screen picker or error
+        if (err.name !== 'NotAllowedError') console.error('Screen share error:', err);
+        rtcStop();
+      });
+  };
+
+  // ── VIEWER OVERLAY ──
+
+  function showViewer(sharerName) {
+    var overlay = document.getElementById('screenshareOverlay');
+    var label = document.getElementById('screenshareLabel');
+    if (overlay) overlay.classList.add('active');
+    if (label) label.textContent = 'Viewing ' + sharerName + '\'s screen';
+  }
+
+  // Fullscreen — only for superAdmin/admin
+  var fullBtn = document.getElementById('screenshareFull');
+  if (fullBtn) {
+    fullBtn.addEventListener('click', function() {
+      var wrap = document.querySelector('.screenshare-video-wrap');
+      var video = document.getElementById('screenshareVideo');
+      var target = wrap || video;
+      if (!target) return;
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+        fullBtn.textContent = 'Fullscreen';
+      } else {
+        (target.requestFullscreen || target.webkitRequestFullscreen || function(){}).call(target);
+        fullBtn.textContent = 'Exit Fullscreen';
+      }
+    });
+  }
+
+  // Show/hide fullscreen button based on role
+  function updateFullscreenVisibility() {
+    if (!fullBtn) return;
+    var role = rtcMyRole();
+    fullBtn.style.display = (role === 'superAdmin' || role === 'admin') ? '' : 'none';
+  }
+
+  // Stop button
+  var stopBtn = document.getElementById('screenshareStop');
+  if (stopBtn) {
+    stopBtn.addEventListener('click', function() { rtcStop(); });
+  }
+
+  // Listen for fullscreen exit
+  document.addEventListener('fullscreenchange', function() {
+    if (!document.fullscreenElement && fullBtn) fullBtn.textContent = 'Fullscreen';
+  });
+
+  // ── CLEANUP ──
+
+  function rtcStop() {
+    // Close peer connection
+    if (_rtcPeer) { try { _rtcPeer.close(); } catch(e){} _rtcPeer = null; }
+    // Stop local stream tracks
+    if (_rtcStream) {
+      _rtcStream.getTracks().forEach(function(t) { t.stop(); });
+      _rtcStream = null;
+    }
+    // Unsubscribe Firestore listener
+    if (_rtcSignalUnsub) { _rtcSignalUnsub(); _rtcSignalUnsub = null; }
+    // Clean up signals
+    if (_rtcConvId) { cleanSignals(_rtcConvId); }
+    // Hide viewer overlay
+    var overlay = document.getElementById('screenshareOverlay');
+    if (overlay) overlay.classList.remove('active');
+    var video = document.getElementById('screenshareVideo');
+    if (video) video.srcObject = null;
+    // Exit fullscreen if active
+    if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
+    // Reset state
+    _rtcRole = null;
+    _rtcConvId = null;
+    _rtcSessionId = null;
+  }
+  window.rtcStop = rtcStop;
+
+  // ── LISTEN FOR INCOMING SCREEN SHARE REQUESTS (in chat messages) ──
+  // The share button in chat messages is wired up via event delegation
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.chat-share-btn');
+    if (!btn) return;
+    e.preventDefault();
+    var convId = btn.getAttribute('data-convid');
+    var sessionId = btn.getAttribute('data-sessionid');
+    if (convId && sessionId) {
+      btn.textContent = 'Starting...';
+      btn.style.opacity = '.6';
+      btn.style.pointerEvents = 'none';
+      window.rtcStartSharing(convId, sessionId);
+    }
+  });
+
+  // Make fullscreen button visibility update when user data loads
+  var _origShowApp = window.showApp;
+  if (_origShowApp) {
+    // Patch showApp to also update fullscreen visibility
+    var _checkFsInterval = setInterval(function() {
+      if (window.currentUserData) {
+        updateFullscreenVisibility();
+        clearInterval(_checkFsInterval);
+      }
+    }, 1000);
+  }
+
+})();
 </script>
 
 <!-- Auto-crop whitespace utility (shared across all image uploads) -->
