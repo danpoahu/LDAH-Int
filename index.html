@@ -3954,7 +3954,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v104</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7592,9 +7592,10 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
   // ── Preview Daily Report with REAL data ──
   var DASH_URL = 'https://danpoahu.github.io/LDAH-Int/';
+  var DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
   window.cmsPreviewDailyReport = async function() {
-    var btn = event.target;
+    var btn = document.querySelector('[onclick="cmsPreviewDailyReport()"]') || event.target;
     btn.textContent = 'Generating...';
     btn.disabled = true;
     try {
@@ -7602,225 +7603,290 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       var now = new Date();
       var todayStr = now.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'Pacific/Honolulu' });
       var hNow = new Date(now.toLocaleString('en-US', { timeZone:'Pacific/Honolulu' }));
-      var todayDOWNum = hNow.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+      var todayDOWNum = hNow.getDay();
       var todayISO = hNow.getFullYear() + '-' + String(hNow.getMonth()+1).padStart(2,'0') + '-' + String(hNow.getDate()).padStart(2,'0');
+      var cutoff = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 24*60*60*1000));
 
-      // ── Today's sessions ──
-      var sessions = [];
+      // Helper: format Firestore timestamp
+      function fmtTs(ts) {
+        if (!ts) return '';
+        var d = ts.toDate ? ts.toDate() : ts.seconds ? new Date(ts.seconds*1000) : null;
+        if (!d) return '';
+        return d.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'Pacific/Honolulu'}) + ' ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'Pacific/Honolulu'});
+      }
 
-      // One-time events
+      // ═══════════════════════════════════════════════════
+      // SECTION 1: All Active Events & Programs with signups
+      // ═══════════════════════════════════════════════════
+      var allSessions = [];
+
+      // Active one-time events (not archived, not past removeDate)
       var evSnap = await db.collection('events').get();
       for (var i = 0; i < evSnap.docs.length; i++) {
         var doc = evSnap.docs[i]; var d = doc.data();
-        var dateStr = '';
-        if (d.date) {
-          if (typeof d.date === 'string') dateStr = d.date;
-          else if (d.date.toDate) { var dt = d.date.toDate(); dateStr = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
-          else if (d.date.seconds) { var dt2 = new Date(d.date.seconds*1000); dateStr = dt2.getFullYear()+'-'+String(dt2.getMonth()+1).padStart(2,'0')+'-'+String(dt2.getDate()).padStart(2,'0'); }
+        // Skip if removeDate has passed
+        if (d.removeDate) {
+          var rd;
+          if (typeof d.removeDate === 'string') rd = new Date(d.removeDate);
+          else if (d.removeDate.toDate) rd = d.removeDate.toDate();
+          else if (d.removeDate.seconds) rd = new Date(d.removeDate.seconds*1000);
+          if (rd && rd < hNow) continue;
         }
-        if (dateStr === todayISO || dateStr.indexOf(todayISO) > -1) {
-          var signups = [];
-          try {
-            var sSnap = await db.collection('events').doc(doc.id).collection('signups').get();
-            sSnap.forEach(function(s) { signups.push({ id: s.id, ...s.data() }); });
-          } catch(e){}
-          sessions.push({ title: d.title||'Untitled', time: d.time||d.startTime||'', location: d.location||'', signups: signups, type:'event', id: doc.id, description: d.description||'' });
-        }
+        var signups = [];
+        try {
+          var sSnap = await db.collection('events').doc(doc.id).collection('signups').get();
+          sSnap.forEach(function(s) { signups.push({ id: s.id, ...s.data() }); });
+        } catch(e){}
+        allSessions.push({ title: d.title||'Untitled', date: d.date||'', time: d.time||d.startTime||'', location: d.location||'', signups: signups, type:'event', id: doc.id });
       }
 
-      // Recurring events
+      // Active recurring programs
       var recSnap = await db.collection('recurringEvents').get();
       for (var j = 0; j < recSnap.docs.length; j++) {
-        var rdoc = recSnap.docs[j]; var rd = rdoc.data();
-        var matches = false;
-        if (Array.isArray(rd.schedules)) {
-          for (var k = 0; k < rd.schedules.length; k++) {
-            var sDayNum = rd.schedules[k].dayOfWeek;
-            if (typeof sDayNum === 'number' && sDayNum === todayDOWNum) { matches = true; break; }
-          }
+        var rdoc = recSnap.docs[j]; var rdata = rdoc.data();
+        if (rdata.active === false) continue;
+        var rsignups = [];
+        try {
+          var rsSnap = await db.collection('recurringEvents').doc(rdoc.id).collection('signups').get();
+          rsSnap.forEach(function(s) { rsignups.push({ id: s.id, ...s.data() }); });
+        } catch(e){}
+        var schedDesc = '';
+        if (Array.isArray(rdata.schedules) && rdata.schedules.length > 0) {
+          schedDesc = rdata.schedules.map(function(sch) {
+            return (DAY_NAMES[sch.dayOfWeek]||'') + 's' + (sch.startTime ? ' ' + sch.startTime : '') + (sch.location ? ' @ ' + sch.location : '');
+          }).join('; ');
         }
-        if (matches && Array.isArray(rd.cancelledDates) && rd.cancelledDates.includes(todayISO)) matches = false;
-        if (matches && rd.active !== false) {
-          var rsignups = [];
-          try {
-            var rsSnap = await db.collection('recurringEvents').doc(rdoc.id).collection('signups').get();
-            rsSnap.forEach(function(s) { rsignups.push({ id: s.id, ...s.data() }); });
-          } catch(e){}
-          sessions.push({ title: rd.title||'Untitled', time: rd.time||rd.startTime||'', location: rd.location||'', signups: rsignups, type:'recurring', id: rdoc.id, description: rd.description||'' });
-        }
+        allSessions.push({ title: rdata.title||'Untitled', date: schedDesc, time: rdata.time||'', location: rdata.location||'', signups: rsignups, type:'recurring', id: rdoc.id });
       }
 
-      // ── Yesterday's activity (collection group queries — fast) ──
-      var cutoff = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 24*60*60*1000));
-      var cutoff48 = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 48*60*60*1000));
-      var newSignups = 0, completedRegs = 0, feedbackCount = 0, newContacts = 0;
-      var staleList = [];
-
-      // Collection group query: all signups across all events at once
-      try {
-        var allNewSnap = await db.collectionGroup('signups').where('timestamp','>=',cutoff).get();
-        newSignups = allNewSnap.size;
-      } catch(e){ console.warn('New signups query:', e.message); }
-      try {
-        var allRegSnap = await db.collectionGroup('signups').where('registrationCompletedAt','>=',cutoff).get();
-        completedRegs = allRegSnap.size;
-      } catch(e){ console.warn('Completed regs query:', e.message); }
-      try {
-        var allStaleSnap = await db.collectionGroup('signups').where('status','==','pending').where('timestamp','<=',cutoff48).get();
-        if (allStaleSnap.size > 0) {
-          // Group by parent event title
-          var staleMap = {};
-          allStaleSnap.forEach(function(s) {
-            var parentPath = s.ref.parent.parent.path;
-            if (!staleMap[parentPath]) staleMap[parentPath] = { count: 0 };
-            staleMap[parentPath].count++;
-          });
-          // Get titles for each parent
-          for (var sp in staleMap) {
-            try {
-              var parentDoc = await db.doc(sp).get();
-              staleList.push({ title: (parentDoc.data()||{}).title||'Untitled', count: staleMap[sp].count });
-            } catch(e){}
-          }
-        }
-      } catch(e){ console.warn('Stale pending query:', e.message); }
-      try { var fbSnap = await db.collection('eventFeedback').where('submittedAt','>=',cutoff).get(); feedbackCount = fbSnap.size; } catch(e){}
-      try { var ctSnap = await db.collection('contacts').where('createdAt','>=',cutoff).get(); newContacts = ctSnap.size; } catch(e){}
-
-      // ── Missing attendance (only check events that have passed) ──
-      var missingAtt = [];
-      for (var mi = 0; mi < evSnap.docs.length; mi++) {
-        var md = evSnap.docs[mi]; var mdata = md.data();
-        if (!mdata.moveToPastDate) continue;
-        var pastD;
-        if (typeof mdata.moveToPastDate === 'string') pastD = new Date(mdata.moveToPastDate);
-        else if (mdata.moveToPastDate.toDate) pastD = mdata.moveToPastDate.toDate();
-        else if (mdata.moveToPastDate.seconds) pastD = new Date(mdata.moveToPastDate.seconds*1000);
-        else continue;
-        if (pastD < hNow) {
-          // Only check events we already have signup data for from today's sessions
-          var existingSession = sessions.find(function(s){ return s.id === md.id; });
-          if (existingSession && existingSession.signups.length > 0) {
-            var hasAtt = false;
-            existingSession.signups.forEach(function(s) { if (s.attendanceStatus) hasAtt = true; });
-            if (!hasAtt) missingAtt.push({ title: mdata.title||'Untitled', count: existingSession.signups.length });
-          }
-        }
+      // Build session cards HTML
+      function buildSessionCard(s) {
+        var confirmed = 0, pending = 0, cancelled = 0, attended = 0, noshow = 0;
+        s.signups.forEach(function(su) {
+          if (su.status === 'confirmed') confirmed++;
+          else if (su.status === 'cancelled') cancelled++;
+          else pending++;
+          if (su.attendanceStatus === 'attended') attended++;
+          if (su.attendanceStatus === 'no-show') noshow++;
+        });
+        var active = s.signups.filter(function(su){ return su.status !== 'cancelled'; });
+        active.sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); });
+        var typeLabel = s.type === 'recurring' ? '<span style="background:#7c3aed;color:white;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700;margin-left:6px;">RECURRING</span>' : '<span style="background:#1a73e8;color:white;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700;margin-left:6px;">EVENT</span>';
+        var attLine = attended > 0 || noshow > 0 ? ' | <span style="color:#2e7d32;">' + attended + ' attended</span>, <span style="color:#dc2626;">' + noshow + ' no-show</span>' : '';
+        var rows = '';
+        active.forEach(function(su) {
+          var stColor = su.status === 'confirmed' ? '#2e7d32' : '#e65100';
+          var stLabel = su.status === 'confirmed' ? 'Confirmed' : 'Pending';
+          var regIcon = su.registrationCompletedAt ? '&#9745;' : '&#9744;';
+          var attB = '';
+          if (su.attendanceStatus === 'attended') attB = '<span style="background:#2e7d32;color:white;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;">Attended</span>';
+          else if (su.attendanceStatus === 'no-show') attB = '<span style="background:#dc2626;color:white;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;">No-Show</span>';
+          rows += '<tr style="border-bottom:1px solid #eee;">'
+            + '<td style="padding:5px 8px;font-size:12px;font-weight:600;">' + _escR(su.name||'Unknown') + '</td>'
+            + '<td style="padding:5px 8px;font-size:12px;">' + _escR(su.email||'--') + '</td>'
+            + '<td style="padding:5px 8px;font-size:12px;">' + _escR(su.phone||'--') + '</td>'
+            + '<td style="padding:5px 8px;font-size:12px;"><span style="color:'+stColor+';font-weight:700;">'+stLabel+'</span></td>'
+            + '<td style="padding:5px 8px;font-size:12px;">'+regIcon+'</td>'
+            + '<td style="padding:5px 8px;font-size:12px;">'+attB+'</td></tr>';
+        });
+        if (cancelled > 0) rows += '<tr><td colspan="6" style="padding:5px 8px;font-size:11px;color:#999;font-style:italic;">+ '+cancelled+' cancelled not shown</td></tr>';
+        return '<div style="margin-bottom:12px;border:1px solid #ddd;border-radius:8px;overflow:hidden;">'
+          + '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.chv\').textContent=this.nextElementSibling.style.display===\'none\'?\'\\u25B6\':\'\\u25BC\'" style="padding:12px 14px;background:#f0f6ff;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+          + '<div style="flex:1;">'
+          + '<div style="font-size:15px;font-weight:800;color:#1a3c6e;">' + _escR(s.title) + typeLabel + '</div>'
+          + '<div style="font-size:12px;color:#555;margin-top:2px;">' + _escR(s.date||'') + (s.time ? ' | ' + _escR(s.time) : '') + (s.location ? ' | ' + _escR(s.location) : '') + '</div>'
+          + '<div style="font-size:12px;margin-top:3px;"><strong>' + active.length + '</strong> active signup(s) &mdash; <span style="color:#2e7d32;font-weight:700;">' + confirmed + ' confirmed</span>, <span style="color:#e65100;font-weight:700;">' + pending + ' pending</span>' + attLine + '</div>'
+          + '</div>'
+          + '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">'
+          + '<a href="'+DASH_URL+'" target="_blank" style="font-size:11px;color:#1a73e8;font-weight:700;text-decoration:none;">Dashboard &#8599;</a>'
+          + '<span class="chv" style="font-size:13px;color:#999;">&#9654;</span></div></div>'
+          + '<div style="display:none;"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f8f9fa;">'
+          + '<th style="padding:5px 8px;text-align:left;font-size:11px;color:#666;font-weight:800;">Name</th>'
+          + '<th style="padding:5px 8px;text-align:left;font-size:11px;color:#666;font-weight:800;">Email</th>'
+          + '<th style="padding:5px 8px;text-align:left;font-size:11px;color:#666;font-weight:800;">Phone</th>'
+          + '<th style="padding:5px 8px;text-align:left;font-size:11px;color:#666;font-weight:800;">Status</th>'
+          + '<th style="padding:5px 8px;text-align:left;font-size:11px;color:#666;font-weight:800;">Reg</th>'
+          + '<th style="padding:5px 8px;text-align:left;font-size:11px;color:#666;font-weight:800;">Att.</th>'
+          + '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
       }
 
-      // ── Build HTML ──
       var sessionsHtml = '';
-      if (sessions.length === 0) {
-        sessionsHtml = '<div style="padding:16px 0;color:#666;font-style:italic;">No sessions scheduled for today.</div>';
+      if (allSessions.length === 0) {
+        sessionsHtml = '<p style="color:#666;font-style:italic;">No active events or programs.</p>';
       } else {
-        sessions.forEach(function(s, idx) {
-          var confirmed = 0, pending = 0, cancelled = 0;
-          s.signups.forEach(function(su) {
-            if (su.status === 'confirmed') confirmed++;
-            else if (su.status === 'cancelled') cancelled++;
-            else pending++;
-          });
-          var detailRows = '';
-          var activeSignups = s.signups.filter(function(su){ return su.status !== 'cancelled'; });
-          activeSignups.sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); });
-          activeSignups.forEach(function(su) {
-            var statusColor = su.status === 'confirmed' ? '#2e7d32' : '#e65100';
-            var statusLabel = su.status === 'confirmed' ? 'Confirmed' : 'Pending';
-            var regIcon = su.registrationCompletedAt ? '&#9745;' : '&#9744;';
-            var attBadge = '';
-            if (su.attendanceStatus === 'attended') attBadge = '<span style="background:#2e7d32;color:white;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;">Attended</span>';
-            else if (su.attendanceStatus === 'no-show') attBadge = '<span style="background:#dc2626;color:white;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;">No-Show</span>';
-            detailRows += '<tr style="border-bottom:1px solid #eee;">'
-              + '<td style="padding:6px 10px;font-size:13px;font-weight:600;">' + _escR(su.name||'Unknown') + '</td>'
-              + '<td style="padding:6px 10px;font-size:13px;">' + _escR(su.email||'--') + '</td>'
-              + '<td style="padding:6px 10px;font-size:13px;">' + _escR(su.phone||'--') + '</td>'
-              + '<td style="padding:6px 10px;font-size:13px;"><span style="color:' + statusColor + ';font-weight:700;">' + statusLabel + '</span></td>'
-              + '<td style="padding:6px 10px;font-size:13px;">' + regIcon + '</td>'
-              + '<td style="padding:6px 10px;font-size:13px;">' + attBadge + '</td>'
-              + '</tr>';
-          });
-          if (cancelled > 0) {
-            detailRows += '<tr><td colspan="6" style="padding:6px 10px;font-size:12px;color:#999;font-style:italic;">+ ' + cancelled + ' cancelled signup(s) not shown</td></tr>';
-          }
+        allSessions.forEach(function(s) { sessionsHtml += buildSessionCard(s); });
+      }
 
-          var linkUrl = DASH_URL;
-          sessionsHtml += '<div style="margin-bottom:16px;border:1px solid #ddd;border-radius:8px;overflow:hidden;">'
-            + '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.chevron\').textContent=this.nextElementSibling.style.display===\'none\'?\'&#9654;\':\'&#9660;\'" '
-            + 'style="padding:14px 16px;background:#f0f6ff;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
-            + '<div>'
-            + '<div style="font-size:16px;font-weight:800;color:#1a3c6e;">' + _escR(s.title) + '</div>'
-            + '<div style="font-size:13px;color:#555;margin-top:2px;">' + _escR(s.time) + (s.location ? ' &mdash; ' + _escR(s.location) : '') + '</div>'
-            + '<div style="font-size:13px;margin-top:4px;"><strong>' + activeSignups.length + '</strong> signup(s) &mdash; '
-            + '<span style="color:#2e7d32;font-weight:700;">' + confirmed + ' confirmed</span>, '
-            + '<span style="color:#e65100;font-weight:700;">' + pending + ' pending</span></div>'
-            + '</div>'
-            + '<div style="display:flex;align-items:center;gap:10px;">'
-            + '<a href="' + linkUrl + '" target="_blank" style="font-size:12px;color:#1a73e8;font-weight:700;text-decoration:none;">Open in Dashboard &#8599;</a>'
-            + '<span class="chevron" style="font-size:14px;color:#999;">&#9654;</span>'
-            + '</div>'
-            + '</div>'
-            + '<div style="display:none;padding:0;">'
-            + '<table style="width:100%;border-collapse:collapse;">'
-            + '<thead><tr style="background:#f8f9fa;">'
-            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Name</th>'
-            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Email</th>'
-            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Phone</th>'
-            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Status</th>'
-            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Reg</th>'
-            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Attendance</th>'
-            + '</tr></thead><tbody>' + detailRows + '</tbody></table>'
-            + '</div></div>';
+      // ═══════════════════════════════════════════════════
+      // SECTION 2: What Changed Since Yesterday (detailed)
+      // ═══════════════════════════════════════════════════
+      var changelog = [];
+
+      // New signups with names + event titles
+      try {
+        var nsSnap = await db.collectionGroup('signups').where('timestamp','>=',cutoff).get();
+        for (var ni = 0; ni < nsSnap.docs.length; ni++) {
+          var ns = nsSnap.docs[ni]; var nd = ns.data();
+          var parentRef = ns.ref.parent.parent;
+          var parentDoc = await parentRef.get();
+          var evTitle = (parentDoc.data()||{}).title || 'Unknown Event';
+          changelog.push({ icon: '&#128221;', text: '<strong>' + _escR(nd.name||'Someone') + '</strong> signed up for <em>' + _escR(evTitle) + '</em>', time: fmtTs(nd.timestamp), sort: nd.timestamp ? (nd.timestamp.seconds||0) : 0 });
+        }
+      } catch(e){ console.warn('Changelog signups:', e.message); }
+
+      // Completed registrations with names
+      try {
+        var crSnap = await db.collectionGroup('signups').where('registrationCompletedAt','>=',cutoff).get();
+        for (var ci2 = 0; ci2 < crSnap.docs.length; ci2++) {
+          var cr = crSnap.docs[ci2]; var cd = cr.data();
+          var pRef = cr.ref.parent.parent;
+          var pDoc = await pRef.get();
+          var pTitle = (pDoc.data()||{}).title || 'Unknown Event';
+          changelog.push({ icon: '&#9989;', text: '<strong>' + _escR(cd.name||'Someone') + '</strong> completed registration for <em>' + _escR(pTitle) + '</em>', time: fmtTs(cd.registrationCompletedAt), sort: cd.registrationCompletedAt ? (cd.registrationCompletedAt.seconds||0) : 0 });
+        }
+      } catch(e){ console.warn('Changelog regs:', e.message); }
+
+      // New feedback
+      try {
+        var fbSnap2 = await db.collection('eventFeedback').where('submittedAt','>=',cutoff).get();
+        fbSnap2.forEach(function(f) {
+          var fd = f.data();
+          changelog.push({ icon: '&#128172;', text: 'Feedback received for <em>' + _escR(fd.eventTitle||fd.eventId||'an event') + '</em>' + (fd.presenterRating ? ' (Presenter: ' + _escR(fd.presenterRating) + ')' : ''), time: fmtTs(fd.submittedAt), sort: fd.submittedAt ? (fd.submittedAt.seconds||0) : 0 });
+        });
+      } catch(e){}
+
+      // New contacts
+      try {
+        var ctSnap2 = await db.collection('contacts').where('createdAt','>=',cutoff).get();
+        ctSnap2.forEach(function(c) {
+          var cdata = c.data();
+          changelog.push({ icon: '&#128100;', text: 'New contact created: <strong>' + _escR(cdata.displayName||cdata.firstName||'Unknown') + '</strong>' + (cdata.source ? ' (from ' + _escR(cdata.source) + ')' : ''), time: fmtTs(cdata.createdAt), sort: cdata.createdAt ? (cdata.createdAt.seconds||0) : 0 });
+        });
+      } catch(e){}
+
+      // Sort changelog by time (newest first)
+      changelog.sort(function(a,b){ return b.sort - a.sort; });
+
+      var changelogHtml = '';
+      if (changelog.length === 0) {
+        changelogHtml = '<p style="color:#666;font-style:italic;">No changes in the last 24 hours.</p>';
+      } else {
+        changelogHtml = '<div style="border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">';
+        changelog.forEach(function(c, idx) {
+          var bg = idx % 2 === 0 ? '#fafafa' : 'white';
+          changelogHtml += '<div style="padding:8px 14px;background:'+bg+';display:flex;align-items:center;gap:10px;border-bottom:1px solid #f0f0f0;">'
+            + '<span style="font-size:16px;flex-shrink:0;">' + c.icon + '</span>'
+            + '<div style="flex:1;font-size:13px;color:#333;">' + c.text + '</div>'
+            + '<div style="font-size:11px;color:#999;white-space:nowrap;flex-shrink:0;">' + c.time + '</div></div>';
+        });
+        changelogHtml += '</div>';
+      }
+
+      // ═══════════════════════════════════════════════════
+      // SECTION 3: Public Form Submissions (last 24 hours)
+      // ═══════════════════════════════════════════════════
+      var formSections = [];
+
+      // Anti-Bullying Pledges
+      try {
+        var plSnap = await db.collection('pledges').where('submittedAt','>=',cutoff).get();
+        if (plSnap.size > 0) {
+          var plRows = '';
+          plSnap.forEach(function(p) { var pd = p.data(); plRows += '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 8px;font-size:12px;font-weight:600;">'+_escR(pd.name||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(pd.email||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(pd.role||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(pd.zip||'')+'</td></tr>'; });
+          formSections.push({ title: 'Anti-Bullying Pledges', count: plSnap.size, color: '#7c3aed', headers: '<th>Name</th><th>Email</th><th>Role</th><th>Zip</th>', rows: plRows });
+        }
+      } catch(e){}
+
+      // Volunteer Applications
+      try {
+        var volSnap = await db.collection('volunteers').where('submittedAt','>=',cutoff).get();
+        if (volSnap.size > 0) {
+          var vRows = '';
+          volSnap.forEach(function(v) { var vd = v.data(); vRows += '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 8px;font-size:12px;font-weight:600;">'+_escR((vd.firstName||'')+' '+(vd.lastName||''))+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(vd.email||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(vd.subject||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR((vd.notes||'').substring(0,80))+'</td></tr>'; });
+          formSections.push({ title: 'Volunteer Applications', count: volSnap.size, color: '#059669', headers: '<th>Name</th><th>Email</th><th>Opportunity</th><th>Notes</th>', rows: vRows });
+        }
+      } catch(e){}
+
+      // Contact Messages
+      try {
+        var cmSnap = await db.collection('contactSubmissions').where('timestamp','>=',cutoff).get();
+        if (cmSnap.size > 0) {
+          var cmRows = '';
+          cmSnap.forEach(function(c) { var cd = c.data(); cmRows += '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 8px;font-size:12px;font-weight:600;">'+_escR(cd.name||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(cd.email||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(cd.phone||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR((cd.message||'').substring(0,100))+'</td></tr>'; });
+          formSections.push({ title: 'Contact Messages', count: cmSnap.size, color: '#0891b2', headers: '<th>Name</th><th>Email</th><th>Phone</th><th>Message</th>', rows: cmRows });
+        }
+      } catch(e){}
+
+      // Event Requests
+      try {
+        var erSnap = await db.collection('eventRequests').where('timestamp','>=',cutoff).get();
+        if (erSnap.size > 0) {
+          var erRows = '';
+          erSnap.forEach(function(r) { var rd2 = r.data(); erRows += '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 8px;font-size:12px;font-weight:600;">'+_escR(rd2.name||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(rd2.email||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(rd2.preferredDate||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR((rd2.eventInfo||'').substring(0,100))+'</td></tr>'; });
+          formSections.push({ title: 'Event Requests', count: erSnap.size, color: '#d97706', headers: '<th>Name</th><th>Email</th><th>Preferred Date</th><th>Details</th>', rows: erRows });
+        }
+      } catch(e){}
+
+      // Provider Requests
+      try {
+        var prSnap = await db.collection('providers').where('submittedAt','>=',cutoff).get();
+        if (prSnap.size > 0) {
+          var prRows = '';
+          prSnap.forEach(function(p) { var pd2 = p.data(); prRows += '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 8px;font-size:12px;font-weight:600;">'+_escR(pd2.organizationName||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR((pd2.firstName||'')+' '+(pd2.lastName||''))+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(pd2.email||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR((pd2.services||'').substring(0,80))+'</td></tr>'; });
+          formSections.push({ title: 'Provider Requests', count: prSnap.size, color: '#be185d', headers: '<th>Organization</th><th>Contact</th><th>Email</th><th>Services</th>', rows: prRows });
+        }
+      } catch(e){}
+
+      var formsHtml = '';
+      if (formSections.length === 0) {
+        formsHtml = '<p style="color:#666;font-style:italic;">No new form submissions in the last 24 hours.</p>';
+      } else {
+        formSections.forEach(function(fs) {
+          formsHtml += '<div style="margin-bottom:12px;border:1px solid #ddd;border-radius:8px;overflow:hidden;">'
+            + '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'" style="padding:10px 14px;background:'+fs.color+'10;border-left:4px solid '+fs.color+';cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+            + '<span style="font-size:14px;font-weight:800;color:'+fs.color+';">'+_escR(fs.title)+'</span>'
+            + '<span style="background:'+fs.color+';color:white;padding:2px 10px;border-radius:10px;font-size:12px;font-weight:800;">'+fs.count+' new</span></div>'
+            + '<div style="display:block;"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f8f9fa;font-size:11px;color:#666;font-weight:800;">' + fs.headers.replace(/<th>/g,'<th style="padding:5px 8px;text-align:left;">') + '</tr></thead><tbody>' + fs.rows + '</tbody></table></div></div>';
         });
       }
 
-      // Attention items
-      var attentionHtml = '';
-      var attItems = [];
-      staleList.forEach(function(s) { attItems.push(s.count + ' pending registration(s) older than 48 hours for "' + s.title + '"'); });
-      missingAtt.forEach(function(m) { attItems.push('"' + m.title + '" has passed but no attendance has been marked (' + m.count + ' signups)'); });
-      if (attItems.length > 0) {
-        attentionHtml = '<div style="margin-top:24px;">'
-          + '<h2 style="font-size:18px;color:#e65100;border-bottom:2px solid #ffcc80;padding-bottom:8px;margin:0 0 12px;">Needs Attention</h2>'
-          + '<ul style="margin:0;padding:12px 12px 12px 32px;background:#fff8e1;border:1px solid #ffcc80;border-radius:8px;font-size:14px;line-height:1.8;">';
-        attItems.forEach(function(item) { attentionHtml += '<li style="margin-bottom:6px;">' + _escR(item) + '</li>'; });
-        attentionHtml += '</ul></div>';
-      }
-
-      // Full HTML page
+      // ═══════════════════════════════════════════════════
+      // BUILD FULL HTML PAGE
+      // ═══════════════════════════════════════════════════
       var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
-        + '<title>LDAH Daily Session Sheet -- ' + todayStr + '</title>'
+        + '<title>LDAH Daily Report -- ' + todayStr + '</title>'
         + '<style>body{margin:0;padding:0;background:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}'
-        + '.container{max-width:700px;margin:0 auto;background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1);}'
+        + '.container{max-width:800px;margin:0 auto;background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1);}'
         + '@media print{body{background:white;}.container{box-shadow:none;max-width:100%;}}</style></head><body>'
-        + '<div style="padding:20px;">'
-        + '<div class="container">'
-        + '<div style="background:#1a3c6e;padding:24px 28px;text-align:center;">'
-        + '<h1 style="margin:0;color:white;font-size:22px;font-weight:bold;">LDAH Daily Session Sheet</h1>'
-        + '<p style="margin:6px 0 0;color:#b0c4de;font-size:14px;">' + todayStr + '</p></div>'
-        + '<div style="padding:24px 28px;">'
-        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
-        + '<h2 style="margin:0;font-size:18px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:8px;">Today\'s Sessions</h2>'
-        + '<span style="font-size:13px;color:#666;">Click a session to expand details</span></div>'
+        + '<div style="padding:16px;"><div class="container">'
+        // Header
+        + '<div style="background:#1a3c6e;padding:20px 28px;text-align:center;">'
+        + '<h1 style="margin:0;color:white;font-size:22px;font-weight:bold;">LDAH Daily Report</h1>'
+        + '<p style="margin:4px 0 0;color:#b0c4de;font-size:14px;">' + todayStr + '</p></div>'
+        + '<div style="padding:20px 28px;">'
+        // Section 1: All Session Sheets
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+        + '<h2 style="margin:0;font-size:17px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:6px;">All Active Events &amp; Programs</h2>'
+        + '<span style="font-size:12px;color:#666;">' + allSessions.length + ' active | Click to expand</span></div>'
         + sessionsHtml
-        + '<h2 style="font-size:18px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:8px;margin:24px 0 12px;">Yesterday\'s Activity</h2>'
-        + '<ul style="margin:0;padding-left:20px;font-size:15px;color:#333;line-height:2;">'
-        + '<li><strong>' + newSignups + '</strong> new signup(s)</li>'
-        + '<li><strong>' + completedRegs + '</strong> registration(s) completed</li>'
-        + '<li><strong>' + feedbackCount + '</strong> feedback response(s)</li>'
-        + '<li><strong>' + newContacts + '</strong> new contact(s) created</li></ul>'
-        + attentionHtml
+        // Section 2: Changelog
+        + '<h2 style="font-size:17px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:6px;margin:28px 0 12px;">What Changed (Last 24 Hours)</h2>'
+        + '<p style="margin:0 0 10px;font-size:12px;color:#666;">' + changelog.length + ' change(s)</p>'
+        + changelogHtml
+        // Section 3: Form Submissions
+        + '<h2 style="font-size:17px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:6px;margin:28px 0 12px;">New Public Submissions (Last 24 Hours)</h2>'
+        + formsHtml
         + '</div>'
-        + '<div style="background:#f0f0f0;padding:20px 28px;text-align:center;border-top:1px solid #ddd;">'
-        + '<p style="margin:0 0 4px;font-size:13px;color:#777;font-weight:bold;">Leadership in Disabilities &amp; Achievement of Hawai\'i</p>'
-        + '<p style="margin:0 0 4px;font-size:12px;color:#999;">245 N. Kukui St., Suite 205, Honolulu, HI 96817</p>'
-        + '<p style="margin:0 0 4px;font-size:12px;color:#999;">Phone: (808) 536-2280</p>'
-        + '<p style="margin:0;font-size:12px;color:#999;">Email: info@ldahawaii.org</p></div>'
+        // Footer
+        + '<div style="background:#f0f0f0;padding:16px 28px;text-align:center;border-top:1px solid #ddd;">'
+        + '<p style="margin:0 0 3px;font-size:12px;color:#777;font-weight:bold;">Leadership in Disabilities &amp; Achievement of Hawai\'i</p>'
+        + '<p style="margin:0 0 3px;font-size:11px;color:#999;">245 N. Kukui St., Suite 205, Honolulu, HI 96817 | (808) 536-2280</p>'
+        + '<p style="margin:0;font-size:11px;color:#999;">info@ldahawaii.org | <a href="'+DASH_URL+'" style="color:#1a73e8;">Open Dashboard</a></p></div>'
         + '</div></div></body></html>';
 
-      // Open in new tab
       var win = window.open('', '_blank');
       if (win) { win.document.write(html); win.document.close(); }
-      else { alert('Please allow popups to view the report.'); }
+      else { alert('Please allow popups for this site to view the report.'); }
 
     } catch (err) {
       alert('Error generating report: ' + err.message);
