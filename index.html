@@ -3954,7 +3954,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v104.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v104.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7649,7 +7649,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         allSessions.push({ title: d.title||'Untitled', date: evDateDisplay, time: d.time||d.startTime||'', location: d.location||'', signups: signups, type:'event', id: doc.id });
       }
 
-      // Active recurring programs
+      // Active recurring programs — grouped by session date (matching email logic)
       var recSnap = await db.collection('recurringEvents').get();
       for (var j = 0; j < recSnap.docs.length; j++) {
         var rdoc = recSnap.docs[j]; var rdata = rdoc.data();
@@ -7659,15 +7659,58 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           var rsSnap = await db.collection('recurringEvents').doc(rdoc.id).collection('signups').get();
           rsSnap.forEach(function(s) { rsignups.push({ id: s.id, ...s.data() }); });
         } catch(e){}
-        // Skip programs with no signups
         if (rsignups.length === 0) continue;
-        var schedDesc = '';
-        if (Array.isArray(rdata.schedules) && rdata.schedules.length > 0) {
-          schedDesc = rdata.schedules.map(function(sch) {
-            return (DAY_NAMES[sch.dayOfWeek]||'') + 's' + (sch.startTime ? ' ' + sch.startTime : '') + (sch.location ? ' @ ' + sch.location : '');
-          }).join('; ');
+
+        // Generate session dates for next 90 days
+        var rawCancelled = Array.isArray(rdata.cancelledDates) ? rdata.cancelledDates : [];
+        var cancelledSet = {};
+        rawCancelled.forEach(function(cd) { if (typeof cd === 'string') cancelledSet[cd] = true; else if (cd && cd.date) cancelledSet[cd.date] = true; });
+
+        var upSessions = [];
+        if (Array.isArray(rdata.schedules)) {
+          rdata.schedules.forEach(function(sch) {
+            var dow = typeof sch.dayOfWeek === 'number' ? sch.dayOfWeek : -1;
+            if (dow < 0) return;
+            for (var off = 0; off <= 90; off++) {
+              var dd = new Date(hNow); dd.setDate(dd.getDate() + off);
+              if (dd.getDay() !== dow) continue;
+              var iso = dd.getFullYear() + '-' + String(dd.getMonth()+1).padStart(2,'0') + '-' + String(dd.getDate()).padStart(2,'0');
+              if (cancelledSet[iso]) continue;
+              upSessions.push({ iso: iso, dateLabel: DAY_NAMES[dow] + ', ' + dd.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), timeLabel: (sch.startTime && sch.endTime) ? sch.startTime + ' - ' + sch.endTime : (sch.startTime||''), location: sch.location||'', venue: sch.venue||'' });
+            }
+          });
         }
-        allSessions.push({ title: rdata.title||'Untitled', date: schedDesc, time: rdata.time||'', location: rdata.location||'', signups: rsignups, type:'recurring', id: rdoc.id });
+        upSessions.sort(function(a,b) { return a.iso.localeCompare(b.iso); });
+
+        var rActive = rsignups.filter(function(su) { return su.status !== 'cancelled'; });
+        var rCancelled = rsignups.filter(function(su) { return su.status === 'cancelled'; });
+
+        // Group signups by session date
+        var sessionGroups = [];
+        var seenKeys = {};
+        upSessions.forEach(function(sess) {
+          var dateSignups = rActive.filter(function(su) {
+            var sDates = su.selectedSessions || su.selectedDates || [];
+            return sDates.some(function(sd) {
+              var sdStr = String(sd);
+              if (sdStr.indexOf(sess.iso) === -1) return false;
+              if (sess.location && (sdStr.indexOf('|') !== -1 || sdStr.indexOf('@ ') !== -1)) {
+                return sdStr.indexOf(sess.location) !== -1;
+              }
+              return true;
+            });
+          });
+          if (dateSignups.length === 0) return;
+          var key = sess.iso + '|' + sess.location;
+          if (seenKeys[key]) return;
+          seenKeys[key] = true;
+          var cancelledForSess = rCancelled.filter(function(su) {
+            var sDates = su.selectedSessions || su.selectedDates || [];
+            return sDates.some(function(sd) { return String(sd).indexOf(sess.iso) !== -1; });
+          });
+          var loc = sess.location + (sess.venue ? ' (' + sess.venue + ')' : '');
+          allSessions.push({ title: rdata.title + ' -- ' + sess.dateLabel + (sess.timeLabel ? ' -- ' + sess.timeLabel : ''), date: '', time: '', location: loc, signups: dateSignups.concat(cancelledForSess), type:'recurring', id: rdoc.id });
+        });
       }
 
       // Build session cards HTML
