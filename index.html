@@ -3954,7 +3954,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4745,6 +4745,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <h2 class="section-title">Recipient List <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Manage email recipients for the Daily Session Sheet report. Active recipients receive an automated email every morning at 6 AM HST with a summary of the day\'s sessions, yesterday\'s activity, and items needing attention.')">i</span></h2>
           <button class="btn btn-primary" onclick="cmsOpenRecipientModal()">+ Add Recipient</button>
+          <button class="btn btn-ghost" onclick="cmsPreviewDailyReport()" style="margin-left:8px;border:2px solid var(--ocean-deep);color:var(--ocean-deep);font-weight:800;">Preview Today's Report</button>
         </div>
       </div>
       <div id="cmsRecipientListContent" style="margin-top:12px;">
@@ -7588,6 +7589,236 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       cmsRecipientSeedCheck();
     }
   }, 3000);
+
+  // ── Preview Daily Report with REAL data ──
+  var DASH_URL = 'https://danpoahu.github.io/LDAH-Int/';
+
+  window.cmsPreviewDailyReport = async function() {
+    var btn = event.target;
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+    try {
+      var db = _rdb();
+      var now = new Date();
+      var todayStr = now.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'Pacific/Honolulu' });
+      var todayDOW = now.toLocaleDateString('en-US', { weekday:'long', timeZone:'Pacific/Honolulu' }).toLowerCase();
+      var hNow = new Date(now.toLocaleString('en-US', { timeZone:'Pacific/Honolulu' }));
+      var todayISO = hNow.getFullYear() + '-' + String(hNow.getMonth()+1).padStart(2,'0') + '-' + String(hNow.getDate()).padStart(2,'0');
+
+      // ── Today's sessions ──
+      var sessions = [];
+
+      // One-time events
+      var evSnap = await db.collection('events').get();
+      for (var i = 0; i < evSnap.docs.length; i++) {
+        var doc = evSnap.docs[i]; var d = doc.data();
+        var dateStr = '';
+        if (d.date) {
+          if (typeof d.date === 'string') dateStr = d.date;
+          else if (d.date.toDate) { var dt = d.date.toDate(); dateStr = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+          else if (d.date.seconds) { var dt2 = new Date(d.date.seconds*1000); dateStr = dt2.getFullYear()+'-'+String(dt2.getMonth()+1).padStart(2,'0')+'-'+String(dt2.getDate()).padStart(2,'0'); }
+        }
+        if (dateStr === todayISO || dateStr.indexOf(todayISO) > -1) {
+          var signups = [];
+          try {
+            var sSnap = await db.collection('events').doc(doc.id).collection('signups').get();
+            sSnap.forEach(function(s) { signups.push({ id: s.id, ...s.data() }); });
+          } catch(e){}
+          sessions.push({ title: d.title||'Untitled', time: d.time||d.startTime||'', location: d.location||'', signups: signups, type:'event', id: doc.id, description: d.description||'' });
+        }
+      }
+
+      // Recurring events
+      var recSnap = await db.collection('recurringEvents').get();
+      for (var j = 0; j < recSnap.docs.length; j++) {
+        var rdoc = recSnap.docs[j]; var rd = rdoc.data();
+        var matches = false;
+        if (Array.isArray(rd.schedules)) {
+          for (var k = 0; k < rd.schedules.length; k++) {
+            var sDay = (rd.schedules[k].day || rd.schedules[k].dayOfWeek || '').toLowerCase();
+            if (sDay === todayDOW) { matches = true; break; }
+          }
+        }
+        if (matches && Array.isArray(rd.cancelledDates) && rd.cancelledDates.includes(todayISO)) matches = false;
+        if (matches && rd.active !== false) {
+          var rsignups = [];
+          try {
+            var rsSnap = await db.collection('recurringEvents').doc(rdoc.id).collection('signups').get();
+            rsSnap.forEach(function(s) { rsignups.push({ id: s.id, ...s.data() }); });
+          } catch(e){}
+          sessions.push({ title: rd.title||'Untitled', time: rd.time||rd.startTime||'', location: rd.location||'', signups: rsignups, type:'recurring', id: rdoc.id, description: rd.description||'' });
+        }
+      }
+
+      // ── Yesterday's activity ──
+      var cutoff = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 24*60*60*1000));
+      var cutoff48 = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 48*60*60*1000));
+      var newSignups = 0, completedRegs = 0, feedbackCount = 0, newContacts = 0;
+      var staleList = [];
+
+      for (var ci = 0; ci < ['events','recurringEvents'].length; ci++) {
+        var coll = ['events','recurringEvents'][ci];
+        var pSnap = await db.collection(coll).get();
+        for (var pi = 0; pi < pSnap.docs.length; pi++) {
+          var pd = pSnap.docs[pi];
+          try {
+            var nsSnap = await db.collection(coll).doc(pd.id).collection('signups').where('timestamp','>=',cutoff).get();
+            newSignups += nsSnap.size;
+            var crSnap = await db.collection(coll).doc(pd.id).collection('signups').where('registrationCompletedAt','>=',cutoff).get();
+            completedRegs += crSnap.size;
+            // Stale pending
+            var spSnap = await db.collection(coll).doc(pd.id).collection('signups').where('status','==','pending').where('timestamp','<=',cutoff48).get();
+            if (spSnap.size > 0) staleList.push({ title: pd.data().title||'Untitled', count: spSnap.size });
+          } catch(e){}
+        }
+      }
+      try { var fbSnap = await db.collection('eventFeedback').where('submittedAt','>=',cutoff).get(); feedbackCount = fbSnap.size; } catch(e){}
+      try { var ctSnap = await db.collection('contacts').where('createdAt','>=',cutoff).get(); newContacts = ctSnap.size; } catch(e){}
+
+      // ── Missing attendance ──
+      var missingAtt = [];
+      for (var mi = 0; mi < evSnap.docs.length; mi++) {
+        var md = evSnap.docs[mi]; var mdata = md.data();
+        if (!mdata.moveToPastDate) continue;
+        var pastD;
+        if (typeof mdata.moveToPastDate === 'string') pastD = new Date(mdata.moveToPastDate);
+        else if (mdata.moveToPastDate.toDate) pastD = mdata.moveToPastDate.toDate();
+        else if (mdata.moveToPastDate.seconds) pastD = new Date(mdata.moveToPastDate.seconds*1000);
+        else continue;
+        if (pastD < hNow) {
+          try {
+            var maSnap = await db.collection('events').doc(md.id).collection('signups').get();
+            if (maSnap.size > 0) {
+              var hasAtt = false;
+              maSnap.forEach(function(s) { if (s.data().attendanceStatus) hasAtt = true; });
+              if (!hasAtt) missingAtt.push({ title: mdata.title||'Untitled', count: maSnap.size });
+            }
+          } catch(e){}
+        }
+      }
+
+      // ── Build HTML ──
+      var sessionsHtml = '';
+      if (sessions.length === 0) {
+        sessionsHtml = '<div style="padding:16px 0;color:#666;font-style:italic;">No sessions scheduled for today.</div>';
+      } else {
+        sessions.forEach(function(s, idx) {
+          var confirmed = 0, pending = 0, cancelled = 0;
+          s.signups.forEach(function(su) {
+            if (su.status === 'confirmed') confirmed++;
+            else if (su.status === 'cancelled') cancelled++;
+            else pending++;
+          });
+          var detailRows = '';
+          var activeSignups = s.signups.filter(function(su){ return su.status !== 'cancelled'; });
+          activeSignups.sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); });
+          activeSignups.forEach(function(su) {
+            var statusColor = su.status === 'confirmed' ? '#2e7d32' : '#e65100';
+            var statusLabel = su.status === 'confirmed' ? 'Confirmed' : 'Pending';
+            var regIcon = su.registrationCompletedAt ? '&#9745;' : '&#9744;';
+            var attBadge = '';
+            if (su.attendanceStatus === 'attended') attBadge = '<span style="background:#2e7d32;color:white;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;">Attended</span>';
+            else if (su.attendanceStatus === 'no-show') attBadge = '<span style="background:#dc2626;color:white;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;">No-Show</span>';
+            detailRows += '<tr style="border-bottom:1px solid #eee;">'
+              + '<td style="padding:6px 10px;font-size:13px;font-weight:600;">' + _escR(su.name||'Unknown') + '</td>'
+              + '<td style="padding:6px 10px;font-size:13px;">' + _escR(su.email||'--') + '</td>'
+              + '<td style="padding:6px 10px;font-size:13px;">' + _escR(su.phone||'--') + '</td>'
+              + '<td style="padding:6px 10px;font-size:13px;"><span style="color:' + statusColor + ';font-weight:700;">' + statusLabel + '</span></td>'
+              + '<td style="padding:6px 10px;font-size:13px;">' + regIcon + '</td>'
+              + '<td style="padding:6px 10px;font-size:13px;">' + attBadge + '</td>'
+              + '</tr>';
+          });
+          if (cancelled > 0) {
+            detailRows += '<tr><td colspan="6" style="padding:6px 10px;font-size:12px;color:#999;font-style:italic;">+ ' + cancelled + ' cancelled signup(s) not shown</td></tr>';
+          }
+
+          var linkUrl = DASH_URL;
+          sessionsHtml += '<div style="margin-bottom:16px;border:1px solid #ddd;border-radius:8px;overflow:hidden;">'
+            + '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.chevron\').textContent=this.nextElementSibling.style.display===\'none\'?\'&#9654;\':\'&#9660;\'" '
+            + 'style="padding:14px 16px;background:#f0f6ff;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+            + '<div>'
+            + '<div style="font-size:16px;font-weight:800;color:#1a3c6e;">' + _escR(s.title) + '</div>'
+            + '<div style="font-size:13px;color:#555;margin-top:2px;">' + _escR(s.time) + (s.location ? ' &mdash; ' + _escR(s.location) : '') + '</div>'
+            + '<div style="font-size:13px;margin-top:4px;"><strong>' + activeSignups.length + '</strong> signup(s) &mdash; '
+            + '<span style="color:#2e7d32;font-weight:700;">' + confirmed + ' confirmed</span>, '
+            + '<span style="color:#e65100;font-weight:700;">' + pending + ' pending</span></div>'
+            + '</div>'
+            + '<div style="display:flex;align-items:center;gap:10px;">'
+            + '<a href="' + linkUrl + '" target="_blank" style="font-size:12px;color:#1a73e8;font-weight:700;text-decoration:none;">Open in Dashboard &#8599;</a>'
+            + '<span class="chevron" style="font-size:14px;color:#999;">&#9654;</span>'
+            + '</div>'
+            + '</div>'
+            + '<div style="display:none;padding:0;">'
+            + '<table style="width:100%;border-collapse:collapse;">'
+            + '<thead><tr style="background:#f8f9fa;">'
+            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Name</th>'
+            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Email</th>'
+            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Phone</th>'
+            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Status</th>'
+            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Reg</th>'
+            + '<th style="padding:6px 10px;text-align:left;font-size:12px;color:#666;font-weight:800;">Attendance</th>'
+            + '</tr></thead><tbody>' + detailRows + '</tbody></table>'
+            + '</div></div>';
+        });
+      }
+
+      // Attention items
+      var attentionHtml = '';
+      var attItems = [];
+      staleList.forEach(function(s) { attItems.push(s.count + ' pending registration(s) older than 48 hours for "' + s.title + '"'); });
+      missingAtt.forEach(function(m) { attItems.push('"' + m.title + '" has passed but no attendance has been marked (' + m.count + ' signups)'); });
+      if (attItems.length > 0) {
+        attentionHtml = '<div style="margin-top:24px;">'
+          + '<h2 style="font-size:18px;color:#e65100;border-bottom:2px solid #ffcc80;padding-bottom:8px;margin:0 0 12px;">Needs Attention</h2>'
+          + '<ul style="margin:0;padding:12px 12px 12px 32px;background:#fff8e1;border:1px solid #ffcc80;border-radius:8px;font-size:14px;line-height:1.8;">';
+        attItems.forEach(function(item) { attentionHtml += '<li style="margin-bottom:6px;">' + _escR(item) + '</li>'; });
+        attentionHtml += '</ul></div>';
+      }
+
+      // Full HTML page
+      var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
+        + '<title>LDAH Daily Session Sheet -- ' + todayStr + '</title>'
+        + '<style>body{margin:0;padding:0;background:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}'
+        + '.container{max-width:700px;margin:0 auto;background:white;border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1);}'
+        + '@media print{body{background:white;}.container{box-shadow:none;max-width:100%;}}</style></head><body>'
+        + '<div style="padding:20px;">'
+        + '<div class="container">'
+        + '<div style="background:#1a3c6e;padding:24px 28px;text-align:center;">'
+        + '<h1 style="margin:0;color:white;font-size:22px;font-weight:bold;">LDAH Daily Session Sheet</h1>'
+        + '<p style="margin:6px 0 0;color:#b0c4de;font-size:14px;">' + todayStr + '</p></div>'
+        + '<div style="padding:24px 28px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+        + '<h2 style="margin:0;font-size:18px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:8px;">Today\'s Sessions</h2>'
+        + '<span style="font-size:13px;color:#666;">Click a session to expand details</span></div>'
+        + sessionsHtml
+        + '<h2 style="font-size:18px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:8px;margin:24px 0 12px;">Yesterday\'s Activity</h2>'
+        + '<ul style="margin:0;padding-left:20px;font-size:15px;color:#333;line-height:2;">'
+        + '<li><strong>' + newSignups + '</strong> new signup(s)</li>'
+        + '<li><strong>' + completedRegs + '</strong> registration(s) completed</li>'
+        + '<li><strong>' + feedbackCount + '</strong> feedback response(s)</li>'
+        + '<li><strong>' + newContacts + '</strong> new contact(s) created</li></ul>'
+        + attentionHtml
+        + '</div>'
+        + '<div style="background:#f0f0f0;padding:20px 28px;text-align:center;border-top:1px solid #ddd;">'
+        + '<p style="margin:0 0 4px;font-size:13px;color:#777;font-weight:bold;">Leadership in Disabilities &amp; Achievement of Hawai\'i</p>'
+        + '<p style="margin:0 0 4px;font-size:12px;color:#999;">245 N. Kukui St., Suite 205, Honolulu, HI 96817</p>'
+        + '<p style="margin:0 0 4px;font-size:12px;color:#999;">Phone: (808) 536-2280</p>'
+        + '<p style="margin:0;font-size:12px;color:#999;">Email: info@ldahawaii.org</p></div>'
+        + '</div></div></body></html>';
+
+      // Open in new tab
+      var win = window.open('', '_blank');
+      if (win) { win.document.write(html); win.document.close(); }
+      else { alert('Please allow popups to view the report.'); }
+
+    } catch (err) {
+      alert('Error generating report: ' + err.message);
+      console.error(err);
+    } finally {
+      btn.textContent = 'Preview Today\'s Report';
+      btn.disabled = false;
+    }
+  };
 
 })();
 </script>
