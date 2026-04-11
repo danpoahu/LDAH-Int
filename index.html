@@ -3954,7 +3954,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7650,32 +7650,44 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         }
       }
 
-      // ── Yesterday's activity ──
+      // ── Yesterday's activity (collection group queries — fast) ──
       var cutoff = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 24*60*60*1000));
       var cutoff48 = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 48*60*60*1000));
       var newSignups = 0, completedRegs = 0, feedbackCount = 0, newContacts = 0;
       var staleList = [];
 
-      for (var ci = 0; ci < ['events','recurringEvents'].length; ci++) {
-        var coll = ['events','recurringEvents'][ci];
-        var pSnap = await db.collection(coll).get();
-        for (var pi = 0; pi < pSnap.docs.length; pi++) {
-          var pd = pSnap.docs[pi];
-          try {
-            var nsSnap = await db.collection(coll).doc(pd.id).collection('signups').where('timestamp','>=',cutoff).get();
-            newSignups += nsSnap.size;
-            var crSnap = await db.collection(coll).doc(pd.id).collection('signups').where('registrationCompletedAt','>=',cutoff).get();
-            completedRegs += crSnap.size;
-            // Stale pending
-            var spSnap = await db.collection(coll).doc(pd.id).collection('signups').where('status','==','pending').where('timestamp','<=',cutoff48).get();
-            if (spSnap.size > 0) staleList.push({ title: pd.data().title||'Untitled', count: spSnap.size });
-          } catch(e){}
+      // Collection group query: all signups across all events at once
+      try {
+        var allNewSnap = await db.collectionGroup('signups').where('timestamp','>=',cutoff).get();
+        newSignups = allNewSnap.size;
+      } catch(e){ console.warn('New signups query:', e.message); }
+      try {
+        var allRegSnap = await db.collectionGroup('signups').where('registrationCompletedAt','>=',cutoff).get();
+        completedRegs = allRegSnap.size;
+      } catch(e){ console.warn('Completed regs query:', e.message); }
+      try {
+        var allStaleSnap = await db.collectionGroup('signups').where('status','==','pending').where('timestamp','<=',cutoff48).get();
+        if (allStaleSnap.size > 0) {
+          // Group by parent event title
+          var staleMap = {};
+          allStaleSnap.forEach(function(s) {
+            var parentPath = s.ref.parent.parent.path;
+            if (!staleMap[parentPath]) staleMap[parentPath] = { count: 0 };
+            staleMap[parentPath].count++;
+          });
+          // Get titles for each parent
+          for (var sp in staleMap) {
+            try {
+              var parentDoc = await db.doc(sp).get();
+              staleList.push({ title: (parentDoc.data()||{}).title||'Untitled', count: staleMap[sp].count });
+            } catch(e){}
+          }
         }
-      }
+      } catch(e){ console.warn('Stale pending query:', e.message); }
       try { var fbSnap = await db.collection('eventFeedback').where('submittedAt','>=',cutoff).get(); feedbackCount = fbSnap.size; } catch(e){}
       try { var ctSnap = await db.collection('contacts').where('createdAt','>=',cutoff).get(); newContacts = ctSnap.size; } catch(e){}
 
-      // ── Missing attendance ──
+      // ── Missing attendance (only check events that have passed) ──
       var missingAtt = [];
       for (var mi = 0; mi < evSnap.docs.length; mi++) {
         var md = evSnap.docs[mi]; var mdata = md.data();
@@ -7686,14 +7698,13 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
         else if (mdata.moveToPastDate.seconds) pastD = new Date(mdata.moveToPastDate.seconds*1000);
         else continue;
         if (pastD < hNow) {
-          try {
-            var maSnap = await db.collection('events').doc(md.id).collection('signups').get();
-            if (maSnap.size > 0) {
-              var hasAtt = false;
-              maSnap.forEach(function(s) { if (s.data().attendanceStatus) hasAtt = true; });
-              if (!hasAtt) missingAtt.push({ title: mdata.title||'Untitled', count: maSnap.size });
-            }
-          } catch(e){}
+          // Only check events we already have signup data for from today's sessions
+          var existingSession = sessions.find(function(s){ return s.id === md.id; });
+          if (existingSession && existingSession.signups.length > 0) {
+            var hasAtt = false;
+            existingSession.signups.forEach(function(s) { if (s.attendanceStatus) hasAtt = true; });
+            if (!hasAtt) missingAtt.push({ title: mdata.title||'Untitled', count: existingSession.signups.length });
+          }
         }
       }
 
