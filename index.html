@@ -3831,6 +3831,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
             <a href="javascript:void(0)" data-section="userroles" data-roles="superAdmin">User Roles</a>
             <a href="javascript:void(0)" data-section="listmanagement" data-roles="superAdmin">List Management</a>
             <a href="javascript:void(0)" data-section="auditlog" data-roles="superAdmin,admin">Audit Log</a>
+            <a href="javascript:void(0)" data-section="cmsRecipientList" data-roles="superAdmin,admin">Recipient List</a>
           </div>
         </div>
         <div class="nav-group collapsed" id="navGroupWebsite" data-roles="superAdmin,admin,webAdmin,appAdmin,partner,dailyUser,dataUser">
@@ -3953,7 +3954,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v103.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4735,6 +4736,39 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
       </div>
       <div id="auditLogContent" style="margin-top:12px;">
         <div class="cms-empty"><p>Loading audit log...</p></div>
+      </div>
+    </section>
+
+    <!-- ── CMS: Recipient List ── -->
+    <section id="cmsRecipientListSection" style="display:none;">
+      <div class="cms-sticky-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <h2 class="section-title">Recipient List <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Manage email recipients for the Daily Session Sheet report. Active recipients receive an automated email every morning at 6 AM HST with a summary of the day\'s sessions, yesterday\'s activity, and items needing attention.')">i</span></h2>
+          <button class="btn btn-primary" onclick="cmsOpenRecipientModal()">+ Add Recipient</button>
+        </div>
+      </div>
+      <div id="cmsRecipientListContent" style="margin-top:12px;">
+        <div class="cms-empty"><p>Loading recipients...</p></div>
+      </div>
+
+      <!-- Add/Edit Recipient Modal -->
+      <div id="recipientModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:11000;align-items:center;justify-content:center;">
+        <div style="background:white;border-radius:14px;padding:24px;max-width:420px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,.2);">
+          <h3 id="recipientModalTitle" style="margin:0 0 16px;font-size:1.1rem;color:var(--text-dark);">Add Recipient</h3>
+          <input type="hidden" id="recipientEditId" value="" />
+          <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Name</label>
+          <input id="recipientName" type="text" placeholder="Full name" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.95rem;margin-bottom:12px;font-family:inherit;" />
+          <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Email</label>
+          <input id="recipientEmail" type="email" placeholder="email@example.com" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.95rem;margin-bottom:12px;font-family:inherit;" />
+          <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Report Type</label>
+          <select id="recipientReportType" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.95rem;margin-bottom:16px;font-family:inherit;">
+            <option value="dailySessionSheet">Daily Session Sheet</option>
+          </select>
+          <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button class="btn btn-ghost" onclick="cmsCloseRecipientModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="cmsSaveRecipient()">Save</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -7385,6 +7419,179 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 })();
 </script>
 
+<!-- ── Recipient List CMS ── -->
+<script>
+(function() {
+  'use strict';
+  var _recipients = [];
+  var _recipientEditId = null;
+
+  function _rdb() { return firebase.firestore(); }
+
+  window.cmsLoadRecipientList = async function() {
+    var container = document.getElementById('cmsRecipientListContent');
+    if (!container) return;
+    try {
+      var snap = await _rdb().collection('dailyReportRecipients').orderBy('name').get();
+      _recipients = [];
+      snap.forEach(function(doc) { _recipients.push({ id: doc.id, ...doc.data() }); });
+      cmsRenderRecipients();
+    } catch (err) {
+      container.innerHTML = '<div style="color:#DC2626;padding:16px;">Error: ' + err.message + '</div>';
+    }
+  };
+
+  function cmsRenderRecipients() {
+    var container = document.getElementById('cmsRecipientListContent');
+    if (!container) return;
+    if (_recipients.length === 0) {
+      container.innerHTML = '<div class="cms-empty"><p>No recipients yet. Click "+ Add Recipient" to get started.</p></div>';
+      return;
+    }
+    var html = '<table style="width:100%;border-collapse:collapse;">'
+      + '<thead><tr>'
+      + '<th style="text-align:left;padding:10px 14px;background:var(--bg-card);border-bottom:2px solid var(--border-light);font-size:.82rem;">Name</th>'
+      + '<th style="text-align:left;padding:10px 14px;background:var(--bg-card);border-bottom:2px solid var(--border-light);font-size:.82rem;">Email</th>'
+      + '<th style="text-align:left;padding:10px 14px;background:var(--bg-card);border-bottom:2px solid var(--border-light);font-size:.82rem;">Report</th>'
+      + '<th style="text-align:center;padding:10px 14px;background:var(--bg-card);border-bottom:2px solid var(--border-light);font-size:.82rem;">Active</th>'
+      + '<th style="text-align:center;padding:10px 14px;background:var(--bg-card);border-bottom:2px solid var(--border-light);font-size:.82rem;">Actions</th>'
+      + '</tr></thead><tbody>';
+    _recipients.forEach(function(r) {
+      var activeBadge = r.active !== false
+        ? '<span style="background:#22c55e;color:white;padding:2px 8px;border-radius:10px;font-size:.75rem;font-weight:700;">Active</span>'
+        : '<span style="background:#94a3b8;color:white;padding:2px 8px;border-radius:10px;font-size:.75rem;font-weight:700;">Paused</span>';
+      var toggleLabel = r.active !== false ? 'Pause' : 'Activate';
+      var toggleColor = r.active !== false ? '#f59e0b' : '#22c55e';
+      html += '<tr style="border-bottom:1px solid var(--border-light);">'
+        + '<td style="padding:10px 14px;font-weight:700;">' + _escR(r.name || '') + '</td>'
+        + '<td style="padding:10px 14px;">' + _escR(r.email || '') + '</td>'
+        + '<td style="padding:10px 14px;font-size:.85rem;">Daily Session Sheet</td>'
+        + '<td style="padding:10px 14px;text-align:center;">' + activeBadge + '</td>'
+        + '<td style="padding:10px 14px;text-align:center;">'
+        + '<button onclick="cmsEditRecipient(\'' + r.id + '\')" style="border:none;background:var(--ocean-deep);color:white;padding:4px 10px;border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer;margin-right:4px;">Edit</button>'
+        + '<button onclick="cmsToggleRecipient(\'' + r.id + '\')" style="border:none;background:' + toggleColor + ';color:white;padding:4px 10px;border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer;margin-right:4px;">' + toggleLabel + '</button>'
+        + '<button onclick="cmsDeleteRecipient(\'' + r.id + '\')" style="border:none;background:#dc2626;color:white;padding:4px 10px;border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer;">Remove</button>'
+        + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  }
+
+  function _escR(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  window.cmsOpenRecipientModal = function(editId) {
+    _recipientEditId = editId || null;
+    var title = document.getElementById('recipientModalTitle');
+    var nameInput = document.getElementById('recipientName');
+    var emailInput = document.getElementById('recipientEmail');
+    if (title) title.textContent = editId ? 'Edit Recipient' : 'Add Recipient';
+    if (editId) {
+      var r = _recipients.find(function(x) { return x.id === editId; });
+      if (r) {
+        if (nameInput) nameInput.value = r.name || '';
+        if (emailInput) emailInput.value = r.email || '';
+      }
+    } else {
+      if (nameInput) nameInput.value = '';
+      if (emailInput) emailInput.value = '';
+    }
+    var overlay = document.getElementById('recipientModalOverlay');
+    if (overlay) overlay.style.display = 'flex';
+  };
+
+  window.cmsCloseRecipientModal = function() {
+    _recipientEditId = null;
+    var overlay = document.getElementById('recipientModalOverlay');
+    if (overlay) overlay.style.display = 'none';
+  };
+
+  window.cmsEditRecipient = function(id) { cmsOpenRecipientModal(id); };
+
+  window.cmsSaveRecipient = async function() {
+    var name = (document.getElementById('recipientName').value || '').trim();
+    var email = (document.getElementById('recipientEmail').value || '').trim();
+    if (!name || !email) { alert('Please fill in both name and email.'); return; }
+    if (!/\S+@\S+\.\S+/.test(email)) { alert('Please enter a valid email address.'); return; }
+    try {
+      var data = {
+        name: name,
+        email: email,
+        reportType: 'dailySessionSheet',
+        active: true,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: window.currentUserData ? window.currentUserData.uid : null
+      };
+      if (_recipientEditId) {
+        await _rdb().collection('dailyReportRecipients').doc(_recipientEditId).update(data);
+        if (typeof auditLog === 'function') auditLog('Updated recipient', name + ' (' + email + ')');
+      } else {
+        data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        await _rdb().collection('dailyReportRecipients').add(data);
+        if (typeof auditLog === 'function') auditLog('Added recipient', name + ' (' + email + ')');
+      }
+      cmsCloseRecipientModal();
+      cmsLoadRecipientList();
+    } catch (err) {
+      alert('Error saving: ' + err.message);
+    }
+  };
+
+  window.cmsToggleRecipient = async function(id) {
+    var r = _recipients.find(function(x) { return x.id === id; });
+    if (!r) return;
+    var newActive = r.active === false ? true : false;
+    try {
+      await _rdb().collection('dailyReportRecipients').doc(id).update({ active: newActive });
+      if (typeof auditLog === 'function') auditLog('Toggled recipient', r.name + ' → ' + (newActive ? 'Active' : 'Paused'));
+      cmsLoadRecipientList();
+    } catch (err) { alert('Error: ' + err.message); }
+  };
+
+  window.cmsDeleteRecipient = async function(id) {
+    var r = _recipients.find(function(x) { return x.id === id; });
+    if (!r) return;
+    if (!confirm('Remove ' + r.name + ' from the recipient list?')) return;
+    try {
+      await _rdb().collection('dailyReportRecipients').doc(id).delete();
+      if (typeof auditLog === 'function') auditLog('Removed recipient', r.name + ' (' + r.email + ')');
+      cmsLoadRecipientList();
+    } catch (err) { alert('Error: ' + err.message); }
+  };
+
+  // Seed Daniel and Rosie on first load if collection is empty
+  window.cmsRecipientSeedCheck = async function() {
+    var snap = await _rdb().collection('dailyReportRecipients').limit(1).get();
+    if (snap.empty) {
+      var batch = _rdb().batch();
+      var col = _rdb().collection('dailyReportRecipients');
+      // Get emails from userRoles — look for Daniel and Rosie
+      var usersSnap = await _rdb().collection('userRoles').get();
+      var daniel = null, rosie = null;
+      usersSnap.forEach(function(doc) {
+        var d = doc.data();
+        var name = (d.displayName || '').toLowerCase();
+        if (name.indexOf('daniel') > -1) daniel = { name: d.displayName, email: d.email || '' };
+        if (name.indexOf('rosie') > -1 || name.indexOf('rose') > -1) rosie = { name: d.displayName, email: d.email || '' };
+      });
+      if (daniel && daniel.email) {
+        batch.set(col.doc(), { name: daniel.name, email: daniel.email, reportType: 'dailySessionSheet', active: true, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+      }
+      if (rosie && rosie.email) {
+        batch.set(col.doc(), { name: rosie.name, email: rosie.email, reportType: 'dailySessionSheet', active: true, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+      }
+      await batch.commit().catch(function(){});
+    }
+  };
+  // Run seed check after a delay
+  setTimeout(function() {
+    if (window.currentUserData && ['superAdmin','admin'].includes(window.currentUserData.role)) {
+      cmsRecipientSeedCheck();
+    }
+  }, 3000);
+
+})();
+</script>
+
 <!-- Auto-crop whitespace utility (shared across all image uploads) -->
 <script>
 window.autoCropImage = function(file) {
@@ -7958,6 +8165,8 @@ window.autoCropImage = function(file) {
         cmsShowAiHelper('Volunteers');
       } else if (section === 'cmsTrainingVideos') {
         _showFullWidth(document.getElementById('cmsTrainingVideosSection'), cmsLoadVideos);
+      } else if (section === 'cmsRecipientList') {
+        _showFullWidth(document.getElementById('cmsRecipientListSection'), cmsLoadRecipientList);
       } else if (section === 'cmsWebData') {
         _showFullWidth(document.getElementById('cmsWebDataSection'), cmsLoadWebData);
         cmsShowAiHelper('Website Data');
