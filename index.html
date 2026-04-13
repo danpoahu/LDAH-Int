@@ -3954,7 +3954,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v104.8</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v104.9</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7817,6 +7817,58 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
           changelog.push({ icon: '&#128100;', text: 'New contact created: <strong>' + _escR(cdata.displayName||cdata.firstName||'Unknown') + '</strong>' + (cdata.source ? ' (from ' + _escR(cdata.source) + ')' : ''), time: fmtTs(cdata.createdAt), sort: cdata.createdAt ? (cdata.createdAt.seconds||0) : 0 });
         });
       } catch(e){}
+
+      // Admin actions from audit log (status changes, archives, reschedules, etc.)
+      function formatAuditEntry(action, details) {
+        if (!action || !details) return null;
+        var m;
+        if (action === 'Updated signup status') {
+          m = details.match(/^(.*?)\s+—\s+(.*?)\s+—\s+Status:\s+(.*)$/);
+          if (m) {
+            var verbs = {
+              confirmed: 'was <strong>confirmed</strong> for',
+              cancelled: 'was marked <strong>cancelled</strong> for',
+              pending: 'was set to <strong>pending</strong> for',
+              new: 'was reset to <strong>new</strong> for'
+            };
+            var verb = verbs[m[3]] || 'was set to <strong>' + _escR(m[3]) + '</strong> for';
+            return { icon: '&#128260;', text: '<strong>' + _escR(m[1]) + '</strong> ' + verb + ' <em>' + _escR(m[2]) + '</em>' };
+          }
+        }
+        if (action === 'Archived signup') {
+          m = details.match(/^(.*?)\s+—\s+(.*)$/);
+          if (m) return { icon: '&#128465;', text: '<strong>' + _escR(m[1]) + '</strong> was archived from <em>' + _escR(m[2]) + '</em>' };
+        }
+        if (action === 'Restored signup') {
+          m = details.match(/^(.*?)\s+—\s+(.*)$/);
+          if (m) return { icon: '&#8617;', text: '<strong>' + _escR(m[1]) + '</strong> was restored to <em>' + _escR(m[2]) + '</em>' };
+        }
+        if (action === 'Rescheduled signup') {
+          m = details.match(/^(.*?)\s+—\s+from\s+(.*?)\s+to\s+(.*)$/);
+          if (m) return { icon: '&#128197;', text: '<strong>' + _escR(m[1]) + '</strong> was rescheduled from ' + _escR(m[2]) + ' to ' + _escR(m[3]) };
+        }
+        if (action === 'Saved attendance') return { icon: '&#9989;', text: 'Attendance saved — <em>' + _escR(details) + '</em>' };
+        if (action === 'Cancelled session') return { icon: '&#10060;', text: 'Session cancelled — <em>' + _escR(details) + '</em>' };
+        if (action === 'Restored session') return { icon: '&#9200;', text: 'Session restored — <em>' + _escR(details) + '</em>' };
+        if (action === 'Sent no-show re-invites') return { icon: '&#128231;', text: 'No-show re-invites sent — <em>' + _escR(details) + '</em>' };
+        if (action === 'Saved event summary') return { icon: '&#128203;', text: 'Event summary saved — <em>' + _escR(details) + '</em>' };
+        if (action === 'Updated signup notes') {
+          m = details.match(/^(.*?)\s+—\s+(.*)$/);
+          if (m) return { icon: '&#9999;', text: 'Admin notes updated for <strong>' + _escR(m[1]) + '</strong> on <em>' + _escR(m[2]) + '</em>' };
+        }
+        return null;
+      }
+
+      try {
+        var alSnap = await db.collection('auditLog').where('timestamp','>=',cutoff).get();
+        alSnap.forEach(function(a) {
+          var ad = a.data();
+          var fmt = formatAuditEntry(ad.action, ad.details);
+          if (!fmt) return;
+          var by = ad.performedBy ? ' <span style="color:#999;">(by ' + _escR(ad.performedBy) + ')</span>' : '';
+          changelog.push({ icon: fmt.icon, text: fmt.text + by, time: fmtTs(ad.timestamp), sort: ad.timestamp ? (ad.timestamp.seconds||0) : 0 });
+        });
+      } catch(e){ console.warn('Changelog audit:', e.message); }
 
       // Sort changelog by time (newest first)
       changelog.sort(function(a,b){ return b.sort - a.sort; });
