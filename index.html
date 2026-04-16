@@ -3965,7 +3965,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v109.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v110</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16899,10 +16899,135 @@ window.cmsDoReschedule = async function(signupId, sessionIndex, newDate, newDayN
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
+/* ── Orphaned: active signup whose selectedSessions match no current schedule ── */
+function cmsIsSignupSessionMatched(signup, sessions) {
+  var sDates = signup.selectedSessions || signup.selectedDates || [];
+  if (!sDates.length) return false;
+  return sDates.some(function(sd) {
+    return sessions.some(function(sess) {
+      if (String(sd).indexOf(sess.date) === -1) return false;
+      if (sess.location && (sd.indexOf('|') !== -1 || sd.indexOf('@ ') !== -1)) {
+        return sd.indexOf(sess.location) !== -1;
+      }
+      return true;
+    });
+  });
+}
+
+/* ── Orphaned edit panel: raw session-key list with remove + add + reschedule ── */
+function cmsRenderOrphanEditPanel(s) {
+  var keys = s.selectedSessions || [];
+  var h = '<div style="margin:0 10px 10px;padding:10px 12px;background:#FFFBEB;border:1px dashed #F59E0B;border-radius:6px;">';
+  h += '<div style="font-size:.72rem;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px;">Session Keys (' + keys.length + ')</div>';
+  if (!keys.length) {
+    h += '<div style="font-size:.78rem;color:#92400E;font-style:italic;margin-bottom:6px;">No session keys on this signup.</div>';
+  } else {
+    keys.forEach(function(key, idx) {
+      h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">';
+      h += '<code style="flex:1;min-width:180px;font-size:.72rem;padding:4px 6px;background:#fff;border:1px solid #FCD34D;border-radius:4px;color:#475569;word-break:break-all;">' + rsEscape(key) + '</code>';
+      h += '<button id="cmsRescheduleBtn_' + rsEscape(s.id) + '_' + idx + '" class="btn btn-ghost" style="font-size:.7rem;padding:2px 8px;background:#EEF2FF;color:#4338CA;font-weight:600;" onclick="event.stopPropagation();cmsShowRescheduleDropdown(\'' + rsEscape(s.id) + '\',' + idx + ',\'\')">Change</button>';
+      h += '<button class="btn btn-ghost" style="font-size:.7rem;padding:2px 8px;background:#FEE2E2;color:#B91C1C;font-weight:600;" onclick="event.stopPropagation();cmsRemoveSignupSession(\'' + rsEscape(s.id) + '\',' + idx + ')">Remove</button>';
+      h += '</div>';
+    });
+  }
+  h += '<div style="margin-top:6px;">';
+  h += '<button id="cmsAddSessionBtn_' + rsEscape(s.id) + '" class="btn btn-ghost" style="font-size:.72rem;padding:3px 10px;background:#ECFDF5;color:#047857;font-weight:600;border:1px solid #6EE7B7;" onclick="event.stopPropagation();cmsShowAddSessionDropdown(\'' + rsEscape(s.id) + '\')">+ Add session from schedule</button>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+window.cmsRemoveSignupSession = async function(signupId, sessionIndex) {
+  try {
+    var signup = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+    if (!signup || !signup.selectedSessions) { _showToast('Signup not found.', '#DC2626'); return; }
+    var removed = signup.selectedSessions[sessionIndex];
+    if (!confirm('Remove this session key?\n\n' + removed)) return;
+    var updated = signup.selectedSessions.slice();
+    updated.splice(sessionIndex, 1);
+    var eventId = _cmsSignupsModalData.eventId;
+    await db.collection('recurringEvents').doc(eventId).collection('signups').doc(signupId).update({
+      selectedSessions: updated
+    });
+    signup.selectedSessions = updated;
+    var sName = signup.name || signupId;
+    auditLog('Removed signup session', sName + ' \u2014 removed: ' + removed);
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
+    _showToast('Session key removed.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+window.cmsShowAddSessionDropdown = function(signupId) {
+  var existing = document.getElementById('cmsAddSessionDD_' + signupId);
+  if (existing) { existing.remove(); return; }
+  document.querySelectorAll('[id^="cmsAddSessionDD_"]').forEach(function(el) { el.remove(); });
+
+  var prog = _cmsSignupsModalData.programDoc;
+  var allSessions = cmsGenerateSessionDates(prog.schedules, prog.cancelledDates, 90);
+  var available = allSessions.filter(function(sess) { return !sess.cancelled; });
+
+  var btn = document.getElementById('cmsAddSessionBtn_' + signupId);
+  if (!btn) return;
+
+  var dd = document.createElement('div');
+  dd.id = 'cmsAddSessionDD_' + signupId;
+  dd.style.cssText = 'position:absolute;z-index:999;background:#fff;border:1px solid #CBD5E1;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);padding:8px;max-height:240px;overflow-y:auto;min-width:300px;margin-top:4px;';
+
+  if (!available.length) {
+    dd.innerHTML = '<div style="font-size:.82rem;color:var(--text-soft);padding:6px;">No available sessions in the next 90 days.</div>';
+  } else {
+    var listHtml = '<div style="font-size:.78rem;font-weight:600;color:#047857;margin-bottom:6px;">Add session:</div>';
+    available.forEach(function(sess) {
+      var label = sess.dayName + ', ' + sess.date + ' \u2014 ' + cmsFmt12(sess.startTime) + ' - ' + cmsFmt12(sess.endTime) + ' @ ' + sess.location + (sess.venue ? ' (' + sess.venue + ')' : '');
+      listHtml += '<div onclick="cmsAddSessionToSignup(\'' + rsEscape(signupId) + '\',\'' + rsEscape(sess.date) + '\',\'' + rsEscape(sess.dayName) + '\',\'' + rsEscape(sess.startTime) + '\',\'' + rsEscape(sess.endTime) + '\',\'' + rsEscape(sess.location) + '\',\'' + rsEscape(sess.venue || '') + '\')" style="padding:6px 8px;font-size:.82rem;cursor:pointer;border-radius:6px;margin-bottom:2px;color:#1E293B;" onmouseover="this.style.background=\'#ECFDF5\'" onmouseout="this.style.background=\'transparent\'">' + rsEscape(label) + '</div>';
+    });
+    dd.innerHTML = listHtml;
+  }
+
+  btn.style.position = 'relative';
+  btn.parentElement.style.position = 'relative';
+  btn.parentElement.appendChild(dd);
+
+  setTimeout(function() {
+    document.addEventListener('click', function closeDD(e) {
+      if (!dd.contains(e.target) && e.target !== btn) {
+        dd.remove();
+        document.removeEventListener('click', closeDD);
+      }
+    });
+  }, 10);
+};
+
+window.cmsAddSessionToSignup = async function(signupId, newDate, newDayName, newStart, newEnd, newLocation, newVenue) {
+  try {
+    var signup = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+    if (!signup) { _showToast('Signup not found.', '#DC2626'); return; }
+    var newSessionStr = newDayName + ', ' + newDate + ' \u2014 ' + cmsFmt12(newStart) + ' - ' + cmsFmt12(newEnd) + ' @ ' + newLocation + (newVenue ? ' (' + newVenue + ')' : '');
+    var updated = (signup.selectedSessions || []).slice();
+    if (updated.indexOf(newSessionStr) !== -1) {
+      _showToast('That session is already on this signup.', '#D97706');
+      document.querySelectorAll('[id^="cmsAddSessionDD_"]').forEach(function(el) { el.remove(); });
+      return;
+    }
+    updated.push(newSessionStr);
+    var eventId = _cmsSignupsModalData.eventId;
+    await db.collection('recurringEvents').doc(eventId).collection('signups').doc(signupId).update({
+      selectedSessions: updated
+    });
+    signup.selectedSessions = updated;
+    var sName = signup.name || signupId;
+    auditLog('Added signup session', sName + ' \u2014 added: ' + newSessionStr);
+    document.querySelectorAll('[id^="cmsAddSessionDD_"]').forEach(function(el) { el.remove(); });
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
+    _showToast('Session added.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
 function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) {
   var container = document.getElementById('cmsSignupsList');
   var prog = _cmsSignupsModalData.programDoc;
   var sessions = cmsGenerateSessionDates(prog.schedules, prog.cancelledDates, 30);
+  var sessionsWide = cmsGenerateSessionDates(prog.schedules, prog.cancelledDates, 90);
   var statusColors = { new: '#64748B', pending: '#D97706', confirmed: '#16A34A', cancelled: '#DC2626' };
   var html = '';
 
@@ -16993,6 +17118,23 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
     }
     html += '</div>';
   });
+
+  // Orphaned signups: active but their session keys match no current schedule slot.
+  // Use the wider 90-day window so a signup that only matches something 31-90 days out
+  // isn't mislabeled as orphaned.
+  var orphaned = active.filter(function(s) { return !cmsIsSignupSessionMatched(s, sessionsWide); });
+  if (orphaned.length > 0 && !_cmsSignupsFilterDisplaced) {
+    html += '<div style="margin-top:16px;border:2px solid #F59E0B;border-radius:10px;overflow:hidden;">';
+    html += '<div style="padding:10px 14px;background:#FEF3C7;border-bottom:1px solid #F59E0B;">';
+    html += '<div style="font-weight:600;font-size:.9rem;color:#92400E;">&#9888; Not matched to current schedule (' + orphaned.length + ')</div>';
+    html += '<div style="font-size:.76rem;color:#92400E;margin-top:3px;">These active signups have session keys that don\'t line up with any scheduled session. Edit the keys below to restore visibility.</div>';
+    html += '</div>';
+    orphaned.forEach(function(s) {
+      html += cmsRenderSignupCard(s, statusColors, collection, eventId);
+      html += cmsRenderOrphanEditPanel(s, sessionsWide);
+    });
+    html += '</div>';
+  }
 
   // Past/unmatched signups are excluded from the UI (only future sessions shown)
   // but are still included in Export CSV via _cmsSignupsModalData.signups
