@@ -3954,7 +3954,7 @@ table[aria-label="Recent interactions list"] tbody tr:nth-child(even) { backgrou
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v105.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v106</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13161,24 +13161,26 @@ window.autoCropImage = function(file) {
       var evCache = {};
       var otSnaps = await Promise.all(otProms);
       otSnaps.forEach(function(snap, i) {
-        var pc = 0;
-        totalSignups += snap.size;
+        var pc = 0; var sc = 0;
         snap.forEach(function(doc) {
-          var st = doc.data().status;
-          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOneTime++; pc++; }
+          var d = doc.data(); if (d.archived === true) return;
+          sc++;
+          if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOneTime++; pc++; }
         });
-        evCache[otIds[i]] = { signupCount: snap.size, pendingCount: pc };
+        totalSignups += sc;
+        evCache[otIds[i]] = { signupCount: sc, pendingCount: pc };
       });
       var pgCache = {};
       var ogSnaps = await Promise.all(ogProms);
       ogSnaps.forEach(function(snap, i) {
-        var pc = 0;
-        totalSignups += snap.size;
+        var pc = 0; var sc = 0;
         snap.forEach(function(doc) {
-          var st = doc.data().status;
-          if (st === 'pending' || st === 'new') { pendingSignups++; pendingOngoing++; pc++; }
+          var d = doc.data(); if (d.archived === true) return;
+          sc++;
+          if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOngoing++; pc++; }
         });
-        pgCache[ogIds[i]] = { signupCount: snap.size, pendingCount: pc };
+        totalSignups += sc;
+        pgCache[ogIds[i]] = { signupCount: sc, pendingCount: pc };
       });
       window._cmsSignupCountCache = { events: evCache, programs: pgCache, loadedAt: Date.now() };
       _cmsAlertCounts = {
@@ -15701,11 +15703,6 @@ window.cmsLoadEvents = async function(forceRefresh) {
     var _sc = window._cmsSignupCountCache;
     var _scFresh = _sc && (Date.now() - _sc.loadedAt < _cmsCacheTTL);
     var needsFetch = _cmsEvents.filter(function(ev) {
-      if (typeof ev.signupCount === 'number') {
-        ev._signupCount = ev.signupCount;
-        ev._pendingCount = ev.pendingCount || 0;
-        return false;
-      }
       if (_scFresh && _sc.events[ev.id]) {
         ev._signupCount = _sc.events[ev.id].signupCount;
         ev._pendingCount = _sc.events[ev.id].pendingCount;
@@ -15717,9 +15714,9 @@ window.cmsLoadEvents = async function(forceRefresh) {
       await Promise.all(needsFetch.map(async function(ev) {
         try {
           var cSnap = await db.collection('events').doc(ev.id).collection('signups').get();
-          ev._signupCount = cSnap.size;
-          var pc = 0;
-          cSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
+          var sc = 0; var pc = 0;
+          cSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          ev._signupCount = sc;
           ev._pendingCount = pc;
         } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
       }));
@@ -15764,11 +15761,6 @@ window.cmsLoadPrograms = async function(forceRefresh) {
     var _sc = window._cmsSignupCountCache;
     var _scFresh = _sc && (Date.now() - _sc.loadedAt < _cmsCacheTTL);
     var needsFetch = _cmsPrograms.filter(function(ev) {
-      if (typeof ev.signupCount === 'number') {
-        ev._signupCount = ev.signupCount;
-        ev._pendingCount = ev.pendingCount || 0;
-        return false;
-      }
       if (_scFresh && _sc.programs[ev.id]) {
         ev._signupCount = _sc.programs[ev.id].signupCount;
         ev._pendingCount = _sc.programs[ev.id].pendingCount;
@@ -15780,9 +15772,9 @@ window.cmsLoadPrograms = async function(forceRefresh) {
       await Promise.all(needsFetch.map(async function(ev) {
         try {
           var cSnap = await db.collection('recurringEvents').doc(ev.id).collection('signups').get();
-          ev._signupCount = cSnap.size;
-          var pc = 0;
-          cSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
+          var sc = 0; var pc = 0;
+          cSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          ev._signupCount = sc;
           ev._pendingCount = pc;
         } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
       }));
@@ -17675,9 +17667,9 @@ window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, sta
     await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ status: status });
     // Update denormalized pendingCount on parent doc
     var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
-    var pc = 0;
-    allSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
-    await db.collection(collection).doc(eventId).update({ pendingCount: pc });
+    var pc = 0; var sc = 0;
+    allSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+    await db.collection(collection).doc(eventId).update({ pendingCount: pc, signupCount: sc });
     // Update local cache and re-render
     var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
     if (s) s.status = status;
@@ -17705,11 +17697,11 @@ window.cmsSaveSignupNotes = async function(collection, eventId, signupId, textar
 window.cmsArchiveSignup = async function(collection, eventId, signupId, archive) {
   try {
     await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ archived: archive });
-    // Update denormalized pendingCount on parent doc
+    // Update denormalized counts on parent doc
     var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
-    var pc = 0;
-    allSnap.forEach(function(doc) { var st = doc.data().status; if (st === 'pending' || st === 'new') pc++; });
-    await db.collection(collection).doc(eventId).update({ pendingCount: pc });
+    var pc = 0; var sc = 0;
+    allSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+    await db.collection(collection).doc(eventId).update({ pendingCount: pc, signupCount: sc });
     var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
     if (s) s.archived = archive;
     var sName = s ? (s.name || signupId) : signupId;
