@@ -3965,7 +3965,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v111.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v112</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6121,6 +6121,23 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
       <div class="ct-detail-actions">
         <button onclick="closeContactDetail()">Close</button>
         <button class="ct-detail-edit-btn" id="ctDetailEditBtn" style="display:none;">✏️ Edit Contact</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share Registration Modal -->
+  <div class="ct-detail-overlay" id="ctShareRegOverlay">
+    <div class="ct-detail-modal" style="max-width:560px;">
+      <div class="ct-detail-header">
+        <span>Apply Registration to Other Signups</span>
+        <button class="ct-close" onclick="closeCtShareReg()">&times;</button>
+      </div>
+      <div class="ct-detail-body" id="ctShareRegBody" style="padding:18px;">
+        <!-- Rendered by ctShareRegistration() -->
+      </div>
+      <div class="ct-detail-actions">
+        <button onclick="closeCtShareReg()">Cancel</button>
+        <button class="ct-detail-edit-btn" id="ctShareRegApplyBtn" onclick="ctApplySharedRegistration()" style="background:#0891B2;color:white;">Apply to Selected</button>
       </div>
     </div>
   </div>
@@ -11887,6 +11904,8 @@ window.autoCropImage = function(file) {
       snap2.forEach(addResult);
 
       // Add signup entries to the merged timeline
+      window._ctContactSignups = [];
+      window._ctCurrentContactId = contactId;
       signupSnap.forEach(function(d) {
         var sData = d.data();
         sData.id = d.id;
@@ -11894,6 +11913,7 @@ window.autoCropImage = function(file) {
         // Store ref path for potential future use
         sData._refPath = d.ref.path;
         results.push(sData);
+        window._ctContactSignups.push(sData);
       });
 
       // Unified sort — newest first. Use createdAt for interactions, timestamp for signups.
@@ -11948,6 +11968,15 @@ window.autoCropImage = function(file) {
           // If registration is completed, show expandable registration details
           if (entry.registration && typeof entry.registration === 'object') {
             tHtml += cmsRegDetailsSection(entry);
+            // Count other sharable signups (not this one, not archived, not cancelled)
+            var _shareTargets = (window._ctContactSignups || []).filter(function(s) {
+              return s.id !== entry.id && !s.archived && s.status !== 'cancelled';
+            });
+            if (_shareTargets.length > 0) {
+              tHtml += '<div style="margin-top:8px;">' +
+                '<button onclick="ctShareRegistration(\'' + rsEscape(entry.id) + '\')" style="font-size:.78rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 12px;cursor:pointer;">' +
+                '&#x2197; Apply this registration to other signups (' + _shareTargets.length + ')</button></div>';
+            }
           }
 
           tHtml += '</div>';
@@ -11994,6 +12023,100 @@ window.autoCropImage = function(file) {
 
   window.closeContactDetail = function() {
     document.getElementById('ctDetailOverlay').classList.remove('active');
+  };
+
+  // ── Share Registration Across Signups ──
+  window.ctShareRegistration = function(sourceSignupId) {
+    var all = window._ctContactSignups || [];
+    var source = all.find(function(s) { return s.id === sourceSignupId; });
+    if (!source || !source.registration) return;
+    var targets = all.filter(function(s) {
+      return s.id !== sourceSignupId && !s.archived && s.status !== 'cancelled';
+    });
+    if (!targets.length) return;
+    window._ctShareSource = source;
+    window._ctShareTargets = targets;
+
+    var srcTitle = source.eventTitle || source.programTitle || 'this event';
+    var html = '<p style="font-size:.9rem;color:#334155;margin-bottom:12px;">Copy the registration from <strong>' + rsEscape(srcTitle) + '</strong> to the selected signups below. The most recent registration wins if one is updated later.</p>';
+    html += '<div style="max-height:320px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:8px;padding:6px;">';
+    targets.forEach(function(t) {
+      var hasReg = t.registration && typeof t.registration === 'object';
+      var tTitle = t.eventTitle || t.programTitle || 'Unknown Event';
+      var statusLabel = hasReg ? '<span style="font-size:.72rem;background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:10px;font-weight:600;margin-left:6px;">has registration — will overwrite</span>' : '';
+      var sessionNote = t.sessionDate ? ' <span style="color:#64748B;font-size:.78rem;">(' + rsEscape(t.sessionDate) + ')</span>' : '';
+      html += '<label style="display:flex;align-items:flex-start;gap:10px;padding:8px;border-radius:6px;cursor:pointer;" onmouseover="this.style.background=\'#F8FAFC\'" onmouseout="this.style.background=\'\'">' +
+        '<input type="checkbox" class="ct-share-cb" value="' + rsEscape(t.id) + '" ' + (hasReg ? '' : 'checked') + ' style="margin-top:3px;cursor:pointer;">' +
+        '<div style="flex:1;">' +
+          '<div style="font-weight:600;color:#0F172A;font-size:.88rem;">' + rsEscape(tTitle) + sessionNote + '</div>' +
+          '<div style="font-size:.75rem;color:#64748B;margin-top:2px;">Status: ' + rsEscape(t.status || 'signed up') + statusLabel + '</div>' +
+        '</div></label>';
+    });
+    html += '</div>';
+    document.getElementById('ctShareRegBody').innerHTML = html;
+    document.getElementById('ctShareRegOverlay').classList.add('active');
+  };
+
+  window.closeCtShareReg = function() {
+    document.getElementById('ctShareRegOverlay').classList.remove('active');
+  };
+
+  window.ctApplySharedRegistration = async function() {
+    var checked = Array.from(document.querySelectorAll('.ct-share-cb:checked'));
+    if (!checked.length) { _showToast('Select at least one signup.', '#D97706'); return; }
+    var source = window._ctShareSource;
+    var targets = window._ctShareTargets || [];
+    if (!source) return;
+    var btn = document.getElementById('ctShareRegApplyBtn');
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Applying…';
+    var reg = source.registration;
+    var targetLabels = [];
+    var writes = [];
+    checked.forEach(function(cb) {
+      var target = targets.find(function(t) { return t.id === cb.value; });
+      if (!target) return;
+      var ref = db.doc(target._refPath);
+      writes.push(ref.update({
+        registration: reg,
+        status: 'confirmed',
+        registrationCompletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        registrationCompletedVia: 'shared',
+        registrationSharedFromSignupId: source.id
+      }));
+      targetLabels.push(target.eventTitle || target.programTitle || target.id);
+    });
+    try {
+      await Promise.all(writes);
+      // Update denormalized counts on affected parent events (best-effort per parent)
+      var parentPaths = {};
+      checked.forEach(function(cb) {
+        var t = targets.find(function(x) { return x.id === cb.value; });
+        if (!t || !t._refPath) return;
+        var parts = t._refPath.split('/signups/')[0].split('/');
+        var parentKey = parts.join('/');
+        parentPaths[parentKey] = { collection: parts[0], eventId: parts[1] };
+      });
+      for (var k in parentPaths) {
+        try {
+          var p = parentPaths[k];
+          var allSnap = await db.collection(p.collection).doc(p.eventId).collection('signups').get();
+          var pc = 0, sc = 0;
+          allSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          await db.collection(p.collection).doc(p.eventId).update({ pendingCount: pc, signupCount: sc });
+        } catch (ce) { console.warn('Count update skipped:', ce.message); }
+      }
+      auditLog('Shared registration across signups', (source.name || '') + ' — from ' + (source.eventTitle || source.programTitle || 'Event') + ' to: ' + targetLabels.join(', '));
+      _showToast('Registration applied to ' + checked.length + ' signup(s).', '#16A34A');
+      closeCtShareReg();
+      // Reload the contact detail to reflect new statuses
+      if (window._ctCurrentContactId) openContactDetail(window._ctCurrentContactId);
+    } catch (err) {
+      _showToast('Error: ' + err.message, '#DC2626');
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
   };
 
   // ── Interactions — Save to Firestore ──
