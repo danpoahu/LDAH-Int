@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21291,6 +21291,26 @@ function _rsParseSessionDate(raw) {
 }
 function _rsSameDay(a, b) { return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
 function _rsAddDays(d, n) { var c = new Date(d.getTime()); c.setDate(c.getDate() + n); return c; }
+// Extract unique session Date objects for a signup. Reads both
+// selectedDates (Learning Labs) and selectedSessions (Connect-Gen
+// pipe format). Returns [] if neither produces a parseable date.
+function _rsSignupSessionDates(signup) {
+  var seen = {};
+  var out = [];
+  var add = function(d) {
+    if (!d) return;
+    var k = d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(d);
+  };
+  (signup.selectedDates || []).forEach(function(raw) { add(_rsParseSessionDate(raw)); });
+  (signup.selectedSessions || []).forEach(function(raw) {
+    var head = String(raw || '').split('|')[0].trim();
+    add(_rsParseSessionDate(head));
+  });
+  return out;
+}
 function _rsFmtDate(d) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -21335,54 +21355,38 @@ window.loadReminderSchedule = async function() {
       var confirmed = signups.filter(function(s) { return s.status === 'confirmed' && s.archived !== true; });
       if (confirmed.length === 0) return;
       var title = ev.title || ev.name || '(untitled)';
+      var kindLabel = ev._coll === 'events' ? 'One-time' : 'Recurring';
 
-      if (ev._coll === 'events') {
-        var sd = _rsParseSessionDate(ev.eventDate || ev.date);
-        if (!sd) return;
+      // Aggregate session dates from every confirmed signup's per-session
+      // selections (works for selectedDates AND selectedSessions). Falls
+      // back to event.eventDate when a signup has no per-session data.
+      var dateCounts = {};
+      var fallback = _rsParseSessionDate(ev.eventDate || ev.date);
+      confirmed.forEach(function(s) {
+        var sessions = _rsSignupSessionDates(s);
+        if (sessions.length === 0 && fallback) sessions = [fallback];
+        sessions.forEach(function(sd) {
+          var key = sd.getFullYear() + '-' + (sd.getMonth()+1) + '-' + sd.getDate();
+          if (!dateCounts[key]) dateCounts[key] = { date: sd, count: 0 };
+          dateCounts[key].count++;
+        });
+      });
+
+      Object.keys(dateCounts).forEach(function(k) {
+        var info = dateCounts[k];
         [[5,'5day','5-day'], [1,'1day','1-day']].forEach(function(m) {
-          var send = _rsAddDays(sd, -m[0]);
+          var send = _rsAddDays(info.date, -m[0]);
           if (send >= todayMid) {
             rows.push({
               sendDate: send, mode: m[1], modeLabel: m[2],
-              eventTitle: title, sessionDate: sd,
-              recipients: confirmed.length,
-              kind: 'One-time',
+              eventTitle: title, sessionDate: info.date,
+              recipients: info.count,
+              kind: kindLabel,
               collection: ev._coll, eventId: ev.id,
             });
           }
         });
-      } else {
-        // Recurring: aggregate unique session dates from signups
-        var dateCounts = {};
-        confirmed.forEach(function(s) {
-          var dates = Array.isArray(s.selectedDates) ? s.selectedDates : [];
-          var seen = {};
-          dates.forEach(function(raw) {
-            var sd2 = _rsParseSessionDate(raw);
-            if (!sd2) return;
-            var key = sd2.getFullYear() + '-' + (sd2.getMonth()+1) + '-' + sd2.getDate();
-            if (seen[key]) return;
-            seen[key] = true;
-            if (!dateCounts[key]) dateCounts[key] = { date: sd2, count: 0 };
-            dateCounts[key].count++;
-          });
-        });
-        Object.keys(dateCounts).forEach(function(k) {
-          var info = dateCounts[k];
-          [[5,'5day','5-day'], [1,'1day','1-day']].forEach(function(m) {
-            var send = _rsAddDays(info.date, -m[0]);
-            if (send >= todayMid) {
-              rows.push({
-                sendDate: send, mode: m[1], modeLabel: m[2],
-                eventTitle: title, sessionDate: info.date,
-                recipients: info.count,
-                kind: 'Recurring',
-                collection: ev._coll, eventId: ev.id,
-              });
-            }
-          });
-        });
-      }
+      });
     });
 
     rows.sort(function(a, b) { return a.sendDate - b.sendDate; });
