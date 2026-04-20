@@ -3965,7 +3965,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v113</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v114</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17746,74 +17746,107 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
   }
 
   // Section B: Feedback Summary
-  html += '<div class="es-section-title">Feedback Summary (' + filteredFeedback.length + ' response' + (filteredFeedback.length !== 1 ? 's' : '') + ')</div>';
+  // KPI: Sent/Complete — denominator is confirmed (only), numerator is responses
+  var confirmedCount = active.filter(function(s) { return s.status === 'confirmed'; }).length;
+  var responseCount = filteredFeedback.length;
+  var responseRate = confirmedCount > 0 ? Math.round((responseCount / confirmedCount) * 100) : 0;
+  html += '<div class="es-section-title">Feedback Summary</div>';
+  html += '<div class="es-stat-cards" style="margin-bottom:12px;">';
+  html += '<div class="es-stat-card" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;">';
+  html += '<div class="es-stat-num">' + confirmedCount + '</div><div class="es-stat-lbl">Sent</div></div>';
+  html += '<div class="es-stat-card" style="background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;">';
+  html += '<div class="es-stat-num">' + responseCount + '</div><div class="es-stat-lbl">Complete</div></div>';
+  html += '<div class="es-stat-card" style="background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;">';
+  html += '<div class="es-stat-num">' + responseRate + '%</div><div class="es-stat-lbl">Response Rate</div></div>';
+  html += '</div>';
 
-  if (filteredFeedback.length > 0) {
-    var presenterCounts = {};
-    var handoutCounts = {};
-    var recommendYes = 0, recommendNo = 0;
-    var comments = [];
+  if (responseCount > 0) {
+    // Build count maps for every rating question
+    var _count = function(arr) { var m = {}; arr.forEach(function(v) { if (v) m[v] = (m[v] || 0) + 1; }); return m; };
+    var participationCounts = _count(filteredFeedback.map(function(fb) { return fb.participationMode; }));
+    var presenterCounts    = _count(filteredFeedback.map(function(fb) { return fb.presenterRating; }));
+    var handoutCounts      = _count(filteredFeedback.map(function(fb) { return fb.handoutsRating; }));
+    var knowledgeCounts    = _count(filteredFeedback.map(function(fb) { return fb.increasedKnowledge; }));
+    var relevantCounts     = _count(filteredFeedback.map(function(fb) { return fb.relevantToChild; }));
+    var usefulCounts       = _count(filteredFeedback.map(function(fb) { return fb.usefulToMe; }));
+    var satisfiedCounts    = _count(filteredFeedback.map(function(fb) { return fb.overallSatisfied; }));
+    // Prior-attendee block
+    var priorServicesCounts = _count(filteredFeedback.map(function(fb) { return fb.priorImpactServices; }));
+    var priorSharedCounts   = _count(filteredFeedback.map(function(fb) { return fb.priorImpactShared; }));
+    var priorSchoolCounts   = _count(filteredFeedback.map(function(fb) { return fb.priorImpactSchool; }));
+    var priorResolvedCounts = _count(filteredFeedback.map(function(fb) { return fb.priorImpactResolved; }));
+    var hasPrior = [priorServicesCounts, priorSharedCounts, priorSchoolCounts, priorResolvedCounts]
+      .some(function(m) { return Object.keys(m).length > 0; });
 
+    var likedBests = [];
+    var improvements = [];
     filteredFeedback.forEach(function(fb) {
-      if (fb.presenterRating) presenterCounts[fb.presenterRating] = (presenterCounts[fb.presenterRating] || 0) + 1;
-      if (fb.handoutsRating) handoutCounts[fb.handoutsRating] = (handoutCounts[fb.handoutsRating] || 0) + 1;
-      if (fb.wouldRecommend === true || fb.wouldRecommend === 'yes') recommendYes++;
-      else if (fb.wouldRecommend === false || fb.wouldRecommend === 'no') recommendNo++;
-      if (fb.comments && fb.comments.trim()) comments.push({ text: fb.comments.trim(), ts: fb.submittedAt || fb.createdAt || null });
+      if (fb.likedBest && String(fb.likedBest).trim()) likedBests.push({ text: String(fb.likedBest).trim(), ts: fb.submittedAt || fb.createdAt || null });
+      if (fb.improvementFeedback && String(fb.improvementFeedback).trim()) improvements.push({ text: String(fb.improvementFeedback).trim(), ts: fb.submittedAt || fb.createdAt || null });
     });
+    var _sortRecent = function(a, b) { var aT = a.ts ? (a.ts.seconds || 0) : 0; var bT = b.ts ? (b.ts.seconds || 0) : 0; return bT - aT; };
+    likedBests.sort(_sortRecent);
+    improvements.sort(_sortRecent);
+
+    function _card(title, counts, options) {
+      var h = '<div class="es-feedback-card"><h4>' + rsEscape(title) + '</h4>';
+      options.forEach(function(lbl) {
+        h += '<div class="es-feedback-row"><span>' + rsEscape(lbl) + '</span><span style="font-weight:600;">' + (counts[lbl] || 0) + '</span></div>';
+      });
+      // Catch any legacy values not in the expected list
+      Object.keys(counts).forEach(function(k) {
+        if (options.indexOf(k) === -1) {
+          h += '<div class="es-feedback-row"><span style="color:#94A3B8;">' + rsEscape(k) + '</span><span style="font-weight:600;color:#94A3B8;">' + counts[k] + '</span></div>';
+        }
+      });
+      h += '</div>';
+      return h;
+    }
 
     html += '<div class="es-feedback-grid">';
-
-    // Presenter Rating
-    html += '<div class="es-feedback-card"><h4>Presenter Rating</h4>';
-    ['Very Helpful', 'Helpful', 'Somewhat Helpful', 'Not Helpful'].forEach(function(lbl) {
-      html += '<div class="es-feedback-row"><span>' + lbl + '</span><span style="font-weight:600;">' + (presenterCounts[lbl] || 0) + '</span></div>';
-    });
-    Object.keys(presenterCounts).forEach(function(k) {
-      if (['Very Helpful','Helpful','Somewhat Helpful','Not Helpful'].indexOf(k) === -1) {
-        html += '<div class="es-feedback-row"><span>' + rsEscape(k) + '</span><span style="font-weight:600;">' + presenterCounts[k] + '</span></div>';
-      }
-    });
+    html += _card('Participation', participationCounts, ['Virtual', 'In Person']);
+    html += _card('Presenter', presenterCounts, ['Very Helpful', 'Helpful', 'No Answer']);
+    html += _card('Handouts', handoutCounts, ['Very Helpful', 'Helpful', 'No Answer']);
+    html += _card('Increased My Knowledge', knowledgeCounts, ['Yes', 'To some extent', 'No', 'No answer']);
+    html += _card('Relevant to Child\'s Needs', relevantCounts, ['Yes', 'To some extent', 'No']);
+    html += _card('Useful to Me', usefulCounts, ['Yes', 'To some extent', 'No']);
+    html += _card('Overall Satisfied', satisfiedCounts, ['Yes', 'To some Extent', 'No', 'No answer']);
     html += '</div>';
 
-    // Handouts Rating
-    html += '<div class="es-feedback-card"><h4>Handouts Rating</h4>';
-    ['Very Helpful', 'Helpful', 'Somewhat Helpful', 'Not Helpful', 'N/A'].forEach(function(lbl) {
-      html += '<div class="es-feedback-row"><span>' + lbl + '</span><span style="font-weight:600;">' + (handoutCounts[lbl] || 0) + '</span></div>';
-    });
-    Object.keys(handoutCounts).forEach(function(k) {
-      if (['Very Helpful','Helpful','Somewhat Helpful','Not Helpful','N/A'].indexOf(k) === -1) {
-        html += '<div class="es-feedback-row"><span>' + rsEscape(k) + '</span><span style="font-weight:600;">' + handoutCounts[k] + '</span></div>';
-      }
-    });
-    html += '</div>';
+    if (hasPrior) {
+      html += '<div class="es-section-title" style="font-size:.9rem;margin-top:18px;color:#92400E;">Prior-Attendee Impact</div>';
+      html += '<div class="es-feedback-grid">';
+      html += _card('Child received more appropriate services', priorServicesCounts, ['Yes', 'To some extent', 'No']);
+      html += _card('Shared info with other families', priorSharedCounts, ['Yes', 'To some extent', 'No']);
+      html += _card('Worked with child\'s school on critical need', priorSchoolCounts, ['Yes', 'To some extent', 'No']);
+      html += _card('Resolved disagreement with school', priorResolvedCounts, ['Yes', 'To some extent', 'No']);
+      html += '</div>';
+    }
 
-    // Would Recommend
-    html += '<div class="es-feedback-card"><h4>Would Recommend</h4>';
-    html += '<div class="es-feedback-row"><span>Yes</span><span style="font-weight:600;color:#16A34A;">' + recommendYes + '</span></div>';
-    html += '<div class="es-feedback-row"><span>No</span><span style="font-weight:600;color:#DC2626;">' + recommendNo + '</span></div>';
-    html += '</div>';
-
-    // Comments
-    html += '<div class="es-feedback-card"><h4>Recent Comments</h4>';
-    if (comments.length > 0) {
-      comments.sort(function(a, b) {
-        var aT = a.ts ? (a.ts.seconds || 0) : 0;
-        var bT = b.ts ? (b.ts.seconds || 0) : 0;
-        return bT - aT;
-      });
+    // Open-ended responses
+    html += '<div class="es-section-title" style="font-size:.9rem;margin-top:18px;">Open-Ended Responses</div>';
+    html += '<div class="es-feedback-grid">';
+    html += '<div class="es-feedback-card"><h4>Liked Best</h4>';
+    if (likedBests.length > 0) {
       html += '<div class="es-comments">';
-      comments.slice(0, 5).forEach(function(c) {
-        html += '<div class="es-comment">' + rsEscape(c.text) + '</div>';
-      });
-      if (comments.length > 5) html += '<div style="font-size:.78rem;color:var(--text-soft);text-align:center;margin-top:4px;">+ ' + (comments.length - 5) + ' more</div>';
+      likedBests.slice(0, 5).forEach(function(c) { html += '<div class="es-comment">' + rsEscape(c.text) + '</div>'; });
+      if (likedBests.length > 5) html += '<div style="font-size:.78rem;color:var(--text-soft);text-align:center;margin-top:4px;">+ ' + (likedBests.length - 5) + ' more</div>';
       html += '</div>';
     } else {
-      html += '<div style="font-size:.84rem;color:var(--text-soft);font-style:italic;">No comments yet</div>';
+      html += '<div style="font-size:.84rem;color:var(--text-soft);font-style:italic;">No responses yet</div>';
     }
     html += '</div>';
-
-    html += '</div>'; // close es-feedback-grid
+    html += '<div class="es-feedback-card"><h4>Improvement Suggestions</h4>';
+    if (improvements.length > 0) {
+      html += '<div class="es-comments">';
+      improvements.slice(0, 5).forEach(function(c) { html += '<div class="es-comment">' + rsEscape(c.text) + '</div>'; });
+      if (improvements.length > 5) html += '<div style="font-size:.78rem;color:var(--text-soft);text-align:center;margin-top:4px;">+ ' + (improvements.length - 5) + ' more</div>';
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:.84rem;color:var(--text-soft);font-style:italic;">No responses yet</div>';
+    }
+    html += '</div>';
+    html += '</div>';
   } else {
     html += '<div style="padding:12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;font-size:.84rem;color:var(--text-soft);font-style:italic;">No feedback responses yet.</div>';
   }
@@ -18046,15 +18079,31 @@ window.cmsExportEventSummaryCsv = function() {
   rows.push(['Follow Up - Professionals', summary.followUpProfessionals || 0]);
   rows.push(['Completed By', summary.completedBy || '']);
   rows.push([]);
-  rows.push(['FEEDBACK (' + filteredFeedback.length + ' responses)']);
+  var confirmedForKpi = active.filter(function(s) { return s.status === 'confirmed'; }).length;
+  var _rate = confirmedForKpi > 0 ? Math.round((filteredFeedback.length / confirmedForKpi) * 100) + '%' : 'N/A';
+  rows.push(['FEEDBACK — Sent ' + confirmedForKpi + ' / Complete ' + filteredFeedback.length + ' (' + _rate + ')']);
   if (filteredFeedback.length > 0) {
-    rows.push(['Presenter Rating', 'Handouts Rating', 'Would Recommend', 'Comments']);
+    rows.push([
+      'Participation', 'Presenter', 'Handouts',
+      'Increased Knowledge', 'Relevant to Child', 'Useful to Me', 'Overall Satisfied',
+      'Prior — Services', 'Prior — Shared', 'Prior — School', 'Prior — Resolved',
+      'Liked Best', 'Improvement Feedback'
+    ]);
     filteredFeedback.forEach(function(fb) {
       rows.push([
+        fb.participationMode || '',
         fb.presenterRating || '',
         fb.handoutsRating || '',
-        fb.wouldRecommend === true || fb.wouldRecommend === 'yes' ? 'Yes' : (fb.wouldRecommend === false || fb.wouldRecommend === 'no' ? 'No' : ''),
-        fb.comments || ''
+        fb.increasedKnowledge || '',
+        fb.relevantToChild || '',
+        fb.usefulToMe || '',
+        fb.overallSatisfied || '',
+        fb.priorImpactServices || '',
+        fb.priorImpactShared || '',
+        fb.priorImpactSchool || '',
+        fb.priorImpactResolved || '',
+        fb.likedBest || '',
+        fb.improvementFeedback || ''
       ]);
     });
   }
