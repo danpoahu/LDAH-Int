@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17545,6 +17545,20 @@ window.cmsSendNoShowReInvites = async function(collection, eventId) {
 function cmsAttendanceBadge(s) {
   if (s.attendanceStatus === 'attended') return '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#D1FAE5;color:#065F46;margin-left:4px;">Attended</span>';
   if (s.attendanceStatus === 'no-show') return '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#FEE2E2;color:#991B1B;margin-left:4px;">No-Show</span>';
+  // Per-session attendance summary (multi-date events)
+  if (s.sessionAttendance && typeof s.sessionAttendance === 'object') {
+    var att = 0, no = 0;
+    Object.values(s.sessionAttendance).forEach(function(v) {
+      if (v && v.status === 'attended') att++;
+      else if (v && v.status === 'no-show') no++;
+    });
+    if (att > 0 || no > 0) {
+      var parts = [];
+      if (att > 0) parts.push('<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#D1FAE5;color:#065F46;margin-left:4px;">' + att + ' Attended</span>');
+      if (no > 0) parts.push('<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#FEE2E2;color:#991B1B;margin-left:4px;">' + no + ' No-Show</span>');
+      return parts.join('');
+    }
+  }
   return '';
 }
 
@@ -17590,8 +17604,8 @@ window.cmsSaveAttendance = async function() {
     var status = attended ? 'attended' : 'no-show';
     var ref = db.collection(collection).doc(d.eventId).collection('signups').doc(signupId);
 
-    if (d.isRecurring && sessionDate) {
-      // For recurring: update sessionAttendance map
+    if (sessionDate) {
+      // Per-session attendance (recurring programs + multi-date one-time events)
       var updateObj = {};
       updateObj['sessionAttendance.' + sessionDate] = {
         status: status,
@@ -17600,7 +17614,7 @@ window.cmsSaveAttendance = async function() {
       };
       batch.update(ref, updateObj);
     } else {
-      // For one-time events: update attendanceStatus directly
+      // Single-date one-time event: update attendanceStatus directly
       batch.update(ref, {
         attendanceStatus: status,
         attendanceMarkedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -17616,7 +17630,7 @@ window.cmsSaveAttendance = async function() {
     updates.forEach(function(u) {
       var s = d.signups.find(function(x) { return x.id === u.signupId; });
       if (!s) return;
-      if (d.isRecurring && u.sessionDate) {
+      if (u.sessionDate) {
         if (!s.sessionAttendance) s.sessionAttendance = {};
         s.sessionAttendance[u.sessionDate] = {
           status: u.status,
@@ -17647,11 +17661,57 @@ function cmsRenderAttendanceOneTime(signups, collection, eventId) {
   html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">';
   html += '<span style="font-size:.88rem;font-weight:700;color:#065F46;">Attendance Mode</span>';
   html += '<div style="display:flex;gap:8px;">';
-  html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 12px;background:#D1FAE5;color:#065F46;font-weight:600;" onclick="cmsMarkAllPresent()">Mark All Present</button>';
   html += '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#059669;" onclick="cmsSaveAttendance()">Save Attendance</button>';
   html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 12px;" onclick="cmsCancelAttendanceMode()">Cancel</button>';
   html += '</div></div></div>';
 
+  // Multi-date one-time event: group by date with per-session attendance
+  var ev = _cmsSignupsModalData.eventDoc;
+  var sigDates = (ev && Array.isArray(ev.signupDates)) ? ev.signupDates : [];
+  if (sigDates.length > 1) {
+    sigDates.forEach(function(dateStr) {
+      var dateSignups = active.filter(function(s) {
+        var sd = s.selectedDates || [];
+        return sd.indexOf(dateStr) !== -1;
+      });
+      var groupId = 'cmsAttendanceGroup_' + dateStr.replace(/[^a-zA-Z0-9]/g, '_');
+      html += '<div id="' + groupId + '" style="margin-bottom:16px;border:2px solid #059669;border-radius:10px;overflow:hidden;">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#F0FDF4;border-bottom:1px solid #BBF7D0;">';
+      html += '<div>';
+      html += '<div style="font-weight:600;font-size:.88rem;color:#065F46;">' + rsEscape(dateStr) + '</div>';
+      html += '<span style="font-size:.78rem;color:var(--text-soft);">' + dateSignups.length + ' signup' + (dateSignups.length !== 1 ? 's' : '') + '</span>';
+      html += '</div>';
+      html += '<button class="btn btn-ghost" style="font-size:.76rem;padding:3px 10px;background:#D1FAE5;color:#065F46;font-weight:600;" onclick="cmsMarkAllPresent(\'' + rsEscape(dateStr) + '\')">Mark All Present</button>';
+      html += '</div>';
+
+      if (dateSignups.length === 0) {
+        html += '<div style="padding:8px 14px;font-size:.83rem;color:var(--text-soft);font-style:italic;">No signups for this date</div>';
+      } else {
+        dateSignups.forEach(function(s) {
+          var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
+          var sessAtt = (s.sessionAttendance && s.sessionAttendance[dateStr]) || {};
+          var isAttended = sessAtt.status === 'attended';
+          var isNoShow = sessAtt.status === 'no-show';
+          var borderColor = isAttended ? '#059669' : (isNoShow ? '#DC2626' : '#E2E8F0');
+          html += '<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-left:4px solid ' + borderColor + ';border-bottom:1px solid #F1F5F9;background:#fff;">';
+          html += '<input type="checkbox" data-signup-id="' + rsEscape(s.id) + '" data-session-date="' + rsEscape(dateStr) + '" ' + (isAttended ? 'checked' : '') + ' style="width:18px;height:18px;cursor:pointer;accent-color:#059669;flex-shrink:0;">';
+          html += '<div style="flex:1;min-width:0;">';
+          html += '<span style="font-weight:600;font-size:.9rem;">' + name + '</span>';
+          if (s.email) html += '<span style="font-size:.8rem;color:var(--text-soft);margin-left:10px;">' + rsEscape(s.email) + '</span>';
+          html += '</div>';
+          html += cmsRegStatusBadge(s);
+          if (isAttended) html += '<span style="font-size:.72rem;font-weight:600;color:#059669;">Attended</span>';
+          if (isNoShow) html += '<span style="font-size:.72rem;font-weight:600;color:#DC2626;">No-Show</span>';
+          html += '</div>';
+        });
+      }
+      html += '</div>';
+    });
+    return html;
+  }
+
+  // Single-date one-time event: flat list with global attendanceStatus
+  html += '<div style="text-align:right;margin-bottom:8px;"><button class="btn btn-ghost" style="font-size:.78rem;padding:4px 12px;background:#D1FAE5;color:#065F46;font-weight:600;" onclick="cmsMarkAllPresent()">Mark All Present</button></div>';
   active.forEach(function(s) {
     var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
     var isAttended = s.attendanceStatus === 'attended';
@@ -17798,9 +17858,23 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
     html += '</select></div>';
   }
 
-  // Filter signups for selected session date (recurring only)
+  // Session date selector for one-time multi-date events (Learning Labs)
+  var oneTimeSigDates = (!isRecurring && eventDoc && Array.isArray(eventDoc.signupDates)) ? eventDoc.signupDates : [];
+  var isOneTimeMulti = oneTimeSigDates.length > 1;
+  if (isOneTimeMulti) {
+    html += '<div style="margin-bottom:14px;">';
+    html += '<label style="font-size:.82rem;font-weight:600;color:#475569;margin-right:8px;">Session Date:</label>';
+    html += '<select id="esSessionDateSelect" onchange="cmsEventSummarySelectSession(this.value)" style="padding:6px 12px;border:1px solid #CBD5E1;border-radius:8px;font-size:.88rem;">';
+    html += '<option value="">-- All Dates (aggregate) --</option>';
+    oneTimeSigDates.forEach(function(ds) {
+      html += '<option value="' + rsEscape(ds) + '"' + (sessionDate === ds ? ' selected' : '') + '>' + rsEscape(ds) + '</option>';
+    });
+    html += '</select></div>';
+  }
+
+  // Filter signups for selected session date
   var filteredSignups = signups;
-  if (isRecurring && sessionDate) {
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
     filteredSignups = signups.filter(function(s) {
       var sDates = s.selectedSessions || s.selectedDates || [];
       return sDates.some(function(sd) { return String(sd).indexOf(sessionDate) !== -1; });
@@ -17812,25 +17886,29 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
   var totalRegistered = active.length;
   var totalAttended = 0, totalNoShow = 0;
 
-  if (isRecurring && sessionDate) {
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
     active.forEach(function(s) {
       var sa = (s.sessionAttendance && s.sessionAttendance[sessionDate]) || {};
       if (sa.status === 'attended') totalAttended++;
       else if (sa.status === 'no-show') totalNoShow++;
     });
-  } else if (!isRecurring) {
+  } else if (!isRecurring && !isOneTimeMulti) {
     active.forEach(function(s) {
       if (s.attendanceStatus === 'attended') totalAttended++;
       else if (s.attendanceStatus === 'no-show') totalNoShow++;
     });
   } else {
-    // Recurring aggregate
+    // Aggregate across all sessions (recurring "All Sessions" or one-time multi "All Dates")
     active.forEach(function(s) {
       if (s.sessionAttendance) {
         Object.values(s.sessionAttendance).forEach(function(sa) {
           if (sa.status === 'attended') totalAttended++;
           else if (sa.status === 'no-show') totalNoShow++;
         });
+      } else if (!isRecurring) {
+        // Multi-date one-time event with legacy flat attendanceStatus
+        if (s.attendanceStatus === 'attended') totalAttended++;
+        else if (s.attendanceStatus === 'no-show') totalNoShow++;
       }
     });
   }
@@ -17851,7 +17929,7 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
 
   // Filter feedback by session date if applicable
   var filteredFeedback = feedbackDocs;
-  if (isRecurring && sessionDate) {
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
     filteredFeedback = feedbackDocs.filter(function(fb) { return fb.sessionDate === sessionDate; });
   }
 
@@ -17963,9 +18041,11 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
 
   // Section C: Staff-Entered Fields (pink form)
   var summary = {};
-  if (isRecurring && sessionDate && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
+  if (sessionDate && (isRecurring || isOneTimeMulti) && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
     summary = eventDoc.sessionSummaries[sessionDate];
-  } else if (!isRecurring && eventDoc.summary) {
+  } else if (!isRecurring && !isOneTimeMulti && eventDoc.summary) {
+    summary = eventDoc.summary;
+  } else if (isOneTimeMulti && !sessionDate && eventDoc.summary) {
     summary = eventDoc.summary;
   }
 
@@ -18052,8 +18132,10 @@ window.cmsSaveEventSummary = async function() {
   var followUpProfessionals = parseInt(document.getElementById('esFollowUpProfessionals').value) || 0;
 
   var signups = _cmsSignupsModalData.signups || [];
+  var evDoc = _cmsEventSummaryData.eventDoc || {};
+  var isOneTimeMulti = !isRecurring && Array.isArray(evDoc.signupDates) && evDoc.signupDates.length > 1;
   var filteredSignups = signups;
-  if (isRecurring && sessionDate) {
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
     filteredSignups = signups.filter(function(s) {
       var sDates = s.selectedSessions || s.selectedDates || [];
       return sDates.some(function(sd) { return String(sd).indexOf(sessionDate) !== -1; });
@@ -18062,7 +18144,7 @@ window.cmsSaveEventSummary = async function() {
   var active = filteredSignups.filter(function(s) { return s.archived !== true && s.status !== 'cancelled'; });
   var totalRegistered = active.length;
   var totalAttended = 0, totalNoShow = 0;
-  if (isRecurring && sessionDate) {
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
     active.forEach(function(s) {
       var sa = (s.sessionAttendance && s.sessionAttendance[sessionDate]) || {};
       if (sa.status === 'attended') totalAttended++;
@@ -18090,14 +18172,14 @@ window.cmsSaveEventSummary = async function() {
 
   try {
     var updateObj = {};
-    if (isRecurring && sessionDate) {
+    if (sessionDate && (isRecurring || isOneTimeMulti)) {
       updateObj['sessionSummaries.' + sessionDate] = summaryData;
     } else {
       updateObj.summary = summaryData;
     }
     await db.collection(collection).doc(eventId).update(updateObj);
 
-    if (isRecurring && sessionDate) {
+    if (sessionDate && (isRecurring || isOneTimeMulti)) {
       if (!_cmsEventSummaryData.eventDoc.sessionSummaries) _cmsEventSummaryData.eventDoc.sessionSummaries = {};
       _cmsEventSummaryData.eventDoc.sessionSummaries[sessionDate] = summaryData;
     } else {
@@ -18140,8 +18222,10 @@ window.cmsExportEventSummaryCsv = function() {
   var feedbackDocs = sd.feedbackDocs || [];
   var title = d.eventTitle || 'Event';
 
+  var isOneTimeMulti = !isRecurring && Array.isArray(eventDoc.signupDates) && eventDoc.signupDates.length > 1;
+
   var summary = {};
-  if (isRecurring && sessionDate && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
+  if (sessionDate && (isRecurring || isOneTimeMulti) && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
     summary = eventDoc.sessionSummaries[sessionDate];
   } else if (!isRecurring && eventDoc.summary) {
     summary = eventDoc.summary;
@@ -18149,7 +18233,7 @@ window.cmsExportEventSummaryCsv = function() {
 
   var filteredSignups = signups;
   var filteredFeedback = feedbackDocs;
-  if (isRecurring && sessionDate) {
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
     filteredSignups = signups.filter(function(s) {
       var sDates = s.selectedSessions || s.selectedDates || [];
       return sDates.some(function(sdd) { return String(sdd).indexOf(sessionDate) !== -1; });
@@ -18159,7 +18243,7 @@ window.cmsExportEventSummaryCsv = function() {
 
   var active = filteredSignups.filter(function(s) { return s.archived !== true && s.status !== 'cancelled'; });
   var attended = 0, noShow = 0;
-  if (isRecurring && sessionDate) {
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
     active.forEach(function(s) {
       var sa = (s.sessionAttendance && s.sessionAttendance[sessionDate]) || {};
       if (sa.status === 'attended') attended++;
@@ -18453,38 +18537,63 @@ window.cmsGenerateAllEventsSessionSheet = function() {
   var d = _cmsSignupsModalData;
   var signups = d.signups || [];
   var title = d.eventTitle || 'Event';
+  var ev = d.eventDoc || {};
+  var sigDates = Array.isArray(ev.signupDates) ? ev.signupDates : [];
 
-  var confirmed = [];
-  var archived = [];
-
-  signups.forEach(function(s) {
+  var entryFor = function(s) {
     var sName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Unknown';
-    var entry = {
+    return {
       name: sName, email: s.email || '', phone: s.phone || '',
       registrantType: s.registrantType || '', studentName: s.studentName || '',
       grade: s.grade || s.studentGrade || '', school: s.currentSchool || s.studentSchool || '',
       careCoordinator: s.careCoordinator || '', iepReview: s.iepReviewDate || '',
       comments: s.additionalComments || '', status: s.status || 'confirmed',
-      adminNotes: s.adminNotes || '', registration: s.registration || null
+      adminNotes: s.adminNotes || '', registration: s.registration || null, _raw: s
     };
-    if (s.status === 'cancelled' || s.archived) {
-      archived.push(entry);
-    } else {
-      confirmed.push(entry);
-    }
+  };
+
+  var archived = [];
+  var activeRaw = [];
+  signups.forEach(function(s) {
+    if (s.status === 'cancelled' || s.archived) archived.push(entryFor(s));
+    else activeRaw.push(s);
   });
 
-  // Sort: confirmed first, then pending/new
-  confirmed.sort(function(a, b) { return (a.status === 'confirmed' ? 0 : 1) - (b.status === 'confirmed' ? 0 : 1); });
-
-  // Build a single session group for this event
-  var sessions = [];
-  if (confirmed.length > 0) {
-    sessions.push({ date: '', location: '', time: '', signups: confirmed, eventTitle: title });
+  // Multi-date one-time event: build one session group per date
+  if (sigDates.length > 1) {
+    var sessions = [];
+    var matchedIds = {};
+    sigDates.forEach(function(dateStr) {
+      var dateSignups = activeRaw
+        .filter(function(s) { return (s.selectedDates || []).indexOf(dateStr) !== -1; })
+        .map(entryFor);
+      dateSignups.sort(function(a, b) { return (a.status === 'confirmed' ? 0 : 1) - (b.status === 'confirmed' ? 0 : 1); });
+      dateSignups.forEach(function(e) { matchedIds[e._raw.id] = true; });
+      if (dateSignups.length > 0) {
+        sessions.push({ date: '', location: dateStr, time: '', signups: dateSignups, eventTitle: title });
+      }
+    });
+    activeRaw.forEach(function(s) {
+      if (!matchedIds[s.id]) {
+        var e = entryFor(s);
+        e._legacySession = 'No matching date';
+        archived.push(e);
+      }
+    });
+    var html = cmsSessionSheetBuildHtml(title, sessions, archived, true);
+    cmsSessionSheetOpen(html);
+    return;
   }
 
-  var html = cmsSessionSheetBuildHtml(title, sessions, archived, true);
-  cmsSessionSheetOpen(html);
+  // Single-date / no-date one-time event: original flat layout
+  var confirmed = activeRaw.map(entryFor);
+  confirmed.sort(function(a, b) { return (a.status === 'confirmed' ? 0 : 1) - (b.status === 'confirmed' ? 0 : 1); });
+  var sessionsFlat = [];
+  if (confirmed.length > 0) {
+    sessionsFlat.push({ date: '', location: '', time: '', signups: confirmed, eventTitle: title });
+  }
+  var htmlFlat = cmsSessionSheetBuildHtml(title, sessionsFlat, archived, true);
+  cmsSessionSheetOpen(htmlFlat);
 };
 
 window.cmsSessionSheetFormatDate = function(dateStr) {
