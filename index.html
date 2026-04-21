@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.6</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.7</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21540,6 +21540,56 @@ function _rsFmtDate(d) {
 function _rsFmtDateShort(d) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+function _rsFmt12(t) {
+  if (!t || typeof t !== 'string') return '';
+  var m = t.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return t;
+  var h = parseInt(m[1], 10), mn = m[2];
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12 || 12;
+  return h12 + ':' + mn + ' ' + ampm;
+}
+// Returns a human time-range string for an event's session date, drawing
+// from the recurring schedule (matched by dayOfWeek) or from the one-time
+// event's signupDates entry / startTime/endTime fields. Empty if unknown.
+function _rsExtractSessionTime(ev, sessionDate) {
+  if (!ev || !sessionDate) return '';
+  if (ev._coll === 'recurringEvents' && Array.isArray(ev.schedules)) {
+    var dow = sessionDate.getDay();
+    var match = null;
+    ev.schedules.forEach(function(s) {
+      if (typeof s.dayOfWeek === 'number' && s.dayOfWeek === dow) match = s;
+    });
+    if (match) {
+      var t = _rsFmt12(match.startTime);
+      if (match.endTime) t += ' - ' + _rsFmt12(match.endTime);
+      return t;
+    }
+    return '';
+  }
+  // One-time event
+  if (Array.isArray(ev.signupDates) && ev.signupDates.length > 0) {
+    var monthName = sessionDate.toLocaleDateString('en-US', { month: 'long' });
+    var dayNum = sessionDate.getDate();
+    var entry = null;
+    ev.signupDates.forEach(function(s) {
+      var em = String(s).match(/^([A-Za-z]+)\s+(\d{1,2})/);
+      if (em && em[1] === monthName && parseInt(em[2], 10) === dayNum) entry = String(s);
+    });
+    if (entry) {
+      // Strip "Month Day(st/nd/rd/th)?, Year," prefix → leaves the time range
+      var rest = entry.replace(/^[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}\s*,?\s*/, '').trim();
+      if (rest) return rest;
+    }
+  }
+  if (ev.startTime || ev.endTime) {
+    var s1 = _rsFmt12(ev.startTime);
+    var s2 = _rsFmt12(ev.endTime);
+    return s1 && s2 ? s1 + ' - ' + s2 : (s1 || s2);
+  }
+  if (ev.time) return ev.time;
+  return '';
+}
 
 window.loadReminderSchedule = async function() {
   var container = document.getElementById('reminderScheduleContent');
@@ -21597,12 +21647,13 @@ window.loadReminderSchedule = async function() {
 
       Object.keys(dateCounts).forEach(function(k) {
         var info = dateCounts[k];
+        var sessionTime = _rsExtractSessionTime(ev, info.date);
         [[5,'5day','5-day'], [1,'1day','1-day']].forEach(function(m) {
           var send = _rsAddDays(info.date, -m[0]);
           if (send >= todayMid) {
             rows.push({
               sendDate: send, mode: m[1], modeLabel: m[2],
-              eventTitle: title, sessionDate: info.date,
+              eventTitle: title, sessionDate: info.date, sessionTime: sessionTime,
               recipients: info.count,
               kind: kindLabel,
               collection: ev._coll, eventId: ev.id,
@@ -21621,21 +21672,33 @@ window.loadReminderSchedule = async function() {
       return;
     }
 
-    // Group rows by send date for readability
+    // Group rows by event session (eventTitle + sessionDate)
     var grouped = {};
     rows.forEach(function(r) {
-      var key = r.sendDate.getFullYear() + '-' + (r.sendDate.getMonth()+1) + '-' + r.sendDate.getDate();
-      if (!grouped[key]) grouped[key] = { date: r.sendDate, items: [] };
+      var key = r.eventTitle + '||' + r.sessionDate.getFullYear() + '-' + (r.sessionDate.getMonth()+1) + '-' + r.sessionDate.getDate();
+      if (!grouped[key]) grouped[key] = { eventTitle: r.eventTitle, sessionDate: r.sessionDate, sessionTime: r.sessionTime, kind: r.kind, items: [] };
       grouped[key].items.push(r);
     });
-    var dayKeys = Object.keys(grouped).sort(function(a,b) { return grouped[a].date - grouped[b].date; });
+    // Sort groups chronologically by session date (then title for stability)
+    var groupKeys = Object.keys(grouped).sort(function(a,b) {
+      var ga = grouped[a], gb = grouped[b];
+      if (ga.sessionDate - gb.sessionDate !== 0) return ga.sessionDate - gb.sessionDate;
+      return ga.eventTitle.localeCompare(gb.eventTitle);
+    });
+    // Sort each group's sends chronologically (5-day before 1-day)
+    groupKeys.forEach(function(k) {
+      grouped[k].items.sort(function(a, b) { return a.sendDate - b.sendDate; });
+    });
 
     // Summary top strip
     var totalRows = rows.length;
     var totalRecipients = rows.reduce(function(sum, r) { return sum + r.recipients; }, 0);
-    var daysCount = dayKeys.length;
-    var firstDay = grouped[dayKeys[0]].date;
-    var lastDay = grouped[dayKeys[dayKeys.length-1]].date;
+    var distinctSendDays = {};
+    rows.forEach(function(r) { distinctSendDays[r.sendDate.getFullYear()+'-'+(r.sendDate.getMonth()+1)+'-'+r.sendDate.getDate()] = true; });
+    var daysCount = Object.keys(distinctSendDays).length;
+    var sendsByDate = rows.map(function(r) { return r.sendDate; }).sort(function(a,b) { return a-b; });
+    var firstDay = sendsByDate[0];
+    var lastDay = sendsByDate[sendsByDate.length-1];
 
     var html = '';
     html += '<div class="es-stat-cards" style="margin-bottom:14px;">';
@@ -21649,36 +21712,37 @@ window.loadReminderSchedule = async function() {
     html += '<div class="es-stat-num" style="font-size:1rem;">' + _rsFmtDateShort(firstDay) + ' – ' + _rsFmtDateShort(lastDay) + '</div><div class="es-stat-lbl">Window</div></div>';
     html += '</div>';
 
-    dayKeys.forEach(function(k) {
+    groupKeys.forEach(function(k) {
       var grp = grouped[k];
-      var dateStr = _rsFmtDate(grp.date) + ' @ 4:00 PM HST';
-      var totalForDay = grp.items.reduce(function(sum, r) { return sum + r.recipients; }, 0);
+      var totalForGroup = grp.items.reduce(function(sum, r) { return sum + r.recipients; }, 0);
+      var sessionLabel = _rsFmtDate(grp.sessionDate) + (grp.sessionTime ? ' • ' + grp.sessionTime : '');
+      var kindBadgeColor = grp.kind === 'Recurring' ? '#7C3AED' : '#0891B2';
       html += '<div style="background:white;border:1px solid #E2E8F0;border-radius:10px;margin-bottom:10px;overflow:hidden;">';
-      html += '<div style="padding:10px 14px;background:linear-gradient(135deg,#F0F9FF,#FFFFFF);border-bottom:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
-      html += '<div style="font-weight:700;color:#0F172A;">' + rsEscape(dateStr) + '</div>';
-      html += '<div style="font-size:.82rem;color:#64748B;font-weight:600;">' + totalForDay + ' email' + (totalForDay !== 1 ? 's' : '') + '</div>';
+      html += '<div style="padding:12px 16px;background:linear-gradient(135deg,#F0F9FF,#FFFFFF);border-bottom:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
+      html += '<div style="min-width:0;flex:1;">';
+      html += '<div style="font-weight:800;color:#0F172A;font-size:1rem;">' + rsEscape(grp.eventTitle) + '</div>';
+      html += '<div style="font-weight:700;color:#1E40AF;font-size:.92rem;margin-top:2px;">' + rsEscape(sessionLabel) + '</div>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">';
+      html += '<span style="background:' + kindBadgeColor + '22;color:' + kindBadgeColor + ';padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:700;">' + rsEscape(grp.kind) + '</span>';
+      html += '<div style="font-size:.82rem;color:#64748B;font-weight:600;">' + totalForGroup + ' email' + (totalForGroup !== 1 ? 's' : '') + '</div>';
+      html += '</div>';
       html += '</div>';
       html += '<table style="width:100%;border-collapse:collapse;font-size:.88rem;table-layout:fixed;">';
       html += '<colgroup>';
-      html += '<col style="width:44%;">';
-      html += '<col style="width:11%;">';
-      html += '<col style="width:21%;">';
-      html += '<col style="width:11%;">';
-      html += '<col style="width:13%;">';
+      html += '<col style="width:55%;">';
+      html += '<col style="width:15%;">';
+      html += '<col style="width:30%;">';
       html += '</colgroup>';
       html += '<thead><tr style="background:#F8FAFC;">';
-      html += '<th style="text-align:left;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Event</th>';
-      html += '<th style="text-align:left;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Kind</th>';
-      html += '<th style="text-align:left;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Session</th>';
+      html += '<th style="text-align:left;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Email Sending</th>';
       html += '<th style="text-align:left;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Mode</th>';
       html += '<th style="text-align:right;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Recipients</th>';
       html += '</tr></thead><tbody>';
       grp.items.forEach(function(r) {
         var modeColor = r.mode === '1day' ? '#DC2626' : '#0891B2';
         html += '<tr>';
-        html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + rsEscape(r.eventTitle) + '">' + rsEscape(r.eventTitle) + '</td>';
-        html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;color:#64748B;">' + rsEscape(r.kind) + '</td>';
-        html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;color:#64748B;white-space:nowrap;">' + rsEscape(_rsFmtDate(r.sessionDate)) + '</td>';
+        html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;color:#334155;white-space:nowrap;">' + rsEscape(_rsFmtDate(r.sendDate)) + ' @ 4:00 PM HST</td>';
         html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;"><span style="background:' + modeColor + '22;color:' + modeColor + ';padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;">' + rsEscape(r.modeLabel) + '</span></td>';
         html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:700;">' + r.recipients + '</td>';
         html += '</tr>';
