@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16631,6 +16631,7 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
   _cmsSignupsModalData.eventTitle = eventTitle;
   _cmsSignupsModalData.signups = [];
   _cmsSignupsModalData.programDoc = null;
+  _cmsSignupsModalData.eventDoc = null;
   _cmsSignupsShowArchived = false;
   _cmsSignupsFilterDisplaced = false;
   _cmsAttendanceMode = false;
@@ -16651,6 +16652,14 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
       } else {
         progProm = db.collection('recurringEvents').doc(eventId).get();
       }
+    } else {
+      // One-time event: cache the parent event so the renderer can group by signupDates
+      var cachedEv = _cmsEvents.find(function(e) { return e.id === eventId; });
+      if (cachedEv) {
+        _cmsSignupsModalData.eventDoc = cachedEv;
+      } else {
+        progProm = db.collection('events').doc(eventId).get();
+      }
     }
     var snap = await signupProm;
     _cmsSignupsModalData.signups = [];
@@ -16665,7 +16674,10 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
     });
     if (progProm) {
       var progDoc = await progProm;
-      if (progDoc.exists) _cmsSignupsModalData.programDoc = progDoc.data();
+      if (progDoc.exists) {
+        if (isRecurring) _cmsSignupsModalData.programDoc = progDoc.data();
+        else _cmsSignupsModalData.eventDoc = progDoc.data();
+      }
     }
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
     // Show "Send Feedback Emails" button if any signup has attendanceStatus set
@@ -16782,6 +16794,15 @@ function cmsRenderSignupsList(signups, collection, eventId) {
   if (_cmsSignupsModalData.isRecurring && _cmsSignupsModalData.programDoc) {
     cmsRenderRecurringSignupsByDate(active, archived, collection, eventId);
     return;
+  }
+
+  // For one-time events with multiple selectable dates, render date-grouped view
+  if (!_cmsSignupsModalData.isRecurring && _cmsSignupsModalData.eventDoc) {
+    var sigDates = _cmsSignupsModalData.eventDoc.signupDates;
+    if (Array.isArray(sigDates) && sigDates.length > 1) {
+      cmsRenderOneTimeSignupsByDate(active, archived, collection, eventId, sigDates);
+      return;
+    }
   }
 
   var displayList = _cmsSignupsShowArchived ? signups : active;
@@ -17273,6 +17294,65 @@ window.cmsAddSessionToSignup = async function(signupId, newDate, newDayName, new
     _showToast('Session added.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
+
+/* ── One-time multi-date events: group signups by signupDates entry ── */
+function cmsRenderOneTimeSignupsByDate(active, archived, collection, eventId, sigDates) {
+  var container = document.getElementById('cmsSignupsList');
+  var statusColors = { new: '#64748B', pending: '#D97706', confirmed: '#16A34A', cancelled: '#DC2626' };
+  var html = '';
+
+  if (archived.length > 0) {
+    html += '<div style="text-align:right;margin-bottom:10px;"><button class="btn btn-ghost" style="font-size:.8rem;" onclick="_cmsSignupsShowArchived=!_cmsSignupsShowArchived;cmsRenderSignupsList(_cmsSignupsModalData.signups,\'' + collection + '\',\'' + rsEscape(eventId) + '\')">' + (_cmsSignupsShowArchived ? 'Hide' : 'Show') + ' Archived (' + archived.length + ')</button></div>';
+  }
+
+  var matchedIds = {};
+  sigDates.forEach(function(dateStr) {
+    var dateSignups = active.filter(function(s) {
+      var sd = s.selectedDates || [];
+      return sd.indexOf(dateStr) !== -1;
+    });
+    dateSignups.forEach(function(s) { matchedIds[s.id] = true; });
+
+    html += '<div style="margin-bottom:16px;border:2px solid #0891B2;border-radius:10px;overflow:hidden;">';
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f0f9ff;border-bottom:1px solid #e2e8f0;">';
+    html += '<div style="flex:1;font-weight:600;font-size:.88rem;color:var(--primary-blue);">' + rsEscape(dateStr) + '</div>';
+    html += '<span style="font-size:.78rem;color:var(--text-soft);">' + dateSignups.length + ' signup' + (dateSignups.length !== 1 ? 's' : '') + '</span>';
+    html += '</div>';
+    if (dateSignups.length > 0) {
+      dateSignups.forEach(function(s) {
+        html += cmsRenderSignupCard(s, statusColors, collection, eventId);
+      });
+    } else {
+      html += '<div style="padding:8px 14px;font-size:.83rem;color:var(--text-soft);font-style:italic;">No signups for this date</div>';
+    }
+    html += '</div>';
+  });
+
+  // Unmatched: signups that have no selectedDates or whose selectedDates don't match any current signupDates entry
+  var unmatched = active.filter(function(s) { return !matchedIds[s.id]; });
+  if (unmatched.length > 0) {
+    html += '<div style="margin-top:16px;border:2px solid #F59E0B;border-radius:10px;overflow:hidden;">';
+    html += '<div style="padding:10px 14px;background:#FEF3C7;border-bottom:1px solid #F59E0B;">';
+    html += '<div style="font-weight:600;font-size:.9rem;color:#92400E;">&#9888; Not matched to a current event date (' + unmatched.length + ')</div>';
+    html += '<div style="font-size:.76rem;color:#92400E;margin-top:3px;">These signups have selectedDates that don\'t line up with any of the event\'s current dates. Likely from before the date list was edited.</div>';
+    html += '</div>';
+    unmatched.forEach(function(s) {
+      html += cmsRenderSignupCard(s, statusColors, collection, eventId);
+    });
+    html += '</div>';
+  }
+
+  if (_cmsSignupsShowArchived && archived.length > 0) {
+    html += '<div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;opacity:0.55;">';
+    html += '<div style="padding:10px 14px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;font-weight:600;font-size:.88rem;color:#94A3B8;">Archived Signups</div>';
+    archived.forEach(function(s) {
+      html += cmsRenderSignupCard(s, statusColors, collection, eventId, true);
+    });
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
 
 function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) {
   var container = document.getElementById('cmsSignupsList');
@@ -21287,6 +21367,13 @@ function _rsParseSessionDate(raw) {
       if (iso) {
         d = new Date(parseInt(iso[1],10), parseInt(iso[2],10)-1, parseInt(iso[3],10));
         return d;
+      }
+      // Strip a trailing time range so strings like "May 13, 2026, 5:00 pm - 6:00 pm"
+      // (irregular spacing breaks new Date) still parse to just the date.
+      var named = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})/);
+      if (named) {
+        d = new Date(named[1] + ' ' + named[2] + ', ' + named[3]);
+        if (!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
       }
       // "Wednesday, April 22, 2026"
       d = new Date(raw);
