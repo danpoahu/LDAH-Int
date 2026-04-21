@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12586,6 +12586,14 @@ window.autoCropImage = function(file) {
     try {
       var today = _localToday();
       var _kpiEvResults = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
+      // Prefer authoritative per-event signup cache built by cmsGetAlertCounts
+      // (denormalized pendingCount on parent docs is known to drift out of sync)
+      var sigCache = window._cmsSignupCountCache;
+      if (!sigCache && typeof window.cmsGetAlertCounts === 'function') {
+        try { await window.cmsGetAlertCounts(); sigCache = window._cmsSignupCountCache; } catch (e) {}
+      }
+      var evPC = (sigCache && sigCache.events) || {};
+      var pgPC = (sigCache && sigCache.programs) || {};
       var activeCount = 0, pendingCount = 0;
       _kpiEvResults[0].forEach(function(doc) {
         var d = doc.data();
@@ -12594,12 +12602,14 @@ window.autoCropImage = function(file) {
         var removeDate = d.removeDate || '';
         if (removeDate && /^\d{4}-\d{2}-\d{2}$/.test(removeDate) && removeDate <= today) return;
         if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast <= today) return;
-        activeCount++; pendingCount += (d.pendingCount || 0);
+        activeCount++;
+        pendingCount += (evPC[doc.id] ? evPC[doc.id].pendingCount : (d.pendingCount || 0));
       });
       _kpiEvResults[1].forEach(function(doc) {
         var d = doc.data();
         if (d.archived === true) return;
-        activeCount++; pendingCount += (d.pendingCount || 0);
+        activeCount++;
+        pendingCount += (pgPC[doc.id] ? pgPC[doc.id].pendingCount : (d.pendingCount || 0));
       });
       var kpiEv = document.getElementById('kpiActiveEvents');
       if (kpiEv) {
