@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7761,18 +7761,14 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
       // ═══════════════════════════════════════════════════
       var allSessions = [];
 
-      // Active one-time events (not archived, not past removeDate)
+      // Active one-time events (skip if archived, past moveToPastDate, or past removeDate)
       var evSnap = await db.collection('events').get();
       for (var i = 0; i < evSnap.docs.length; i++) {
         var doc = evSnap.docs[i]; var d = doc.data();
-        // Skip if removeDate has passed
-        if (d.removeDate) {
-          var rd;
-          if (typeof d.removeDate === 'string') rd = new Date(d.removeDate);
-          else if (d.removeDate.toDate) rd = d.removeDate.toDate();
-          else if (d.removeDate.seconds) rd = new Date(d.removeDate.seconds*1000);
-          if (rd && rd < hNow) continue;
-        }
+        if (d.archived === true) continue;
+        // Skip if moveToPastDate or removeDate has passed (matches CMS Past/Expired logic)
+        if (d.moveToPastDate && /^\d{4}-\d{2}-\d{2}$/.test(d.moveToPastDate) && d.moveToPastDate <= todayISO) continue;
+        if (d.removeDate && /^\d{4}-\d{2}-\d{2}$/.test(d.removeDate) && d.removeDate <= todayISO) continue;
         var signups = [];
         try {
           var sSnap = await db.collection('events').doc(doc.id).collection('signups').get();
@@ -7780,7 +7776,26 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         } catch(e){}
         // Skip events with no signups
         if (signups.length === 0) continue;
-        // Format event date (field is eventDate, not date)
+
+        var sigDatesArr = Array.isArray(d.signupDates) ? d.signupDates : [];
+
+        // Multi-date one-time event (Learning Labs): one card per signupDates entry
+        if (sigDatesArr.length > 1) {
+          var matchedSet = {};
+          sigDatesArr.forEach(function(dateStr) {
+            var dateSignups = signups.filter(function(su) { return (su.selectedDates || []).indexOf(dateStr) !== -1; });
+            if (dateSignups.length === 0) return;
+            dateSignups.forEach(function(su) { matchedSet[su.id] = true; });
+            allSessions.push({ title: (d.title||'Untitled') + ' -- ' + dateStr, date: '', time: '', location: d.location||'', signups: dateSignups, type:'event', id: doc.id });
+          });
+          var orphaned = signups.filter(function(su) { return !matchedSet[su.id]; });
+          if (orphaned.length > 0) {
+            allSessions.push({ title: (d.title||'Untitled') + ' -- Unmatched signups', date: '', time: '', location: d.location||'', signups: orphaned, type:'event', id: doc.id });
+          }
+          continue;
+        }
+
+        // Single-date / no-date one-time event: original flat layout
         var evDateRaw = d.eventDate || d.date || '';
         var evDateDisplay = evDateRaw;
         if (typeof evDateRaw === 'string' && evDateRaw) {
