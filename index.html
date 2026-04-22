@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v116.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v116.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4855,7 +4855,10 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
               <div id="emailLogPrevSubject" style="font-weight:700;color:var(--text-dark);font-size:1rem;"></div>
               <div id="emailLogPrevMeta" style="font-size:.78rem;color:var(--text-soft);margin-top:4px;"></div>
             </div>
-            <button class="btn btn-ghost" onclick="cmsCloseEmailLogPreview()" style="font-size:1.2rem;padding:2px 10px;flex-shrink:0;">&times;</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+              <button id="emailLogResendBtn" class="btn btn-ghost" onclick="cmsResendLoggedEmail()" style="font-size:.82rem;padding:6px 14px;background:#EFF6FF;color:#004E7C;font-weight:600;border:1px solid #BFDBFE;">Resend</button>
+              <button class="btn btn-ghost" onclick="cmsCloseEmailLogPreview()" style="font-size:1.2rem;padding:2px 10px;">&times;</button>
+            </div>
           </div>
           <iframe id="emailLogPrevFrame" style="flex:1 1 auto;min-height:0;border:none;width:100%;background:#f8fafc;"></iframe>
         </div>
@@ -21983,9 +21986,11 @@ window.renderEmailLogTable = function() {
   container.innerHTML = html;
 };
 
+var _currentEmailLogId = null;
 window.cmsOpenEmailLogPreview = function(id) {
   var rec = _emailLogCache.find(function(x) { return x.id === id; });
   if (!rec) return;
+  _currentEmailLogId = id;
   var ts = rec.sentAt && rec.sentAt.toDate ? rec.sentAt.toDate() : null;
   var dateStr = ts ? ts.toLocaleString('en-US') : '';
   document.getElementById('emailLogPrevSubject').textContent = rec.subject || '(no subject)';
@@ -22006,6 +22011,48 @@ window.cmsCloseEmailLogPreview = function() {
   document.getElementById('emailLogPreviewOverlay').style.display = 'none';
   var frame = document.getElementById('emailLogPrevFrame');
   if (frame) frame.srcdoc = '';
+  _currentEmailLogId = null;
+};
+
+window.cmsResendLoggedEmail = async function() {
+  var id = _currentEmailLogId;
+  if (!id) return;
+  var rec = _emailLogCache.find(function(x) { return x.id === id; });
+  if (!rec) return;
+  if (!rec.html) {
+    _showToast('No HTML body recorded for this entry — cannot resend.', '#DC2626');
+    return;
+  }
+  var overrideTo = prompt(
+    'Resend this email?\n\nOriginal recipient: ' + (rec.to || '(none)') +
+      '\nSubject: ' + (rec.subject || '(no subject)') +
+      '\n\nPress OK to send to the original address, or type a different address to override.',
+    rec.to || ''
+  );
+  if (overrideTo === null) return; // cancel
+  overrideTo = overrideTo.trim();
+  if (!overrideTo) { _showToast('No recipient specified.', '#DC2626'); return; }
+  var btn = document.getElementById('emailLogResendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Resending...'; }
+  try {
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/resendLoggedEmail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logId: id, overrideTo: overrideTo !== rec.to ? overrideTo : undefined })
+    });
+    var result = await resp.json();
+    if (result.success) {
+      _showToast('Resent to ' + result.to, '#16A34A');
+      auditLog('Resent email', (rec.subject || '(no subject)') + ' -> ' + result.to + (result.to !== rec.to ? ' (originally: ' + rec.to + ')' : ''));
+      setTimeout(function() { loadEmailLog(); }, 600);
+    } else {
+      _showToast('Error: ' + (result.error || 'Unknown'), '#DC2626');
+    }
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Resend'; }
+  }
 };
 
 window.loadAuditLog = async function() {
