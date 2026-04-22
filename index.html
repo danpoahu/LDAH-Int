@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v116.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v116.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17979,14 +17979,31 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
   }
 
   // Section B: Feedback Summary
-  // KPI: Sent/Complete — denominator is confirmed (only), numerator is responses
+  // Sent = confirmed (eligible); Reminded = actual reminder sends;
+  // Complete = feedback submissions; Response Rate = Complete/Sent.
   var confirmedCount = active.filter(function(s) { return s.status === 'confirmed'; }).length;
   var responseCount = filteredFeedback.length;
+  var reminderCount = 0;
+  active.forEach(function(s) {
+    if (sessionDate && (isRecurring || isOneTimeMulti)) {
+      if (s.feedbackRemindersSent && s.feedbackRemindersSent[sessionDate]) reminderCount++;
+    } else if (!isRecurring && !isOneTimeMulti) {
+      if (s.feedbackReminderSentAt) reminderCount++;
+    } else {
+      // Aggregate across sessions
+      if (s.feedbackRemindersSent && typeof s.feedbackRemindersSent === 'object') {
+        reminderCount += Object.keys(s.feedbackRemindersSent).length;
+      }
+      if (s.feedbackReminderSentAt) reminderCount++;
+    }
+  });
   var responseRate = confirmedCount > 0 ? Math.round((responseCount / confirmedCount) * 100) : 0;
   html += '<div class="es-section-title">Feedback Summary</div>';
   html += '<div class="es-stat-cards" style="margin-bottom:12px;">';
   html += '<div class="es-stat-card" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;">';
   html += '<div class="es-stat-num">' + confirmedCount + '</div><div class="es-stat-lbl">Sent</div></div>';
+  html += '<div class="es-stat-card" style="background:#FFF7ED;color:#9A3412;border:1px solid #FED7AA;">';
+  html += '<div class="es-stat-num">' + reminderCount + '</div><div class="es-stat-lbl">Reminded</div></div>';
   html += '<div class="es-stat-card" style="background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;">';
   html += '<div class="es-stat-num">' + responseCount + '</div><div class="es-stat-lbl">Complete</div></div>';
   html += '<div class="es-stat-card" style="background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;">';
@@ -21646,6 +21663,20 @@ window.loadReminderSchedule = async function() {
     var sigMap = {};
     sigResults.forEach(function(r) { sigMap[r.coll + '/' + r.eventId] = r.signups; });
 
+    // Feedback submission map (eventId -> signupId -> Set<sessionKey|'FLAT'>)
+    // Used to suppress feedback-reminder rows for signups that already responded.
+    var fbSubmittedMap = {};
+    try {
+      var fbSnap = await db.collection('eventFeedback').get();
+      fbSnap.forEach(function(fb) {
+        var f = fb.data();
+        if (!f.eventId || !f.signupId) return;
+        if (!fbSubmittedMap[f.eventId]) fbSubmittedMap[f.eventId] = {};
+        if (!fbSubmittedMap[f.eventId][f.signupId]) fbSubmittedMap[f.eventId][f.signupId] = new Set();
+        fbSubmittedMap[f.eventId][f.signupId].add(f.sessionDate || 'FLAT');
+      });
+    } catch (e) { console.warn('feedback submissions scan failed:', e.message); }
+
     // Today (HST midnight)
     var now = new Date();
     var todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -21696,10 +21727,9 @@ window.loadReminderSchedule = async function() {
 
     if (genAt) genAt.textContent = 'Generated ' + new Date().toLocaleString();
 
-    if (rows.length === 0) {
-      container.innerHTML = '<div class="cms-empty"><p>No upcoming reminder emails scheduled in the next 30 days.</p></div>';
-      return;
-    }
+    // Note: we no longer early-return when rows is empty — the Feedback
+    // Follow-ups section below may still have content even if no upcoming
+    // event reminders are scheduled. Empty-state messaging is conditional.
 
     // Group rows by event session (eventTitle + sessionDate)
     var grouped = {};
@@ -21730,16 +21760,20 @@ window.loadReminderSchedule = async function() {
     var lastDay = sendsByDate[sendsByDate.length-1];
 
     var html = '';
-    html += '<div class="es-stat-cards" style="margin-bottom:14px;">';
-    html += '<div class="es-stat-card" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;">';
-    html += '<div class="es-stat-num">' + totalRows + '</div><div class="es-stat-lbl">Scheduled Sends</div></div>';
-    html += '<div class="es-stat-card" style="background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;">';
-    html += '<div class="es-stat-num">' + totalRecipients + '</div><div class="es-stat-lbl">Total Emails</div></div>';
-    html += '<div class="es-stat-card" style="background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;">';
-    html += '<div class="es-stat-num">' + daysCount + '</div><div class="es-stat-lbl">Send Days</div></div>';
-    html += '<div class="es-stat-card" style="background:#FFF7ED;color:#9A3412;border:1px solid #FED7AA;">';
-    html += '<div class="es-stat-num" style="font-size:1rem;">' + _rsFmtDateShort(firstDay) + ' – ' + _rsFmtDateShort(lastDay) + '</div><div class="es-stat-lbl">Window</div></div>';
-    html += '</div>';
+    if (rows.length > 0) {
+      html += '<div class="es-stat-cards" style="margin-bottom:14px;">';
+      html += '<div class="es-stat-card" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;">';
+      html += '<div class="es-stat-num">' + totalRows + '</div><div class="es-stat-lbl">Scheduled Sends</div></div>';
+      html += '<div class="es-stat-card" style="background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;">';
+      html += '<div class="es-stat-num">' + totalRecipients + '</div><div class="es-stat-lbl">Total Emails</div></div>';
+      html += '<div class="es-stat-card" style="background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;">';
+      html += '<div class="es-stat-num">' + daysCount + '</div><div class="es-stat-lbl">Send Days</div></div>';
+      html += '<div class="es-stat-card" style="background:#FFF7ED;color:#9A3412;border:1px solid #FED7AA;">';
+      html += '<div class="es-stat-num" style="font-size:1rem;">' + _rsFmtDateShort(firstDay) + ' – ' + _rsFmtDateShort(lastDay) + '</div><div class="es-stat-lbl">Window</div></div>';
+      html += '</div>';
+    } else {
+      html += '<div class="cms-empty" style="margin-bottom:14px;"><p>No upcoming event reminder emails scheduled in the next 30 days.</p></div>';
+    }
 
     groupKeys.forEach(function(k) {
       var grp = grouped[k];
@@ -21778,6 +21812,109 @@ window.loadReminderSchedule = async function() {
       });
       html += '</tbody></table></div>';
     });
+
+    // ─── Feedback Follow-ups section ───
+    // One card per (event, session) where at least one attendee:
+    //   - got the initial feedback email
+    //   - hasn't been reminded yet
+    //   - hasn't submitted feedback
+    // Expected cron send date = sessionDate + 5 days (or tomorrow if session
+    // is already >5 days old — cron runs daily 8 AM HST, 5-14 day window).
+    var followups = [];
+    all.forEach(function(ev) {
+      var signups = sigMap[ev._coll + '/' + ev.id] || [];
+      var title = ev.title || '(untitled)';
+      var kind = ev._coll === 'events' ? 'One-time' : 'Recurring';
+      var subs = fbSubmittedMap[ev.id] || {};
+      var bySession = {};
+
+      signups.forEach(function(s) {
+        if (!s.email || s.archived === true) return;
+        var subSet = subs[s.id] || new Set();
+
+        // Per-session attendance
+        if (s.sessionAttendance && typeof s.sessionAttendance === 'object') {
+          Object.keys(s.sessionAttendance).forEach(function(sd) {
+            if (s.sessionAttendance[sd].status !== 'attended') return;
+            var dt = _rsParseSessionDate(sd);
+            if (!dt) return;
+            var daysAgo = Math.floor((todayMid - dt) / 86400000);
+            if (daysAgo < 0 || daysAgo > 14) return;
+            if (!s.feedbackEmailsSent || !s.feedbackEmailsSent[sd]) return;
+            if (s.feedbackRemindersSent && s.feedbackRemindersSent[sd]) return;
+            if (subSet.has(sd) || subSet.has('FLAT')) return;
+            var key = ev.id + '|' + sd;
+            if (!bySession[key]) bySession[key] = {
+              eventTitle: title, kind: kind, sessionDate: dt,
+              sessionTime: _rsExtractSessionTime(ev, dt),
+              recipients: [],
+            };
+            bySession[key].recipients.push(s.name || ((s.firstName||'') + ' ' + (s.lastName||'')).trim() || 'Unknown');
+          });
+          return;
+        }
+
+        // Flat attendance (single-date one-time event)
+        if (s.attendanceStatus !== 'attended') return;
+        var dt2 = _rsParseSessionDate(ev.eventDate || ev.date);
+        if (!dt2) return;
+        var daysAgo2 = Math.floor((todayMid - dt2) / 86400000);
+        if (daysAgo2 < 0 || daysAgo2 > 14) return;
+        if (!s.feedbackEmailSentAt) return;
+        if (s.feedbackReminderSentAt) return;
+        if (subSet.size > 0) return;
+        var key2 = ev.id + '|FLAT';
+        if (!bySession[key2]) bySession[key2] = {
+          eventTitle: title, kind: kind, sessionDate: dt2,
+          sessionTime: _rsExtractSessionTime(ev, dt2),
+          recipients: [],
+        };
+        bySession[key2].recipients.push(s.name || ((s.firstName||'') + ' ' + (s.lastName||'')).trim() || 'Unknown');
+      });
+
+      Object.values(bySession).forEach(function(g) {
+        var expected = _rsAddDays(g.sessionDate, 5);
+        if (expected < todayMid) expected = _rsAddDays(todayMid, 1);
+        g.expectedSend = expected;
+        followups.push(g);
+      });
+    });
+
+    if (followups.length > 0) {
+      followups.sort(function(a, b) { return a.expectedSend - b.expectedSend; });
+      html += '<div style="margin-top:28px;margin-bottom:10px;">';
+      html += '<h3 style="margin:0;font-size:1rem;font-weight:700;color:#0F172A;">Feedback Follow-ups</h3>';
+      html += '<p style="margin:4px 0 0;font-size:.82rem;color:#64748B;">Daily at 8:00 AM HST — one reminder goes out to attendees who received the initial feedback email but haven\'t responded yet.</p>';
+      html += '</div>';
+      followups.forEach(function(g) {
+        var sessionLabel = _rsFmtDate(g.sessionDate) + (g.sessionTime ? ' • ' + g.sessionTime : '');
+        var kindBadgeColor = g.kind === 'Recurring' ? '#7C3AED' : '#0891B2';
+        html += '<div style="background:white;border:1px solid #E2E8F0;border-radius:10px;margin-bottom:10px;overflow:hidden;">';
+        html += '<div style="padding:12px 16px;background:linear-gradient(135deg,#FFF7ED,#FFFFFF);border-bottom:1px solid #FED7AA;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
+        html += '<div style="min-width:0;flex:1;">';
+        html += '<div style="font-weight:800;color:#0F172A;font-size:1rem;">' + rsEscape(g.eventTitle) + '</div>';
+        html += '<div style="font-weight:700;color:#9A3412;font-size:.92rem;margin-top:2px;">' + rsEscape(sessionLabel) + '</div>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">';
+        html += '<span style="background:' + kindBadgeColor + '22;color:' + kindBadgeColor + ';padding:2px 10px;border-radius:10px;font-size:.74rem;font-weight:700;">' + rsEscape(g.kind) + '</span>';
+        html += '<div style="font-size:.82rem;color:#64748B;font-weight:600;">' + g.recipients.length + ' email' + (g.recipients.length !== 1 ? 's' : '') + '</div>';
+        html += '</div>';
+        html += '</div>';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:.88rem;table-layout:fixed;">';
+        html += '<colgroup><col style="width:55%;"><col style="width:15%;"><col style="width:30%;"></colgroup>';
+        html += '<thead><tr style="background:#F8FAFC;">';
+        html += '<th style="text-align:left;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Email Sending</th>';
+        html += '<th style="text-align:left;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Mode</th>';
+        html += '<th style="text-align:right;padding:8px 14px;border-bottom:1px solid #E2E8F0;font-weight:600;color:#475569;">Recipients</th>';
+        html += '</tr></thead><tbody>';
+        html += '<tr>';
+        html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;color:#334155;white-space:nowrap;">' + rsEscape(_rsFmtDate(g.expectedSend)) + ' @ 8:00 AM HST</td>';
+        html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;"><span style="background:#F59E0B22;color:#92400E;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;" title="' + rsEscape(g.recipients.join(', ')) + '">Feedback Reminder</span></td>';
+        html += '<td style="padding:8px 14px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:700;" title="' + rsEscape(g.recipients.join(', ')) + '">' + g.recipients.length + '</td>';
+        html += '</tr>';
+        html += '</tbody></table></div>';
+      });
+    }
 
     container.innerHTML = html;
   } catch (err) {
