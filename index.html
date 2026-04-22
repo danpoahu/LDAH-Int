@@ -3966,7 +3966,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v115.9</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v116.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16695,10 +16695,17 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
       }
     }
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
-    // Show "Send Feedback Emails" button if any signup has attendanceStatus set
+    // Show "Send Feedback Emails" button if any signup has attendance marked
+    // (flat attendanceStatus OR per-session sessionAttendance map)
     var feedbackBtn = document.getElementById('cmsSendFeedbackEmailsBtn');
     if (feedbackBtn) {
-      var hasAttendance = _cmsSignupsModalData.signups.some(function(s) { return s.attendanceStatus; });
+      var hasAttendance = _cmsSignupsModalData.signups.some(function(s) {
+        if (s.attendanceStatus) return true;
+        if (s.sessionAttendance && typeof s.sessionAttendance === 'object') {
+          return Object.values(s.sessionAttendance).some(function(sa) { return sa && sa.status; });
+        }
+        return false;
+      });
       feedbackBtn.style.display = hasAttendance ? '' : 'none';
     }
   } catch (err) {
@@ -17871,17 +17878,19 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
   var sessionDate = _cmsEventSummaryData.selectedSessionDate;
   var html = '';
 
-  // Session date selector for recurring programs
+  // Session date selector for recurring programs — show ONLY sessions
+  // from the last 14 days (no future sessions; feedback/attendance only
+  // makes sense for sessions that have already happened).
   if (isRecurring && d.programDoc) {
-    var allSessions = cmsGenerateSessionDates(d.programDoc.schedules, d.programDoc.cancelledDates, 90);
-    var pastSessions = _cmsGenerateSessionDatesPast(d.programDoc.schedules, d.programDoc.cancelledDates, 90);
-    var combinedSessions = pastSessions.concat(allSessions);
+    var pastSessions = _cmsGenerateSessionDatesPast(d.programDoc.schedules, d.programDoc.cancelledDates, 14);
     var seen = {};
-    combinedSessions = combinedSessions.filter(function(s) {
+    var combinedSessions = pastSessions.filter(function(s) {
       if (seen[s.date + '|' + s.location]) return false;
       seen[s.date + '|' + s.location] = true;
       return !s.cancelled;
     });
+    // Newest session first in the dropdown
+    combinedSessions.reverse();
 
     html += '<div style="margin-bottom:14px;">';
     html += '<label style="font-size:.82rem;font-weight:600;color:#475569;margin-right:8px;">Session Date:</label>';
@@ -22355,37 +22364,59 @@ async function cmsSavePaperFeedback(eventId, collection, sessionDate) {
 }
 
 // ── Send Feedback Emails ────────────────────────────────────────
-async function cmsSendFeedbackEmails() {
+async function cmsSendFeedbackEmails(collection, eventId, sessionDate) {
   var data = _cmsSignupsModalData;
-  if (!data.eventId) return;
+  collection = collection || (data.isRecurring ? 'recurringEvents' : 'events');
+  eventId = eventId || data.eventId;
+  sessionDate = sessionDate || null;
+  if (!eventId) return;
 
-  var attended = data.signups.filter(function(s) { return s.attendanceStatus === 'attended' && s.email; });
-  var alreadySent = attended.filter(function(s) { return s.feedbackEmailSentAt; });
+  // Per-session attendance check when a sessionDate is selected (recurring
+  // programs AND multi-date one-time events). Falls back to flat
+  // attendanceStatus for single-date one-time events and legacy data.
+  var isAttended = function(s) {
+    if (!s.email) return false;
+    if (sessionDate && s.sessionAttendance && s.sessionAttendance[sessionDate]) {
+      return s.sessionAttendance[sessionDate].status === 'attended';
+    }
+    return s.attendanceStatus === 'attended';
+  };
+  var attended = data.signups.filter(isAttended);
+  var alreadySent = attended.filter(function(s) {
+    if (sessionDate) return s.feedbackEmailsSent && s.feedbackEmailsSent[sessionDate];
+    return s.feedbackEmailSentAt;
+  });
   var toSend = attended.length - alreadySent.length;
 
-  var msg = 'Send feedback emails to all attendees?\n\n' +
+  var sessionLabel = sessionDate ? (' for session ' + sessionDate) : '';
+  var msg = 'Send feedback emails to all attendees' + sessionLabel + '?\n\n' +
     attended.length + ' attended with email\n' +
     alreadySent.length + ' already sent\n' +
     toSend + ' new emails will be sent';
 
+  if (attended.length === 0) {
+    _showToast('No attendees recorded' + sessionLabel + '. Mark attendance first.', '#64748B');
+    return;
+  }
   if (toSend === 0) {
-    _showToast('All attendees have already been sent feedback emails.', '#64748B');
+    _showToast('All attendees have already been sent feedback emails' + sessionLabel + '.', '#64748B');
     return;
   }
 
   if (!confirm(msg)) return;
 
-  var collection = data.isRecurring ? 'recurringEvents' : 'events';
-
   try {
+    var body = { collection: collection, eventId: eventId };
+    if (sessionDate) body.sessionDate = sessionDate;
     var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendFeedbackEmails', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ collection: collection, eventId: data.eventId })
+      body: JSON.stringify(body)
     });
     var result = await resp.json();
     if (result.success) {
       _showToast('Sent ' + result.sent + ' feedback email' + (result.sent !== 1 ? 's' : '') + ' (' + result.skipped + ' skipped)', '#16A34A');
+      auditLog('Sent feedback emails', (data.eventTitle || 'Event') + (sessionDate ? ' [' + sessionDate + ']' : '') + ' -- Sent: ' + result.sent + ', Skipped: ' + result.skipped);
     } else {
       _showToast('Error: ' + (result.error || 'Unknown error'), '#DC2626');
     }
