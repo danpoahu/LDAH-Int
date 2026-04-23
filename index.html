@@ -3967,7 +3967,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v117.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v117.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4407,7 +4407,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
             <span>Type</span>
             <span>Organization</span>
             <span>Location</span>
-            <span>Grant</span>
+            <span>Opted In</span>
             <span>Actions</span>
           </div>
           <div id="contactsList">
@@ -6013,17 +6013,19 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         <div>
           <label>Email</label>
           <input id="ctEmail" type="email" placeholder="Optional">
-          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-weight:600;color:var(--text-soft);cursor:pointer;">
-            <input id="ctMarketingOptIn" type="checkbox" checked style="margin-top:3px;flex-shrink:0;">
-            <span style="flex:1;">
-              <span style="display:block;font-size:.85rem;color:var(--ocean-deep);">Receive event announcement emails</span>
-              <span style="display:block;font-size:.72rem;color:var(--text-soft);font-weight:500;margin-top:2px;">Uncheck to stop future marketing blasts. Transactional emails (registration confirmations, reminders) are unaffected.</span>
-            </span>
-          </label>
         </div>
         <div>
           <label>Phone</label>
           <input id="ctPhone" placeholder="Optional">
+        </div>
+        <div class="span2" style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:10px 14px;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;">
+            <input id="ctMarketingOptIn" type="checkbox" checked style="flex-shrink:0;width:17px;height:17px;margin:0;">
+            <span style="flex:1;">
+              <span style="display:block;font-weight:700;color:var(--ocean-deep);font-size:.9rem;">Receive event announcement emails</span>
+              <span style="display:block;font-size:.76rem;color:var(--text-soft);font-weight:500;margin-top:2px;">Uncheck to stop future marketing blasts. Transactional emails (registration confirmations, reminders) are unaffected.</span>
+            </span>
+          </label>
         </div>
         <div>
           <label>Organization</label>
@@ -11817,7 +11819,9 @@ window.autoCropImage = function(file) {
           '<span><span class="ct-type-badge ' + typeCls + '">' + rsEscape(c.type) + '</span></span>' +
           '<span>' + rsEscape(c.organization || '—') + '</span>' +
           '<span>' + rsEscape(c.location || '—') + '</span>' +
-          '<span>' + rsEscape(c.grantProgram || '—') + '</span>' +
+          '<span>' + (c.marketingOptOut === true
+            ? '<span style="color:#cbd5e1;">—</span>'
+            : '<span style="color:#16a34a;display:inline-flex;align-items:center;" title="Opted in"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>') + '</span>' +
           '<span class="ct-row-actions">' +
             (isAdmin ? '<button onclick="event.stopPropagation(); openContactForm(\'' + c.id + '\')">Edit</button>' +
               '<button class="danger" onclick="event.stopPropagation(); archiveContact(\'' + c.id + '\', \'' + rsEscape(c.displayName) + '\')">Archive</button>' : '') +
@@ -12055,6 +12059,11 @@ window.autoCropImage = function(file) {
           '<div class="ct-info-field"><label>Organization</label><div class="val">' + rsEscape(c.organization || '—') + '</div></div>' +
           '<div class="ct-info-field"><label>Location</label><div class="val">' + rsEscape(c.location || '—') + '</div></div>' +
           '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(c.grantProgram || '—') + '</div></div>' +
+          '<div class="ct-info-field"><label>Event Announcements</label><div class="val">' +
+            (c.marketingOptOut === true
+              ? '<span style="color:#94A3B8;font-weight:600;">Opted out</span>'
+              : '<span style="color:#16a34a;font-weight:700;display:inline-flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Opted in</span>')
+            + '</div></div>' +
           '<div class="ct-info-field"><label>Created By</label><div class="val">' + rsEscape(c.createdByName || '—') + '</div></div>' +
           (c.notes ? '<div class="ct-info-field span2"><label>Notes</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(c.notes) + '</div></div>' : '') +
         '</div>';
@@ -16962,16 +16971,41 @@ window.cmsSaveEvent = async function() {
 };
 
 window.cmsArchiveEvent = async function(collection, docId, title) {
-  if (!confirm('Archive "' + title + '"? This can be undone by restoring from the database.')) return;
+  // Preview — count registrants who will get the cancellation email
+  var toEmail = [];
+  try {
+    var signupsSnap = await db.collection(collection).doc(docId).collection('signups').get();
+    signupsSnap.forEach(function(d) {
+      var s = d.data();
+      if (s.archived === true) return;
+      if (s.status === 'cancelled') return;
+      if (!s.email) return;
+      toEmail.push({ name: s.name || '(no name)', email: s.email });
+    });
+  } catch (previewErr) {
+    console.warn('Archive preview failed (continuing with archive anyway):', previewErr.message);
+  }
+
+  var msg = 'Archive "' + title + '"?';
+  if (toEmail.length > 0) {
+    msg += '\n\nThis will send a cancellation email to ' + toEmail.length + ' registrant' + (toEmail.length !== 1 ? 's' : '') + ':\n';
+    toEmail.slice(0, 15).forEach(function(r) { msg += '\n  • ' + r.name + '  <' + r.email + '>'; });
+    if (toEmail.length > 15) msg += '\n  … and ' + (toEmail.length - 15) + ' more';
+  } else {
+    msg += '\n\nNo registrants to notify.';
+  }
+  msg += '\n\nThis can be undone by restoring from the database.';
+
+  if (!confirm(msg)) return;
   try {
     await db.collection(collection).doc(docId).update({ archived: true });
-    auditLog('Archived event', (collection === 'recurringEvents' ? 'Program' : 'Event') + ': ' + title);
+    auditLog('Archived event', (collection === 'recurringEvents' ? 'Program' : 'Event') + ': ' + title + (toEmail.length ? ' (emailed ' + toEmail.length + ' registrants)' : ''));
     if (collection === 'recurringEvents') {
       await cmsLoadPrograms(true);
     } else {
       await cmsLoadEvents(true);
     }
-    _showToast('Removed.', '#16A34A');
+    _showToast(toEmail.length ? 'Archived. Emailing ' + toEmail.length + ' registrants...' : 'Archived.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
