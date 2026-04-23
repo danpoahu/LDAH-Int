@@ -3967,7 +3967,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v116.9</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v117</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16267,6 +16267,12 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired) {
     html += '<div class="cms-card-buttons">' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenEventModal(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ')">Edit</button>' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsViewSignups(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',\'' + rsEscape(ev.title || '') + '\')">View Signups</button>';
+    // superAdmin-only Send Announcement button (hidden for archived/expired)
+    if (!isArchived && !isExpired && window.currentUserData && window.currentUserData.role === 'superAdmin') {
+      var announcedLabel = ev.announcementSent ? 'Re-send Announcement' : 'Send Announcement';
+      var announcedColor = ev.announcementSent ? '#94A3B8' : '#0891B2';
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + rsEscape(ev.title || '') + '\')">' + announcedLabel + '</button>';
+    }
     if (isArchived) {
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',function(){' + (isRecurring ? 'cmsLoadPrograms' : 'cmsLoadEvents') + '(true);})">Restore</button>';
     } else {
@@ -16276,6 +16282,147 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired) {
   }
   return html;
 }
+
+// ── Send Event Announcement (superAdmin only) ──
+window.cmsSendAnnouncement = async function(eventId, collection, title) {
+  var endpoint = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendEventAnnouncement';
+
+  // Step 1 — dry-run to get counts
+  var dryRunResp;
+  try {
+    dryRunResp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId: eventId, collection: collection, dryRun: true })
+    });
+  } catch (err) {
+    _showToast('Could not reach announcement service: ' + err.message, '#DC2626');
+    return;
+  }
+  if (!dryRunResp.ok) {
+    var errTxt = await dryRunResp.text();
+    _showToast('Dry-run failed: ' + errTxt, '#DC2626');
+    return;
+  }
+  var counts = await dryRunResp.json();
+
+  // Step 2 — build confirmation modal
+  var myEmail = (window.currentUserData && window.currentUserData.email) || '';
+  var overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.style.display = 'flex';
+  overlay.style.zIndex = 9999;
+  overlay.innerHTML =
+    '<div class="modal" style="max-width:560px;">' +
+    '<div class="modal-header" style="background:#0891B2;color:#fff;">' +
+    '<div class="left"><div>Send Announcement</div></div>' +
+    '<button class="btn btn-ghost" id="cmsAnnCloseBtn" style="color:#fff;">Cancel</button>' +
+    '</div>' +
+    '<div class="modal-body" style="padding:24px;">' +
+    '<h3 style="margin:0 0 12px;color:#004E7C;">' + rsEscape(title) + '</h3>' +
+    '<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:.9rem;">' +
+    '<div><strong>Eligible recipients:</strong> ' + counts.totalEligible + '</div>' +
+    '<div><strong>Already sent to:</strong> ' + counts.alreadySent + '</div>' +
+    '<div><strong>Will send to:</strong> ' + counts.willSendTo + '</div>' +
+    '<div style="margin-top:8px;font-size:.82rem;color:#64748B;">Daily cap: 50. Anything over will be queued for tomorrow.</div>' +
+    '</div>' +
+    '<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 16px;margin-bottom:16px;">' +
+    '<div style="font-weight:700;color:#92400E;margin-bottom:8px;">Test First</div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<input type="email" id="cmsAnnTestEmail" value="' + rsEscape(myEmail) + '" style="flex:1;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:.9rem;" placeholder="Test email address">' +
+    '<button class="btn btn-primary" id="cmsAnnTestBtn" style="background:#F59E0B;">Send Test</button>' +
+    '</div>' +
+    '<div id="cmsAnnTestResult" style="margin-top:8px;font-size:.85rem;"></div>' +
+    '</div>' +
+    '<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:14px 16px;">' +
+    '<div style="font-weight:700;color:#991B1B;margin-bottom:8px;">Send For Real</div>' +
+    '<div style="font-size:.85rem;color:#64748B;margin-bottom:8px;">Type <strong>SEND</strong> below to unlock the send button.</div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<input type="text" id="cmsAnnConfirmInput" style="flex:1;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:.9rem;font-family:monospace;" placeholder="Type SEND to confirm">' +
+    '<button class="btn btn-primary" id="cmsAnnSendBtn" disabled style="background:#94A3B8;cursor:not-allowed;">Send Blast</button>' +
+    '</div>' +
+    '<div id="cmsAnnSendResult" style="margin-top:8px;font-size:.85rem;"></div>' +
+    '</div>' +
+    '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  function closeModal() { overlay.remove(); }
+  document.getElementById('cmsAnnCloseBtn').addEventListener('click', closeModal);
+
+  // Test send
+  document.getElementById('cmsAnnTestBtn').addEventListener('click', async function() {
+    var testEmail = document.getElementById('cmsAnnTestEmail').value.trim();
+    var resultEl = document.getElementById('cmsAnnTestResult');
+    if (!testEmail) { resultEl.innerHTML = '<span style="color:#DC2626;">Enter an email first.</span>'; return; }
+    resultEl.innerHTML = '<span style="color:#64748B;">Sending test...</span>';
+    try {
+      var resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: eventId, collection: collection, testMode: true, testEmail: testEmail })
+      });
+      var result = await resp.json();
+      if (resp.ok && result.sent > 0) {
+        resultEl.innerHTML = '<span style="color:#059669;">Test sent to ' + testEmail + '. Check your inbox.</span>';
+      } else {
+        resultEl.innerHTML = '<span style="color:#DC2626;">Test failed: ' + (result.error || JSON.stringify(result)) + '</span>';
+      }
+    } catch (err) {
+      resultEl.innerHTML = '<span style="color:#DC2626;">Test error: ' + err.message + '</span>';
+    }
+  });
+
+  // Confirm input gating
+  var confirmInput = document.getElementById('cmsAnnConfirmInput');
+  var sendBtn = document.getElementById('cmsAnnSendBtn');
+  confirmInput.addEventListener('input', function() {
+    if (confirmInput.value === 'SEND') {
+      sendBtn.disabled = false;
+      sendBtn.style.background = '#DC2626';
+      sendBtn.style.cursor = 'pointer';
+    } else {
+      sendBtn.disabled = true;
+      sendBtn.style.background = '#94A3B8';
+      sendBtn.style.cursor = 'not-allowed';
+    }
+  });
+
+  // Real send
+  sendBtn.addEventListener('click', async function() {
+    if (sendBtn.disabled) return;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending...';
+    var resultEl = document.getElementById('cmsAnnSendResult');
+    resultEl.innerHTML = '<span style="color:#64748B;">Sending — this can take up to a minute for 50 recipients...</span>';
+    try {
+      var resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: eventId, collection: collection })
+      });
+      var result = await resp.json();
+      if (resp.ok) {
+        resultEl.innerHTML = '<span style="color:#059669;">Sent to ' + result.sent + '. Failed: ' + result.failed + '. Queued for tomorrow: ' + result.queued + '.</span>';
+        _showToast('Announcement sent to ' + result.sent + ' contacts', '#059669');
+        setTimeout(function() {
+          closeModal();
+          // Refresh the events list so the button label updates
+          if (typeof cmsLoadEvents === 'function' && collection === 'events') cmsLoadEvents(true);
+          if (typeof cmsLoadPrograms === 'function' && collection === 'recurringEvents') cmsLoadPrograms(true);
+        }, 1500);
+      } else {
+        resultEl.innerHTML = '<span style="color:#DC2626;">Send failed: ' + (result.error || JSON.stringify(result)) + '</span>';
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send Blast';
+      }
+    } catch (err) {
+      resultEl.innerHTML = '<span style="color:#DC2626;">Send error: ' + err.message + '</span>';
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Send Blast';
+    }
+  });
+};
 
 window.cmsOpenEventModal = async function(docId, isRecurring) {
   var isRec = !!isRecurring;
