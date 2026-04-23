@@ -18898,28 +18898,31 @@ window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId
     var ref = db.collection(collection).doc(eventId).collection('signups').doc(signupId);
     var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
     var sName = s ? (s.name || signupId) : signupId;
-    var fieldPath = 'dateStatusOverrides.' + sessionDateKey; // dotted path; Firestore accepts spaces/colons/pipes
     var isOverride = (newValue === 'confirmed-in-person' || newValue === 'confirmed-virtual');
+    // Read-modify-write on the whole map — avoids Firestore dotted-path issues
+    // with session keys that contain pipes, colons, spaces, or commas.
+    var currentOverrides = (s && s.dateStatusOverrides) ? Object.assign({}, s.dateStatusOverrides) : {};
     var update = {};
     var logMsg;
     if (isOverride) {
       if (!s || s.status !== 'confirmed') update.status = 'confirmed';
-      update[fieldPath] = newValue;
+      currentOverrides[sessionDateKey] = newValue;
+      update.dateStatusOverrides = currentOverrides;
       logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Mode: ' + newValue;
       await ref.update(update);
       if (s) {
         if (update.status) s.status = 'confirmed';
-        s.dateStatusOverrides = s.dateStatusOverrides || {};
-        s.dateStatusOverrides[sessionDateKey] = newValue;
+        s.dateStatusOverrides = currentOverrides;
       }
       auditLog('Set per-date mode override', logMsg);
     } else {
       update.status = newValue;
-      update[fieldPath] = firebase.firestore.FieldValue.delete();
+      delete currentOverrides[sessionDateKey];
+      update.dateStatusOverrides = currentOverrides;
       await ref.update(update);
       if (s) {
         s.status = newValue;
-        if (s.dateStatusOverrides) { delete s.dateStatusOverrides[sessionDateKey]; }
+        s.dateStatusOverrides = currentOverrides;
       }
       logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Cleared override, status: ' + newValue;
       auditLog('Cleared per-date mode override', logMsg);
@@ -18932,7 +18935,10 @@ window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId
     }
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
     _showToast(isOverride ? 'Mode override saved.' : 'Status updated.', '#16A34A');
-  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+  } catch (err) {
+    console.error('cmsUpdateSignupModeForDate error:', err);
+    _showToast('Error: ' + err.message, '#DC2626');
+  }
 };
 
 window.cmsSaveSignupNotes = async function(collection, eventId, signupId, textareaId) {
