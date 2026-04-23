@@ -3967,7 +3967,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v117.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v117.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6013,6 +6013,13 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         <div>
           <label>Email</label>
           <input id="ctEmail" type="email" placeholder="Optional">
+          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-weight:600;color:var(--text-soft);cursor:pointer;">
+            <input id="ctMarketingOptIn" type="checkbox" checked style="margin-top:3px;flex-shrink:0;">
+            <span style="flex:1;">
+              <span style="display:block;font-size:.85rem;color:var(--ocean-deep);">Receive event announcement emails</span>
+              <span style="display:block;font-size:.72rem;color:var(--text-soft);font-weight:500;margin-top:2px;">Uncheck to stop future marketing blasts. Transactional emails (registration confirmations, reminders) are unaffected.</span>
+            </span>
+          </label>
         </div>
         <div>
           <label>Phone</label>
@@ -6362,6 +6369,10 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
     var _chatUnreadByUser = {}; // uid -> unread count for roster badges
     var _chatConvsList = []; // cached conversations for auto-open
     var _chatLocalTimeInterval = null; // interval for updating header local time
+    var _chatOldestMessageTs = null; // oldest createdAt currently loaded (listener + paginated)
+    var _chatLoadedOlderMessages = []; // messages fetched via pagination (older than the live listener window)
+    var _chatHasMoreOlder = true; // flips false when a paginated fetch returns < 50
+    var _chatPaginating = false; // guard against double-click while a fetch is in flight
 
     // ── Favorites (localStorage, zero Firestore cost) ──
     var _chatFavorites = new Set(JSON.parse(localStorage.getItem('chatFavorites') || '[]'));
@@ -6890,6 +6901,10 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
           var otherName = el.getAttribute('data-othername');
           _chatActiveConvId = convId;
           _chatActiveOtherUid = otherUid;
+          _chatLoadedOlderMessages = [];
+          _chatOldestMessageTs = null;
+          _chatHasMoreOlder = true;
+          _lastListenerMessages = [];
           loadConversationMessages(convId, otherName, otherUid);
         });
       });
@@ -6939,6 +6954,10 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
           if (!snap.empty) {
             var convDoc = snap.docs[0];
             _chatActiveConvId = convDoc.id;
+            _chatLoadedOlderMessages = [];
+            _chatOldestMessageTs = null;
+            _chatHasMoreOlder = true;
+            _lastListenerMessages = [];
             loadConversationMessages(convDoc.id, otherName, otherUid);
           } else {
             // Create new conversation
@@ -6957,6 +6976,10 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
             convData.participantNames[otherUid] = otherName;
             db().collection('chatConversations').add(convData).then(function(docRef) {
               _chatActiveConvId = docRef.id;
+              _chatLoadedOlderMessages = [];
+              _chatOldestMessageTs = null;
+              _chatHasMoreOlder = true;
+              _lastListenerMessages = [];
               loadConversationMessages(docRef.id, otherName, otherUid);
             });
           }
@@ -7002,6 +7025,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
             messages.push(d);
           });
           messages.reverse();
+          _lastListenerMessages = messages; // cache for pagination re-renders
           renderMessages(messages);
 
           // Mark conversation as read only if modal is open and this is the active conversation
@@ -7026,16 +7050,43 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
     }
 
     // ── Render Messages ──
-    function renderMessages(messages) {
+    // listenerMessages = the latest-100 window from the real-time listener (oldest-first after reverse).
+    // We merge paginated older messages on top, dedupe by doc id, and sort asc by createdAt for display.
+    function renderMessages(listenerMessages) {
       if (!chatModalMessages) return;
       var myUid = getMyUid();
+
+      // Merge paginated older messages + listener window, dedupe by doc id
+      var byId = new Map();
+      (_chatLoadedOlderMessages || []).forEach(function(m) { if (m && m._id) byId.set(m._id, m); });
+      (listenerMessages || []).forEach(function(m) { if (m && m._id) byId.set(m._id, m); });
+      var messages = Array.from(byId.values());
+      // Sort ascending by createdAt (oldest → newest). Missing timestamps sort to end.
+      messages.sort(function(a, b) {
+        var ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+        var tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+        return ta - tb;
+      });
+
+      // Track oldest currently-shown timestamp for pagination cursor
+      _chatOldestMessageTs = messages.length > 0 ? messages[0].createdAt : null;
 
       if (messages.length === 0) {
         chatModalMessages.innerHTML = '<div class="chat-empty-state"><div style="font-size:2rem;margin-bottom:6px;">👋</div><div style="font-weight:700;color:var(--text-soft);">Start the conversation!</div></div>';
         return;
       }
 
+      // "Load older messages" button — shown when the listener is at-or-over its 100 cap OR we've paginated already.
+      // Rationale: if listener returned <100, there definitely aren't older ones. Once we've loaded any older
+      // page, we leave the button unless _chatHasMoreOlder flipped false.
+      var showLoadOlder = _chatHasMoreOlder && ((listenerMessages && listenerMessages.length >= 100) || (_chatLoadedOlderMessages && _chatLoadedOlderMessages.length > 0));
       var html = '';
+      if (showLoadOlder) {
+        html += '<div style="text-align:center;padding:8px 0 12px 0;">'
+          + '<button id="chatLoadOlderBtn" type="button" style="background:rgba(100,116,139,.12);color:var(--text-soft);border:1px solid rgba(100,116,139,.2);border-radius:8px;padding:6px 14px;font-size:.8rem;font-weight:700;cursor:pointer;">Load older messages</button>'
+          + '</div>';
+      }
+
       messages.forEach(function(m) {
         var isMe = m.senderId === myUid;
         var cls = isMe ? 'chat-message me' : 'chat-message them';
@@ -7066,7 +7117,83 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
       });
       chatModalMessages.innerHTML = html;
       chatModalMessages.scrollTop = chatModalMessages.scrollHeight;
+
+      // Wire up the "Load older messages" button if present
+      var _olderBtn = document.getElementById('chatLoadOlderBtn');
+      if (_olderBtn) {
+        _olderBtn.addEventListener('click', loadOlderMessages);
+      }
     }
+
+    // ── Load Older Messages (pagination) ──
+    // Fires when the user clicks "Load older messages". Purely read-only — does NOT touch the live listener.
+    // Fetches the next 50 messages older than _chatOldestMessageTs, merges them into _chatLoadedOlderMessages,
+    // re-renders, and preserves scroll position so the user doesn't lose their place.
+    function loadOlderMessages() {
+      if (_chatPaginating) return;
+      if (!_chatActiveConvId) return;
+      if (!_chatOldestMessageTs) return;
+      if (!_chatHasMoreOlder) return;
+      _chatPaginating = true;
+
+      // Capture scroll state before re-render so we can preserve the user's visual position
+      var prevScrollHeight = chatModalMessages ? chatModalMessages.scrollHeight : 0;
+      var prevScrollTop = chatModalMessages ? chatModalMessages.scrollTop : 0;
+
+      db().collection('chatConversations').doc(_chatActiveConvId)
+        .collection('messages')
+        .where('createdAt', '<', _chatOldestMessageTs)
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .get()
+        .then(function(snap) {
+          var older = [];
+          snap.forEach(function(doc) {
+            var d = doc.data();
+            d._id = doc.id;
+            older.push(d);
+          });
+          // If fewer than 50 returned, no more older messages exist
+          if (older.length < 50) _chatHasMoreOlder = false;
+
+          if (older.length > 0) {
+            // Reverse so we have oldest-first, then prepend to our cache
+            older.reverse();
+            // Dedupe against what we already have
+            var existingIds = new Set((_chatLoadedOlderMessages || []).map(function(m) { return m._id; }));
+            older.forEach(function(m) {
+              if (!existingIds.has(m._id)) _chatLoadedOlderMessages.push(m);
+            });
+
+            // Re-render using the CURRENT listener state. We reconstruct listener messages
+            // by pulling them out of the DOM isn't reliable — instead we synthesize from
+            // what's already in the combined set minus our paginated cache. Simplest: trigger
+            // a re-render by calling renderMessages with an empty listener array, since
+            // renderMessages merges _chatLoadedOlderMessages with the listener arg. But that
+            // loses the listener window! Instead, keep a reference to the last listener batch.
+            renderMessages(_lastListenerMessages || []);
+
+            // Preserve scroll position: the new content was prepended, so scrollHeight grew.
+            // Keep the user looking at the same relative message by adjusting scrollTop by delta.
+            if (chatModalMessages) {
+              var newScrollHeight = chatModalMessages.scrollHeight;
+              chatModalMessages.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+            }
+          } else {
+            // Nothing to prepend; re-render to drop the button if _chatHasMoreOlder flipped
+            renderMessages(_lastListenerMessages || []);
+          }
+        })
+        .catch(function(err) {
+          console.warn('Load older messages failed:', err && err.message);
+        })
+        .finally(function() {
+          _chatPaginating = false;
+        });
+    }
+
+    // Holds the latest listener batch so loadOlderMessages can re-render without waiting for a listener tick
+    var _lastListenerMessages = [];
 
     // ── Send Message ──
     function sendChatMessage() {
@@ -11720,6 +11847,7 @@ window.autoCropImage = function(file) {
     var ctRadios = document.querySelectorAll('input[name="ctType"]');
     ctRadios.forEach(function(r) { r.checked = r.value === 'Parent/Guardian'; });
     document.getElementById('ctEmail').value = '';
+    document.getElementById('ctMarketingOptIn').checked = true; // default opted-in for new contacts
     document.getElementById('ctPhone').value = '';
     document.getElementById('ctOrg').value = '';
     document.getElementById('ctLocation').value = '';
@@ -11757,6 +11885,7 @@ window.autoCropImage = function(file) {
           var editType = d.type || 'Parent/Guardian';
           document.querySelectorAll('input[name="ctType"]').forEach(function(r) { r.checked = r.value === editType; });
           document.getElementById('ctEmail').value = d.email || '';
+          document.getElementById('ctMarketingOptIn').checked = d.marketingOptOut !== true; // default checked if undefined
           document.getElementById('ctPhone').value = d.phone || '';
           document.getElementById('ctOrg').value = d.organization || '';
           document.getElementById('ctLocation').value = d.location || '';
@@ -11813,6 +11942,7 @@ window.autoCropImage = function(file) {
       displayName: firstName + ' ' + lastName,
       type: (document.querySelector('input[name="ctType"]:checked') || {}).value || 'Parent/Guardian',
       email: document.getElementById('ctEmail').value.trim(),
+      marketingOptOut: !document.getElementById('ctMarketingOptIn').checked,
       phone: document.getElementById('ctPhone').value.trim(),
       organization: document.getElementById('ctOrg').value.trim(),
       location: document.getElementById('ctLocation').value.trim(),
