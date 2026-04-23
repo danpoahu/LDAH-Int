@@ -3967,7 +3967,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v117.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v117.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16885,6 +16885,59 @@ function cmsGenerateSessionDates(schedules, cancelledDates, days) {
   return sessions;
 }
 
+/* ── Per-date mode override helpers (v117.4) ──
+ * Admins can mark individual dates as "Confirmed - In-Person" or
+ * "Confirmed - Virtual" when they need to override the event's normal mode.
+ * Stored on each signup doc as:
+ *   dateStatusOverrides: { "<sessionDateKey>": "confirmed-in-person" | "confirmed-virtual" }
+ */
+function cmsIsDateVirtual(eventDoc, sessionDateKey) {
+  if (!eventDoc) return null;
+  var vx = /virtual|zoom|online/i;
+  // One-time event: single location field
+  if (eventDoc.location && !eventDoc.schedules) {
+    return vx.test(eventDoc.location);
+  }
+  // Recurring program: look up which schedule matches the key's location portion
+  if (Array.isArray(eventDoc.schedules) && eventDoc.schedules.length) {
+    // Key formats: "2026-04-27|Oahu|5:00 pm-6:00 pm" or other
+    var parts = String(sessionDateKey || '').split('|');
+    var locPortion = parts.length >= 2 ? parts[1] : '';
+    if (locPortion) {
+      for (var i = 0; i < eventDoc.schedules.length; i++) {
+        var sch = eventDoc.schedules[i];
+        if (sch && sch.location && String(sch.location).indexOf(locPortion) !== -1) {
+          return vx.test(sch.location);
+        }
+      }
+    }
+    // Fall back: if every schedule agrees, return that; else unknown
+    var allVirtual = eventDoc.schedules.every(function(sch) { return sch && sch.location && vx.test(sch.location); });
+    var allInPerson = eventDoc.schedules.every(function(sch) { return sch && sch.location && !vx.test(sch.location); });
+    if (allVirtual) return true;
+    if (allInPerson) return false;
+    return null;
+  }
+  return null;
+}
+
+/* Given a signup and a generated sess object, find the actual key string
+ * stored in selectedSessions/selectedDates that refers to this date+location.
+ * Returns '' if no match. */
+function cmsFindSessionKeyForDate(signup, sess) {
+  if (!signup || !sess) return '';
+  var keys = signup.selectedSessions || signup.selectedDates || [];
+  for (var i = 0; i < keys.length; i++) {
+    var sd = String(keys[i] || '');
+    if (sd.indexOf(sess.date) === -1) continue;
+    if (sess.location && (sd.indexOf('|') !== -1 || sd.indexOf('@ ') !== -1)) {
+      if (sd.indexOf(sess.location) === -1) continue;
+    }
+    return sd;
+  }
+  return '';
+}
+
 /* ── Recurring: Toggle flyer-only section ── */
 window.cmsToggleRecurringScheduleSection = function() {
   var hidden = document.getElementById('cmsRecurringFlyerOnly').checked;
@@ -17274,12 +17327,16 @@ function cmsRenderOtherSignupData(s) {
     rows + '</div>';
 }
 
-function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived) {
+function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, sessionDateKey) {
   var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
   var statusColor = statusColors[s.status] || '#64748B';
   var cardId = 'signupCard_' + s.id;
   var notesId = 'cmsNotes_' + s.id;
   var archivedStyle = isArchived ? 'opacity:0.55;' : '';
+
+  // Per-date mode override detection (v117.4) — admin-only, only appears in CMS
+  var hasOverride = !!(sessionDateKey && s.dateStatusOverrides && s.dateStatusOverrides[sessionDateKey]);
+  var overrideValue = hasOverride ? s.dateStatusOverrides[sessionDateKey] : '';
 
   // Header row (always visible, clickable to expand)
   var h = '<div id="' + cardId + '" style="margin:10px;border:1px solid #CBD5E1;border-left:4px solid #0891B2;border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,0.04);' + archivedStyle + '">';
@@ -17287,6 +17344,9 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived) {
   h += '<div style="flex:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;">';
   h += '<span class="cmsChevron" style="font-size:.65rem;color:var(--text-soft);flex-shrink:0;">&#9654;</span>';
   h += '<span style="font-weight:600;font-size:.9rem;">' + name + '</span>';
+  if (hasOverride) {
+    h += '<span style="background:#fef3c7;color:#92400E;padding:1px 6px;border-radius:10px;font-size:.7rem;font-weight:700;margin-left:4px;">mode override</span>';
+  }
   // Fallback to registration.role for newer signups that only write the nested field
   var _regType = s.registrantType || (s.registration && s.registration.role) || '';
   if (_regType) h += '<span style="font-size:.72rem;font-weight:600;color:#0369A1;background:#E0F2FE;border-radius:12px;padding:1px 8px;white-space:nowrap;">' + rsEscape(_regType) + '</span>';
@@ -17297,10 +17357,37 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived) {
 
   // Status dropdown + archive
   h += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;" onclick="event.stopPropagation();">';
-  h += '<select onchange="cmsUpdateSignupStatus(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',this.value)" style="font-size:.78rem;padding:3px 8px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:' + statusColor + ';font-weight:600;cursor:pointer;">';
+
+  // Build dropdown. When sessionDateKey is present, add mode-override options
+  // based on the event's normal mode for this date.
+  var ddOnchange;
+  var ddSelected;
+  if (sessionDateKey) {
+    // Route through per-date handler. The sessionDateKey is carried on a
+    // data-sk attribute (JSON-encoded) so special chars like quotes, colons,
+    // pipes, and spaces survive round-tripping through the DOM.
+    ddOnchange = 'cmsUpdateSignupModeForDate(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',JSON.parse(this.getAttribute(\'data-sk\')),this.value)';
+    ddSelected = hasOverride ? overrideValue : (s.status || 'new');
+  } else {
+    ddOnchange = 'cmsUpdateSignupStatus(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',this.value)';
+    ddSelected = s.status || 'new';
+  }
+  var ddStyleColor = (ddSelected === 'confirmed-in-person' || ddSelected === 'confirmed-virtual') ? '#92400E' : (statusColors[ddSelected] || statusColor);
+  h += '<select' + (sessionDateKey ? ' data-sk="' + rsEscape(JSON.stringify(sessionDateKey)) + '"' : '') + ' onchange="' + ddOnchange + '" style="font-size:.78rem;padding:3px 8px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:' + ddStyleColor + ';font-weight:600;cursor:pointer;">';
   ['new','pending','confirmed','cancelled'].forEach(function(st) {
-    h += '<option value="' + st + '"' + (s.status === st ? ' selected' : '') + '>' + st.charAt(0).toUpperCase() + st.slice(1) + '</option>';
+    h += '<option value="' + st + '"' + (ddSelected === st ? ' selected' : '') + '>' + st.charAt(0).toUpperCase() + st.slice(1) + '</option>';
   });
+  if (sessionDateKey) {
+    var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
+    var isVirtual = cmsIsDateVirtual(ev, sessionDateKey);
+    // Normal=virtual -> offer in-person override; normal=in-person -> offer virtual; unknown -> offer both
+    if (isVirtual === true || isVirtual === null) {
+      h += '<option value="confirmed-in-person"' + (ddSelected === 'confirmed-in-person' ? ' selected' : '') + '>Confirmed - In-Person</option>';
+    }
+    if (isVirtual === false || isVirtual === null) {
+      h += '<option value="confirmed-virtual"' + (ddSelected === 'confirmed-virtual' ? ' selected' : '') + '>Confirmed - Virtual</option>';
+    }
+  }
   h += '</select>';
   h += (isArchived ?
     '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;background:#F0FDF4;color:#16A34A;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',false)">Restore</button>' :
@@ -17720,7 +17807,7 @@ function cmsRenderOneTimeSignupsByDate(active, archived, collection, eventId, si
     html += '</div>';
     if (dateSignups.length > 0) {
       dateSignups.forEach(function(s) {
-        html += cmsRenderSignupCard(s, statusColors, collection, eventId);
+        html += cmsRenderSignupCard(s, statusColors, collection, eventId, false, dateStr);
       });
     } else {
       html += '<div style="padding:8px 14px;font-size:.83rem;color:var(--text-soft);font-style:italic;">No signups for this date</div>';
@@ -17844,12 +17931,12 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
       if (filteredSignups.length > 0) {
         html += '<div style="padding:6px 14px;background:#FFFBEB;border-bottom:1px solid #FECACA;font-size:.78rem;color:#92400E;font-weight:600;">Displaced signups needing reschedule:</div>';
         filteredSignups.forEach(function(s) {
-          html += cmsRenderSignupCard(s, statusColors, collection, eventId);
+          html += cmsRenderSignupCard(s, statusColors, collection, eventId, false, cmsFindSessionKeyForDate(s, sess));
         });
       }
     } else if (!sess.cancelled && dateSignups.length > 0) {
       dateSignups.forEach(function(s) {
-        html += cmsRenderSignupCard(s, statusColors, collection, eventId);
+        html += cmsRenderSignupCard(s, statusColors, collection, eventId, false, cmsFindSessionKeyForDate(s, sess));
       });
     } else if (!sess.cancelled) {
       html += '<div style="padding:8px 14px 8px 38px;font-size:.83rem;color:var(--text-soft);font-style:italic;">No signups for this date</div>';
@@ -18799,6 +18886,55 @@ window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, sta
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
+/* Per-date mode override handler (v117.4).
+ * newValue = 'new' | 'pending' | 'confirmed' | 'cancelled'
+ *          | 'confirmed-in-person' | 'confirmed-virtual'
+ * For the two override values, keep status='confirmed' and record the
+ * override at dateStatusOverrides[sessionDateKey]. For the four base values,
+ * update status globally and DELETE the per-date override.
+ */
+window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId, sessionDateKey, newValue) {
+  try {
+    var ref = db.collection(collection).doc(eventId).collection('signups').doc(signupId);
+    var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+    var sName = s ? (s.name || signupId) : signupId;
+    var fieldPath = 'dateStatusOverrides.' + sessionDateKey; // dotted path; Firestore accepts spaces/colons/pipes
+    var isOverride = (newValue === 'confirmed-in-person' || newValue === 'confirmed-virtual');
+    var update = {};
+    var logMsg;
+    if (isOverride) {
+      if (!s || s.status !== 'confirmed') update.status = 'confirmed';
+      update[fieldPath] = newValue;
+      logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Mode: ' + newValue;
+      await ref.update(update);
+      if (s) {
+        if (update.status) s.status = 'confirmed';
+        s.dateStatusOverrides = s.dateStatusOverrides || {};
+        s.dateStatusOverrides[sessionDateKey] = newValue;
+      }
+      auditLog('Set per-date mode override', logMsg);
+    } else {
+      update.status = newValue;
+      update[fieldPath] = firebase.firestore.FieldValue.delete();
+      await ref.update(update);
+      if (s) {
+        s.status = newValue;
+        if (s.dateStatusOverrides) { delete s.dateStatusOverrides[sessionDateKey]; }
+      }
+      logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Cleared override, status: ' + newValue;
+      auditLog('Cleared per-date mode override', logMsg);
+      // Update denormalized counts for base-status changes
+      var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
+      var pc = 0; var sc = 0;
+      allSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+      await db.collection(collection).doc(eventId).update({ pendingCount: pc, signupCount: sc });
+      _cmsEventsLoadedAt = 0; _cmsProgramsLoadedAt = 0;
+    }
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+    _showToast(isOverride ? 'Mode override saved.' : 'Status updated.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
 window.cmsSaveSignupNotes = async function(collection, eventId, signupId, textareaId) {
   var notes = (document.getElementById(textareaId) || {}).value || '';
   try {
@@ -18913,24 +19049,40 @@ window.cmsGenerateRecurringSessionSheet = function(d) {
   upcomingSessions.forEach(function(sess) {
     var dateSignups = active.filter(function(e) {
       var sDates = e._raw.selectedSessions || e._raw.selectedDates || [];
-      return sDates.some(function(sd) {
+      var matchedKey = '';
+      var ok = sDates.some(function(sd) {
         if (String(sd).indexOf(sess.date) === -1) return false;
         // Match on location to prevent cross-location duplication
         if (sess.location && (String(sd).indexOf('|') !== -1 || String(sd).indexOf('@ ') !== -1)) {
-          return String(sd).indexOf(sess.location) !== -1;
+          if (String(sd).indexOf(sess.location) === -1) return false;
         }
+        matchedKey = String(sd);
         return true;
       });
+      if (ok) e._sessionKey = matchedKey;
+      return ok;
     });
 
     if (dateSignups.length > 0) {
       var loc = sess.location ? (sess.location + (sess.venue ? ' (' + sess.venue + ')' : '')) : '';
       var time = '';
       if (sess.startTime && sess.endTime) time = sess.startTime + ' - ' + sess.endTime;
+      // Determine default mode for this session based on program schedule
+      var schMode = null;
+      if (programDoc && Array.isArray(programDoc.schedules)) {
+        for (var si = 0; si < programDoc.schedules.length; si++) {
+          var sch = programDoc.schedules[si];
+          if (sch && sch.location && sess.location && String(sch.location).indexOf(sess.location) !== -1) {
+            schMode = /virtual|zoom|online/i.test(sch.location) ? 'virtual' : 'in-person';
+            break;
+          }
+        }
+      }
       sessionGroups.push({
         date: sess.date,
         location: loc,
         time: time,
+        defaultMode: schMode,
         signups: dateSignups.sort(function(a, b) { return (a.status === 'confirmed' ? 0 : 1) - (b.status === 'confirmed' ? 0 : 1); })
       });
     }
@@ -18979,6 +19131,9 @@ window.cmsGenerateAllEventsSessionSheet = function() {
     else activeRaw.push(s);
   });
 
+  // One-time event default mode (location-based)
+  var evDefaultMode = (ev.location && /virtual|zoom|online/i.test(ev.location)) ? 'virtual' : (ev.location ? 'in-person' : null);
+
   // Multi-date one-time event: build one session group per date
   if (sigDates.length > 1) {
     var sessions = [];
@@ -18986,11 +19141,11 @@ window.cmsGenerateAllEventsSessionSheet = function() {
     sigDates.forEach(function(dateStr) {
       var dateSignups = activeRaw
         .filter(function(s) { return (s.selectedDates || []).indexOf(dateStr) !== -1; })
-        .map(entryFor);
+        .map(function(s) { var e = entryFor(s); e._sessionKey = dateStr; return e; });
       dateSignups.sort(function(a, b) { return (a.status === 'confirmed' ? 0 : 1) - (b.status === 'confirmed' ? 0 : 1); });
       dateSignups.forEach(function(e) { matchedIds[e._raw.id] = true; });
       if (dateSignups.length > 0) {
-        sessions.push({ date: '', location: dateStr, time: '', signups: dateSignups, eventTitle: title });
+        sessions.push({ date: '', location: dateStr, time: '', defaultMode: evDefaultMode, signups: dateSignups, eventTitle: title });
       }
     });
     activeRaw.forEach(function(s) {
@@ -19006,11 +19161,17 @@ window.cmsGenerateAllEventsSessionSheet = function() {
   }
 
   // Single-date / no-date one-time event: original flat layout
-  var confirmed = activeRaw.map(entryFor);
+  var confirmed = activeRaw.map(function(s) {
+    var e = entryFor(s);
+    // For single-date events, the key (if any) is the first selectedDates entry
+    var sd = (s.selectedDates && s.selectedDates[0]) || '';
+    if (sd) e._sessionKey = sd;
+    return e;
+  });
   confirmed.sort(function(a, b) { return (a.status === 'confirmed' ? 0 : 1) - (b.status === 'confirmed' ? 0 : 1); });
   var sessionsFlat = [];
   if (confirmed.length > 0) {
-    sessionsFlat.push({ date: '', location: '', time: '', signups: confirmed, eventTitle: title });
+    sessionsFlat.push({ date: '', location: '', time: '', defaultMode: evDefaultMode, signups: confirmed, eventTitle: title });
   }
   var htmlFlat = cmsSessionSheetBuildHtml(title, sessionsFlat, archived, true);
   cmsSessionSheetOpen(htmlFlat);
@@ -19057,6 +19218,9 @@ window.cmsSessionSheetBuildHtml = function(title, sessions, archived, isEvents) 
   h += '.b-leg{background:#e5e7eb;color:#374151}';
   h += '.b-par{background:#e0e7ff;color:#3730a3}';
   h += '.b-pro{background:#fef3c7;color:#92400e}';
+  h += '.b-inp{background:#fef3c7;color:#92400e}';
+  h += '.b-vir{background:#dbeafe;color:#1e40af}';
+  h += '.b-def{color:#94a3b8}';
   h += '.chk{width:12px;height:12px;border:1.5px solid #004E7C;border-radius:2px;display:inline-block}';
   h += '.archived .session-hdr{background:#6b7280;cursor:pointer}';
   h += '.archived td{color:#666}';
@@ -19088,7 +19252,7 @@ window.cmsSessionSheetBuildHtml = function(title, sessions, archived, isEvents) 
     h += '<span class="cnt">' + confCount + ' confirmed' + (pendCount > 0 ? ' + ' + pendCount + ' pending' : '') + '</span></div>';
     if (sess.location) h += '<div class="session-loc">' + cmsEsc(sess.location) + (isEvents && timeLabel ? ' -- ' + cmsEsc(timeLabel) : '') + '</div>';
 
-    h += '<table><tr><th style="width:20px"></th><th>Name</th><th>Phone</th><th>Type</th><th>Student</th><th>Grade</th><th>Status</th><th>Notes</th></tr>';
+    h += '<table><tr><th style="width:20px"></th><th>Name</th><th>Phone</th><th>Type</th><th>Student</th><th>Grade</th><th>Status</th><th>Mode</th><th>Notes</th></tr>';
     allSignups.forEach(function(s) {
       var notes = [];
       if (s.careCoordinator) notes.push('Care coord: ' + s.careCoordinator);
@@ -19107,6 +19271,23 @@ window.cmsSessionSheetBuildHtml = function(title, sessions, archived, isEvents) 
       var typeLabel = s.registrantType || (s.registration && s.registration.role) || '';
       var typeBadge = typeLabel.toLowerCase().indexOf('prof') >= 0 ? 'b-pro' : 'b-par';
 
+      // Per-date mode override (v117.4)
+      var raw = s._raw || {};
+      var skey = s._sessionKey || '';
+      var override = (skey && raw.dateStatusOverrides && raw.dateStatusOverrides[skey]) || '';
+      var modeCell;
+      if (override === 'confirmed-in-person') {
+        modeCell = '<span class="badge b-inp">In-Person</span>';
+      } else if (override === 'confirmed-virtual') {
+        modeCell = '<span class="badge b-vir">Virtual</span>';
+      } else if (sess.defaultMode === 'virtual') {
+        modeCell = '<span class="b-def">Virtual</span>';
+      } else if (sess.defaultMode === 'in-person') {
+        modeCell = '<span class="b-def">In-Person</span>';
+      } else {
+        modeCell = '<span class="b-def">&mdash;</span>';
+      }
+
       h += '<tr><td style="text-align:center"><span class="chk"></span></td>';
       h += '<td class="name">' + cmsEsc(s.name) + '</td>';
       h += '<td class="phone">' + cmsEsc(s.phone) + '</td>';
@@ -19115,6 +19296,7 @@ window.cmsSessionSheetBuildHtml = function(title, sessions, archived, isEvents) 
       h += '<td>' + cmsEsc(s.grade) + '</td>';
       var _sBadge = s.status === 'confirmed' ? '<span class="badge b-conf">Confirmed</span>' : '<span class="badge" style="background:#fef3c7;color:#92400e;">' + cmsEsc(s.status === 'new' ? 'New' : s.status === 'pending' ? 'Pending' : s.status || 'Pending') + '</span>';
       h += '<td>' + _sBadge + '</td>';
+      h += '<td>' + modeCell + '</td>';
       h += '<td class="notes">' + cmsEsc(notes.join('. ')) + '</td></tr>';
     });
     h += '</table></div>';
