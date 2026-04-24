@@ -3981,7 +3981,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v118.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v118.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16388,7 +16388,7 @@ function cmsRenderEvents(items, container, isRecurring) {
   // Divider + Section: Past Events (date passed, still on public sites)
   if (pastItems.length > 0) {
     html += '<div style="grid-column:1/-1;border-top:2px solid #d1d5db;margin:8px 0 0;padding-top:8px;font-size:.85rem;font-weight:700;color:#64748B;display:flex;align-items:center;gap:8px;"><span style="display:inline-block;width:8px;height:8px;background:#f59e0b;border-radius:50%;"></span> Past Events (' + pastItems.length + ') <span style="font-weight:400;font-size:.75rem;color:#9ca3af;">Event date passed, still visible on public sites</span></div>';
-    pastItems.forEach(function(ev) { html += cmsRenderEventCard(ev, collection, isRecurring); });
+    pastItems.forEach(function(ev) { html += cmsRenderEventCard(ev, collection, isRecurring, false, true); });
   }
 
   // Divider + Section: Expired (moveToPastDate reached, removed from public sites)
@@ -16406,7 +16406,7 @@ function cmsRenderEvents(items, container, isRecurring) {
   container.innerHTML = html;
 }
 
-function cmsRenderEventCard(ev, collection, isRecurring, isExpired) {
+function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
   var html = '';
   {
     var isArchived = ev.archived === true;
@@ -16462,6 +16462,22 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired) {
       var announcedLabel = ev.announcementSent ? 'Re-send Announcement' : 'Send Announcement';
       var announcedColor = ev.announcementSent ? '#94A3B8' : '#0891B2';
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + rsEscape(ev.title || '') + '\')">' + announcedLabel + '</button>';
+    }
+    // Recording & Slides button — past, non-recurring, non-archived events only (v1).
+    // State-aware for single-date events (flips to "Sent ... Resend individually").
+    if (isPast && !isRecurring && !isArchived && !isExpired) {
+      var recKey = '_single';
+      var isMultiDate = Array.isArray(ev.signupDates) && ev.signupDates.length > 1;
+      var recSent = ev.recordingEmailSent && ev.recordingEmailSent[recKey];
+      if (isMultiDate) {
+        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Send Recording &amp; Slides</button>';
+      } else if (recSent) {
+        var _sentWhen = recSent.sentAt && recSent.sentAt.toDate ? recSent.sentAt.toDate() : (recSent.sentAt && recSent.sentAt.seconds ? new Date(recSent.sentAt.seconds * 1000) : null);
+        var _sentLbl = _sentWhen ? _sentWhen.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Sent ' + rsEscape(_sentLbl) + ' to ' + (recSent.recipientCount || 0) + ' -- Resend</button>';
+      } else {
+        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Send Recording &amp; Slides</button>';
+      }
     }
     if (isArchived) {
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',function(){' + (isRecurring ? 'cmsLoadPrograms' : 'cmsLoadEvents') + '(true);})">Restore</button>';
@@ -18786,6 +18802,56 @@ window.cmsSendNoShowReInvitesFromSummary = function() {
 
 /* ── Send Recording & Slides (one-time events only, v1) ── */
 var _cmsRecordingUpload = null; // { file, storagePath, downloadUrl } — populated after upload
+
+/* Card-level shortcut: loads event + signups, then opens the recording modal.
+   For multi-date events, prompts for a session date first. */
+window.cmsOpenRecordingFromCard = async function(eventId, title) {
+  try {
+    _showToast('Loading event...', '#0891B2');
+    var evSnap = await db.collection('events').doc(eventId).get();
+    if (!evSnap.exists) { _showToast('Event not found.', '#DC2626'); return; }
+    var evDoc = evSnap.data();
+
+    var sigSnap = await db.collection('events').doc(eventId).collection('signups').get();
+    var signups = [];
+    sigSnap.forEach(function(s) { signups.push({ id: s.id, ...s.data() }); });
+
+    // Pick session date for multi-date events
+    var sessionDate = null;
+    var dates = Array.isArray(evDoc.signupDates) ? evDoc.signupDates : [];
+    if (dates.length > 1) {
+      var today = _localToday();
+      var pastDates = dates.filter(function(d) { return d && d <= today; }).sort().reverse();
+      if (!pastDates.length) { _showToast('No past session dates on this event.', '#64748B'); return; }
+      var picked = prompt('This event has multiple sessions. Enter which session date to send for (YYYY-MM-DD):\n\n' + pastDates.join('\n'), pastDates[0]);
+      if (!picked) return;
+      picked = picked.trim();
+      if (pastDates.indexOf(picked) === -1) { _showToast('Date not recognized.', '#DC2626'); return; }
+      sessionDate = picked;
+    }
+
+    // Populate the cached data objects so the modal reads the right context
+    _cmsSignupsModalData = {
+      eventId: eventId,
+      eventTitle: title || evDoc.title || 'Event',
+      isRecurring: false,
+      signups: signups,
+      programDoc: null,
+    };
+    _cmsEventSummaryData = {
+      eventId: eventId,
+      collection: 'events',
+      isRecurring: false,
+      feedbackDocs: [],
+      selectedSessionDate: sessionDate,
+      eventDoc: evDoc,
+    };
+
+    cmsOpenRecordingModal();
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
+  }
+};
 
 window.cmsOpenRecordingModal = async function() {
   var esd = _cmsEventSummaryData;
