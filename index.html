@@ -3981,7 +3981,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v118.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v118.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4845,15 +4845,26 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
           <h2 class="section-title">Email Log <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Every email the system sends is recorded here with the exact HTML that was delivered. Click a row to preview the message.')">i</span></h2>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <select id="emailLogTypeFilter" onchange="loadEmailLog()" style="padding:6px 10px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.85rem;">
+            <select id="emailLogTypeFilter" onchange="_emailLogPage=1;renderEmailLogTable()" style="padding:6px 10px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.85rem;">
               <option value="">All types</option>
               <option value="registration">Registration</option>
               <option value="registration-resend">Registration (resend)</option>
+              <option value="signup-reschedule">Signup rescheduled</option>
+              <option value="signup-cancellation">Signup cancelled</option>
+              <option value="event-rescheduled">Event rescheduled</option>
+              <option value="event-cancelled">Event cancelled</option>
+              <option value="session-cancelled">Session cancelled</option>
+              <option value="event-reminder-5day">Event reminder (5-day)</option>
+              <option value="event-reminder-1day">Event reminder (1-day)</option>
+              <option value="event-announcement">Event announcement</option>
+              <option value="event-recording">Event recording</option>
+              <option value="event-recording-resend">Event recording (resend)</option>
               <option value="no-show-reinvite">No-show re-invite</option>
               <option value="feedback-request">Feedback request</option>
+              <option value="feedback-reminder">Feedback reminder</option>
               <option value="daily-session-sheet">Daily session sheet</option>
             </select>
-            <input id="emailLogSearch" type="text" placeholder="Search to/subject/name..." oninput="renderEmailLogTable()" style="padding:6px 10px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.85rem;min-width:220px;">
+            <input id="emailLogSearch" type="text" placeholder="Search to/subject/name..." oninput="_emailLogPage=1;renderEmailLogTable()" style="padding:6px 10px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.85rem;min-width:220px;">
             <button class="btn btn-ghost" onclick="loadEmailLog()" style="font-size:.8rem;padding:6px 14px;">Refresh</button>
           </div>
         </div>
@@ -22441,11 +22452,24 @@ window.auditLog = async function(action, details) {
 };
 
 var _emailLogCache = [];
+var _emailLogPage = 1;
+var _emailLogPageSize = 100;
 var _emailLogTypeColors = {
   'registration': '#2563EB',
   'registration-resend': '#7C3AED',
+  'signup-reschedule': '#0EA5E9',
+  'signup-cancellation': '#DC2626',
+  'event-rescheduled': '#0284C7',
+  'event-cancelled': '#B91C1C',
+  'session-cancelled': '#EF4444',
+  'event-reminder-5day': '#F59E0B',
+  'event-reminder-1day': '#EA580C',
+  'event-announcement': '#9333EA',
+  'event-recording': '#0E7490',
+  'event-recording-resend': '#7C3AED',
   'no-show-reinvite': '#D97706',
   'feedback-request': '#16A34A',
+  'feedback-reminder': '#15803D',
   'daily-session-sheet': '#0891B2',
   'unknown': '#64748B'
 };
@@ -22854,12 +22878,10 @@ window.loadEmailLog = async function() {
   if (!container) return;
   container.innerHTML = '<div class="cms-empty"><p>Loading email log...</p></div>';
   try {
-    var typeFilter = (document.getElementById('emailLogTypeFilter') || {}).value || '';
-    var q = firebase.firestore().collection('emailLog').orderBy('sentAt', 'desc').limit(300);
-    if (typeFilter) q = firebase.firestore().collection('emailLog').where('type', '==', typeFilter).orderBy('sentAt', 'desc').limit(300);
-    var snap = await q.get();
+    var snap = await firebase.firestore().collection('emailLog').orderBy('sentAt', 'desc').limit(500).get();
     _emailLogCache = [];
     snap.forEach(function(d) { _emailLogCache.push({ id: d.id, ...d.data() }); });
+    _emailLogPage = 1;
     renderEmailLogTable();
   } catch (err) {
     container.innerHTML = '<div class="cms-empty"><p>Error loading email log: ' + err.message + '</p></div>';
@@ -22870,7 +22892,9 @@ window.renderEmailLogTable = function() {
   var container = document.getElementById('emailLogContent');
   if (!container) return;
   var search = ((document.getElementById('emailLogSearch') || {}).value || '').toLowerCase();
+  var typeFilter = ((document.getElementById('emailLogTypeFilter') || {}).value || '');
   var rows = _emailLogCache.filter(function(r) {
+    if (typeFilter && (r.type || '') !== typeFilter) return false;
     if (!search) return true;
     var blob = ((r.to || '') + ' ' + (r.subject || '') + ' ' + (r.recipientName || '') + ' ' + (r.type || '')).toLowerCase();
     return blob.indexOf(search) !== -1;
@@ -22879,6 +22903,15 @@ window.renderEmailLogTable = function() {
     container.innerHTML = '<div class="cms-empty"><p>No email log entries match.</p></div>';
     return;
   }
+
+  // Clamp current page after a filter change shrinks the result set
+  var totalPages = Math.max(1, Math.ceil(rows.length / _emailLogPageSize));
+  if (_emailLogPage > totalPages) _emailLogPage = totalPages;
+  if (_emailLogPage < 1) _emailLogPage = 1;
+  var startIdx = (_emailLogPage - 1) * _emailLogPageSize;
+  var endIdx = Math.min(startIdx + _emailLogPageSize, rows.length);
+  var pageRows = rows.slice(startIdx, endIdx);
+
   var html = '<table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
   html += '<thead><tr style="background:var(--sand-light);text-align:left;">';
   html += '<th style="padding:10px 14px;font-weight:700;border-bottom:2px solid rgba(8,145,178,.2);">Sent</th>';
@@ -22888,7 +22921,7 @@ window.renderEmailLogTable = function() {
   html += '<th style="padding:10px 14px;font-weight:700;border-bottom:2px solid rgba(8,145,178,.2);">Status</th>';
   html += '<th style="padding:10px 14px;font-weight:700;border-bottom:2px solid rgba(8,145,178,.2);"></th>';
   html += '</tr></thead><tbody>';
-  rows.forEach(function(r) {
+  pageRows.forEach(function(r) {
     var ts = r.sentAt && r.sentAt.toDate ? r.sentAt.toDate() : null;
     var dateStr = ts ? ts.toLocaleDateString('en-US', {month:'short',day:'numeric'}) + ' ' + ts.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true}) : '';
     var color = _emailLogTypeColors[r.type || 'unknown'] || '#64748B';
@@ -22911,6 +22944,35 @@ window.renderEmailLogTable = function() {
     html += '</tr>';
   });
   html += '</tbody></table>';
+
+  // Pagination footer: count summary + Prev / numbered / Next
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 6px;flex-wrap:wrap;">';
+  html += '<div style="font-size:.82rem;color:var(--text-soft);">Showing <strong>' + (startIdx + 1) + '–' + endIdx + '</strong> of <strong>' + rows.length + '</strong>' + (_emailLogCache.length > rows.length ? ' (filtered from ' + _emailLogCache.length + ')' : '') + '</div>';
+  if (totalPages > 1) {
+    var btnBase = 'font-size:.82rem;padding:5px 11px;border:1px solid #CBD5E1;background:#fff;color:var(--text-dark);border-radius:8px;cursor:pointer;';
+    var btnActive = 'font-size:.82rem;padding:5px 11px;border:1px solid #0891B2;background:#0891B2;color:#fff;border-radius:8px;cursor:default;font-weight:700;';
+    var btnDisabled = 'font-size:.82rem;padding:5px 11px;border:1px solid #E2E8F0;background:#F8FAFC;color:#94A3B8;border-radius:8px;cursor:not-allowed;';
+    html += '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">';
+    html += '<button onclick="_emailLogPage=Math.max(1,_emailLogPage-1);renderEmailLogTable()" style="' + (_emailLogPage <= 1 ? btnDisabled : btnBase) + '"' + (_emailLogPage <= 1 ? ' disabled' : '') + '>Prev</button>';
+
+    // Build a windowed page list: always include 1, last, and a window around current.
+    var pages = [];
+    var add = function(n) { if (n >= 1 && n <= totalPages && pages.indexOf(n) === -1) pages.push(n); };
+    add(1); add(totalPages);
+    for (var i = _emailLogPage - 2; i <= _emailLogPage + 2; i++) add(i);
+    pages.sort(function(a,b){return a-b;});
+    var prev = 0;
+    pages.forEach(function(p) {
+      if (p - prev > 1) html += '<span style="padding:0 4px;color:#94A3B8;">…</span>';
+      html += '<button onclick="_emailLogPage=' + p + ';renderEmailLogTable()" style="' + (p === _emailLogPage ? btnActive : btnBase) + '">' + p + '</button>';
+      prev = p;
+    });
+
+    html += '<button onclick="_emailLogPage=Math.min(' + totalPages + ',_emailLogPage+1);renderEmailLogTable()" style="' + (_emailLogPage >= totalPages ? btnDisabled : btnBase) + '"' + (_emailLogPage >= totalPages ? ' disabled' : '') + '>Next</button>';
+    html += '</div>';
+  }
+  html += '</div>';
+
   container.innerHTML = html;
 };
 
