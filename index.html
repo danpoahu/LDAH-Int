@@ -3981,7 +3981,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v118.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v118.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22454,6 +22454,7 @@ window.auditLog = async function(action, details) {
 var _emailLogCache = [];
 var _emailLogPage = 1;
 var _emailLogPageSize = 100;
+var _emailLogStatusFilter = ''; // '', 'sent', 'failed'
 var _emailLogTypeColors = {
   'registration': '#2563EB',
   'registration-resend': '#7C3AED',
@@ -22888,19 +22889,57 @@ window.loadEmailLog = async function() {
   }
 };
 
+window.cmsSetEmailLogStatus = function(status) {
+  _emailLogStatusFilter = (_emailLogStatusFilter === status) ? '' : status;
+  _emailLogPage = 1;
+  renderEmailLogTable();
+};
+
 window.renderEmailLogTable = function() {
   var container = document.getElementById('emailLogContent');
   if (!container) return;
   var search = ((document.getElementById('emailLogSearch') || {}).value || '').toLowerCase();
   var typeFilter = ((document.getElementById('emailLogTypeFilter') || {}).value || '');
+
+  // KPI counts come from the full cache so the strip reflects what's loaded,
+  // not what's been filtered down to.
+  var kpiTotal = _emailLogCache.length;
+  var kpiSent = 0, kpiFailed = 0, kpiToday = 0;
+  var todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  _emailLogCache.forEach(function(r) {
+    if (r.success) kpiSent++; else kpiFailed++;
+    var ts = r.sentAt && r.sentAt.toDate ? r.sentAt.toDate() : null;
+    if (ts && ts.getTime() >= todayStart.getTime()) kpiToday++;
+  });
+
   var rows = _emailLogCache.filter(function(r) {
     if (typeFilter && (r.type || '') !== typeFilter) return false;
+    if (_emailLogStatusFilter === 'sent' && !r.success) return false;
+    if (_emailLogStatusFilter === 'failed' && r.success) return false;
     if (!search) return true;
     var blob = ((r.to || '') + ' ' + (r.subject || '') + ' ' + (r.recipientName || '') + ' ' + (r.type || '')).toLowerCase();
     return blob.indexOf(search) !== -1;
   });
+
+  // KPI strip — uses the existing es-stat-cards theme. Active card gets a
+  // stronger border + ring so the current filter is obvious at a glance.
+  var kpiHtml = '<div class="es-stat-cards">';
+  var ringActive = 'box-shadow:0 0 0 3px rgba(8,145,178,.35);transform:translateY(-1px);';
+  function kpiCard(bg, color, border, num, lbl, statusVal, title) {
+    var active = (statusVal === '' && _emailLogStatusFilter === '') || (statusVal && statusVal === _emailLogStatusFilter);
+    var style = 'background:' + bg + ';color:' + color + ';border:1px solid ' + border + ';cursor:pointer;transition:all .15s;' + (active ? ringActive : '');
+    return '<div class="es-stat-card" style="' + style + '" title="' + title + '" onclick="cmsSetEmailLogStatus(\'' + statusVal + '\')">' +
+      '<div class="es-stat-num">' + num + '</div><div class="es-stat-lbl">' + lbl + '</div></div>';
+  }
+  kpiHtml += kpiCard('#F1F5F9', '#0F172A', '#CBD5E1', kpiTotal, 'Total Loaded', '', 'Click to clear status filter');
+  kpiHtml += kpiCard('#F0FDF4', '#166534', '#BBF7D0', kpiSent, 'Sent', 'sent', 'Click to filter to successful sends');
+  kpiHtml += kpiCard('#FEF2F2', '#991B1B', '#FECACA', kpiFailed, 'Failed', 'failed', 'Click to filter to failed sends');
+  kpiHtml += '<div class="es-stat-card" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;" title="Sent today (HST)">' +
+    '<div class="es-stat-num">' + kpiToday + '</div><div class="es-stat-lbl">Today</div></div>';
+  kpiHtml += '</div>';
+
   if (!rows.length) {
-    container.innerHTML = '<div class="cms-empty"><p>No email log entries match.</p></div>';
+    container.innerHTML = kpiHtml + '<div class="cms-empty"><p>No email log entries match.</p></div>';
     return;
   }
 
@@ -22912,7 +22951,7 @@ window.renderEmailLogTable = function() {
   var endIdx = Math.min(startIdx + _emailLogPageSize, rows.length);
   var pageRows = rows.slice(startIdx, endIdx);
 
-  var html = '<table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
+  var html = kpiHtml + '<table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
   html += '<thead><tr style="background:var(--sand-light);text-align:left;">';
   html += '<th style="padding:10px 14px;font-weight:700;border-bottom:2px solid rgba(8,145,178,.2);">Sent</th>';
   html += '<th style="padding:10px 14px;font-weight:700;border-bottom:2px solid rgba(8,145,178,.2);">Type</th>';
