@@ -3981,7 +3981,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.0.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17758,6 +17758,12 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   if (_regType) h += '<span style="font-size:.72rem;font-weight:600;color:#0369A1;background:#E0F2FE;border-radius:12px;padding:1px 8px;white-space:nowrap;">' + rsEscape(_regType) + '</span>';
   h += cmsRegStatusBadge(s);
   h += cmsAttendanceBadge(s);
+  // Signup-source attribution: tiny pill so staff can see at a glance who came in via the email blast vs other channels
+  if (s.signupSource === 'announcement-email') {
+    h += '<span title="Came in via announcement email" style="font-size:.7rem;font-weight:600;color:#155E75;background:#CFFAFE;border:1px solid #67E8F9;border-radius:12px;padding:1px 8px;white-space:nowrap;">via announcement</span>';
+  } else if (s.signupSource === 'registration-email') {
+    h += '<span title="Came in via registration email" style="font-size:.7rem;font-weight:600;color:#86198F;background:#FAE8FF;border:1px solid #F0ABFC;border-radius:12px;padding:1px 8px;white-space:nowrap;">via reg email</span>';
+  }
   if (isArchived) h += '<span style="font-size:.72rem;color:#94A3B8;font-weight:400;">(archived)</span>';
   h += '</div>';
 
@@ -18722,13 +18728,16 @@ window.cmsOpenEventSummary = async function() {
   try {
     var eventDocProm = db.collection(collection).doc(d.eventId).get();
     var feedbackProm = db.collection('eventFeedback').where('eventId', '==', d.eventId).get();
-    var results = await Promise.all([eventDocProm, feedbackProm]);
+    var announceProm = db.collection(collection).doc(d.eventId).collection('announcementRecipients').get();
+    var results = await Promise.all([eventDocProm, feedbackProm, announceProm]);
     var eventDoc = results[0].exists ? results[0].data() : {};
     var feedbackDocs = [];
     results[1].forEach(function(doc) { feedbackDocs.push({ id: doc.id, ...doc.data() }); });
+    var announcementSent = results[2].size;
     _cmsEventSummaryData.feedbackDocs = feedbackDocs;
     _cmsEventSummaryData.eventDoc = eventDoc;
-    cmsRenderEventSummary(d, eventDoc, feedbackDocs);
+    _cmsEventSummaryData.announcementSent = announcementSent;
+    cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent);
   } catch (err) {
     document.getElementById('cmsEventSummaryContent').innerHTML = '<div class="cms-empty"><p>Error loading summary: ' + rsEscape(err.message) + '</p></div>';
   }
@@ -18738,10 +18747,11 @@ window.cmsCloseEventSummary = function() {
   document.getElementById('cmsEventSummaryOverlay').classList.remove('active');
 };
 
-function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
+function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   var container = document.getElementById('cmsEventSummaryContent');
   var isRecurring = d.isRecurring;
   var signups = d.signups || [];
+  if (typeof announcementSent !== 'number') announcementSent = (_cmsEventSummaryData && _cmsEventSummaryData.announcementSent) || 0;
   var sessionDate = _cmsEventSummaryData.selectedSessionDate;
   var html = '';
 
@@ -18838,6 +18848,26 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs) {
   html += '<div class="es-stat-card" style="background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;">';
   html += '<div class="es-stat-num">' + attendanceRate + '%</div><div class="es-stat-lbl">Attendance Rate</div></div>';
   html += '</div>';
+
+  // Source attribution: where did the signups come from?
+  var fromAnnouncement = active.filter(function(s) { return s.signupSource === 'announcement-email'; }).length;
+  var fromRegistration = active.filter(function(s) { return s.signupSource === 'registration-email'; }).length;
+  if (announcementSent > 0 || fromAnnouncement > 0 || fromRegistration > 0) {
+    var conversionRate = announcementSent > 0 ? Math.round((fromAnnouncement / announcementSent) * 100) : 0;
+    html += '<div class="es-section-title">Signup Source</div>';
+    html += '<div class="es-stat-cards">';
+    html += '<div class="es-stat-card" style="background:#ECFEFF;color:#155E75;border:1px solid #A5F3FC;">';
+    html += '<div class="es-stat-num">' + fromAnnouncement + '</div><div class="es-stat-lbl">From Announcement</div></div>';
+    html += '<div class="es-stat-card" style="background:#FDF4FF;color:#86198F;border:1px solid #F5D0FE;">';
+    html += '<div class="es-stat-num">' + fromRegistration + '</div><div class="es-stat-lbl">From Registration Email</div></div>';
+    if (announcementSent > 0) {
+      html += '<div class="es-stat-card" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;">';
+      html += '<div class="es-stat-num">' + announcementSent + '</div><div class="es-stat-lbl">Announcements Sent</div></div>';
+      html += '<div class="es-stat-card" style="background:#F0FDFA;color:#115E59;border:1px solid #99F6E4;">';
+      html += '<div class="es-stat-num">' + conversionRate + '%</div><div class="es-stat-lbl">Announcement Conversion</div></div>';
+    }
+    html += '</div>';
+  }
 
   // Filter feedback by session date if applicable
   var filteredFeedback = feedbackDocs;
