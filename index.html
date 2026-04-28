@@ -3985,7 +3985,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.3.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17299,11 +17299,44 @@ function cmsRenderRecurringQuestions() {
 }
 
 /* ── Recurring: Generate upcoming session dates from schedule patterns ── */
+// Returns true (or the reason string) if the given (date, location, venue)
+// session is cancelled. Backwards-compat: legacy entries with no `location`
+// field cancel every session on that date. New composite entries match only
+// the specific schedule (date + location + optional venue).
+function _cmsIsSessionCancelled(sessionDate, sessionLocation, sessionVenue, cancelledDates) {
+  var list = cancelledDates || [];
+  for (var i = 0; i < list.length; i++) {
+    var cd = list[i];
+    if (cd.date !== sessionDate) continue;
+    if (!cd.location) return cd.reason || true; // legacy date-only — kills all schedules on this date
+    if (cd.location !== sessionLocation) continue;
+    if (cd.venue && cd.venue !== sessionVenue) continue;
+    return cd.reason || true;
+  }
+  return false;
+}
+
+// Match a cancelled-date entry against a signup's selectedSessions string
+// (format: "YYYY-MM-DD|location[ – venue]|time-range"). Used by displaced
+// signup detection so cancelling the Hilo session doesn't mark Oahu signups
+// as displaced.
+function _cmsCancelledMatchesSessionStr(cd, sessionStr) {
+  var parts = String(sessionStr || '').split('|');
+  if (!parts[0] || parts[0] !== cd.date) return false;
+  if (!cd.location) return true; // legacy — matches everything on that date
+  var locVenuePart = parts[1] || '';
+  var bits = locVenuePart.split(' – ');
+  var sessLocation = bits[0] || '';
+  var sessVenue = bits.slice(1).join(' – ');
+  if (cd.location !== sessLocation) return false;
+  if (cd.venue && cd.venue !== sessVenue) return false;
+  return true;
+}
+
 function cmsGenerateSessionDates(schedules, cancelledDates, days) {
   var sessions = [];
   var today = new Date(); today.setHours(0,0,0,0);
   var end = new Date(today); end.setDate(end.getDate() + (days || 30));
-  var cancelled = (cancelledDates || []).reduce(function(m, cd) { m[cd.date] = cd.reason || true; return m; }, {});
 
   (schedules || []).forEach(function(sch) {
     var d = new Date(today);
@@ -17317,15 +17350,18 @@ function cmsGenerateSessionDates(schedules, cancelledDates, days) {
       }
       if (dominated) {
         var iso = d.toISOString().split('T')[0];
+        var location = sch.location || '';
+        var venue = sch.venue || '';
+        var cancelMatch = _cmsIsSessionCancelled(iso, location, venue, cancelledDates);
         sessions.push({
           date: iso,
           dayName: _CMS_DAY_NAMES[dow],
-          location: sch.location || '',
-          venue: sch.venue || '',
+          location: location,
+          venue: venue,
           startTime: sch.startTime || '',
           endTime: sch.endTime || '',
-          cancelled: !!cancelled[iso],
-          cancelReason: cancelled[iso] === true ? '' : (cancelled[iso] || '')
+          cancelled: !!cancelMatch,
+          cancelReason: cancelMatch === true ? '' : (cancelMatch || '')
         });
       }
       d.setDate(d.getDate() + 1);
@@ -18014,31 +18050,29 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   return h;
 }
 
-/* ── Displaced Signups: detect signups with sessions on cancelled dates ── */
+/* ── Displaced Signups: detect signups with sessions on cancelled dates ──
+ * Uses _cmsCancelledMatchesSessionStr so a cancelled Hilo session doesn't
+ * mark an Oahu signup on the same date as displaced. */
 function cmsGetDisplacedSignups(signups, cancelledDates) {
   if (!cancelledDates || !cancelledDates.length) return [];
-  var cancelledSet = {};
-  cancelledDates.forEach(function(cd) { cancelledSet[cd.date] = true; });
   return signups.filter(function(s) {
     if (s.archived || s.status === 'cancelled') return false;
     var sessions = s.selectedSessions || [];
     return sessions.some(function(sd) {
-      return Object.keys(cancelledSet).some(function(cDate) {
-        return sd.indexOf(cDate) !== -1;
-      });
+      return cancelledDates.some(function(cd) { return _cmsCancelledMatchesSessionStr(cd, sd); });
     });
   });
 }
 
 function cmsGetDisplacedSessionsForSignup(signup, cancelledDates) {
   if (!cancelledDates || !cancelledDates.length) return [];
-  var cancelledSet = {};
-  cancelledDates.forEach(function(cd) { cancelledSet[cd.date] = true; });
   var sessions = signup.selectedSessions || [];
   var displaced = [];
   sessions.forEach(function(sd, idx) {
-    Object.keys(cancelledSet).forEach(function(cDate) {
-      if (sd.indexOf(cDate) !== -1) displaced.push({ index: idx, session: sd, cancelledDate: cDate });
+    cancelledDates.forEach(function(cd) {
+      if (_cmsCancelledMatchesSessionStr(cd, sd)) {
+        displaced.push({ index: idx, session: sd, cancelledDate: cd.date });
+      }
     });
   });
   return displaced;
@@ -18381,7 +18415,7 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
     html += '<div style="margin-bottom:16px;border:2px solid ' + (sess.cancelled ? '#FECACA' : '#0891B2') + ';border-radius:10px;overflow:hidden;' + (sess.cancelled ? 'background:#FEF2F2;' : '') + '">';
     // Date header with cancel checkbox
     html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:' + (sess.cancelled ? '#FEE2E2' : '#f0f9ff') + ';border-bottom:1px solid ' + (sess.cancelled ? '#FECACA' : '#e2e8f0') + ';" title="' + (sess.cancelled ? 'Uncheck to restore this session' : 'Check to cancel this session') + '">';
-    html += '<input type="checkbox" ' + (sess.cancelled ? 'checked' : '') + ' onchange="cmsToggleSessionCancel(\'' + rsEscape(eventId) + '\',\'' + rsEscape(sess.date) + '\',this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#DC2626;">';
+    html += '<input type="checkbox" ' + (sess.cancelled ? 'checked' : '') + ' onchange="cmsToggleSessionCancel(\'' + rsEscape(eventId) + '\',\'' + rsEscape(sess.date) + '\',\'' + rsEscape(sess.location || '') + '\',\'' + rsEscape(sess.venue || '') + '\',this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#DC2626;">';
     html += '<label style="font-size:.68rem;color:' + (sess.cancelled ? '#DC2626' : '#64748B') + ';cursor:pointer;user-select:none;" onclick="this.previousElementSibling.click()">' + (sess.cancelled ? 'Restore' : 'Cancel') + '</label>';
     html += '<div style="flex:1;">';
     html += '<div style="font-weight:600;font-size:.88rem;' + (sess.cancelled ? 'color:#DC2626;text-decoration:line-through;' : 'color:var(--primary-blue);') + '">' + rsEscape(sessLabel) + '</div>';
@@ -18447,24 +18481,39 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
   container.innerHTML = html;
 }
 
-window.cmsToggleSessionCancel = async function(eventId, dateStr, isCancelled) {
+// Cancel/restore a single recurring-program session. Uses composite key
+// (date + location + venue) so cancelling the Hilo Thursday doesn't drag
+// the Oahu Thursday with it. `location` and `venue` are optional for
+// backwards compatibility; if both are omitted we still write a date-only
+// entry that cancels everything on that date (matches old behavior).
+window.cmsToggleSessionCancel = async function(eventId, dateStr, location, venue, isCancelled) {
   try {
+    // Back-compat: old callers used (eventId, dateStr, isCancelled). Detect
+    // and adapt — if 3rd arg looks like a boolean, shift everything down.
+    if (typeof location === 'boolean') { isCancelled = location; location = ''; venue = ''; }
+    if (typeof venue === 'boolean') { isCancelled = venue; venue = ''; }
     var docRef = db.collection('recurringEvents').doc(eventId);
     var doc = await docRef.get();
     if (!doc.exists) return;
     var data = doc.data();
     var cancelledDates = data.cancelledDates || [];
+    var loc = location || '';
+    var ven = venue || '';
+    var matchExisting = function(cd) {
+      return cd.date === dateStr && (cd.location || '') === loc && (cd.venue || '') === ven;
+    };
 
     if (isCancelled) {
-      if (!cancelledDates.some(function(cd) { return cd.date === dateStr; })) {
-        cancelledDates.push({ date: dateStr, reason: '' });
+      if (!cancelledDates.some(matchExisting)) {
+        cancelledDates.push({ date: dateStr, location: loc, venue: ven, reason: '' });
       }
     } else {
-      cancelledDates = cancelledDates.filter(function(cd) { return cd.date !== dateStr; });
+      cancelledDates = cancelledDates.filter(function(cd) { return !matchExisting(cd); });
     }
 
     await docRef.update({ cancelledDates: cancelledDates });
-    auditLog(isCancelled ? 'Cancelled session' : 'Restored session', (data.title || 'Program') + ' — ' + dateStr);
+    var auditDetail = (data.title || 'Program') + ' — ' + dateStr + (loc ? ' (' + loc + (ven ? ' / ' + ven : '') + ')' : '');
+    auditLog(isCancelled ? 'Cancelled session' : 'Restored session', auditDetail);
     _cmsSignupsModalData.programDoc.cancelledDates = cancelledDates;
     cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
     _showToast(isCancelled ? 'Session cancelled.' : 'Session restored.', isCancelled ? '#DC2626' : '#16A34A');
@@ -18584,7 +18633,7 @@ function cmsRenderFutureDates() {
       var textStyle = isCancelled ? 'text-decoration:line-through;color:#991B1B;' : 'color:#0F172A;';
       var countColor = count > 0 ? '#0891B2' : '#94A3B8';
       html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #E2E8F0;' + rowStyle + '">';
-      html += '<input type="checkbox" ' + (isCancelled ? 'checked' : '') + ' onchange="cmsToggleFutureDateCancel(\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.date) + '\',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#DC2626;flex-shrink:0;">';
+      html += '<input type="checkbox" ' + (isCancelled ? 'checked' : '') + ' onchange="cmsToggleFutureDateCancel(\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.date) + '\',\'' + rsEscape(s.location || '') + '\',\'' + rsEscape(s.venue || '') + '\',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#DC2626;flex-shrink:0;">';
       html += '<div style="flex:1;font-size:.88rem;line-height:1.4;' + textStyle + '">' +
         '<strong>' + rsEscape(dateLabel) + '</strong> &mdash; ' + rsEscape(timeRange) + ' @ ' + rsEscape(locationStr) +
         '</div>';
@@ -18597,25 +18646,32 @@ function cmsRenderFutureDates() {
   body.innerHTML = html;
 }
 
-window.cmsToggleFutureDateCancel = async function(eventId, dateStr, isCancelled) {
+window.cmsToggleFutureDateCancel = async function(eventId, dateStr, location, venue, isCancelled) {
   try {
+    if (typeof location === 'boolean') { isCancelled = location; location = ''; venue = ''; }
+    if (typeof venue === 'boolean') { isCancelled = venue; venue = ''; }
     var docRef = db.collection('recurringEvents').doc(eventId);
     var doc = await docRef.get();
     if (!doc.exists) return;
     var data = doc.data();
     var cancelledDates = data.cancelledDates || [];
+    var loc = location || '';
+    var ven = venue || '';
+    var matchExisting = function(cd) {
+      return cd.date === dateStr && (cd.location || '') === loc && (cd.venue || '') === ven;
+    };
 
     if (isCancelled) {
-      if (!cancelledDates.some(function(cd) { return cd.date === dateStr; })) {
-        cancelledDates.push({ date: dateStr, reason: '' });
+      if (!cancelledDates.some(matchExisting)) {
+        cancelledDates.push({ date: dateStr, location: loc, venue: ven, reason: '' });
       }
     } else {
-      cancelledDates = cancelledDates.filter(function(cd) { return cd.date !== dateStr; });
+      cancelledDates = cancelledDates.filter(function(cd) { return !matchExisting(cd); });
     }
 
     await docRef.update({ cancelledDates: cancelledDates });
-    auditLog(isCancelled ? 'Cancelled future session' : 'Restored future session',
-             (data.title || 'Program') + ' — ' + dateStr);
+    var auditDetail = (data.title || 'Program') + ' — ' + dateStr + (loc ? ' (' + loc + (ven ? ' / ' + ven : '') + ')' : '');
+    auditLog(isCancelled ? 'Cancelled future session' : 'Restored future session', auditDetail);
     if (_cmsFutureDatesData && _cmsFutureDatesData.eventId === eventId) {
       _cmsFutureDatesData.program.cancelledDates = cancelledDates;
       cmsRenderFutureDates();
