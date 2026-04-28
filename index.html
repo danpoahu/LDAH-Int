@@ -3981,7 +3981,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5430,6 +5430,26 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         </div>
         <div class="modal-actions">
           <button class="btn btn-ghost" onclick="cmsCloseSignupsModal()">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Future Dates Modal (recurring programs only) — pre-cancel sessions weeks/months in advance for vacations, holidays, etc. -->
+    <div class="overlay" id="cmsFutureDatesOverlay">
+      <div class="modal" style="max-width:760px;">
+        <div class="modal-header">
+          <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="cmsFutureDatesTitle">Future Dates</div><span class="cms-ib cms-ib-light" onclick="event.stopPropagation();cmsIbShow(this,'<b>Cancel future sessions in advance.</b><br><br>Lists every session date from beyond the current 30-day window through Dec 31 of this year. Use the checkbox to cancel a date in advance — for example, when staff are on vacation. Uncheck to restore. Every change is recorded in the Audit Log.')" style="margin-left:8px;">i</span></div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="close" type="button" onclick="cmsCloseFutureDates()">&times;</button>
+          </div>
+        </div>
+        <div class="modal-body" style="display:block; padding: 0;">
+          <div id="cmsFutureDatesBody" style="padding:12px 16px 16px;">
+            <div class="cms-empty"><p>Loading dates...</p></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="cmsCloseFutureDates()">Close</button>
         </div>
       </div>
     </div>
@@ -16810,6 +16830,11 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     html += '<div class="cms-card-buttons">' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenEventModal(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ')">Edit</button>' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsViewSignups(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',\'' + rsEscape(ev.title || '') + '\')">View Signups</button>';
+    // Future Dates — recurring programs only, lets staff pre-cancel sessions
+    // weeks/months out (vacations, holidays). Hidden when archived/expired.
+    if (isRecurring && !isArchived && !isExpired) {
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenFutureDates(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Future Dates</button>';
+    }
     // superAdmin-only Send Announcement button (hidden for archived/expired)
     if (!isArchived && !isExpired && window.currentUserData && window.currentUserData.role === 'superAdmin') {
       var announcedLabel = ev.announcementSent ? 'Re-send Announcement' : 'Send Announcement';
@@ -18445,6 +18470,161 @@ window.cmsToggleSessionCancel = async function(eventId, dateStr, isCancelled) {
 window.cmsCloseSignupsModal = function() {
   _cmsAttendanceMode = false;
   document.getElementById('cmsSignupsOverlay').classList.remove('active');
+};
+
+// ── Future Dates Modal ────────────────────────────────────────────────────
+// Lets staff pre-cancel recurring program sessions weeks or months in
+// advance — for staff vacations, holidays, etc. Lists every generated
+// session date from "today + 30 days" (skipping what's already in the
+// Signups modal) through Dec 31 of the current year. Each row is a
+// checkbox; toggling adds/removes from cancelledDates and writes to
+// the audit log via the same path as cmsToggleSessionCancel.
+var _cmsFutureDatesData = null;
+
+window.cmsOpenFutureDates = async function(eventId, eventTitle) {
+  document.getElementById('cmsFutureDatesTitle').textContent = 'Future Dates — ' + (eventTitle || 'Program');
+  var body = document.getElementById('cmsFutureDatesBody');
+  body.innerHTML = '<div class="cms-empty"><p>Loading dates...</p></div>';
+  document.getElementById('cmsFutureDatesOverlay').classList.add('active');
+  try {
+    var doc = await db.collection('recurringEvents').doc(eventId).get();
+    if (!doc.exists) {
+      body.innerHTML = '<div class="cms-empty"><p>Program not found.</p></div>';
+      return;
+    }
+    var program = doc.data();
+    program.id = eventId;
+    // Pull the program's signup docs so we can show actual counts per date
+    var sigSnap = await db.collection('recurringEvents').doc(eventId).collection('signups').get();
+    var signups = sigSnap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+    _cmsFutureDatesData = { program: program, signups: signups, eventId: eventId };
+    cmsRenderFutureDates();
+  } catch (err) {
+    body.innerHTML = '<div class="cms-empty" style="color:#DC2626;"><p>Error: ' + err.message + '</p></div>';
+  }
+};
+
+function cmsRenderFutureDates() {
+  if (!_cmsFutureDatesData) return;
+  var body = document.getElementById('cmsFutureDatesBody');
+  var program = _cmsFutureDatesData.program;
+  var signups = _cmsFutureDatesData.signups || [];
+  var eventId = _cmsFutureDatesData.eventId;
+
+  // Compute days remaining until Dec 31 of current year. We render dates
+  // STARTING after the current 30-day window (which the Signups modal owns).
+  var today = new Date(); today.setHours(0,0,0,0);
+  var endOfYear = new Date(today.getFullYear(), 11, 31);
+  endOfYear.setHours(0,0,0,0);
+  var totalDays = Math.ceil((endOfYear - today) / 86400000);
+  if (totalDays <= 30) {
+    body.innerHTML = '<div class="cms-empty"><p>No dates to show beyond the current 30-day window. Use the Signups view for upcoming sessions.</p></div>';
+    return;
+  }
+
+  var allSessions = cmsGenerateSessionDates(program.schedules, program.cancelledDates, totalDays);
+  // Filter to dates beyond the 30-day window (Signups modal already covers those)
+  var cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + 30);
+  var cutoffStr = cutoff.getFullYear() + '-' + String(cutoff.getMonth()+1).padStart(2,'0') + '-' + String(cutoff.getDate()).padStart(2,'0');
+  var sessions = allSessions.filter(function(s) { return s.date > cutoffStr; });
+  if (sessions.length === 0) {
+    body.innerHTML = '<div class="cms-empty"><p>No additional sessions through Dec ' + today.getFullYear() + '.</p></div>';
+    return;
+  }
+
+  // Count signups per date. Reuses the same key sources we use elsewhere.
+  var countsByDate = {};
+  signups.forEach(function(s) {
+    if (s.archived === true) return;
+    if (s.status === 'cancelled') return;
+    var keys = [];
+    if (Array.isArray(s.selectedSessions)) {
+      s.selectedSessions.forEach(function(raw) { var head = String(raw || '').split('|')[0].trim(); if (head) keys.push(head); });
+    }
+    if (Array.isArray(s.selectedDates)) {
+      s.selectedDates.forEach(function(raw) { var head = String(raw || '').split('|')[0].trim(); if (head) keys.push(head); });
+    }
+    keys.forEach(function(k) { countsByDate[k] = (countsByDate[k] || 0) + 1; });
+  });
+
+  // Group sessions by year-month for collapsible month sections
+  var byMonth = {};
+  sessions.forEach(function(s) {
+    var ym = s.date.slice(0, 7); // YYYY-MM
+    if (!byMonth[ym]) byMonth[ym] = [];
+    byMonth[ym].push(s);
+  });
+  var months = Object.keys(byMonth).sort();
+
+  var html = '<div style="font-size:.82rem;color:var(--text-soft);margin-bottom:12px;line-height:1.5;">' +
+    'These are upcoming sessions through Dec ' + today.getFullYear() + ', beyond the next 30 days (which live in the Signups view). ' +
+    'Tick a checkbox to cancel a session in advance — handy for staff vacations or holidays. Untick to restore.' +
+    '</div>';
+
+  months.forEach(function(ym) {
+    var monthSessions = byMonth[ym];
+    var [yr, mo] = ym.split('-');
+    var monthLabel = new Date(parseInt(yr,10), parseInt(mo,10)-1, 1)
+      .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    html += '<div style="margin-bottom:14px;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;">';
+    html += '<div style="background:#F8FAFC;padding:8px 14px;font-weight:700;color:#0F172A;font-size:.92rem;">' +
+      monthLabel + ' <span style="color:var(--text-soft);font-weight:500;font-size:.78rem;">(' + monthSessions.length + ' session' + (monthSessions.length === 1 ? '' : 's') + ')</span></div>';
+    monthSessions.forEach(function(s) {
+      var isCancelled = !!s.cancelled;
+      var count = countsByDate[s.date] || 0;
+      var dateLabel = new Date(s.date + 'T00:00:00')
+        .toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      var timeRange = cmsFmt12(s.startTime) + ' - ' + cmsFmt12(s.endTime);
+      var locationStr = (s.location || '') + (s.venue ? ' (' + s.venue + ')' : '');
+      var rowStyle = isCancelled ? 'background:#FEF2F2;' : '';
+      var textStyle = isCancelled ? 'text-decoration:line-through;color:#991B1B;' : 'color:#0F172A;';
+      var countColor = count > 0 ? '#0891B2' : '#94A3B8';
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #E2E8F0;' + rowStyle + '">';
+      html += '<input type="checkbox" ' + (isCancelled ? 'checked' : '') + ' onchange="cmsToggleFutureDateCancel(\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.date) + '\',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#DC2626;flex-shrink:0;">';
+      html += '<div style="flex:1;font-size:.88rem;line-height:1.4;' + textStyle + '">' +
+        '<strong>' + rsEscape(dateLabel) + '</strong> &mdash; ' + rsEscape(timeRange) + ' @ ' + rsEscape(locationStr) +
+        '</div>';
+      html += '<div style="font-size:.78rem;font-weight:600;color:' + countColor + ';flex-shrink:0;">' + count + ' signup' + (count === 1 ? '' : 's') + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  });
+
+  body.innerHTML = html;
+}
+
+window.cmsToggleFutureDateCancel = async function(eventId, dateStr, isCancelled) {
+  try {
+    var docRef = db.collection('recurringEvents').doc(eventId);
+    var doc = await docRef.get();
+    if (!doc.exists) return;
+    var data = doc.data();
+    var cancelledDates = data.cancelledDates || [];
+
+    if (isCancelled) {
+      if (!cancelledDates.some(function(cd) { return cd.date === dateStr; })) {
+        cancelledDates.push({ date: dateStr, reason: '' });
+      }
+    } else {
+      cancelledDates = cancelledDates.filter(function(cd) { return cd.date !== dateStr; });
+    }
+
+    await docRef.update({ cancelledDates: cancelledDates });
+    auditLog(isCancelled ? 'Cancelled future session' : 'Restored future session',
+             (data.title || 'Program') + ' — ' + dateStr);
+    if (_cmsFutureDatesData && _cmsFutureDatesData.eventId === eventId) {
+      _cmsFutureDatesData.program.cancelledDates = cancelledDates;
+      cmsRenderFutureDates();
+    }
+    _showToast(isCancelled ? 'Session cancelled.' : 'Session restored.', isCancelled ? '#DC2626' : '#16A34A');
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
+  }
+};
+
+window.cmsCloseFutureDates = function() {
+  document.getElementById('cmsFutureDatesOverlay').classList.remove('active');
+  _cmsFutureDatesData = null;
 };
 
 window.cmsSendNoShowReInvites = async function(collection, eventId) {
