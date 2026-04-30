@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.6.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.6.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -15972,10 +15972,41 @@ window.cmsPreviewResourceLogo = function(input) {
   reader.readAsDataURL(file);
 };
 
+// Validate a single website URL. Empty is OK (optional field). Rejects
+// strings with whitespace or commas (catches "https://a.com https://b.com"
+// or "https://a.com, https://b.com"). Auto-prefixes https:// if missing.
+// Returns { ok, normalized, reason }.
+window.cmsValidateWebsiteUrl = function(input) {
+  var raw = String(input == null ? '' : input).trim();
+  if (!raw) return { ok: true, normalized: '' };
+  if (/\s/.test(raw)) return { ok: false, reason: 'Please enter a single web address. Spaces or multiple URLs are not allowed.' };
+  if (raw.indexOf(',') !== -1) return { ok: false, reason: 'Please enter a single web address. Remove the comma.' };
+  var withScheme = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+  try {
+    var u = new URL(withScheme);
+    if (!u.hostname || u.hostname.indexOf('.') === -1) {
+      return { ok: false, reason: 'That doesn\'t look like a valid web address. Try the form https://example.com.' };
+    }
+    return { ok: true, normalized: u.href };
+  } catch (e) {
+    return { ok: false, reason: 'Could not understand that web address. Use the form https://example.com.' };
+  }
+};
+
 window.cmsSaveResource = async function() {
   var name = document.getElementById('cmsResourceName').value.trim();
   if (!name) { alert('Name is required.'); return; }
   var editId = document.getElementById('cmsResourceEditId').value;
+
+  // URL validation — block save and surface the reason inline if bad.
+  var websiteRaw = document.getElementById('cmsResourceWebsite').value;
+  var websiteCheck = window.cmsValidateWebsiteUrl(websiteRaw);
+  if (!websiteCheck.ok) {
+    _showToast(websiteCheck.reason, '#DC2626');
+    var wEl = document.getElementById('cmsResourceWebsite');
+    if (wEl) wEl.focus();
+    return;
+  }
 
   var saveBtn = document.getElementById('cmsResourceSaveBtn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
@@ -15988,7 +16019,7 @@ window.cmsSaveResource = async function() {
     island: document.getElementById('cmsResourceIsland').value.trim() || 'Statewide',
     phone: document.getElementById('cmsResourcePhone').value.trim(),
     email: document.getElementById('cmsResourceEmail').value.trim(),
-    website: document.getElementById('cmsResourceWebsite').value.trim(),
+    website: websiteCheck.normalized,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
 
