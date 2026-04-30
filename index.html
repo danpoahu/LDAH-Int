@@ -3985,7 +3985,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.4.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4742,7 +4742,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         </div>
 
         <div class="lm-card collapsed">
-          <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed');if(!this.parentElement.classList.contains('collapsed'))cmsLoadZoomDefaults();">Zoom Defaults <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The Zoom meeting link, ID, and password used for all virtual events. These details are included in the reminder emails sent to families. Update here when the Zoom meeting credentials change.')">i</span></div>
+          <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed');if(!this.parentElement.classList.contains('collapsed'))cmsLoadZoomDefaults();">Program Zoom <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The Zoom meeting link, ID, and password used for recurring programs (Connect-Gen, Learning Labs, Coffee Connection, etc.). Included in reminder emails sent to families for any program session. Update here when the program Zoom credentials change.')">i</span></div>
           <div class="lm-card-body">
             <div style="padding:0 12px 12px;display:grid;gap:12px;">
               <div>
@@ -4760,8 +4760,34 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
                 </div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;">
-                <button class="btn btn-primary" onclick="cmsSaveZoomDefaults()">Save Zoom Defaults</button>
+                <button class="btn btn-primary" onclick="cmsSaveZoomDefaults()">Save Program Zoom</button>
                 <span id="cmsZoomSavedMsg" style="font-size:.82rem;color:#16A34A;font-weight:600;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="lm-card collapsed">
+          <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed');if(!this.parentElement.classList.contains('collapsed'))cmsLoadEventZoom();">Event Zoom <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The Zoom meeting link, ID, and password used for one-off events (anything in the Events list, not a recurring program). Included in reminder emails sent to attendees for those events. Keep this distinct from the Program Zoom so different audiences get different links.')">i</span></div>
+          <div class="lm-card-body">
+            <div style="padding:0 12px 12px;display:grid;gap:12px;">
+              <div>
+                <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Meeting URL</label>
+                <input id="cmsEventZoomUrl" type="url" placeholder="https://us02web.zoom.us/j/..." style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.9rem;font-family:inherit;" />
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div>
+                  <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Meeting ID</label>
+                  <input id="cmsEventZoomMeetingId" type="text" placeholder="881 7955 8900" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.9rem;font-family:inherit;" />
+                </div>
+                <div>
+                  <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Passcode</label>
+                  <input id="cmsEventZoomPasscode" type="text" placeholder="676599" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.9rem;font-family:inherit;" />
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-primary" onclick="cmsSaveEventZoom()">Save Event Zoom</button>
+                <span id="cmsEventZoomSavedMsg" style="font-size:.82rem;color:#16A34A;font-weight:600;"></span>
               </div>
             </div>
           </div>
@@ -7752,18 +7778,50 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
   function _rdb() { return firebase.firestore(); }
 
+  // Reads settings/zoomDefault and supports both shapes:
+  //   new:    { programZoom: {meetingUrl,meetingId,passcode}, eventZoom: {...} }
+  //   legacy: { meetingUrl, meetingId, passcode }   <- flat, treated as Program Zoom
+  function _zoomReadProgram(d) {
+    if (d && d.programZoom && typeof d.programZoom === 'object') return d.programZoom;
+    if (d && (d.meetingUrl || d.meetingId || d.passcode)) {
+      return { meetingUrl: d.meetingUrl || '', meetingId: d.meetingId || '', passcode: d.passcode || '' };
+    }
+    return { meetingUrl: '', meetingId: '', passcode: '' };
+  }
+  function _zoomReadEvent(d) {
+    if (d && d.eventZoom && typeof d.eventZoom === 'object') return d.eventZoom;
+    return { meetingUrl: '', meetingId: '', passcode: '' };
+  }
+
   window.cmsLoadZoomDefaults = async function() {
     try {
       var doc = await _rdb().collection('settings').doc('zoomDefault').get();
       var d = doc.exists ? doc.data() : {};
+      var p = _zoomReadProgram(d);
       var urlEl = document.getElementById('cmsZoomUrl');
       var idEl = document.getElementById('cmsZoomMeetingId');
       var pcEl = document.getElementById('cmsZoomPasscode');
-      if (urlEl) urlEl.value = d.meetingUrl || '';
-      if (idEl) idEl.value = d.meetingId || '';
-      if (pcEl) pcEl.value = d.passcode || '';
+      if (urlEl) urlEl.value = p.meetingUrl || '';
+      if (idEl) idEl.value = p.meetingId || '';
+      if (pcEl) pcEl.value = p.passcode || '';
     } catch (err) {
       console.error('cmsLoadZoomDefaults error:', err);
+    }
+  };
+
+  window.cmsLoadEventZoom = async function() {
+    try {
+      var doc = await _rdb().collection('settings').doc('zoomDefault').get();
+      var d = doc.exists ? doc.data() : {};
+      var e = _zoomReadEvent(d);
+      var urlEl = document.getElementById('cmsEventZoomUrl');
+      var idEl = document.getElementById('cmsEventZoomMeetingId');
+      var pcEl = document.getElementById('cmsEventZoomPasscode');
+      if (urlEl) urlEl.value = e.meetingUrl || '';
+      if (idEl) idEl.value = e.meetingId || '';
+      if (pcEl) pcEl.value = e.passcode || '';
+    } catch (err) {
+      console.error('cmsLoadEventZoom error:', err);
     }
   };
 
@@ -7774,13 +7832,41 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
     var msg = document.getElementById('cmsZoomSavedMsg');
     try {
       await _rdb().collection('settings').doc('zoomDefault').set({
+        programZoom: {
+          meetingUrl: url.trim(),
+          meetingId: mid.trim(),
+          passcode: pc.trim()
+        },
+        // Maintain legacy flat fields for any consumer not yet migrated.
         meetingUrl: url.trim(),
         meetingId: mid.trim(),
         passcode: pc.trim(),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: (window.currentUserData && window.currentUserData.email) || 'unknown'
       }, { merge: true });
-      if (window.auditLog) window.auditLog('Updated Zoom defaults', 'Meeting ID: ' + mid);
+      if (window.auditLog) window.auditLog('Updated Program Zoom', 'Meeting ID: ' + mid);
+      if (msg) { msg.textContent = 'Saved.'; setTimeout(function() { msg.textContent = ''; }, 2500); }
+    } catch (err) {
+      if (msg) { msg.textContent = 'Error: ' + err.message; msg.style.color = '#DC2626'; }
+    }
+  };
+
+  window.cmsSaveEventZoom = async function() {
+    var url = (document.getElementById('cmsEventZoomUrl') || {}).value || '';
+    var mid = (document.getElementById('cmsEventZoomMeetingId') || {}).value || '';
+    var pc = (document.getElementById('cmsEventZoomPasscode') || {}).value || '';
+    var msg = document.getElementById('cmsEventZoomSavedMsg');
+    try {
+      await _rdb().collection('settings').doc('zoomDefault').set({
+        eventZoom: {
+          meetingUrl: url.trim(),
+          meetingId: mid.trim(),
+          passcode: pc.trim()
+        },
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: (window.currentUserData && window.currentUserData.email) || 'unknown'
+      }, { merge: true });
+      if (window.auditLog) window.auditLog('Updated Event Zoom', 'Meeting ID: ' + mid);
       if (msg) { msg.textContent = 'Saved.'; setTimeout(function() { msg.textContent = ''; }, 2500); }
     } catch (err) {
       if (msg) { msg.textContent = 'Error: ' + err.message; msg.style.color = '#DC2626'; }
