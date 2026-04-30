@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.8.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12269,6 +12269,113 @@ window.autoCropImage = function(file) {
 
   // ── Contact Detail View ──
 
+  // Fetch the linked Connect-Gen signup and render the rich consent block:
+  //   - "Signed" pill + timestamp + typed signature
+  //   - Toggle to view the verbatim signed consent text
+  //   - Session date + event title
+  //   - Child info pulled from signup.registration (when present)
+  window.cmsRenderConnectGenContactBlock = async function(cg) {
+    var slot = document.getElementById('ctConnectGenBlock');
+    if (!slot) return;
+    if (!cg || !cg.eventId || !cg.signupId) {
+      // Minimum viable card if we don't have the linkage saved.
+      slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, null, null);
+      return;
+    }
+    try {
+      // Load signup + parent event in parallel.
+      var sigRef = db.collection('recurringEvents').doc(cg.eventId).collection('signups').doc(cg.signupId);
+      var evRef = db.collection('recurringEvents').doc(cg.eventId);
+      var [sigSnap, evSnap] = await Promise.all([sigRef.get(), evRef.get()]);
+      var s = sigSnap.exists ? (sigSnap.data() || {}) : null;
+      var ev = evSnap.exists ? (evSnap.data() || {}) : null;
+      slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, s, ev);
+    } catch (err) {
+      console.warn('cmsRenderConnectGenContactBlock error:', err.message);
+      slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, null, null) +
+        '<div style="font-size:.78rem;color:#DC2626;margin-top:6px;">Could not load session details: ' + rsEscape(err.message) + '</div>';
+    }
+  };
+
+  function cmsConnectGenSummaryHtml(cg, signup, event) {
+    var when = cg.signedAt && cg.signedAt.toDate ? cg.signedAt.toDate().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    var sessionDates = '';
+    var reg = (signup && signup.registration) || {};
+    if (signup) {
+      var keys = (typeof extractSignupSessionKeys === 'function')
+        ? (function() { try { return extractSignupSessionKeys(signup); } catch (e) { return []; } })()
+        : (Array.isArray(signup.selectedDates) ? signup.selectedDates : []);
+      sessionDates = (keys && keys.length) ? keys.join(', ') : '';
+    }
+
+    var detailId = 'ctCgDetail_' + (cg.signupId || Date.now());
+    var html =
+      '<span style="display:inline-block;background:#16A34A;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">Signed</span>' +
+      'Signed <strong>' + rsEscape(when) + '</strong> by <strong>' + rsEscape(cg.signedName || '') + '</strong>' +
+      (cg.version ? '<br><span style="font-size:.78rem;color:#64748B;">Form revision: ' + rsEscape(cg.version) + '</span>' : '');
+
+    if (event && event.title) {
+      html += '<div style="margin-top:8px;font-size:.86rem;color:#0F172A;"><strong>Event:</strong> ' + rsEscape(event.title) + '</div>';
+    }
+    if (sessionDates) {
+      html += '<div style="margin-top:2px;font-size:.86rem;color:#0F172A;"><strong>Session:</strong> ' + rsEscape(sessionDates) + '</div>';
+    }
+
+    // Child info pulled from the signup's registration map (children[] array
+    // covers multi-child registrations; legacy flat fields are the fallback).
+    var childParts = [];
+    if (reg.children && reg.children.length) {
+      reg.children.forEach(function(child, idx) {
+        var bits = [];
+        if (child.childAgeRange) bits.push('Age: ' + child.childAgeRange);
+        if (child.childGender)   bits.push('Gender: ' + child.childGender);
+        if (child.ethnicity)     bits.push('Ethnicity: ' + child.ethnicity);
+        if (child.disabilityCategories && child.disabilityCategories.length) {
+          bits.push('Disability: ' + (Array.isArray(child.disabilityCategories) ? child.disabilityCategories.join(', ') : child.disabilityCategories));
+        }
+        if (bits.length) childParts.push('<div style="font-size:.83rem;color:#0F172A;"><strong>Child ' + (idx + 1) + ':</strong> ' + rsEscape(bits.join(' · ')) + '</div>');
+      });
+    } else {
+      var flatBits = [];
+      if (reg.childAgeRange) flatBits.push('Age: ' + reg.childAgeRange);
+      if (reg.childGender)   flatBits.push('Gender: ' + reg.childGender);
+      var eth = reg.childEthnicity || reg.ethnicity;
+      if (eth) flatBits.push('Ethnicity: ' + eth);
+      if (reg.disabilityCategories && reg.disabilityCategories.length) {
+        flatBits.push('Disability: ' + (Array.isArray(reg.disabilityCategories) ? reg.disabilityCategories.join(', ') : reg.disabilityCategories));
+      }
+      if (flatBits.length) childParts.push('<div style="font-size:.83rem;color:#0F172A;"><strong>Child:</strong> ' + rsEscape(flatBits.join(' · ')) + '</div>');
+    }
+    if (childParts.length) {
+      html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #BBF7D0;">' +
+        '<div style="font-size:.78rem;font-weight:700;color:#166534;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Child Information</div>' +
+        childParts.join('') +
+        '</div>';
+    }
+
+    // Toggle to view the verbatim signed consent text.
+    if (signup && signup.consentText) {
+      var typedName = signup.consentSignedName || cg.signedName || '';
+      // Render the consent text with the typed name slotted in for [PARENT NAME].
+      var rendered = String(signup.consentText)
+        .replace('[PARENT NAME]', typedName)
+        .replace('[SESSION DATE]', sessionDates || 'the session date');
+      html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #BBF7D0;">' +
+        '<div onclick="var el=document.getElementById(\'' + detailId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'span\').textContent=el.style.display===\'none\'?\'\\u25B6\':\'\\u25BC\'" style="cursor:pointer;user-select:none;font-size:.82rem;font-weight:600;color:#166534;">' +
+        '<span style="font-size:.65rem;">&#9654;</span> View signed consent text</div>' +
+        '<div id="' + detailId + '" style="display:none;margin-top:8px;padding:12px 14px;background:#fff;border:1px solid #BBF7D0;border-radius:8px;font-size:.85rem;line-height:1.55;color:#1f2937;">' +
+        rsEscape(rendered) +
+        '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed #BBF7D0;font-size:.78rem;color:#64748B;">' +
+        'Electronically signed by <strong style="color:#0F172A;font-style:italic;">' + rsEscape(typedName) + '</strong>' +
+        ' on <strong>' + rsEscape(when) + '</strong>' +
+        (signup.consentSignedIp ? '<br>IP: ' + rsEscape(signup.consentSignedIp) : '') +
+        '</div>' +
+        '</div></div>';
+    }
+
+    return html;
+  }
+
   window.openContactDetail = async function(contactId) {
     var overlay = document.getElementById('ctDetailOverlay');
     var body = document.getElementById('ctDetailBody');
@@ -12320,19 +12427,14 @@ window.autoCropImage = function(file) {
         '</div>';
 
       // Connect-Gen consent block — present only when the contact has signed.
+      // Reserves a slot here; full content (consent text, session date, and
+      // child info pulled from the linked signup) is rendered async below
+      // once we've fetched the signup doc.
       if (c.connectGenConsent && c.connectGenConsent.signedAt) {
-        var cg = c.connectGenConsent;
-        var when = cg.signedAt && cg.signedAt.toDate ? cg.signedAt.toDate().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
-        infoHtml += '<div class="ct-info-card" style="background:#F0FDF4;border:1px solid #86EFAC;margin-top:14px;">' +
-          '<div class="ct-info-field span2">' +
-            '<label style="color:#166534;">Connect-Gen Consent</label>' +
-            '<div class="val" style="line-height:1.55;">' +
-              '<span style="display:inline-block;background:#16A34A;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">Signed</span>' +
-              'Signed <strong>' + rsEscape(when) + '</strong> by <strong>' + rsEscape(cg.signedName || '') + '</strong>' +
-              (cg.version ? '<br><span style="font-size:.78rem;color:#64748B;">Form revision: ' + rsEscape(cg.version) + '</span>' : '') +
-            '</div>' +
-          '</div>' +
-        '</div>';
+        infoHtml += '<div id="ctConnectGenBlock" class="ct-info-card" style="background:#F0FDF4;border:1px solid #86EFAC;margin-top:14px;">' +
+          '<div class="ct-info-field span2"><label style="color:#166534;">Connect-Gen Session</label>' +
+          '<div class="val" style="color:var(--text-soft);font-size:.85rem;">Loading session details…</div>' +
+          '</div></div>';
       }
 
       // ── Demographics section (always show chevron) ──
@@ -12436,6 +12538,13 @@ window.autoCropImage = function(file) {
       var timelineHtml = '<div class="ct-ix-timeline" id="ctDetailTimeline"><p style="color:var(--text-soft);font-size:.85rem;">Loading activity…</p></div>';
 
       body.innerHTML = infoHtml + timelineLabel + timelineHtml;
+
+      // Fully render the Connect-Gen card now that infoHtml is in the DOM —
+      // pulls the linked signup so we can show the typed signature, child
+      // info and session date alongside the consent.
+      if (c.connectGenConsent && c.connectGenConsent.signedAt) {
+        cmsRenderConnectGenContactBlock(c.connectGenConsent);
+      }
 
       // Query contactId, clientId, and signups in parallel
       var results = [];
