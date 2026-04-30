@@ -3845,7 +3845,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
             <a class="active" href="javascript:void(0)" data-section="dashboard">Dashboard <span class="pill">Today</span></a>
             <a href="javascript:void(0)" data-section="webdashboard">Web/App Dashboard</a>
             <a href="javascript:void(0)" data-section="interactions">Interactions</a>
-            <a href="javascript:void(0)" data-section="resources">Resources</a>
+            <a href="javascript:void(0)" data-section="resources">Resources <span class="pill" id="resBadge" style="display:none;">0</span></a>
             <a href="javascript:void(0)" data-section="contacts">Contacts</a>
             <a href="javascript:void(0)" data-section="changes">Change Requests <span class="pill" id="crBadge" style="display:none;">0</span></a>
             <a href="javascript:void(0)" data-section="reports">Reports</a>
@@ -3985,7 +3985,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.5.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8596,6 +8596,7 @@ window.autoCropImage = function(file) {
     }
     // Update change request badge
     if (typeof updateCrBadge === 'function') updateCrBadge();
+    if (typeof updateResBadge === 'function') updateResBadge();
     if (typeof updateNotifBadge === 'function') updateNotifBadge();
     if (typeof loadDashboardCalendar === 'function') loadDashboardCalendar();
   }
@@ -13651,6 +13652,37 @@ window.autoCropImage = function(file) {
     }
   };
 
+  // Live count of resources awaiting partner-update review (pendingUpdate set).
+  var _resBadgeUnsub = null;
+  window.updateResBadge = function() {
+    if (_resBadgeUnsub) _resBadgeUnsub();
+    try {
+      var role = currentUserData ? currentUserData.role : '';
+      // Match the role gate used elsewhere for resource admin actions.
+      if (role !== 'superAdmin' && role !== 'admin') {
+        var b0 = document.getElementById('resBadge'); if (b0) b0.style.display = 'none';
+        return;
+      }
+      _resBadgeUnsub = db.collection('resources').onSnapshot(function(snap) {
+        var n = 0;
+        snap.forEach(function(doc) {
+          var d = doc.data() || {};
+          if (d.archived === true) return;
+          if (d.pendingUpdate) n++;
+        });
+        var badge = document.getElementById('resBadge');
+        if (badge) {
+          if (n > 0) { badge.textContent = n; badge.style.display = ''; }
+          else { badge.style.display = 'none'; }
+        }
+      }, function(err) {
+        console.warn('Res badge listener error:', err.message);
+      });
+    } catch (err) {
+      console.warn('Res badge update error:', err.message);
+    }
+  };
+
   window.approveCr = async function(crDocId, interactionId) {
     try {
       var crDoc = await db.collection('changeRequests').doc(crDocId).get();
@@ -13828,12 +13860,20 @@ window.autoCropImage = function(file) {
       return null;
     }
     try {
-      var [volSnap, contactSnap, provSnap, eventReqSnap] = await Promise.all([
+      var [volSnap, contactSnap, provSnap, eventReqSnap, resSnap] = await Promise.all([
         db.collection('volunteers').where('status', '==', 'new').get(),
         db.collection('contactSubmissions').where('status', '==', 'new').get(),
         db.collection('providers').where('status', '==', 'new').get(),
-        db.collection('eventRequests').where('status', '==', 'pending').get()
+        db.collection('eventRequests').where('status', '==', 'pending').get(),
+        db.collection('resources').get()
       ]);
+      // Resource partner update reviews (pendingUpdate map present, not archived).
+      var resourceUpdates = 0;
+      resSnap.forEach(function(doc) {
+        var d = doc.data() || {};
+        if (d.archived === true) return;
+        if (d.pendingUpdate) resourceUpdates++;
+      });
       // Filter out archived docs client-side (avoids composite index requirements)
       function _countActive(snap) {
         var n = 0;
@@ -13885,6 +13925,7 @@ window.autoCropImage = function(file) {
         contacts:      _countActive(contactSnap),
         providers:     _countActive(provSnap),
         eventRequests: _countActive(eventReqSnap),
+        resourceUpdates: resourceUpdates,
         eventSignups:  pendingSignups,
         pendingOneTime: pendingOneTime,
         pendingOngoing: pendingOngoing,
@@ -13954,6 +13995,14 @@ window.autoCropImage = function(file) {
             '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=cmsWebData]\').click();setTimeout(function(){cmsSwitchWebDataTab(\'eventRequests\');},300);">' +
             '<div class="notif-title">' + counts.eventRequests + ' pending event request' + (counts.eventRequests !== 1 ? 's' : '') + '</div>' +
             '<div class="notif-msg">Website Data &rsaquo; Event Requests</div>' +
+            '</div>'
+          );
+        }
+        if (counts.resourceUpdates > 0) {
+          cmsItems.push(
+            '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=resources]\').click();">' +
+            '<div class="notif-title">' + counts.resourceUpdates + ' resource update' + (counts.resourceUpdates !== 1 ? 's' : '') + ' awaiting review</div>' +
+            '<div class="notif-msg">Resources</div>' +
             '</div>'
           );
         }
@@ -14051,6 +14100,7 @@ window.autoCropImage = function(file) {
         if (counts) {
           cmsCount = (counts.volunteers || 0) + (counts.contacts || 0) +
                      (counts.providers || 0) + (counts.eventRequests || 0) +
+                     (counts.resourceUpdates || 0) +
                      (counts.eventSignups || 0);
         }
       }
