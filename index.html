@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.6.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.7</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5132,6 +5132,19 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         <button class="btn btn-ghost" onclick="cmsExportResourcesCsv()">Export CSV <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Download all resources as a spreadsheet file. Opens in Excel, Google Sheets, or Numbers.')">i</span></button>
         <button class="btn btn-ghost" id="cmsResourceSendUpdatesBtn" data-roles="superAdmin" style="display:none;font-size:.82rem;color:#0891B2;font-weight:700;" onclick="cmsSendResourceUpdateRequests()">Send Update Requests</button>
         <button class="btn btn-ghost" id="cmsArchiveToggle_resources" style="font-size:.82rem;" onclick="cmsToggleArchived('resources')">Show Archived</button>
+      </div>
+
+      <!-- Partner Applications (collapsed by default; auto-expands when there's something pending) -->
+      <div class="lm-card collapsed" id="cmsResourceAppsCard" style="margin-bottom:18px;">
+        <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed');if(!this.parentElement.classList.contains('collapsed'))cmsLoadResourceApplications();">
+          Partner Applications <span id="cmsResourceAppsBadge" style="display:none;background:#F97316;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 10px;margin-left:8px;">0</span>
+          <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'<b>Partner Applications</b> are submitted via the public &quot;Become a Partner Resource&quot; button on www.ldahawaii.org/resources.html (and on the LDAH App). Review each application and either approve (creates a real resource on the public directory) or decline.')">i</span>
+        </div>
+        <div class="lm-card-body">
+          <div id="cmsResourceAppsList" style="padding:0 12px 14px;">
+            <div style="color:var(--text-soft);font-size:.88rem;">Loading...</div>
+          </div>
+        </div>
       </div>
 
       <div class="cms-cards" id="cmsResourceCards">
@@ -9107,6 +9120,7 @@ window.autoCropImage = function(file) {
         cmsShowAiHelper('Galleries');
       } else if (section === 'cmsResources') {
         _showFullWidth(document.getElementById('cmsResourcesSection'), cmsLoadResources);
+        if (typeof cmsLoadResourceApplications === 'function') cmsLoadResourceApplications();
         cmsShowAiHelper('Resources');
       } else if (section === 'cmsFaqs') {
         _showFullWidth(document.getElementById('cmsFaqsSection'), cmsLoadFaqs);
@@ -13680,15 +13694,26 @@ window.autoCropImage = function(file) {
     }
   };
 
-  // Live count of resources awaiting partner-update review (pendingUpdate set).
+  // Live combined count for the Resources sidebar pill: pending partner-update
+  // reviews PLUS new "Become a Partner" applications awaiting review.
   var _resBadgeUnsub = null;
+  var _resAppBadgeUnsub = null;
+  var _resBadgeCounts = { updates: 0, applications: 0 };
+  function _renderResBadge() {
+    var n = (_resBadgeCounts.updates || 0) + (_resBadgeCounts.applications || 0);
+    var badge = document.getElementById('resBadge');
+    if (!badge) return;
+    if (n > 0) { badge.textContent = n; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  }
   window.updateResBadge = function() {
     if (_resBadgeUnsub) _resBadgeUnsub();
+    if (_resAppBadgeUnsub) _resAppBadgeUnsub();
     try {
       var role = currentUserData ? currentUserData.role : '';
-      // Match the role gate used elsewhere for resource admin actions.
       if (role !== 'superAdmin' && role !== 'admin') {
-        var b0 = document.getElementById('resBadge'); if (b0) b0.style.display = 'none';
+        _resBadgeCounts = { updates: 0, applications: 0 };
+        _renderResBadge();
         return;
       }
       _resBadgeUnsub = db.collection('resources').onSnapshot(function(snap) {
@@ -13698,14 +13723,20 @@ window.autoCropImage = function(file) {
           if (d.archived === true) return;
           if (d.pendingUpdate) n++;
         });
-        var badge = document.getElementById('resBadge');
-        if (badge) {
-          if (n > 0) { badge.textContent = n; badge.style.display = ''; }
-          else { badge.style.display = 'none'; }
-        }
-      }, function(err) {
-        console.warn('Res badge listener error:', err.message);
-      });
+        _resBadgeCounts.updates = n;
+        _renderResBadge();
+      }, function(err) { console.warn('Res badge (updates) listener error:', err.message); });
+
+      _resAppBadgeUnsub = db.collection('resourceApplications').where('status', '==', 'new').onSnapshot(function(snap) {
+        var n = 0;
+        snap.forEach(function(doc) {
+          var d = doc.data() || {};
+          if (d.archived === true) return;
+          n++;
+        });
+        _resBadgeCounts.applications = n;
+        _renderResBadge();
+      }, function(err) { console.warn('Res badge (apps) listener error:', err.message); });
     } catch (err) {
       console.warn('Res badge update error:', err.message);
     }
@@ -13888,12 +13919,13 @@ window.autoCropImage = function(file) {
       return null;
     }
     try {
-      var [volSnap, contactSnap, provSnap, eventReqSnap, resSnap] = await Promise.all([
+      var [volSnap, contactSnap, provSnap, eventReqSnap, resSnap, appSnap] = await Promise.all([
         db.collection('volunteers').where('status', '==', 'new').get(),
         db.collection('contactSubmissions').where('status', '==', 'new').get(),
         db.collection('providers').where('status', '==', 'new').get(),
         db.collection('eventRequests').where('status', '==', 'pending').get(),
-        db.collection('resources').get()
+        db.collection('resources').get(),
+        db.collection('resourceApplications').where('status', '==', 'new').get()
       ]);
       // Resource partner update reviews (pendingUpdate map present, not archived).
       var resourceUpdates = 0;
@@ -13901,6 +13933,13 @@ window.autoCropImage = function(file) {
         var d = doc.data() || {};
         if (d.archived === true) return;
         if (d.pendingUpdate) resourceUpdates++;
+      });
+      // New "Become a Partner Resource" applications awaiting review.
+      var resourceApplications = 0;
+      appSnap.forEach(function(doc) {
+        var d = doc.data() || {};
+        if (d.archived === true) return;
+        resourceApplications++;
       });
       // Filter out archived docs client-side (avoids composite index requirements)
       function _countActive(snap) {
@@ -13954,6 +13993,7 @@ window.autoCropImage = function(file) {
         providers:     _countActive(provSnap),
         eventRequests: _countActive(eventReqSnap),
         resourceUpdates: resourceUpdates,
+        resourceApplications: resourceApplications,
         eventSignups:  pendingSignups,
         pendingOneTime: pendingOneTime,
         pendingOngoing: pendingOngoing,
@@ -14031,6 +14071,14 @@ window.autoCropImage = function(file) {
             '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=cmsResources]\').click();">' +
             '<div class="notif-title">' + counts.resourceUpdates + ' resource update' + (counts.resourceUpdates !== 1 ? 's' : '') + ' awaiting review</div>' +
             '<div class="notif-msg">CMS &rsaquo; Resources</div>' +
+            '</div>'
+          );
+        }
+        if (counts.resourceApplications > 0) {
+          cmsItems.push(
+            '<div class="notif-item cms-alert" onclick="closeNotifications();document.querySelector(\'[data-section=cmsResources]\').click();setTimeout(function(){var el=document.getElementById(\'cmsResourceAppsCard\');if(el){el.classList.remove(\'collapsed\');el.scrollIntoView({behavior:\'smooth\',block:\'start\'});}},300);">' +
+            '<div class="notif-title">' + counts.resourceApplications + ' new partner application' + (counts.resourceApplications !== 1 ? 's' : '') + '</div>' +
+            '<div class="notif-msg">CMS &rsaquo; Resources &rsaquo; Applications</div>' +
             '</div>'
           );
         }
@@ -14129,6 +14177,7 @@ window.autoCropImage = function(file) {
           cmsCount = (counts.volunteers || 0) + (counts.contacts || 0) +
                      (counts.providers || 0) + (counts.eventRequests || 0) +
                      (counts.resourceUpdates || 0) +
+                     (counts.resourceApplications || 0) +
                      (counts.eventSignups || 0);
         }
       }
@@ -15825,6 +15874,124 @@ window.cmsRefreshSendUpdatesNudge = function() {
   } else {
     btn.classList.remove('cms-cycle-due');
     btn.title = '';
+  }
+};
+
+/* ── CMS: Resource Partner Applications (review queue) ───────────────────── */
+window.cmsLoadResourceApplications = async function() {
+  var listEl = document.getElementById('cmsResourceAppsList');
+  var badge = document.getElementById('cmsResourceAppsBadge');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="color:var(--text-soft);font-size:.88rem;">Loading...</div>';
+  try {
+    var snap = await db.collection('resourceApplications')
+      .where('status', '==', 'new')
+      .get();
+    var apps = [];
+    snap.forEach(function(doc) {
+      var d = doc.data() || {};
+      if (d.archived === true) return;
+      apps.push({ id: doc.id, ...d });
+    });
+    apps.sort(function(a, b) {
+      var ta = a.submittedAt && a.submittedAt.toMillis ? a.submittedAt.toMillis() : 0;
+      var tb = b.submittedAt && b.submittedAt.toMillis ? b.submittedAt.toMillis() : 0;
+      return tb - ta;
+    });
+    if (badge) {
+      if (apps.length > 0) { badge.textContent = apps.length; badge.style.display = ''; }
+      else { badge.style.display = 'none'; }
+    }
+    if (!apps.length) {
+      listEl.innerHTML = '<div style="color:var(--text-soft);font-size:.88rem;padding:8px 0;">No applications awaiting review.</div>';
+      return;
+    }
+    var html = '';
+    apps.forEach(function(a) {
+      var when = a.submittedAt && a.submittedAt.toDate ? a.submittedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+      var typeCity = [a.type, [a.city, a.island].filter(Boolean).join(', ')].filter(Boolean).join(' • ');
+      html += '<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 16px;margin-bottom:10px;">' +
+        '<div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-weight:700;font-size:1rem;color:#0F172A;">' + rsEscape(a.name || '(no name)') + '</div>' +
+            (typeCity ? '<div style="font-size:.84rem;color:var(--text-soft);margin-top:2px;">' + rsEscape(typeCity) + '</div>' : '') +
+            '<div style="font-size:.78rem;color:#92400E;margin-top:6px;">Submitted ' + rsEscape(when) +
+              (a.contactName ? ' • by ' + rsEscape(a.contactName) : '') +
+            '</div>' +
+            (a.email ? '<div style="font-size:.78rem;color:var(--text-soft);">Contact: <a href="mailto:' + rsEscape(a.email) + '">' + rsEscape(a.email) + '</a>' + (a.phone ? ' • ' + rsEscape(a.phone) : '') + '</div>' : '') +
+            (a.website ? '<div style="font-size:.78rem;color:var(--text-soft);">Website: <a href="' + rsEscape(a.website) + '" target="_blank" rel="noopener">' + rsEscape(a.website) + '</a></div>' : '') +
+            (a.services ? '<div style="font-size:.84rem;color:#334155;margin-top:8px;line-height:1.45;">' + rsEscape(a.services) + '</div>' : '') +
+            (a.notes ? '<div style="font-size:.82rem;color:#475569;margin-top:8px;background:#fff;border-left:3px solid #FBBF24;padding:6px 10px;"><b>Notes:</b> ' + rsEscape(a.notes) + '</div>' : '') +
+          '</div>' +
+          '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">' +
+            '<button class="btn btn-primary" style="background:#16A34A;border-color:#16A34A;font-size:.82rem;padding:6px 14px;" onclick="cmsApproveResourceApplication(\'' + rsEscape(a.id) + '\')">Approve</button>' +
+            '<button class="btn btn-ghost" style="color:#DC2626;font-size:.82rem;padding:6px 14px;" onclick="cmsDeclineResourceApplication(\'' + rsEscape(a.id) + '\')">Decline</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+    listEl.innerHTML = html;
+  } catch (err) {
+    listEl.innerHTML = '<div style="color:#DC2626;font-size:.88rem;">Error loading applications: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+window.cmsApproveResourceApplication = async function(appId) {
+  if (!confirm('Approve this application? It will create a new resource on the public directory.')) return;
+  try {
+    var ref = db.collection('resourceApplications').doc(appId);
+    var snap = await ref.get();
+    if (!snap.exists) { _showToast('Application not found.', '#DC2626'); return; }
+    var a = snap.data() || {};
+    if (a.status !== 'new') { _showToast('Already processed.', '#F97316'); return; }
+
+    // Create the live resource doc.
+    var resourceRef = await db.collection('resources').add({
+      name: a.name || '',
+      type: a.type || '',
+      services: a.services || '',
+      city: a.city || '',
+      island: a.island || 'Statewide',
+      phone: a.phone || '',
+      email: a.email || '',
+      website: a.website || '',
+      archived: false,
+      lastUpdateAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await ref.update({
+      status: 'approved',
+      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      approvedBy: (currentUserData && currentUserData.email) || 'unknown',
+      linkedResourceId: resourceRef.id,
+    });
+    if (window.auditLog) window.auditLog('Approved partner application', (a.name || '') + ' → resource ' + resourceRef.id);
+    _showToast('Application approved. New resource added.', '#16A34A');
+    cmsLoadResourceApplications();
+    if (typeof cmsLoadResources === 'function') cmsLoadResources();
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
+  }
+};
+
+window.cmsDeclineResourceApplication = async function(appId) {
+  if (!confirm('Decline this application? The applicant will not be notified automatically.')) return;
+  try {
+    var ref = db.collection('resourceApplications').doc(appId);
+    var snap = await ref.get();
+    if (!snap.exists) { _showToast('Application not found.', '#DC2626'); return; }
+    await ref.update({
+      status: 'declined',
+      declinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      declinedBy: (currentUserData && currentUserData.email) || 'unknown',
+    });
+    var a = snap.data() || {};
+    if (window.auditLog) window.auditLog('Declined partner application', a.name || '');
+    _showToast('Application declined.', '#64748B');
+    cmsLoadResourceApplications();
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
   }
 };
 
