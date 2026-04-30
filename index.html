@@ -749,6 +749,26 @@
       animation-iteration-count: 3;
     }
 
+    /* Send Update Requests — seasonal cycle nudge.
+       Goes orange + wiggles every 5s starting May 1 and Nov 1 until any
+       partner has been sent an update request within the current cycle. */
+    @keyframes cms-cycle-due-wiggle {
+      0%, 92%   { transform: rotate(0); }
+      93%       { transform: rotate(8deg); }
+      94.5%     { transform: rotate(-6deg); }
+      96%       { transform: rotate(5deg); }
+      97.5%     { transform: rotate(-3deg); }
+      99%, 100% { transform: rotate(0); }
+    }
+    .cms-cycle-due {
+      animation: cms-cycle-due-wiggle 5s ease-in-out infinite;
+      background: #F97316 !important;
+      color: #fff !important;
+      border-radius: 8px;
+      padding: 6px 14px !important;
+      transform-origin: center;
+    }
+
     /* ── Edit Mode ── */
     .ix-edit-input {
       width:100%; padding:7px 10px; border:1px solid rgba(8,145,178,.25);
@@ -3985,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.6.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.6.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -15755,6 +15775,7 @@ window.cmsLoadResources = async function() {
       if (d.archived !== true || _cmsShowArchived['resources']) _cmsResources.push({ id: doc.id, ...d });
     });
     cmsRenderResources(_cmsResources);
+    cmsRefreshSendUpdatesNudge();
     // Keep the dashboard pending badge in sync without forcing a full dashboard reload
     try {
       var pendCount = _cmsResources.filter(function(r) { return r.pendingUpdate; }).length;
@@ -15766,6 +15787,40 @@ window.cmsLoadResources = async function() {
     } catch(_){}
   } catch (err) {
     container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+// Determine whether the semi-annual partner-update cycle is currently due.
+// Cycles begin May 1 and Nov 1. The button highlights from cycle start
+// until at least one partner has been sent an update request within the
+// current cycle window (i.e. cmsSendResourceUpdateRequests has run).
+function cmsIsResourceUpdateCycleOverdue() {
+  if (!_cmsResources || !_cmsResources.length) return false;
+  var nowMs = Date.now();
+  var d = new Date();
+  var year = d.getFullYear();
+  var may1 = new Date(year, 4, 1).getTime();   // months are 0-indexed
+  var nov1 = new Date(year, 10, 1).getTime();
+  var cycleStartMs;
+  if (nowMs >= nov1)      cycleStartMs = nov1;
+  else if (nowMs >= may1) cycleStartMs = may1;
+  else                    cycleStartMs = new Date(year - 1, 10, 1).getTime();
+  var ran = _cmsResources.some(function(r) {
+    var reqAt = (r.updateRequestedAt && r.updateRequestedAt.toMillis) ? r.updateRequestedAt.toMillis() : 0;
+    return reqAt >= cycleStartMs;
+  });
+  return !ran;
+}
+
+window.cmsRefreshSendUpdatesNudge = function() {
+  var btn = document.getElementById('cmsResourceSendUpdatesBtn');
+  if (!btn) return;
+  if (cmsIsResourceUpdateCycleOverdue()) {
+    btn.classList.add('cms-cycle-due');
+    btn.title = 'The semi-annual partner update cycle is due. Click to send.';
+  } else {
+    btn.classList.remove('cms-cycle-due');
+    btn.title = '';
   }
 };
 
@@ -15797,7 +15852,13 @@ function cmsRenderResources(items) {
       luColor = '#94A3B8';
     }
     var cardStyle = isArchived ? 'opacity:0.5;' : '';
-    if (hasPending) cardStyle += 'border-left:4px dashed #F59E0B;';
+    if (hasPending) {
+      cardStyle += 'border-left:4px dashed #F59E0B;';
+    } else if (luMs && (Date.now() - luMs) <= (14 * 24 * 60 * 60 * 1000)) {
+      // Recently approved/refreshed — show a green border for 14 days so
+      // it's obvious which cards just came in.
+      cardStyle += 'border-left:4px dashed #16A34A;';
+    }
     html += '<div class="cms-card" data-id="' + rsEscape(r.id) + '"' + (cardStyle ? ' style="' + cardStyle + '"' : '') + '>' +
       (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;">Archived</span>' : '') +
       (hasPending ? '<span onclick="event.stopPropagation();cmsOpenResourceApprovalModal(\'' + rsEscape(r.id) + '\')" style="display:inline-block;background:#F59E0B;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;cursor:pointer;" title="Review proposed changes">Update Pending</span>' : '') +
