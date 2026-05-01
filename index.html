@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.12</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.13</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14112,93 +14112,110 @@ window.autoCropImage = function(file) {
       _cmsAlertCounts = null;
       return null;
     }
-    try {
-      var [volSnap, contactSnap, provSnap, eventReqSnap, resSnap, appSnap] = await Promise.all([
-        db.collection('volunteers').where('status', '==', 'new').get(),
-        db.collection('contactSubmissions').where('status', '==', 'new').get(),
-        db.collection('providers').where('status', '==', 'new').get(),
-        db.collection('eventRequests').where('status', '==', 'pending').get(),
-        db.collection('resources').get(),
-        db.collection('resourceApplications').where('status', '==', 'new').get()
-      ]);
-      // Resource partner update reviews (pendingUpdate map present, not archived).
-      var resourceUpdates = 0;
+    // Use Promise.allSettled so a single failing query (permissions, missing
+    // index, etc.) doesn't wipe out every other count and leave the bell at 0.
+    function _countActive(snap) {
+      if (!snap) return 0;
+      var n = 0;
+      snap.forEach(function(doc) { if (doc.data().archived !== true) n++; });
+      return n;
+    }
+    function _logIfRejected(label, settled) {
+      if (settled.status === 'rejected') {
+        console.warn('cmsGetAlertCounts:', label, 'failed:', settled.reason && settled.reason.message ? settled.reason.message : settled.reason);
+        return null;
+      }
+      return settled.value;
+    }
+    var [volS, contactS, provS, eventReqS, resS, appS, evS, recS] = await Promise.allSettled([
+      db.collection('volunteers').where('status', '==', 'new').get(),
+      db.collection('contactSubmissions').where('status', '==', 'new').get(),
+      db.collection('providers').where('status', '==', 'new').get(),
+      db.collection('eventRequests').where('status', '==', 'pending').get(),
+      db.collection('resources').get(),
+      db.collection('resourceApplications').where('status', '==', 'new').get(),
+      db.collection('events').get(),
+      db.collection('recurringEvents').get()
+    ]);
+    var volSnap     = _logIfRejected('volunteers', volS);
+    var contactSnap = _logIfRejected('contactSubmissions', contactS);
+    var provSnap    = _logIfRejected('providers', provS);
+    var eventReqSnap = _logIfRejected('eventRequests', eventReqS);
+    var resSnap     = _logIfRejected('resources', resS);
+    var appSnap     = _logIfRejected('resourceApplications', appS);
+    var evSnap      = _logIfRejected('events', evS);
+    var recSnap     = _logIfRejected('recurringEvents', recS);
+
+    var resourceUpdates = 0;
+    if (resSnap) {
       resSnap.forEach(function(doc) {
         var d = doc.data() || {};
         if (d.archived === true) return;
         if (d.pendingUpdate) resourceUpdates++;
       });
-      // New "Become a Partner Resource" applications awaiting review.
-      var resourceApplications = 0;
+    }
+    var resourceApplications = 0;
+    if (appSnap) {
       appSnap.forEach(function(doc) {
         var d = doc.data() || {};
         if (d.archived === true) return;
         resourceApplications++;
       });
-      // Filter out archived docs client-side (avoids composite index requirements)
-      function _countActive(snap) {
-        var n = 0;
-        snap.forEach(function(doc) { if (doc.data().archived !== true) n++; });
-        return n;
-      }
-      // Count pending event signups from subcollections (one-time vs ongoing)
-      // Also cache per-event counts so cmsLoadEvents/Dashboard can reuse them
-      var pendingSignups = 0;
-      var pendingOneTime = 0;
-      var pendingOngoing = 0;
-      var totalSignups = 0;
-      var evSnap = await db.collection('events').get();
-      var recSnap = await db.collection('recurringEvents').get();
-      _eventsSnapCache = { evSnap: evSnap, recSnap: recSnap, loadedAt: Date.now() };
-      var otIds = [];
-      var otProms = [];
-      evSnap.forEach(function(doc) { otIds.push(doc.id); otProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
-      var ogIds = [];
-      var ogProms = [];
-      recSnap.forEach(function(doc) { ogIds.push(doc.id); ogProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
-      var evCache = {};
-      var otSnaps = await Promise.all(otProms);
-      otSnaps.forEach(function(snap, i) {
-        var pc = 0; var sc = 0;
-        snap.forEach(function(doc) {
-          var d = doc.data(); if (d.archived === true) return;
-          sc++;
-          if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOneTime++; pc++; }
-        });
-        totalSignups += sc;
-        evCache[otIds[i]] = { signupCount: sc, pendingCount: pc };
-      });
-      var pgCache = {};
-      var ogSnaps = await Promise.all(ogProms);
-      ogSnaps.forEach(function(snap, i) {
-        var pc = 0; var sc = 0;
-        snap.forEach(function(doc) {
-          var d = doc.data(); if (d.archived === true) return;
-          sc++;
-          if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOngoing++; pc++; }
-        });
-        totalSignups += sc;
-        pgCache[ogIds[i]] = { signupCount: sc, pendingCount: pc };
-      });
-      window._cmsSignupCountCache = { events: evCache, programs: pgCache, loadedAt: Date.now() };
-      _cmsAlertCounts = {
-        volunteers:    _countActive(volSnap),
-        contacts:      _countActive(contactSnap),
-        providers:     _countActive(provSnap),
-        eventRequests: _countActive(eventReqSnap),
-        resourceUpdates: resourceUpdates,
-        resourceApplications: resourceApplications,
-        eventSignups:  pendingSignups,
-        pendingOneTime: pendingOneTime,
-        pendingOngoing: pendingOngoing,
-        totalSignups:  totalSignups
-      };
-      window._cmsAlertCounts = _cmsAlertCounts;
-      return _cmsAlertCounts;
-    } catch (e) {
-      console.warn('CMS alert count error:', e.message);
-      return null;
     }
+
+    var pendingSignups = 0, pendingOneTime = 0, pendingOngoing = 0, totalSignups = 0;
+    var evCache = {}, pgCache = {};
+    if (evSnap && recSnap) {
+      try {
+        _eventsSnapCache = { evSnap: evSnap, recSnap: recSnap, loadedAt: Date.now() };
+        var otIds = [], otProms = [];
+        evSnap.forEach(function(doc) { otIds.push(doc.id); otProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
+        var ogIds = [], ogProms = [];
+        recSnap.forEach(function(doc) { ogIds.push(doc.id); ogProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
+        var otSettled = await Promise.allSettled(otProms);
+        otSettled.forEach(function(settled, i) {
+          if (settled.status !== 'fulfilled') return;
+          var pc = 0, sc = 0;
+          settled.value.forEach(function(doc) {
+            var d = doc.data(); if (d.archived === true) return;
+            sc++;
+            if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOneTime++; pc++; }
+          });
+          totalSignups += sc;
+          evCache[otIds[i]] = { signupCount: sc, pendingCount: pc };
+        });
+        var ogSettled = await Promise.allSettled(ogProms);
+        ogSettled.forEach(function(settled, i) {
+          if (settled.status !== 'fulfilled') return;
+          var pc = 0, sc = 0;
+          settled.value.forEach(function(doc) {
+            var d = doc.data(); if (d.archived === true) return;
+            sc++;
+            if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOngoing++; pc++; }
+          });
+          totalSignups += sc;
+          pgCache[ogIds[i]] = { signupCount: sc, pendingCount: pc };
+        });
+      } catch (e) {
+        console.warn('cmsGetAlertCounts: signup subcollection scan failed:', e.message);
+      }
+    }
+    window._cmsSignupCountCache = { events: evCache, programs: pgCache, loadedAt: Date.now() };
+    _cmsAlertCounts = {
+      volunteers:    _countActive(volSnap),
+      contacts:      _countActive(contactSnap),
+      providers:     _countActive(provSnap),
+      eventRequests: _countActive(eventReqSnap),
+      resourceUpdates: resourceUpdates,
+      resourceApplications: resourceApplications,
+      eventSignups:  pendingSignups,
+      pendingOneTime: pendingOneTime,
+      pendingOngoing: pendingOngoing,
+      totalSignups:  totalSignups
+    };
+    window._cmsAlertCounts = _cmsAlertCounts;
+    console.log('cmsGetAlertCounts:', _cmsAlertCounts);
+    return _cmsAlertCounts;
   };
 
   window.toggleNotifications = function() {
