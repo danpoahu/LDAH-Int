@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -18307,12 +18307,27 @@ var _cmsAttendanceMode = false;
 /* ── Registration Status Badge + Details Helpers ── */
 function cmsRegStatusBadge(s) {
   if (s.status === 'confirmed') return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#D1FAE5;color:#065F46;">Confirmed</span>';
+  // Connect-Gen consent gate: registration is complete but the parent
+  // hasn't signed the consent form yet — distinguish from "Pending Registration"
+  // (which means the registration form itself is still outstanding).
+  if (s.status === 'pending' && s.registrationCompletedAt && !s.consentSignedAt && s.consentRequiredEmailSentAt) {
+    return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#E0F2FE;color:#0C4A6E;">Awaiting Consent</span>';
+  }
   if (s.status === 'pending') return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#FEF3C7;color:#92400E;">Pending Registration</span>';
   return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#F3F4F6;color:#374151;">Signed Up</span>';
 }
 
 function cmsRegAdminNote(s) {
   var h = '';
+  // Connect-Gen consent gate: registration is in but consent is still
+  // outstanding. Show this BEFORE the generic "pending registration" branch.
+  if (s.status === 'pending' && s.registrationCompletedAt && !s.consentSignedAt && s.consentRequiredEmailSentAt) {
+    var _consentSent = '';
+    if (s.consentRequiredEmailSentAt.toDate) _consentSent = s.consentRequiredEmailSentAt.toDate().toLocaleDateString();
+    else if (s.consentRequiredEmailSentAt.seconds) _consentSent = new Date(s.consentRequiredEmailSentAt.seconds * 1000).toLocaleDateString();
+    h += '<div style="background:#EFF6FF;border-left:4px solid #0891B2;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#0C4A6E;margin-top:8px;">Registration complete &mdash; awaiting Connect-Gen consent signature' + (_consentSent ? ' (consent email sent ' + rsEscape(_consentSent) + ')' : '') + '. Status will flip to Confirmed when the parent signs.</div>';
+    return h;
+  }
   // Registration pipeline notes
   if (s.status === 'confirmed' && s.registrationCompletedAt) {
     var completedDate = '';
@@ -20790,7 +20805,10 @@ window.cmsExportSignupsCsv = function(eventTitle, signups) {
     else if (s.timestamp) { ts = String(s.timestamp); }
     var sName = s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || '';
     var dates = s.selectedDates ? s.selectedDates.join('; ') : s.selectedSessions ? s.selectedSessions.join('; ') : '';
-    var regStatus = s.status === 'confirmed' ? 'Confirmed' : s.status === 'pending' ? 'Pending Registration' : 'Signed Up';
+    var regStatus = s.status === 'confirmed' ? 'Confirmed'
+      : (s.status === 'pending' && s.registrationCompletedAt && !s.consentSignedAt && s.consentRequiredEmailSentAt) ? 'Awaiting Consent'
+      : s.status === 'pending' ? 'Pending Registration'
+      : 'Signed Up';
     var _csvRT = s.registrantType || (s.registration && s.registration.role) || '';
     rows.push([sName, s.email, s.phone, s.participationType, s.numVolunteers, s.groupName, dates, _csvRT, s.studentName, s.grade || s.studentGrade, s.currentSchool || s.studentSchool, s.careCoordinator, s.iepReviewDate, s.reevalDate, s.additionalComments, s.status, regStatus, s.adminNotes, ts].map(function(v) {
       var str = (v == null ? '' : String(v)).replace(/"/g, '""');
