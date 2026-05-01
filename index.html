@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8464,6 +8464,72 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
       }
 
       // ═══════════════════════════════════════════════════
+      // SECTION 4: Partner Resource Update Cycle progress
+      // ═══════════════════════════════════════════════════
+      // Mirrors the dashboard panel + the daily-report email.
+      var cycleHtml = '';
+      try {
+        var _yr2 = hNow.getFullYear();
+        var _may1c = new Date(_yr2, 4, 1).getTime();
+        var _nov1c = new Date(_yr2, 10, 1).getTime();
+        var _nowMsc = hNow.getTime();
+        var cycleStartMs2;
+        if (_nowMsc >= _nov1c)      cycleStartMs2 = _nov1c;
+        else if (_nowMsc >= _may1c) cycleStartMs2 = _may1c;
+        else                          cycleStartMs2 = new Date(_yr2 - 1, 10, 1).getTime();
+        var graceWindow2 = cycleStartMs2 - (7 * 24 * 60 * 60 * 1000);
+
+        var resTotal2 = 0, confirmed2 = 0, pendingReview2 = 0, awaiting2 = 0, noEmail2 = 0;
+        var resSnap2 = await db.collection('resources').get();
+        resSnap2.forEach(function(r) {
+          var rd = r.data() || {};
+          if (rd.archived === true) return;
+          var nm = (rd.name || '').trim();
+          if (!nm) return;
+          resTotal2++;
+          var em = (rd.email || '').trim();
+          var lu2 = rd.lastUpdateAt && rd.lastUpdateAt.toMillis ? rd.lastUpdateAt.toMillis() : 0;
+          var reqAt2 = rd.updateRequestedAt && rd.updateRequestedAt.toMillis ? rd.updateRequestedAt.toMillis() : 0;
+          var subAt2 = rd.updateSubmittedAt && rd.updateSubmittedAt.toMillis ? rd.updateSubmittedAt.toMillis() : 0;
+          if (rd.pendingUpdate) pendingReview2++;
+          if (lu2 >= graceWindow2 || subAt2 >= graceWindow2) confirmed2++;
+          else if (em && reqAt2 >= graceWindow2) awaiting2++;
+          else if (!em) noEmail2++;
+          else awaiting2++;
+        });
+
+        if (resTotal2 > 0) {
+          var pct2 = function(n) { return resTotal2 > 0 ? Math.round((n / resTotal2) * 100) : 0; };
+          var cPct = pct2(confirmed2), pPct = pct2(pendingReview2), aPct = pct2(awaiting2);
+          var nPct = Math.max(0, 100 - cPct - pPct - aPct);
+          var cycleDate2 = new Date(cycleStartMs2).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric', timeZone:'Pacific/Honolulu' });
+
+          var chip2 = function(color, label, n, p) {
+            return '<td style="padding:0 6px 6px 0;"><table role="presentation" cellpadding="0" cellspacing="0" style="border:1px solid #E2E8F0;border-radius:999px;background:#fff;">'
+              + '<tr><td style="padding:6px 14px;font-size:13px;white-space:nowrap;">'
+              + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + color + ';vertical-align:middle;margin-right:6px;"></span>'
+              + '<span style="font-weight:700;color:#0F172A;">' + n + '</span> '
+              + '<span style="color:#64748B;">' + label + (p > 0 ? ' (' + p + '%)' : '') + '</span>'
+              + '</td></tr></table></td>';
+          };
+          var bar2 = function(p, color) { return p > 0 ? '<td width="' + p + '%" style="background:' + color + ';font-size:0;line-height:0;">&nbsp;</td>' : ''; };
+
+          cycleHtml =
+            '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px 18px;margin-bottom:20px;">'
+            + '<h3 style="margin:0 0 2px;font-size:16px;color:#0F172A;">Partner Resource Update Cycle</h3>'
+            + '<div style="font-size:12px;color:#64748B;margin-bottom:10px;">Cycle started ' + cycleDate2 + ' &middot; ' + confirmed2 + ' of ' + resTotal2 + ' confirmed (' + cPct + '%)</div>'
+            + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border-radius:999px;overflow:hidden;border:1px solid #CBD5E1;background:#E2E8F0;margin-bottom:10px;height:14px;">'
+            + '<tr>' + bar2(cPct, '#16A34A') + bar2(pPct, '#F59E0B') + bar2(aPct, '#0891B2') + bar2(nPct, '#94A3B8') + '</tr></table>'
+            + '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+            + chip2('#16A34A', 'Confirmed this cycle', confirmed2, cPct)
+            + chip2('#F59E0B', 'Pending review', pendingReview2, pPct)
+            + chip2('#0891B2', 'Sent, awaiting reply', awaiting2, aPct)
+            + chip2('#94A3B8', 'No email on file', noEmail2, nPct)
+            + '</tr></table></div>';
+        }
+      } catch(e) { console.warn('Preview cycle panel error:', e.message); }
+
+      // ═══════════════════════════════════════════════════
       // BUILD FULL HTML PAGE
       // ═══════════════════════════════════════════════════
       var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
@@ -8477,6 +8543,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         + '<h1 style="margin:0;color:white;font-size:22px;font-weight:bold;">LDAH Daily Report</h1>'
         + '<p style="margin:4px 0 0;color:#b0c4de;font-size:14px;">' + todayStr + '</p></div>'
         + '<div style="padding:20px 28px;">'
+        + cycleHtml
         // Section 1: All Session Sheets
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
         + '<h2 style="margin:0;font-size:17px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:6px;">All Active Events &amp; Programs</h2>'
