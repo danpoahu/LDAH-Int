@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16178,6 +16178,12 @@ function cmsRenderResources(items) {
     if (hasPending) {
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#B45309;font-weight:700;" onclick="event.stopPropagation();cmsOpenResourceApprovalModal(\'' + rsEscape(r.id) + '\')">Review Update</button>';
     }
+    // Per-partner Send Update Request — admin-only, requires email on file,
+    // and only when no review is currently pending for this partner.
+    var _isAdmin = currentUserData && (currentUserData.role === 'superAdmin' || currentUserData.role === 'admin');
+    if (_isAdmin && !hasPending && !isArchived && (r.email || '').trim()) {
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#0891B2;font-weight:700;" onclick="event.stopPropagation();cmsSendSingleResourceUpdate(\'' + rsEscape(r.id) + '\',\'' + rsEscape(r.name || '') + '\',\'' + rsEscape(r.email || '') + '\')">Send Update Request</button>';
+    }
     if (r.website) {
       if (!r.iframeBlocked) {
         html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.website) + '\',\'_blank\')">Visit Website</button>';
@@ -16411,6 +16417,37 @@ window.cmsExportResourcesCsv = function() {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+};
+
+// Per-card single-partner update request. Confirms with the admin first,
+// then hits sendResourceUpdateRequests with targetResourceId set so the
+// CF skips the bulk eligibility logic and just sends to this one.
+window.cmsSendSingleResourceUpdate = async function(resourceId, name, email) {
+  var ok = confirm('Send a fresh Update Request to ' + name + ' at ' + email + '?\n\nThis regenerates their token and sends the consent/update email immediately.');
+  if (!ok) return;
+  var endpoint = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendResourceUpdateRequests';
+  try {
+    var resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetResourceId: resourceId,
+        adminEmail: (currentUserData && currentUserData.email) || ''
+      })
+    });
+    var result = await resp.json();
+    if (resp.ok && result.success) {
+      _showToast('Update request sent to ' + (result.name || name) + '.', '#16A34A');
+      if (window.auditLog) window.auditLog('Sent partner update request', name + ' (' + email + ')');
+      // Refresh so the card picks up the new updateRequestedAt and slips
+      // into the "awaiting reply" bucket.
+      if (typeof cmsLoadResources === 'function') cmsLoadResources();
+    } else {
+      _showToast('Send failed: ' + (result.error || resp.status), '#DC2626');
+    }
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
+  }
 };
 
 /* ── CMS: Resources — Send Update Requests (superAdmin) ── */
