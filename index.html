@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.9</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.10</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12687,7 +12687,7 @@ window.autoCropImage = function(file) {
               '<span class="ct-ix-card-date">' + sDateStr + '</span>' +
               '<span class="ct-signup-badge">Signup</span>' +
               cmsRegStatusBadge(entry) +
-              cmsAttendanceBadge(entry) +
+              cmsAttendanceBadge(entry, entry.sessionDate || '') +
             '</div>' +
             '<div class="ct-ix-card-summary">' + rsEscape(evTitle) + '</div>' +
             (entry.sessionDate ? '<div class="ct-ix-card-notes">Session: ' + rsEscape(entry.sessionDate) + '</div>' : '') +
@@ -18647,7 +18647,7 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   var _regType = s.registrantType || (s.registration && s.registration.role) || '';
   if (_regType) h += '<span style="font-size:.72rem;font-weight:600;color:#0369A1;background:#E0F2FE;border-radius:12px;padding:1px 8px;white-space:nowrap;">' + rsEscape(_regType) + '</span>';
   h += cmsRegStatusBadge(s);
-  h += cmsAttendanceBadge(s);
+  h += cmsAttendanceBadge(s, sessionDateKey);
   // Signup-source attribution: tiny pill so staff can see at a glance who came in via the email blast vs other channels
   if (s.signupSource === 'announcement-email') {
     h += '<span title="Came in via announcement email" style="font-size:.7rem;font-weight:600;color:#155E75;background:#CFFAFE;border:1px solid #67E8F9;border-radius:12px;padding:1px 8px;white-space:nowrap;">via announcement</span>';
@@ -19521,34 +19521,30 @@ window.cmsSendNoShowReInvites = async function(collection, eventId) {
   }
 };
 
-/* ── Attendance Badge Helper ── */
-function cmsAttendanceBadge(s) {
+/* ── Attendance Badge Helper ──
+ * Render an Attended / No-Show pill scoped to the session this card
+ * represents. Aggregate "across all sessions" totals were misleading —
+ * a no-show on one past session would bleed onto every future card for
+ * the same person. Now only show a pill when:
+ *   - it's a single-date event (s.attendanceStatus is set), OR
+ *   - sessionDateKey is provided, that session's date is today or in
+ *     the past, and s.sessionAttendance[sessionDateKey] is recorded.
+ */
+function cmsAttendanceBadge(s, sessionDateKey) {
   if (s.attendanceStatus === 'attended') return '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#D1FAE5;color:#065F46;margin-left:4px;">Attended</span>';
   if (s.attendanceStatus === 'no-show') return '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#FEE2E2;color:#991B1B;margin-left:4px;">No-Show</span>';
-  // Per-session attendance summary (multi-date events)
-  if (s.sessionAttendance && typeof s.sessionAttendance === 'object') {
-    var att = 0, no = 0;
-    // Don't count sessions that haven't happened yet — a future-dated
-    // entry showing as "no-show" would be confusing/incorrect. Compare
-    // against today's HST date string (YYYY-MM-DD).
+  if (!sessionDateKey || !s.sessionAttendance || typeof s.sessionAttendance !== 'object') return '';
+  var rec = s.sessionAttendance[sessionDateKey];
+  if (!rec || (rec.status !== 'attended' && rec.status !== 'no-show')) return '';
+  // Future sessions can't have a meaningful attendance status — don't render
+  // the pill until the session date is today or earlier (HST).
+  if (typeof sessionDateKey === 'string' && /^\d{4}-\d{2}-\d{2}/.test(sessionDateKey)) {
     var _hNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
     var _todayKey = _hNow.getFullYear() + '-' + String(_hNow.getMonth() + 1).padStart(2, '0') + '-' + String(_hNow.getDate()).padStart(2, '0');
-    Object.keys(s.sessionAttendance).forEach(function(k) {
-      var v = s.sessionAttendance[k];
-      if (!v) return;
-      // Date keys are YYYY-MM-DD; skip if the session is in the future.
-      if (typeof k === 'string' && /^\d{4}-\d{2}-\d{2}/.test(k) && k > _todayKey) return;
-      if (v.status === 'attended') att++;
-      else if (v.status === 'no-show') no++;
-    });
-    if (att > 0 || no > 0) {
-      var parts = [];
-      if (att > 0) parts.push('<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#D1FAE5;color:#065F46;margin-left:4px;">' + att + ' Attended</span>');
-      if (no > 0) parts.push('<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#FEE2E2;color:#991B1B;margin-left:4px;">' + no + ' No-Show</span>');
-      return parts.join('');
-    }
+    if (sessionDateKey > _todayKey) return '';
   }
-  return '';
+  if (rec.status === 'attended') return '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#D1FAE5;color:#065F46;margin-left:4px;">Attended</span>';
+  return '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;background:#FEE2E2;color:#991B1B;margin-left:4px;">No-Show</span>';
 }
 
 /* ── Attendance Mode Toggle ── */
