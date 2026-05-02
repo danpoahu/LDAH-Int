@@ -4005,7 +4005,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.14</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v119.9.15</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4502,6 +4502,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
               <option value="Pledge">Pledge</option>
               <option value="Event Request">Event Request</option>
               <option value="Volunteer">Volunteer</option>
+              <option value="Partner Application">Partner Application</option>
             </select>
           </div>
           <div style="display:flex;gap:8px;align-self:flex-end;">
@@ -8447,6 +8448,20 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
           var prRows = '';
           prDocs.forEach(function(pd2) { prRows += '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 8px;font-size:12px;font-weight:600;">'+_escR(pd2.organizationName||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR((pd2.firstName||'')+' '+(pd2.lastName||''))+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(pd2.email||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR((pd2.services||'').substring(0,80))+'</td></tr>'; });
           formSections.push({ title: 'Provider Requests', count: prDocs.length, color: '#be185d', headers: '<th>Organization</th><th>Contact</th><th>Email</th><th>Services</th>', rows: prRows });
+        }
+      } catch(e){}
+
+      // Partner Resource Applications (Become a Partner Resource form)
+      try {
+        var raSnap = await db.collection('resourceApplications').where('status','==','new').get();
+        var raDocs = []; raSnap.forEach(function(r) { var rd2 = r.data() || {}; if (rd2.archived !== true) raDocs.push(rd2); });
+        if (raDocs.length > 0) {
+          var raRows = '';
+          raDocs.forEach(function(rd2) {
+            var cityIsland = [rd2.city, rd2.island].filter(Boolean).join(', ');
+            raRows += '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 8px;font-size:12px;font-weight:600;">'+_escR(rd2.name||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(rd2.contactName||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(rd2.email||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(rd2.type||'')+'</td><td style="padding:5px 8px;font-size:12px;">'+_escR(cityIsland)+'</td></tr>';
+          });
+          formSections.push({ title: 'Partner Resource Applications', count: raDocs.length, color: '#dc2626', headers: '<th>Organization</th><th>Contact</th><th>Email</th><th>Type</th><th>Location</th>', rows: raRows });
         }
       } catch(e){}
 
@@ -12978,6 +12993,16 @@ window.autoCropImage = function(file) {
       document.querySelector('[data-section="cmsVolunteers"]').click();
     } else if (channel === 'Signup') {
       document.querySelector('[data-section="cmsEvents"]').click();
+    } else if (channel === 'Partner Application') {
+      document.querySelector('[data-section="cmsResources"]').click();
+      // Make sure the Partner Applications card is open even if it had been collapsed.
+      setTimeout(function() {
+        var card = document.getElementById('cmsResourceAppsCard');
+        if (card) {
+          card.classList.remove('collapsed');
+          card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
     }
   };
 
@@ -13043,13 +13068,19 @@ window.autoCropImage = function(file) {
           db.collection('eventRequests').orderBy('timestamp','desc').limit(10).get(),
           db.collection('volunteers').orderBy('submittedAt','desc').limit(10).get(),
           db.collection('events').get(),
-          db.collection('recurringEvents').get()
+          db.collection('recurringEvents').get(),
+          db.collection('resourceApplications').orderBy('submittedAt','desc').limit(10).get()
         ]);
         _results[0].forEach(function(doc) { var d = doc.data(); _pushDashForm('Contact Form', d.name||'—', d.message||'—', d.status, d.timestamp); });
         _results[1].forEach(function(doc) { var d = doc.data(); _pushDashForm('Provider', d.organizationName||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.serviceType||d.message||'—', d.status, d.submittedAt); });
         _results[2].forEach(function(doc) { var d = doc.data(); _pushDashForm('Pledge', d.name||'—', 'Anti-bullying pledge'+(d.role?' ('+d.role+')':''), d.status, d.submittedAt); });
         _results[3].forEach(function(doc) { var d = doc.data(); _pushDashForm('Event Request', d.name||'—', d.eventInfo||'—', d.status, d.timestamp||d.submittedAt); });
         _results[4].forEach(function(doc) { var d = doc.data(); _pushDashForm('Volunteer', [d.firstName,d.lastName].filter(Boolean).join(' ')||'—', d.opportunityTitle||d.notes||'—', d.status, d.submittedAt); });
+        _results[7].forEach(function(doc) {
+          var d = doc.data() || {}; if (d.archived === true) return;
+          var summary = (d.name || 'Partner') + (d.type ? ' — ' + d.type : '') + (d.city ? ' (' + d.city + ')' : '');
+          _pushDashForm('Partner Application', d.contactName || d.name || '—', summary, d.status, d.submittedAt);
+        });
         // Signups from active events only — also in parallel
         var _tdy = _localToday();
         var _actEv = [];
@@ -13103,7 +13134,7 @@ window.autoCropImage = function(file) {
           + ' <span style="color:#94a3b8;font-size:.78rem;">' + ts.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + '</span>';
 
         var _fColors = { 'Signup':'#10b981', 'Contact Form':'#6366f1', 'Provider':'#8b5cf6',
-          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2' };
+          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2', 'Partner Application':'#dc2626' };
         var channelEmoji = d.channel === 'Phone' ? '📞' :
                           d.channel === 'Web' ? '🌐' :
                           d.channel === 'Office' ? '🏢' :
@@ -14568,7 +14599,7 @@ window.autoCropImage = function(file) {
 
       // ── Merge form submissions & signups (cost-efficient: cached via persistence) ──
       // Skip form merge when follow-up filter is active (form entries have no follow-up dates)
-      var _formChannels = ['Signup','Contact Form','Provider','Pledge','Event Request','Volunteer'];
+      var _formChannels = ['Signup','Contact Form','Provider','Pledge','Event Request','Volunteer','Partner Application'];
       var _isFormFilter = channelFilter && _formChannels.indexOf(channelFilter) !== -1;
       if (!_wasFollowUpFilter && (!channelFilter || _isFormFilter)) {
         var _dfrom = dateFrom ? new Date(dateFrom + 'T00:00:00') : null;
@@ -14619,6 +14650,14 @@ window.autoCropImage = function(file) {
             _ixFormProms.push(db.collection('volunteers').orderBy('submittedAt','desc').limit(200).get().then(function(s) {
               s.forEach(function(doc) { var d = doc.data(); var name = [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
                 _pushForm('Volunteer', name, d.opportunityTitle || d.notes || d.subject || '—', d.status||'new', d.submittedAt); });
+            }));
+          if (!channelFilter || channelFilter === 'Partner Application')
+            _ixFormProms.push(db.collection('resourceApplications').orderBy('submittedAt','desc').limit(200).get().then(function(s) {
+              s.forEach(function(doc) {
+                var d = doc.data() || {}; if (d.archived === true) return;
+                var summary = (d.name || 'Partner') + (d.type ? ' — ' + d.type : '') + (d.city ? ' (' + d.city + ')' : '');
+                _pushForm('Partner Application', d.contactName || d.name || '—', summary, d.status||'new', d.submittedAt);
+              });
             }));
           if (!channelFilter || channelFilter === 'Signup') {
             var _today = _localToday();
@@ -14681,7 +14720,7 @@ window.autoCropImage = function(file) {
                           d.status === 'pending' ? 'Pending' : (d.status || 'Open');
 
         var _formTagColors = { 'Signup':'#10b981', 'Contact Form':'#6366f1', 'Provider':'#8b5cf6',
-          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2' };
+          'Pledge':'#ec4899', 'Event Request':'#f59e0b', 'Volunteer':'#0891b2', 'Partner Application':'#dc2626' };
         var _chTagStyle = isForm ? ' style="background:' + (_formTagColors[d.channel]||'#64748b') + ';color:#fff;"' : '';
 
         var notesBadge = _notesBadgeHtml(d.notes);
