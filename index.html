@@ -4006,7 +4006,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.0.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.0.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6378,6 +6378,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
     <div class="ct-detail-modal">
       <div class="ct-detail-header">
         <span id="ctDetailTitle">Contact Detail</span>
+        <span id="ctDetailFeedbackPill" style="display:none;background:#16A34A;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:10px;cursor:pointer;user-select:none;" onclick="ctOpenFeedback()" title="View this contact's feedback responses">0 Feedback</span>
         <button class="ct-close" onclick="closeContactDetail()">&times;</button>
       </div>
       <div class="ct-detail-body" id="ctDetailBody">
@@ -6386,6 +6387,22 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
       <div class="ct-detail-actions">
         <button onclick="closeContactDetail()">Close</button>
         <button class="ct-detail-edit-btn" id="ctDetailEditBtn" style="display:none;">✏️ Edit Contact</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Per-contact Feedback Modal (opened from the green pill on Contact Detail) -->
+  <div class="ct-detail-overlay" id="ctFeedbackOverlay">
+    <div class="ct-detail-modal" style="max-width:760px;">
+      <div class="ct-detail-header">
+        <span id="ctFeedbackTitle">Feedback</span>
+        <button class="ct-close" onclick="document.getElementById('ctFeedbackOverlay').classList.remove('active')">&times;</button>
+      </div>
+      <div class="ct-detail-body" id="ctFeedbackBody" style="padding:18px;">
+        <div style="color:var(--text-soft);text-align:center;padding:30px;">Loading feedback…</div>
+      </div>
+      <div class="ct-detail-actions">
+        <button onclick="document.getElementById('ctFeedbackOverlay').classList.remove('active')">Close</button>
       </div>
     </div>
   </div>
@@ -12772,6 +12789,23 @@ window.autoCropImage = function(file) {
       var c = doc.data();
       document.getElementById('ctDetailTitle').textContent = c.displayName || 'Contact Detail';
 
+      // Reset + populate the green Feedback pill async (don't block render).
+      // _ctFeedbackCache holds the docs the modal will need on click so we
+      // don't double-query.
+      window._ctFeedbackCache = { contactId: contactId, contactName: c.displayName || '', docs: [] };
+      var pillEl = document.getElementById('ctDetailFeedbackPill');
+      if (pillEl) pillEl.style.display = 'none';
+      db.collection('eventFeedback').where('linkedContactId', '==', contactId).get().then(function(fSnap) {
+        var docs = [];
+        fSnap.forEach(function(d) { docs.push(Object.assign({ _id: d.id }, d.data() || {})); });
+        window._ctFeedbackCache.docs = docs;
+        var p = document.getElementById('ctDetailFeedbackPill');
+        if (p && docs.length > 0) {
+          p.textContent = docs.length + ' Feedback';
+          p.style.display = 'inline-block';
+        }
+      }).catch(function(err) { console.warn('Contact feedback pill query failed:', err.message); });
+
       var typeCls = c.type === 'Parent/Guardian' ? 'parent' :
                     c.type === 'Professional' ? 'professional' :
                     c.type === 'Student' ? 'student' : 'organization';
@@ -13054,6 +13088,109 @@ window.autoCropImage = function(file) {
 
   window.closeContactDetail = function() {
     document.getElementById('ctDetailOverlay').classList.remove('active');
+  };
+
+  // ── Per-contact Feedback Modal ──
+  // Opened from the green "Feedback" pill on Contact Detail. Pulls the
+  // already-loaded eventFeedback docs from window._ctFeedbackCache (set
+  // when the contact was opened) and renders each response with its event
+  // info as a heading, sorted newest first. All 13 answers visible inline
+  // — no extra clicks needed.
+  window.ctOpenFeedback = async function() {
+    var cache = window._ctFeedbackCache || { docs: [], contactName: '', contactId: null };
+    var overlay = document.getElementById('ctFeedbackOverlay');
+    var titleEl = document.getElementById('ctFeedbackTitle');
+    var body = document.getElementById('ctFeedbackBody');
+    if (!overlay || !body) return;
+    titleEl.textContent = 'Feedback from ' + (cache.contactName || 'Contact');
+    body.innerHTML = '<div style="color:var(--text-soft);text-align:center;padding:30px;">Loading event details…</div>';
+    overlay.classList.add('active');
+
+    var docs = (cache.docs || []).slice();
+    if (docs.length === 0) {
+      body.innerHTML = '<div style="color:var(--text-soft);text-align:center;padding:30px;">No feedback responses recorded for this contact.</div>';
+      return;
+    }
+
+    // Resolve event titles for each unique eventId (small N).
+    var titleCache = {};
+    var uniqueEvIds = {};
+    docs.forEach(function(f) { if (f.eventId) uniqueEvIds[(f.eventCollection || 'events') + '|' + f.eventId] = true; });
+    var promises = Object.keys(uniqueEvIds).map(function(k) {
+      var parts = k.split('|');
+      return db.collection(parts[0]).doc(parts[1]).get().then(function(s) {
+        titleCache[k] = s.exists ? ((s.data() || {}).title || '(untitled event)') : '(unknown event)';
+      }).catch(function() { titleCache[k] = '(unknown event)'; });
+    });
+    await Promise.all(promises);
+
+    // Newest first.
+    docs.sort(function(a, b) {
+      var ta = (a.submittedAt && a.submittedAt.seconds) || 0;
+      var tb = (b.submittedAt && b.submittedAt.seconds) || 0;
+      return tb - ta;
+    });
+
+    var QUESTIONS = [
+      { key: 'participationMode',  label: 'Participation mode' },
+      { key: 'presenterRating',    label: 'Presenter rating' },
+      { key: 'handoutsRating',     label: 'Handouts rating' },
+      { key: 'increasedKnowledge', label: 'Did this session increase your knowledge?' },
+      { key: 'relevantToChild',    label: 'Relevant to your child?' },
+      { key: 'usefulToMe',         label: 'Useful to me?' },
+      { key: 'overallSatisfied',   label: 'Overall satisfaction' },
+      { key: 'priorImpactServices',label: 'Prior-impact: services received' },
+      { key: 'priorImpactShared',  label: 'Prior-impact: shared with others' },
+      { key: 'priorImpactSchool',  label: 'Prior-impact: school relationship' },
+      { key: 'priorImpactResolved',label: 'Prior-impact: helped resolve concerns' },
+      { key: 'likedBest',          label: 'What did you like best?' },
+      { key: 'improvementFeedback',label: 'What would you improve?' },
+    ];
+
+    function fmtTs(ts) {
+      if (!ts) return '';
+      var d = ts.toDate ? ts.toDate() : (ts.seconds ? new Date(ts.seconds * 1000) : null);
+      if (!d) return '';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
+             d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
+    var html = '';
+    html += '<div style="font-size:.8rem;color:var(--text-soft);margin-bottom:14px;">' + docs.length + ' response' + (docs.length === 1 ? '' : 's') + ', newest first.</div>';
+    docs.forEach(function(f) {
+      var k = (f.eventCollection || 'events') + '|' + f.eventId;
+      var title = titleCache[k] || '(unknown event)';
+      var sd = f.sessionDate || '';
+      var submitted = fmtTs(f.submittedAt);
+      var backfilled = f.backfilledSessionDateAt
+        ? '<span style="font-size:.7rem;background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:4px;margin-left:6px;">backfilled</span>' : '';
+      html += '<div style="border:1px solid #E2E8F0;border-radius:10px;margin-bottom:14px;overflow:hidden;">';
+      html += '<div style="background:#1a3c6e;color:#fff;padding:10px 14px;">';
+      html += '<div style="font-weight:700;font-size:.95rem;">' + rsEscape(title) + backfilled + '</div>';
+      html += '<div style="font-size:.78rem;color:#cbd5e1;margin-top:2px;">' +
+              (sd ? 'Session: ' + rsEscape(sd) : 'Single-date / flat event') +
+              (submitted ? ' &middot; submitted ' + rsEscape(submitted) : '') +
+              '</div>';
+      html += '</div>';
+      html += '<div style="padding:12px 14px;background:#fafbfc;">';
+      QUESTIONS.forEach(function(q) {
+        var v = f[q.key];
+        var empty = v == null || v === '';
+        var isLong = q.key === 'likedBest' || q.key === 'improvementFeedback';
+        html += '<div style="margin-bottom:10px;">';
+        html += '<div style="font-size:.72rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">' + rsEscape(q.label) + '</div>';
+        if (empty) {
+          html += '<div style="font-size:.85rem;color:#9ca3af;font-style:italic;margin-top:2px;">(no answer)</div>';
+        } else if (isLong) {
+          html += '<div style="font-size:.88rem;color:#0f172a;background:#fff;border-left:3px solid #1a3c6e;padding:6px 10px;margin-top:4px;border-radius:0 6px 6px 0;white-space:pre-wrap;">' + rsEscape(v) + '</div>';
+        } else {
+          html += '<div style="font-size:.88rem;color:#0f172a;margin-top:2px;">' + rsEscape(v) + '</div>';
+        }
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+    body.innerHTML = html;
   };
 
   // ── Share Registration Across Signups ──
