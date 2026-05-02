@@ -4006,7 +4006,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.0.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.0.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20306,10 +20306,35 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     html += '</div>';
   }
 
-  // Filter feedback by session date if applicable
+  // Filter feedback by session date if applicable.
+  //
+  // Resilience: some legacy feedback docs were written without a sessionDate
+  // (reminder-email feedback URL didn't include it before W2 v58 fix). For
+  // those, attribute the feedback to a session by looking up which session(s)
+  // the signup actually attended. If there's exactly one unambiguous match
+  // to the selected date, count it. Same logic regardless of recurring vs
+  // one-time multi-date.
   var filteredFeedback = feedbackDocs;
   if (sessionDate && (isRecurring || isOneTimeMulti)) {
-    filteredFeedback = feedbackDocs.filter(function(fb) { return fb.sessionDate === sessionDate; });
+    var attendedBySignup = {};
+    signups.forEach(function(s) {
+      if (!s.id) return;
+      var keys = [];
+      if (s.sessionAttendance) {
+        Object.keys(s.sessionAttendance).forEach(function(k) {
+          if (s.sessionAttendance[k] && s.sessionAttendance[k].status === 'attended') keys.push(k);
+        });
+      }
+      attendedBySignup[s.id] = keys;
+    });
+    filteredFeedback = feedbackDocs.filter(function(fb) {
+      if (fb.sessionDate === sessionDate) return true;
+      if (!fb.sessionDate && fb.signupId) {
+        var attended = attendedBySignup[fb.signupId] || [];
+        if (attended.length === 1 && attended[0] === sessionDate) return true;
+      }
+      return false;
+    });
   }
 
   // Section B: Feedback Summary
