@@ -4006,7 +4006,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.0.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.0.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25745,20 +25745,59 @@ window.cmsBuildFeedbackReport = async function() {
     });
 
     var QUESTIONS = [
-      { key: 'participationMode',  label: 'Q1. Participation mode' },
-      { key: 'presenterRating',    label: 'Q2. Presenter rating' },
-      { key: 'handoutsRating',     label: 'Q3. Handouts rating' },
-      { key: 'increasedKnowledge', label: 'Q4. Did this session increase your knowledge?' },
-      { key: 'relevantToChild',    label: 'Q5. Relevant to your child?' },
-      { key: 'usefulToMe',         label: 'Q6. Useful to me?' },
-      { key: 'overallSatisfied',   label: 'Q7. Overall satisfaction' },
-      { key: 'priorImpactServices',label: 'Q8. (Prior-impact) Did this affect services received?' },
-      { key: 'priorImpactShared',  label: 'Q9. (Prior-impact) Shared with others?' },
-      { key: 'priorImpactSchool',  label: 'Q10. (Prior-impact) Affected school relationship?' },
-      { key: 'priorImpactResolved',label: 'Q11. (Prior-impact) Helped resolve concerns?' },
-      { key: 'likedBest',          label: 'Q12. What did you like best?' },
-      { key: 'improvementFeedback',label: 'Q13. What would you improve?' },
+      { key: 'participationMode',  label: 'Q1. Participation mode',                    csv: 'Participation Mode' },
+      { key: 'presenterRating',    label: 'Q2. Presenter rating',                       csv: 'Presenter Rating' },
+      { key: 'handoutsRating',     label: 'Q3. Handouts rating',                        csv: 'Handouts Rating' },
+      { key: 'increasedKnowledge', label: 'Q4. Did this session increase your knowledge?', csv: 'Increased Knowledge' },
+      { key: 'relevantToChild',    label: 'Q5. Relevant to your child?',                csv: 'Relevant To Child' },
+      { key: 'usefulToMe',         label: 'Q6. Useful to me?',                          csv: 'Useful To Me' },
+      { key: 'overallSatisfied',   label: 'Q7. Overall satisfaction',                   csv: 'Overall Satisfaction' },
+      { key: 'priorImpactServices',label: 'Q8. (Prior-impact) Did this affect services received?', csv: 'Prior Impact: Services' },
+      { key: 'priorImpactShared',  label: 'Q9. (Prior-impact) Shared with others?',     csv: 'Prior Impact: Shared' },
+      { key: 'priorImpactSchool',  label: 'Q10. (Prior-impact) Affected school relationship?', csv: 'Prior Impact: School' },
+      { key: 'priorImpactResolved',label: 'Q11. (Prior-impact) Helped resolve concerns?', csv: 'Prior Impact: Resolved' },
+      { key: 'likedBest',          label: 'Q12. What did you like best?',               csv: 'Liked Best' },
+      { key: 'improvementFeedback',label: 'Q13. What would you improve?',               csv: 'Improvement Feedback' },
     ];
+
+    // CSV builder — one row per feedback response. Excel-friendly: wrap
+    // every cell in quotes, double internal quotes, leave newlines alone
+    // inside quoted fields (Excel handles them).
+    function csvCell(v) {
+      var s = (v == null) ? '' : String(v);
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    var csvHeaders = ['Event Title', 'Event Collection', 'Session Date', 'Respondent Name', 'Respondent Email', 'Submitted At (UTC)', 'Backfilled?']
+      .concat(QUESTIONS.map(function(q) { return q.csv; }));
+    var csvRows = [csvHeaders.map(csvCell).join(',')];
+    fbAll.slice().sort(function(a, b) {
+      // sort by event title, then session date desc, then submitted desc
+      var ta = (eventTitles[a.eventId] || '').toLowerCase();
+      var tb = (eventTitles[b.eventId] || '').toLowerCase();
+      if (ta !== tb) return ta < tb ? -1 : 1;
+      var sa = a.sessionDate || '', sb = b.sessionDate || '';
+      if (sa !== sb) return sb < sa ? -1 : 1;
+      var ma = (a.submittedAt && a.submittedAt.seconds) || 0;
+      var mb = (b.submittedAt && b.submittedAt.seconds) || 0;
+      return mb - ma;
+    }).forEach(function(f) {
+      var k = (f.eventCollection || 'events') + '/' + f.eventId + '/' + f.signupId;
+      var s = signupCache[k] || {};
+      var row = [
+        eventTitles[f.eventId] || '(unknown)',
+        f.eventCollection || 'events',
+        f.sessionDate || '',
+        s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || '',
+        s.email || '',
+        fmtTs(f.submittedAt),
+        f.backfilledSessionDateAt ? 'yes' : '',
+      ];
+      QUESTIONS.forEach(function(q) { row.push(f[q.key] == null ? '' : f[q.key]); });
+      csvRows.push(row.map(csvCell).join(','));
+    });
+    var csvText = csvRows.join('\r\n');
+    var csvDataUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvText);
+    var csvFilename = 'ldah-feedback-' + new Date().toISOString().slice(0, 10) + '.csv';
 
     var totalFb = fbAll.length;
     var totalEvents = eventOrder.length;
@@ -25794,9 +25833,15 @@ window.cmsBuildFeedbackReport = async function() {
     html += '.q .answer.empty { color: #9ca3af; font-style: italic; }';
     html += '.long-answer { background: #fff; border-left: 3px solid #1a3c6e; padding: 8px 12px; margin-top: 4px; border-radius: 0 6px 6px 0; }';
     html += '.backfilled { font-size: 11px; background: #fef3c7; color: #92400e; padding: 1px 8px; border-radius: 4px; margin-left: 6px; }';
+    html += '.toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin: 0 0 18px; }';
+    html += '.csv-btn { display: inline-block; background: #16A34A; color: #fff; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; white-space: nowrap; }';
+    html += '.csv-btn:hover { background: #15803d; }';
     html += '</style></head><body>';
-    html += '<h1>LDAH Feedback Detail Report</h1>';
-    html += '<p class="sub">Generated ' + new Date().toISOString().replace('T', ' ').slice(0, 19) + 'Z &middot; live from Firestore &middot; click any respondent to expand all 13 answers.</p>';
+    html += '<div class="toolbar">';
+    html += '<div><h1>LDAH Feedback Detail Report</h1>';
+    html += '<p class="sub">Generated ' + new Date().toISOString().replace('T', ' ').slice(0, 19) + 'Z &middot; live from Firestore &middot; click any respondent to expand all 13 answers.</p></div>';
+    html += '<a class="csv-btn" download="' + csvFilename + '" href="' + csvDataUrl + '">Download CSV</a>';
+    html += '</div>';
     html += '<div class="kpis">';
     html += '<div class="kpi"><div class="n">' + totalFb + '</div><div class="l">Total feedback responses</div></div>';
     html += '<div class="kpi"><div class="n">' + totalEvents + '</div><div class="l">Events with feedback</div></div>';
