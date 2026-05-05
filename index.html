@@ -2162,6 +2162,12 @@
   font-size:.75rem; font-weight:600; cursor:pointer; transition:all .15s;
 }
 .ur-restore-btn:hover { background:#f0fdf4; }
+.ur-force-offline-btn {
+  padding:4px 10px; border:1.5px solid #f59e0b; border-radius:6px; background:white; color:#b45309;
+  font-size:.75rem; font-weight:600; cursor:pointer; transition:all .15s;
+}
+.ur-force-offline-btn:hover { background:#fffbeb; border-color:#d97706; color:#92400e; }
+.ur-force-offline-btn:disabled { opacity:.6; cursor:wait; }
 .ur-archived-row { opacity:.55; }
 .ur-archived-row td { font-style:italic; }
 .ur-archived-badge {
@@ -4025,7 +4031,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.1.9</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.2.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10291,6 +10297,15 @@ window.autoCropImage = function(file) {
       var archiveBtn = r.isArchived
         ? '<button class="ur-restore-btn" data-uid="' + r.uid + '">Restore</button>'
         : '<button class="ur-archive-btn" data-uid="' + r.uid + '">Archive</button>';
+      // Force-offline only for superAdmin, on non-archived rows that show online or idle.
+      // Self is excluded — admins can use the regular logout for themselves.
+      var canForceOffline = currentUserData && currentUserData.role === 'superAdmin'
+        && !r.isArchived
+        && r.uid !== currentUserData.uid
+        && (r.status === 'green' || r.status === 'yellow');
+      var forceOfflineBtn = canForceOffline
+        ? '<button class="ur-force-offline-btn" data-uid="' + r.uid + '" title="Clear stale online status. If their browser is actually active, the next 5-min heartbeat will flip them back online.">Force Offline</button>'
+        : '';
       var tr = document.createElement('tr');
       if (r.isArchived) tr.className = 'ur-archived-row';
       tr.innerHTML =
@@ -10304,7 +10319,7 @@ window.autoCropImage = function(file) {
         + '<option value="">— None —</option>'
         + locationLabels.map(function(l) { return '<option value="'+l+'" '+(r.location===l?'selected':'')+'>'+l+'</option>'; }).join('')
         + '</select>') + '</td>'
-        + '<td style="display:flex;gap:4px;align-items:center;">' + (r.isArchived ? '' : '<button class="ur-save-btn" data-uid="' + r.uid + '">Save</button>') + archiveBtn + '</td>';
+        + '<td style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' + (r.isArchived ? '' : '<button class="ur-save-btn" data-uid="' + r.uid + '">Save</button>') + forceOfflineBtn + archiveBtn + '</td>';
       tbody.appendChild(tr);
     });
 
@@ -10365,6 +10380,33 @@ window.autoCropImage = function(file) {
           renderUserRolesTable();
         } catch (err) {
           alert('Error archiving: ' + err.message);
+        }
+      });
+    });
+
+    // Force-offline handlers (superAdmin only — flips chatPresence to offline)
+    tbody.querySelectorAll('.ur-force-offline-btn').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        var uid = btn.getAttribute('data-uid');
+        var cached = _urCachedRows.find(function(rw) { return rw.uid === uid; });
+        if (!cached) return;
+        if (!confirm('Force ' + cached.name + ' offline?\n\nThis clears their online indicator. If they really are active, the next heartbeat (within 5 min) will flip them back to green.')) return;
+        var orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '…';
+        try {
+          await db.collection('chatPresence').doc(uid).set({
+            online: false,
+            lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+          auditLog('Force offline', cached.name + ' (' + (cached.email || uid) + ')');
+          cached.status = 'red';
+          cached.statusOrder = 2;
+          renderUserRolesTable();
+        } catch (err) {
+          alert('Error: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = orig;
         }
       });
     });
