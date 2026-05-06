@@ -2218,6 +2218,31 @@
 }
 .section-refresh-btn:hover { background: #cbd5e1; }
 
+/* 30d / YTD period toggle */
+.wa-period-toggle {
+  display: inline-flex;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+}
+.wa-period-btn {
+  padding: 8px 14px;
+  background: white;
+  color: var(--text-soft);
+  border: none;
+  font-size: .82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.wa-period-btn + .wa-period-btn { border-left: 1.5px solid #cbd5e1; }
+.wa-period-btn:hover:not(.active) { background: #f1f5f9; }
+.wa-period-btn.active {
+  background: var(--ocean-deep);
+  color: white;
+}
+
 .wa-analytics-box {
   background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
   border-radius: 16px;
@@ -4031,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.2.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.3.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4566,9 +4591,13 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
       <!-- Web/App Dashboard (all users) -->
       <section id="webDashboardSection" class="wa-section" style="display:none;">
-        <h2>Website/App Analytics <span>(Last 30 Days)</span></h2>
-        <div style="margin-bottom:14px;">
-          <button class="section-refresh-btn" onclick="loadSiteAnalytics()">Refresh</button>
+        <h2>Website/App Analytics <span id="waPeriodLabel">(Last 30 Days)</span></h2>
+        <div style="margin-bottom:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="section-refresh-btn" onclick="loadSiteAnalytics(true)">Refresh</button>
+          <div class="wa-period-toggle" role="group" aria-label="Time period">
+            <button id="waRange30d" class="wa-period-btn active" onclick="setWAPeriod('30d')">Last 30 Days</button>
+            <button id="waRangeYTD" class="wa-period-btn" onclick="setWAPeriod('ytd')">Year to Date</button>
+          </div>
         </div>
 
         <div class="wa-analytics-box">
@@ -4607,6 +4636,10 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
             <div class="wa-detail-card">
               <h4>Document / PDF Views</h4>
               <div id="waDocumentViews"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
+            </div>
+            <div class="wa-detail-card">
+              <h4>Form Submissions</h4>
+              <div id="waFormSubmissions"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
             </div>
           </div>
         </div>
@@ -15503,25 +15536,86 @@ window.autoCropImage = function(file) {
   };
 
   // ── Website/App Analytics ──
-  let siteAnalyticsData = [];
+  // Caching strategy: YTD is a superset of 30d, so we always cache the
+  // largest range fetched and filter down for the smaller view. First page
+  // load fetches 30d only (no behavior change). Clicking YTD pays a one-time
+  // 126-doc read, then all subsequent toggles in the session filter the cache
+  // for free. Refresh button re-fetches the active range.
+  let siteAnalyticsData = [];           // current view (30d or YTD slice)
+  let siteAnalyticsCacheYTD = null;     // full YTD, populated on first YTD click
+  let siteAnalyticsCache30d = null;     // 30d slice, populated on first 30d fetch
+  let waActivePeriod = '30d';           // '30d' | 'ytd'
 
-  async function loadSiteAnalytics() {
+  function _waPeriodStart(period) {
+    var now = new Date();
+    if (period === 'ytd') {
+      return now.getFullYear() + '-01-01';
+    }
+    var d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function _waSliceForPeriod(allDocs, period) {
+    var start = _waPeriodStart(period);
+    return allDocs.filter(function(d) { return d.date && d.date >= start; });
+  }
+
+  async function loadSiteAnalytics(forceRefetch) {
     try {
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const startKey = thirtyDaysAgo.getFullYear() + '-' + String(thirtyDaysAgo.getMonth() + 1).padStart(2, '0') + '-' + String(thirtyDaysAgo.getDate()).padStart(2, '0');
+      // If we have a cache that already covers the active period, use it.
+      if (!forceRefetch) {
+        if (waActivePeriod === 'ytd' && siteAnalyticsCacheYTD) {
+          siteAnalyticsData = siteAnalyticsCacheYTD;
+          updateWADashboard();
+          return;
+        }
+        if (waActivePeriod === '30d') {
+          if (siteAnalyticsCache30d) {
+            siteAnalyticsData = siteAnalyticsCache30d;
+            updateWADashboard();
+            return;
+          }
+          if (siteAnalyticsCacheYTD) {
+            siteAnalyticsData = _waSliceForPeriod(siteAnalyticsCacheYTD, '30d');
+            siteAnalyticsCache30d = siteAnalyticsData;
+            updateWADashboard();
+            return;
+          }
+        }
+      }
 
-      const snapshot = await db.collection('siteAnalytics')
+      var startKey = _waPeriodStart(waActivePeriod);
+      var snapshot = await db.collection('siteAnalytics')
         .where('date', '>=', startKey)
         .get();
+      var docs = snapshot.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
 
-      siteAnalyticsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      siteAnalyticsData = docs;
+      if (waActivePeriod === 'ytd') {
+        siteAnalyticsCacheYTD = docs;
+        siteAnalyticsCache30d = _waSliceForPeriod(docs, '30d');
+      } else {
+        siteAnalyticsCache30d = docs;
+      }
       updateWADashboard();
     } catch (err) {
       console.warn('Could not load site analytics:', err.message);
       updateWADashboard();
     }
   }
+
+  window.setWAPeriod = function(period) {
+    if (period !== '30d' && period !== 'ytd') return;
+    if (waActivePeriod === period) return;
+    waActivePeriod = period;
+    var b30 = document.getElementById('waRange30d');
+    var bYTD = document.getElementById('waRangeYTD');
+    if (b30) b30.classList.toggle('active', period === '30d');
+    if (bYTD) bYTD.classList.toggle('active', period === 'ytd');
+    var lbl = document.getElementById('waPeriodLabel');
+    if (lbl) lbl.textContent = period === 'ytd' ? '(Year to Date)' : '(Last 30 Days)';
+    loadSiteAnalytics(false);
+  };
 
   function getSiteAnalyticsTotals() {
     let uniqueVisitorIds = new Set();
@@ -15534,6 +15628,7 @@ window.autoCropImage = function(file) {
     let formSubmits = 0;
     let documentViews = 0;
     let documentViewsByDoc = {};
+    let formSubmitsByType = {};
     let pageviewsByPage = {};
 
     siteAnalyticsData.forEach(function(day) {
@@ -15567,7 +15662,23 @@ window.autoCropImage = function(file) {
             }
           });
         }
+        if (day.events.form_submit && typeof day.events.form_submit === 'object') {
+          Object.keys(day.events.form_submit).forEach(function(formName) {
+            if (formName !== 'total') {
+              formSubmitsByType[formName] = (formSubmitsByType[formName] || 0) + (day.events.form_submit[formName] || 0);
+            }
+          });
+        }
       }
+      // Dot-notation flat keys (older docs use update() with dotted paths)
+      Object.keys(day).forEach(function(key) {
+        if (key.indexOf('events.form_submit.') === 0) {
+          var fk = key.replace('events.form_submit.', '');
+          if (fk && fk !== 'total') {
+            formSubmitsByType[fk] = (formSubmitsByType[fk] || 0) + (day[key] || 0);
+          }
+        }
+      });
       donationClicks += day['events.donation_click'] || 0;
       phoneCalls += day['events.phone_call'] || 0;
       emailClicks += day['events.email_click'] || 0;
@@ -15588,6 +15699,7 @@ window.autoCropImage = function(file) {
       formSubmits: formSubmits,
       documentViews: documentViews,
       documentViewsByDoc: documentViewsByDoc,
+      formSubmitsByType: formSubmitsByType,
       totalInteractions: phoneCalls + emailClicks + outboundClicks + modalOpens + documentViews + formSubmits,
       pageviewsByPage: pageviewsByPage
     };
@@ -15649,6 +15761,29 @@ window.autoCropImage = function(file) {
       docViewsEl.innerHTML = docHtml;
     }
 
+    // Form Submissions by type
+    var formLabels = {
+      anti_bullying_pledge: 'Anti-Bullying Pledges',
+      provider_request: 'Provider Requests',
+      event_request: 'Event Requests',
+      event_signup: 'Event Signups',
+      recurring_event_signup: 'Program Signups',
+      volunteer_application: 'Volunteer Applications',
+      contact_form: 'Contact Messages'
+    };
+    var formsEl = document.getElementById('waFormSubmissions');
+    var sortedForms = Object.entries(totals.formSubmitsByType).sort(function(a, b) { return b[1] - a[1]; });
+    if (sortedForms.length === 0) {
+      formsEl.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:0.5rem;font-size:0.85rem;">No form submissions yet.</p>';
+    } else {
+      var formsHtml = '<div class="wa-row" style="font-weight:600;border-bottom:1px solid #eee;padding-bottom:4px;margin-bottom:4px;"><span class="wa-row-label">Total Form Submissions</span><span class="wa-row-value">' + totals.formSubmits.toLocaleString() + '</span></div>';
+      formsHtml += sortedForms.map(function(entry) {
+        var label = formLabels[entry[0]] || entry[0].replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+        return '<div class="wa-row"><span class="wa-row-label">' + label + '</span><span class="wa-row-value">' + entry[1].toLocaleString() + '</span></div>';
+      }).join('');
+      formsEl.innerHTML = formsHtml;
+    }
+
     // Re-apply role permissions so export buttons respect current role
     applyRolePermissions();
   }
@@ -15668,7 +15803,7 @@ window.autoCropImage = function(file) {
 
     rows.push(['LDAH WEBSITE/APP ANALYTICS REPORT']);
     rows.push(['Generated', new Date().toLocaleDateString()]);
-    rows.push(['Period', 'Last 30 Days']);
+    rows.push(['Period', waActivePeriod === 'ytd' ? 'Year to Date' : 'Last 30 Days']);
     rows.push([]);
 
     rows.push(['=== KEY METRICS ===']);
@@ -15699,6 +15834,26 @@ window.autoCropImage = function(file) {
       rows.push(['Document', 'Views']);
       sortedDocs.forEach(function(entry) {
         var label = entry[0].replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+        rows.push([escapeCSV(label), entry[1]]);
+      });
+      rows.push([]);
+    }
+
+    var formLabelsCSV = {
+      anti_bullying_pledge: 'Anti-Bullying Pledges',
+      provider_request: 'Provider Requests',
+      event_request: 'Event Requests',
+      event_signup: 'Event Signups',
+      recurring_event_signup: 'Program Signups',
+      volunteer_application: 'Volunteer Applications',
+      contact_form: 'Contact Messages'
+    };
+    var sortedForms = Object.entries(totals.formSubmitsByType).sort(function(a, b) { return b[1] - a[1]; });
+    if (sortedForms.length > 0) {
+      rows.push(['=== FORM SUBMISSIONS BY TYPE ===']);
+      rows.push(['Form', 'Submissions']);
+      sortedForms.forEach(function(entry) {
+        var label = formLabelsCSV[entry[0]] || entry[0].replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
         rows.push([escapeCSV(label), entry[1]]);
       });
       rows.push([]);
@@ -15742,7 +15897,7 @@ window.autoCropImage = function(file) {
     setColor(textLight);
     doc.text('Generated: ' + new Date().toLocaleDateString() + ' at ' + new Date().toLocaleTimeString(), margin, y);
     y += 4;
-    doc.text('Period: Last 30 Days', margin, y);
+    doc.text('Period: ' + (waActivePeriod === 'ytd' ? 'Year to Date' : 'Last 30 Days'), margin, y);
     y += 12;
 
     var totals = getSiteAnalyticsTotals();
@@ -15843,6 +15998,38 @@ window.autoCropImage = function(file) {
         var label = entry[0].replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
         doc.text(label.substring(0, 40), margin + 2, y);
         setColor(coral); doc.setFont('helvetica', 'bold');
+        doc.text(String(entry[1]), margin + 80, y);
+        doc.setFont('helvetica', 'normal');
+        y += 5;
+      });
+      y += 8;
+    }
+
+    // Form Submissions by type
+    var formLabelsPDF = {
+      anti_bullying_pledge: 'Anti-Bullying Pledges',
+      provider_request: 'Provider Requests',
+      event_request: 'Event Requests',
+      event_signup: 'Event Signups',
+      recurring_event_signup: 'Program Signups',
+      volunteer_application: 'Volunteer Applications',
+      contact_form: 'Contact Messages'
+    };
+    var sortedForms = Object.entries(totals.formSubmitsByType).sort(function(a, b) { return b[1] - a[1]; });
+    if (sortedForms.length > 0) {
+      if (y > 240) { doc.addPage(); y = margin; }
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      setColor(teal);
+      doc.text('Form Submissions by Type', margin, y);
+      y += 6;
+      doc.setFont('helvetica', 'normal');
+      sortedForms.forEach(function(entry, i) {
+        if (i % 2 === 0) { doc.setFillColor(249, 250, 251); doc.rect(margin, y - 3, 90, 5, 'F'); }
+        doc.setFontSize(8); setColor(textDark);
+        var label = formLabelsPDF[entry[0]] || entry[0].replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+        doc.text(label.substring(0, 40), margin + 2, y);
+        setColor(green); doc.setFont('helvetica', 'bold');
         doc.text(String(entry[1]), margin + 80, y);
         doc.setFont('helvetica', 'normal');
         y += 5;
