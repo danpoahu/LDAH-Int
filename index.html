@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.5.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.6.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20508,6 +20508,8 @@ window.cmsSaveAttendance = async function() {
   _showToast('Saving attendance...', '#0891B2');
   var batch = db.batch();
   var updates = [];
+  var skippedFuture = 0;
+  var _saveTodayKey = _localToday();
 
   checkboxes.forEach(function(cb) {
     var signupId = cb.getAttribute('data-signup-id');
@@ -20515,6 +20517,18 @@ window.cmsSaveAttendance = async function() {
     var attended = cb.checked;
     var status = attended ? 'attended' : 'no-show';
     var ref = db.collection(collection).doc(d.eventId).collection('signups').doc(signupId);
+
+    // v120.6.0: defensive guard — never write attendance for a date that
+    // hasn't happened yet. UI already filters future dates out of
+    // attendance mode, but this catches any stale checkbox or programmatic
+    // submission that slipped through.
+    if (sessionDate && typeof _rsParseSessionDate === 'function') {
+      var _dt = _rsParseSessionDate(sessionDate);
+      if (_dt) {
+        var _iso = _dt.getFullYear() + '-' + String(_dt.getMonth()+1).padStart(2,'0') + '-' + String(_dt.getDate()).padStart(2,'0');
+        if (_iso > _saveTodayKey) { skippedFuture++; return; }
+      }
+    }
 
     if (sessionDate) {
       // Per-session attendance (recurring programs + multi-date one-time events)
@@ -20555,10 +20569,11 @@ window.cmsSaveAttendance = async function() {
     });
     var attendedCount = updates.filter(function(u) { return u.status === 'attended'; }).length;
     var noShowCount = updates.filter(function(u) { return u.status === 'no-show'; }).length;
-    auditLog('Saved attendance', (d.eventTitle || 'Event') + ' — ' + attendedCount + ' attended, ' + noShowCount + ' no-show');
+    var _skipNote = skippedFuture ? ' (' + skippedFuture + ' future date entries skipped)' : '';
+    auditLog('Saved attendance', (d.eventTitle || 'Event') + ' — ' + attendedCount + ' attended, ' + noShowCount + ' no-show' + _skipNote);
     _cmsAttendanceMode = false;
     cmsRenderSignupsList(d.signups, collection, d.eventId);
-    _showToast('Attendance saved: ' + attendedCount + ' attended, ' + noShowCount + ' no-show.', '#059669');
+    _showToast('Attendance saved: ' + attendedCount + ' attended, ' + noShowCount + ' no-show' + _skipNote + '.', '#059669');
   } catch (err) {
     _showToast('Error saving attendance: ' + err.message, '#DC2626');
   }
@@ -20577,10 +20592,24 @@ function cmsRenderAttendanceOneTime(signups, collection, eventId) {
   html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 12px;" onclick="cmsCancelAttendanceMode()">Cancel</button>';
   html += '</div></div></div>';
 
-  // Multi-date one-time event: group by date with per-session attendance
+  // Multi-date one-time event: group by date with per-session attendance.
+  // v120.6.0: only render PAST session dates. Future dates are excluded so
+  //   "Save Attendance" cannot bulk-mark unchecked future signups as no-show.
   var ev = _cmsSignupsModalData.eventDoc;
-  var sigDates = (ev && Array.isArray(ev.signupDates)) ? ev.signupDates : [];
-  if (sigDates.length > 1) {
+  var sigDatesAll = (ev && Array.isArray(ev.signupDates)) ? ev.signupDates : [];
+  var _attTodayKey = _localToday();
+  var sigDates = sigDatesAll.filter(function(raw) {
+    if (typeof _rsParseSessionDate !== 'function') return true;
+    var dt = _rsParseSessionDate(raw);
+    if (!dt) return true; // un-parseable: keep, don't break the UI
+    var iso = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+    return iso <= _attTodayKey;
+  });
+  if (sigDatesAll.length > 1) {
+    if (sigDates.length === 0) {
+      html += '<div class="cms-empty" style="padding:14px;color:#64748B;font-size:.88rem;">No past session dates yet. Attendance can be marked once a session date has passed.</div>';
+      return html;
+    }
     sigDates.forEach(function(dateStr) {
       var dateSignups = active.filter(function(s) {
         var sd = s.selectedDates || [];
@@ -20645,13 +20674,13 @@ function cmsRenderAttendanceOneTime(signups, collection, eventId) {
 
 function cmsRenderAttendanceRecurring(active, collection, eventId) {
   var prog = _cmsSignupsModalData.programDoc;
-  // Include last 7 days so admins can mark attendance a day or two after
-  // a session (common workflow — you confirm who showed up at the NEXT
-  // staff meeting, not the same day).
-  var pastSessions = _cmsGenerateSessionDatesPast(prog.schedules, prog.cancelledDates, 7);
-  var futureSessions = cmsGenerateSessionDates(prog.schedules, prog.cancelledDates, 30);
-  var sessions = pastSessions.concat(futureSessions);
-  if (!sessions.length && !active.length) return '<div class="cms-empty"><p>No upcoming sessions.</p></div>';
+  // v120.6.0: PAST sessions only — never include future sessions in attendance
+  //   mode. Saving attendance writes every unchecked box as 'no-show', so
+  //   exposing future sessions would silently mark future signups no-show.
+  //   7-day past lookback preserves the workflow where admins confirm at
+  //   the next staff meeting (not same-day).
+  var sessions = _cmsGenerateSessionDatesPast(prog.schedules, prog.cancelledDates, 7);
+  if (!sessions.length && !active.length) return '<div class="cms-empty"><p>No past sessions yet.</p></div>';
 
   var html = '<div style="padding:10px 14px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;margin-bottom:12px;">';
   html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">';
