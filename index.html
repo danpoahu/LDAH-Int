@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.4.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.5.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -18396,20 +18396,43 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
       var announcedColor = ev.announcementSent ? '#94A3B8' : '#0891B2';
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + rsEscape(ev.title || '') + '\')">' + announcedLabel + '</button>';
     }
-    // Recording & Slides button — past, non-recurring, non-archived events only (v1).
-    // State-aware for single-date events (flips to "Sent ... Resend individually").
-    if (isPast && !isRecurring && !isArchived && !isExpired) {
-      var recKey = '_single';
-      var isMultiDate = Array.isArray(ev.signupDates) && ev.signupDates.length > 1;
-      var recSent = ev.recordingEmailSent && ev.recordingEmailSent[recKey];
-      if (isMultiDate) {
-        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Send Recording &amp; Slides</button>';
-      } else if (recSent) {
-        var _sentWhen = recSent.sentAt && recSent.sentAt.toDate ? recSent.sentAt.toDate() : (recSent.sentAt && recSent.sentAt.seconds ? new Date(recSent.sentAt.seconds * 1000) : null);
-        var _sentLbl = _sentWhen ? _sentWhen.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Sent ' + rsEscape(_sentLbl) + ' to ' + (recSent.recipientCount || 0) + ' -- Resend</button>';
-      } else {
-        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Send Recording &amp; Slides</button>';
+    // Recording & Slides — non-recurring, non-archived, non-expired events.
+    // Single-date events: top-level button gated by Past category.
+    // Multi-date events (v120.5.0): one inline button per past session date,
+    //   shown in BOTH Active and Past categories so staff can send for an
+    //   already-completed session while later dates are still upcoming.
+    if (!isRecurring && !isArchived && !isExpired) {
+      var _evDates = Array.isArray(ev.signupDates) ? ev.signupDates : [];
+      var _isMulti = _evDates.length > 1;
+      if (_isMulti) {
+        var _today = _localToday();
+        var _pastDates = _evDates.filter(function(d) {
+          return d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= _today;
+        }).sort();
+        _pastDates.forEach(function(sd) {
+          var sentInfo = ev.recordingEmailSent && ev.recordingEmailSent[sd];
+          var dLbl = (function() {
+            var dt = new Date(sd + 'T00:00:00');
+            return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          })();
+          if (sentInfo) {
+            var _sw = sentInfo.sentAt && sentInfo.sentAt.toDate ? sentInfo.sentAt.toDate() : (sentInfo.sentAt && sentInfo.sentAt.seconds ? new Date(sentInfo.sentAt.seconds * 1000) : null);
+            var _sLbl = _sw ? _sw.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="event.stopPropagation();cmsOpenRecordingForDate(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\',\'' + rsEscape(sd) + '\')">' + rsEscape(dLbl) + ': Sent ' + rsEscape(_sLbl) + ' to ' + (sentInfo.recipientCount || 0) + ' -- Resend</button>';
+          } else {
+            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingForDate(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\',\'' + rsEscape(sd) + '\')">' + rsEscape(dLbl) + ': Send Recording &amp; Slides</button>';
+          }
+        });
+      } else if (isPast) {
+        var recKey = '_single';
+        var recSent = ev.recordingEmailSent && ev.recordingEmailSent[recKey];
+        if (recSent) {
+          var _sentWhen = recSent.sentAt && recSent.sentAt.toDate ? recSent.sentAt.toDate() : (recSent.sentAt && recSent.sentAt.seconds ? new Date(recSent.sentAt.seconds * 1000) : null);
+          var _sentLbl = _sentWhen ? _sentWhen.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+          html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Sent ' + rsEscape(_sentLbl) + ' to ' + (recSent.recipientCount || 0) + ' -- Resend</button>';
+        } else {
+          html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Send Recording &amp; Slides</button>';
+        }
       }
     }
     if (isArchived) {
@@ -21201,6 +21224,42 @@ window.cmsOpenRecordingFromCard = async function(eventId, title) {
     }
 
     // Populate the cached data objects so the modal reads the right context
+    _cmsSignupsModalData = {
+      eventId: eventId,
+      eventTitle: title || evDoc.title || 'Event',
+      isRecurring: false,
+      signups: signups,
+      programDoc: null,
+    };
+    _cmsEventSummaryData = {
+      eventId: eventId,
+      collection: 'events',
+      isRecurring: false,
+      feedbackDocs: [],
+      selectedSessionDate: sessionDate,
+      eventDoc: evDoc,
+    };
+
+    cmsOpenRecordingModal();
+  } catch (err) {
+    _showToast('Error: ' + err.message, '#DC2626');
+  }
+};
+
+// v120.5.0: per-session entry point for multi-date events.
+// Skips the "type the date" prompt — caller passes the specific session date.
+window.cmsOpenRecordingForDate = async function(eventId, title, sessionDate) {
+  try {
+    if (!sessionDate) { _showToast('Missing session date.', '#DC2626'); return; }
+    _showToast('Loading session...', '#0891B2');
+    var evSnap = await db.collection('events').doc(eventId).get();
+    if (!evSnap.exists) { _showToast('Event not found.', '#DC2626'); return; }
+    var evDoc = evSnap.data();
+
+    var sigSnap = await db.collection('events').doc(eventId).collection('signups').get();
+    var signups = [];
+    sigSnap.forEach(function(s) { signups.push({ id: s.id, ...s.data() }); });
+
     _cmsSignupsModalData = {
       eventId: eventId,
       eventTitle: title || evDoc.title || 'Event',
