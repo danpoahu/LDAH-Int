@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21890,8 +21890,12 @@ window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId
         s.status = newValue;
         s.dateStatusOverrides = currentOverrides;
       }
-      logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Cleared override, status: ' + newValue;
-      auditLog('Cleared per-date mode override', logMsg);
+      // v120.7.2: log as "Updated signup status" so cancellations made via
+      // the per-date dropdown surface in the audit log under the same action
+      // name as cancellations made elsewhere. Override-clear is noted in the
+      // details for full traceability.
+      logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Status: ' + newValue + ' (per-date override cleared)';
+      auditLog('Updated signup status', logMsg);
       // Update denormalized counts for base-status changes
       var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
       var pc = 0; var sc = 0;
@@ -25864,60 +25868,100 @@ window.cmsResendLoggedEmail = async function(id) {
   }
 };
 
+// v120.7.2: cache + search-box. Loads the most-recent 1000 entries once
+// (was 200, hard-cap, no search), then filters client-side as the user types.
+var _auditLogCache = [];
+var _auditLogActionColors = {
+  'Updated user role': '#0891B2',
+  'Added user role': '#65A30D',
+  'Removed user role': '#DC2626',
+  'Published page content': '#F97316',
+  'Created event': '#7C3AED', 'Updated event': '#7C3AED', 'Archived event': '#7C3AED',
+  'Cancelled session': '#7C3AED', 'Restored session': '#7C3AED',
+  'Created team member': '#0D9488', 'Updated team member': '#0D9488', 'Archived team member': '#0D9488',
+  'Restored item': '#0D9488',
+  'Added gallery photo': '#0D9488', 'Archived gallery photo': '#0D9488',
+  'Created resource': '#0D9488', 'Updated resource': '#0D9488', 'Archived resource': '#0D9488',
+  'Created FAQ category': '#0D9488', 'Updated FAQ category': '#0D9488', 'Archived FAQ category': '#0D9488',
+  'Created FAQ': '#0D9488', 'Updated FAQ': '#0D9488', 'Archived FAQ': '#0D9488',
+  'Created volunteer opportunity': '#2563EB', 'Updated volunteer opportunity': '#2563EB', 'Archived volunteer opportunity': '#2563EB',
+  'Updated signup status': '#D97706', 'Updated signup notes': '#D97706',
+  'Archived signup': '#D97706', 'Restored signup': '#D97706',
+  'Set per-date mode override': '#D97706', 'Cleared per-date mode override': '#D97706',
+  'Rescheduled signup': '#D97706', 'Shared registration across signups': '#D97706',
+  'Updated application status': '#2563EB', 'Updated application notes': '#2563EB',
+  'Updated submission status': '#6B7280', 'Updated submission notes': '#6B7280'
+};
+
+function _renderAuditLogRows(rows) {
+  if (!rows.length) {
+    return '<div class="cms-empty" style="padding:14px;color:#64748B;font-size:.88rem;">No audit entries match your search.</div>';
+  }
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
+  html += '<thead><tr style="background:var(--sand-light);text-align:left;">';
+  html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Date & Time</th>';
+  html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Action</th>';
+  html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Details</th>';
+  html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">By</th>';
+  html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Role</th>';
+  html += '</tr></thead><tbody>';
+  rows.forEach(function(d) {
+    var ts = d._ts;
+    var dateStr = ts.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
+    var timeStr = ts.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true});
+    var color = _auditLogActionColors[d.action] || 'var(--text-dark)';
+    html += '<tr style="border-bottom:1px solid #f1f5f9;">';
+    html += '<td style="padding:10px 14px;white-space:nowrap;">' + dateStr + ' ' + timeStr + '</td>';
+    html += '<td style="padding:10px 14px;"><span style="color:' + color + ';font-weight:600;">' + rsEscape(d.action || '') + '</span></td>';
+    html += '<td style="padding:10px 14px;color:var(--text-soft);">' + rsEscape(d.details || '') + '</td>';
+    html += '<td style="padding:10px 14px;">' + rsEscape(d.performedBy || '') + '</td>';
+    html += '<td style="padding:10px 14px;"><span style="background:rgba(8,145,178,.08);color:var(--ocean-deep);padding:2px 8px;border-radius:6px;font-size:.8rem;font-weight:600;">' + rsEscape(d.performedByRole || '') + '</span></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function _applyAuditLogFilter() {
+  var qEl = document.getElementById('auditLogSearch');
+  var bodyEl = document.getElementById('auditLogTableBody');
+  var countEl = document.getElementById('auditLogCount');
+  if (!bodyEl) return;
+  var q = String((qEl && qEl.value) || '').toLowerCase().trim();
+  var rows = !q ? _auditLogCache : _auditLogCache.filter(function(d) {
+    return (
+      String(d.action || '').toLowerCase().indexOf(q) !== -1 ||
+      String(d.details || '').toLowerCase().indexOf(q) !== -1 ||
+      String(d.performedBy || '').toLowerCase().indexOf(q) !== -1 ||
+      String(d.performedByRole || '').toLowerCase().indexOf(q) !== -1
+    );
+  });
+  bodyEl.innerHTML = _renderAuditLogRows(rows);
+  if (countEl) countEl.textContent = rows.length + ' of ' + _auditLogCache.length + ' entries';
+}
+
 window.loadAuditLog = async function() {
   var container = document.getElementById('auditLogContent');
   if (!container.children.length || container.innerHTML.indexOf('Loading') !== -1)
     container.innerHTML = '<div class="cms-empty"><p>Loading audit log...</p></div>';
   try {
     var snapshot = await firebase.firestore().collection('auditLog')
-      .orderBy('timestamp', 'desc').limit(200).get();
-    if (snapshot.empty) {
-      container.innerHTML = '<div class="cms-empty"><p>No audit entries yet.</p></div>';
-      return;
-    }
-    var html = '<table style="width:100%;border-collapse:collapse;font-size:.88rem;">';
-    html += '<thead><tr style="background:var(--sand-light);text-align:left;">';
-    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Date & Time</th>';
-    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Action</th>';
-    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Details</th>';
-    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">By</th>';
-    html += '<th style="padding:10px 14px;font-weight:700;color:var(--text-dark);border-bottom:2px solid rgba(8,145,178,.2);">Role</th>';
-    html += '</tr></thead><tbody>';
+      .orderBy('timestamp', 'desc').limit(1000).get();
+    _auditLogCache = [];
     snapshot.forEach(function(doc) {
       var d = doc.data();
-      var ts = d.timestamp ? d.timestamp.toDate() : new Date();
-      var dateStr = ts.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
-      var timeStr = ts.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true});
-      var actionColors = {
-        'Updated user role': '#0891B2',
-        'Added user role': '#65A30D',
-        'Removed user role': '#DC2626',
-        'Published page content': '#F97316',
-        'Created event': '#7C3AED', 'Updated event': '#7C3AED', 'Archived event': '#7C3AED',
-        'Cancelled session': '#7C3AED', 'Restored session': '#7C3AED',
-        'Created team member': '#0D9488', 'Updated team member': '#0D9488', 'Archived team member': '#0D9488',
-        'Restored item': '#0D9488',
-        'Added gallery photo': '#0D9488', 'Archived gallery photo': '#0D9488',
-        'Created resource': '#0D9488', 'Updated resource': '#0D9488', 'Archived resource': '#0D9488',
-        'Created FAQ category': '#0D9488', 'Updated FAQ category': '#0D9488', 'Archived FAQ category': '#0D9488',
-        'Created FAQ': '#0D9488', 'Updated FAQ': '#0D9488', 'Archived FAQ': '#0D9488',
-        'Created volunteer opportunity': '#2563EB', 'Updated volunteer opportunity': '#2563EB', 'Archived volunteer opportunity': '#2563EB',
-        'Updated signup status': '#D97706', 'Updated signup notes': '#D97706',
-        'Archived signup': '#D97706', 'Restored signup': '#D97706',
-        'Updated application status': '#2563EB', 'Updated application notes': '#2563EB',
-        'Updated submission status': '#6B7280', 'Updated submission notes': '#6B7280'
-      };
-      var color = actionColors[d.action] || 'var(--text-dark)';
-      html += '<tr style="border-bottom:1px solid #f1f5f9;">';
-      html += '<td style="padding:10px 14px;white-space:nowrap;">' + dateStr + ' ' + timeStr + '</td>';
-      html += '<td style="padding:10px 14px;"><span style="color:' + color + ';font-weight:600;">' + (d.action || '') + '</span></td>';
-      html += '<td style="padding:10px 14px;color:var(--text-soft);">' + (d.details || '') + '</td>';
-      html += '<td style="padding:10px 14px;">' + (d.performedBy || '') + '</td>';
-      html += '<td style="padding:10px 14px;"><span style="background:rgba(8,145,178,.08);color:var(--ocean-deep);padding:2px 8px;border-radius:6px;font-size:.8rem;font-weight:600;">' + (d.performedByRole || '') + '</span></td>';
-      html += '</tr>';
+      d._ts = d.timestamp ? d.timestamp.toDate() : new Date();
+      _auditLogCache.push(d);
     });
-    html += '</tbody></table>';
-    container.innerHTML = html;
+    var header = '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">';
+    header += '<input id="auditLogSearch" type="text" placeholder="Search action, details, who, role..." oninput="_applyAuditLogFilter()" style="flex:1;min-width:240px;max-width:480px;padding:8px 12px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;">';
+    header += '<span id="auditLogCount" style="font-size:.82rem;color:#64748B;font-weight:600;"></span>';
+    header += '</div>';
+    container.innerHTML = header + '<div id="auditLogTableBody"></div>';
+    _applyAuditLogFilter();
+    if (!_auditLogCache.length) {
+      document.getElementById('auditLogTableBody').innerHTML = '<div class="cms-empty"><p>No audit entries yet.</p></div>';
+    }
   } catch (err) {
     container.innerHTML = '<div class="cms-empty"><p>Error loading audit log: ' + err.message + '</p></div>';
   }
