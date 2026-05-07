@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.5.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.5.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -18403,29 +18403,41 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     }
     // Recording & Slides — non-recurring, non-archived, non-expired events.
     // Single-date events: top-level button gated by Past category.
-    // Multi-date events (v120.5.0): one inline button per past session date,
+    // Multi-date events (v120.5.3): one inline button per past session date,
     //   shown in BOTH Active and Past categories so staff can send for an
     //   already-completed session while later dates are still upcoming.
+    //   signupDates entries are free-text (e.g. "May 6, 2026, 5:00 pm-6:00 pm"),
+    //   so we use _rsParseSessionDate (which tolerates the irregular spacing)
+    //   instead of an ISO regex. Pass the verbatim string as sessionDate —
+    //   that's the canonical key for recordingEmailSent + sessionAttendance.
     if (!isRecurring && !isArchived && !isExpired) {
       var _evDates = Array.isArray(ev.signupDates) ? ev.signupDates : [];
       var _isMulti = _evDates.length > 1;
       if (_isMulti) {
         var _today = _localToday();
-        var _pastDates = _evDates.filter(function(d) {
-          return d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= _today;
-        }).sort();
-        _pastDates.forEach(function(sd) {
-          var sentInfo = ev.recordingEmailSent && ev.recordingEmailSent[sd];
-          var dLbl = (function() {
-            var dt = new Date(sd + 'T00:00:00');
-            return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          })();
+        var _pastEntries = [];
+        _evDates.forEach(function(raw) {
+          if (!raw || typeof _rsParseSessionDate !== 'function') return;
+          var dt = _rsParseSessionDate(raw);
+          if (!dt) return;
+          var iso = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+          if (iso <= _today) {
+            _pastEntries.push({ raw: raw, iso: iso, label: dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
+          }
+        });
+        _pastEntries.sort(function(a, b) { return a.iso.localeCompare(b.iso); });
+        _pastEntries.forEach(function(pe) {
+          var sentInfo = ev.recordingEmailSent && ev.recordingEmailSent[pe.raw];
+          var encId = _attrJsArg(ev.id);
+          var encTitle = _attrJsArg(ev.title || '');
+          var encRaw = _attrJsArg(pe.raw);
+          var clickJs = 'event.stopPropagation();cmsOpenRecordingForDate(decodeURIComponent(\'' + encId + '\'),decodeURIComponent(\'' + encTitle + '\'),decodeURIComponent(\'' + encRaw + '\'))';
           if (sentInfo) {
             var _sw = sentInfo.sentAt && sentInfo.sentAt.toDate ? sentInfo.sentAt.toDate() : (sentInfo.sentAt && sentInfo.sentAt.seconds ? new Date(sentInfo.sentAt.seconds * 1000) : null);
             var _sLbl = _sw ? _sw.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="event.stopPropagation();cmsOpenRecordingForDate(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\',\'' + rsEscape(sd) + '\')">' + rsEscape(dLbl) + ': Sent ' + rsEscape(_sLbl) + ' to ' + (sentInfo.recipientCount || 0) + ' -- Resend</button>';
+            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="' + clickJs + '">' + rsEscape(pe.label) + ': Sent ' + rsEscape(_sLbl) + ' to ' + (sentInfo.recipientCount || 0) + ' -- Resend</button>';
           } else {
-            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingForDate(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\',\'' + rsEscape(sd) + '\')">' + rsEscape(dLbl) + ': Send Recording &amp; Slides</button>';
+            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="' + clickJs + '">' + rsEscape(pe.label) + ': Send Recording &amp; Slides</button>';
           }
         });
       } else if (isPast) {
