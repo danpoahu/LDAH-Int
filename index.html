@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -18341,6 +18341,33 @@ function cmsRenderEvents(items, container, isRecurring) {
   container.innerHTML = html;
 }
 
+// v120.7.1: turn a recordingEmailSent[sessionKey] entry into a button label.
+// Handles both legacy flat shape ({sentAt, recipientCount}) and new split
+// shape ({attended: {...}, noShow: {...}}). Returns '' if nothing sent.
+function _cmsRecordingSentLabel(info) {
+  if (!info) return '';
+  var att = info.attended || null;
+  var no  = info.noShow || null;
+  // Legacy flat shape — treat as attendee-only.
+  if (!att && !no && info.sentAt) att = info;
+  if (!att && !no) return '';
+  var bits = [];
+  if (att) bits.push((att.recipientCount || 0) + ' att');
+  if (no)  bits.push((no.recipientCount || 0) + ' no-show');
+  // Pick most-recent timestamp for the "Sent <date>" label.
+  function _toDate(t) {
+    if (!t) return null;
+    if (t.toDate) return t.toDate();
+    if (t.seconds) return new Date(t.seconds * 1000);
+    return null;
+  }
+  var dates = [_toDate(att && att.sentAt), _toDate(no && no.sentAt)].filter(Boolean);
+  var latest = dates.length ? new Date(Math.max.apply(null, dates.map(function(d) { return d.getTime(); }))) : null;
+  var dateLbl = latest ? latest.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+  var prefix = dateLbl ? 'Sent ' + rsEscape(dateLbl) + ' (' + bits.join(' + ') + ')' : 'Sent (' + bits.join(' + ') + ')';
+  return prefix + ' -- Resend';
+}
+
 function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
   var html = '';
   {
@@ -18434,10 +18461,9 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
           var encTitle = _attrJsArg(ev.title || '');
           var encRaw = _attrJsArg(pe.raw);
           var clickJs = 'event.stopPropagation();cmsOpenRecordingForDate(decodeURIComponent(\'' + encId + '\'),decodeURIComponent(\'' + encTitle + '\'),decodeURIComponent(\'' + encRaw + '\'))';
-          if (sentInfo) {
-            var _sw = sentInfo.sentAt && sentInfo.sentAt.toDate ? sentInfo.sentAt.toDate() : (sentInfo.sentAt && sentInfo.sentAt.seconds ? new Date(sentInfo.sentAt.seconds * 1000) : null);
-            var _sLbl = _sw ? _sw.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="' + clickJs + '">' + rsEscape(pe.label) + ': Sent ' + rsEscape(_sLbl) + ' to ' + (sentInfo.recipientCount || 0) + ' -- Resend</button>';
+          var sentLbl = _cmsRecordingSentLabel(sentInfo);
+          if (sentLbl) {
+            html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="' + clickJs + '">' + rsEscape(pe.label) + ': ' + sentLbl + '</button>';
           } else {
             html += '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="' + clickJs + '">' + rsEscape(pe.label) + ': Send Recording &amp; Slides</button>';
           }
@@ -18445,10 +18471,9 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
       } else if (isPast) {
         var recKey = '_single';
         var recSent = ev.recordingEmailSent && ev.recordingEmailSent[recKey];
-        if (recSent) {
-          var _sentWhen = recSent.sentAt && recSent.sentAt.toDate ? recSent.sentAt.toDate() : (recSent.sentAt && recSent.sentAt.seconds ? new Date(recSent.sentAt.seconds * 1000) : null);
-          var _sentLbl = _sentWhen ? _sentWhen.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-          html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Sent ' + rsEscape(_sentLbl) + ' to ' + (recSent.recipientCount || 0) + ' -- Resend</button>';
+        var recSentLbl = _cmsRecordingSentLabel(recSent);
+        if (recSentLbl) {
+          html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">' + recSentLbl + '</button>';
         } else {
           html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;" onclick="event.stopPropagation();cmsOpenRecordingFromCard(\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Send Recording &amp; Slides</button>';
         }
@@ -21337,20 +21362,32 @@ window.cmsOpenRecordingModal = async function() {
   var evDoc = esd.eventDoc || {};
   var eventTitle = (md.eventTitle || evDoc.title || 'Event');
   var sessionKey = sessionDate || '_single';
-  var prior = evDoc.recordingEmailSent && evDoc.recordingEmailSent[sessionKey];
-
-  // Determine attendees for this context
-  var signups = (md.signups || []).filter(function(s) { return s.archived !== true && s.status !== 'cancelled'; });
-  var attendees = signups.filter(function(s) {
-    if (!s.email) return false;
-    if (sessionDate && s.sessionAttendance && s.sessionAttendance[sessionDate]) {
-      return s.sessionAttendance[sessionDate].status === 'attended';
+  // v120.7.1: priorRaw may be legacy flat shape OR new {attended, noShow} shape.
+  var priorRaw = evDoc.recordingEmailSent && evDoc.recordingEmailSent[sessionKey];
+  var priorAttended = null, priorNoShow = null;
+  if (priorRaw) {
+    if (priorRaw.attended || priorRaw.noShow) {
+      priorAttended = priorRaw.attended || null;
+      priorNoShow = priorRaw.noShow || null;
+    } else if (priorRaw.sentAt) {
+      priorAttended = priorRaw; // legacy: pre-split sends were attendee-only
     }
-    return s.attendanceStatus === 'attended';
-  });
+  }
 
-  if (!attendees.length) {
-    _showToast('No attendees with email recorded for this session.', '#64748B');
+  // Filter signups into two audiences (attended + no-show) using the
+  // same per-session attendance map the rest of LDAH-Int reads.
+  var signups = (md.signups || []).filter(function(s) { return s.archived !== true && s.status !== 'cancelled'; });
+  function _attStatus(s) {
+    if (sessionDate && s.sessionAttendance && s.sessionAttendance[sessionDate]) {
+      return s.sessionAttendance[sessionDate].status || '';
+    }
+    return s.attendanceStatus || '';
+  }
+  var attendees = signups.filter(function(s) { return s.email && _attStatus(s) === 'attended'; });
+  var noShows   = signups.filter(function(s) { return s.email && _attStatus(s) === 'no-show'; });
+
+  if (!attendees.length && !noShows.length) {
+    _showToast('No attendees or no-shows with email recorded for this session.', '#64748B');
     return;
   }
 
@@ -21399,28 +21436,56 @@ window.cmsOpenRecordingModal = async function() {
 
   document.getElementById('cmsRecordingTitle').textContent = 'Send Recording & Slides: ' + eventTitle;
 
-  var h = '';
-  if (prior) {
-    var pSent = prior.sentAt && prior.sentAt.toDate ? prior.sentAt.toDate() : (prior.sentAt ? new Date(prior.sentAt.seconds * 1000) : null);
-    var pLbl  = pSent ? pSent.toLocaleString() : '(unknown)';
-    h += '<div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.88rem;color:#065F46;">';
-    h += '<strong>Already sent:</strong> ' + rsEscape(pLbl) + ' to ' + (prior.recipientCount || 0) + ' recipient' + ((prior.recipientCount || 0) === 1 ? '' : 's') + '.';
-    h += ' Uncheck recipients below to target a specific person (or small group).</div>';
+  function _priorLine(p, audienceLbl) {
+    if (!p) return '';
+    var when = p.sentAt && p.sentAt.toDate ? p.sentAt.toDate() : (p.sentAt && p.sentAt.seconds ? new Date(p.sentAt.seconds * 1000) : null);
+    var lbl = when ? when.toLocaleString() : '(unknown)';
+    var n = p.recipientCount || 0;
+    return '<div><strong>' + audienceLbl + ':</strong> sent ' + rsEscape(lbl) + ' to ' + n + ' recipient' + (n === 1 ? '' : 's') + '.</div>';
   }
 
-  h += '<div style="margin-bottom:16px;">';
-  h += '<label style="font-weight:600;font-size:.88rem;color:#334155;display:block;margin-bottom:6px;">Recipients <span style="color:#94A3B8;font-weight:400;">(' + attendees.length + ' attended with email)</span></label>';
-  h += '<div style="border:1px solid #E2E8F0;border-radius:8px;max-height:140px;overflow-y:auto;padding:6px 10px;background:#F8FAFC;">';
-  attendees.forEach(function(s) {
-    var nm = rsEscape(s.name || s.email);
-    var em = rsEscape(s.email || '');
-    h += '<label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.84rem;cursor:pointer;">';
-    h += '<input type="checkbox" class="cmsRecRecip" data-signup-id="' + rsEscape(s.id) + '" data-email="' + em + '" data-name="' + nm + '" checked>';
-    h += '<span>' + nm + '</span><span style="color:#94A3B8;font-size:.78rem;">' + em + '</span></label>';
-  });
-  h += '</div>';
-  h += '<div style="margin-top:6px;font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" onclick="cmsRecipientsToggleAll(true)">Select all</a> · <a href="javascript:void(0)" onclick="cmsRecipientsToggleAll(false)">Select none</a></div>';
-  h += '</div>';
+  var h = '';
+  if (priorAttended || priorNoShow) {
+    h += '<div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.84rem;color:#065F46;line-height:1.5;">';
+    h += _priorLine(priorAttended, 'Attendees');
+    h += _priorLine(priorNoShow, 'No-Shows');
+    h += '<div style="margin-top:4px;color:#475569;">Uncheck recipients below to target individuals, or to skip an audience.</div>';
+    h += '</div>';
+  }
+
+  // Attendees group
+  if (attendees.length) {
+    h += '<div style="margin-bottom:16px;">';
+    h += '<label style="font-weight:600;font-size:.88rem;color:#334155;display:block;margin-bottom:6px;">Attendees <span style="color:#94A3B8;font-weight:400;">(' + attendees.length + ' attended with email)</span></label>';
+    h += '<div style="border:1px solid #E2E8F0;border-radius:8px;max-height:140px;overflow-y:auto;padding:6px 10px;background:#F8FAFC;">';
+    attendees.forEach(function(s) {
+      var nm = rsEscape(s.name || s.email);
+      var em = rsEscape(s.email || '');
+      h += '<label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.84rem;cursor:pointer;">';
+      h += '<input type="checkbox" class="cmsRecRecip" data-audience="attended" data-signup-id="' + rsEscape(s.id) + '" data-email="' + em + '" data-name="' + nm + '" checked>';
+      h += '<span>' + nm + '</span><span style="color:#94A3B8;font-size:.78rem;">' + em + '</span></label>';
+    });
+    h += '</div>';
+    h += '<div style="margin-top:6px;font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" onclick="cmsRecipientsToggleAll(true,\'attended\')">Select all</a> · <a href="javascript:void(0)" onclick="cmsRecipientsToggleAll(false,\'attended\')">Select none</a></div>';
+    h += '</div>';
+  }
+
+  // No-Shows group (v120.7.1)
+  if (noShows.length) {
+    h += '<div style="margin-bottom:16px;">';
+    h += '<label style="font-weight:600;font-size:.88rem;color:#7C2D12;display:block;margin-bottom:6px;">No-Shows <span style="color:#94A3B8;font-weight:400;">(' + noShows.length + ' did not attend) -- gets the "Sorry we missed you" version</span></label>';
+    h += '<div style="border:1px solid #FECACA;border-radius:8px;max-height:140px;overflow-y:auto;padding:6px 10px;background:#FEF2F2;">';
+    noShows.forEach(function(s) {
+      var nm = rsEscape(s.name || s.email);
+      var em = rsEscape(s.email || '');
+      h += '<label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.84rem;cursor:pointer;">';
+      h += '<input type="checkbox" class="cmsRecRecip" data-audience="noShow" data-signup-id="' + rsEscape(s.id) + '" data-email="' + em + '" data-name="' + nm + '" checked>';
+      h += '<span>' + nm + '</span><span style="color:#94A3B8;font-size:.78rem;">' + em + '</span></label>';
+    });
+    h += '</div>';
+    h += '<div style="margin-top:6px;font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" onclick="cmsRecipientsToggleAll(true,\'noShow\')">Select all</a> · <a href="javascript:void(0)" onclick="cmsRecipientsToggleAll(false,\'noShow\')">Select none</a></div>';
+    h += '</div>';
+  }
 
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">';
   h += '<div><label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Zoom Recording URL <span style="color:#94A3B8;font-weight:400;">(optional)</span></label>';
@@ -21435,15 +21500,35 @@ window.cmsOpenRecordingModal = async function() {
   h += '<div id="cmsRecPdfInfo" style="margin-top:4px;font-size:.78rem;color:#64748B;"></div>';
   h += '</div>';
 
-  h += '<div style="margin-bottom:14px;">';
-  h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Subject</label>';
-  h += '<input type="text" id="cmsRecSubject" value="' + rsEscape(defaultSubject) + '" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;">';
-  h += '</div>';
+  // Attendee subject + body (editable). Hidden when there are no attendees,
+  // since the CF only requires these when at least one attended recipient is being sent to.
+  if (attendees.length) {
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Subject <span style="color:#94A3B8;font-weight:400;">(attendees only)</span></label>';
+    h += '<input type="text" id="cmsRecSubject" value="' + rsEscape(defaultSubject) + '" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;">';
+    h += '</div>';
 
-  h += '<div style="margin-bottom:6px;">';
-  h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Body <span style="color:#94A3B8;font-weight:400;">(plain text -- links, signature, and confidentiality footer are added automatically)</span></label>';
-  h += '<textarea id="cmsRecBody" rows="14" style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;font-family:inherit;line-height:1.5;">' + rsEscape(defaultBody) + '</textarea>';
-  h += '</div>';
+    h += '<div style="margin-bottom:14px;">';
+    h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Body <span style="color:#94A3B8;font-weight:400;">(attendees only -- plain text; links, signature, and confidentiality footer added automatically)</span></label>';
+    h += '<textarea id="cmsRecBody" rows="14" style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;font-family:inherit;line-height:1.5;">' + rsEscape(defaultBody) + '</textarea>';
+    h += '</div>';
+  }
+
+  // No-show body preview (read-only). v120.7.1 — fixed template.
+  if (noShows.length) {
+    var noShowSubject = 'Sorry we missed you -- ' + eventTitle;
+    var noShowBody =
+      "Aloha,\n\n" +
+      "We're sorry we missed you at " + eventTitle + ". We hope everything is well, and we wanted to make sure you still have what was shared during the session.\n\n" +
+      "The recording and slides are below -- please take your time with them, and reach out anytime if you have questions about anything covered.\n\n" +
+      (nextBlurb ? nextBlurb + "\n\n" : '') +
+      "Mahalo nui for being part of the LDAH 'ohana -- we hope to connect with you at our next session.";
+    h += '<div style="margin-bottom:14px;border:1px solid #FECACA;border-radius:8px;background:#FFF7F7;padding:12px 14px;">';
+    h += '<div style="font-weight:700;font-size:.85rem;color:#7C2D12;margin-bottom:6px;">No-Show email preview <span style="font-weight:400;color:#94A3B8;">(fixed template -- not editable)</span></div>';
+    h += '<div style="font-size:.8rem;color:#475569;margin-bottom:6px;"><strong>Subject:</strong> ' + rsEscape(noShowSubject) + '</div>';
+    h += '<pre style="margin:0;font-family:inherit;font-size:.82rem;color:#334155;white-space:pre-wrap;line-height:1.5;">' + rsEscape(noShowBody) + '</pre>';
+    h += '</div>';
+  }
 
   h += '<div style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:8px 12px;border-radius:4px;font-size:.78rem;color:#78350F;">';
   h += 'The recording link and slides download will note that they are available for <strong>two weeks</strong>. The slides PDF will be automatically removed from storage 15 days after sending.';
@@ -21461,6 +21546,9 @@ window.cmsOpenRecordingModal = async function() {
     sessionKey: sessionKey,
     sessionDate: sessionDate,
     eventTitle: eventTitle,
+    nextSessionsBlurb: nextBlurb || '',
+    hasAttendees: attendees.length > 0,
+    hasNoShows: noShows.length > 0,
   };
 };
 
@@ -21469,8 +21557,12 @@ window.cmsCloseRecordingModal = function() {
   _cmsRecordingUpload = null;
 };
 
-window.cmsRecipientsToggleAll = function(checked) {
-  document.querySelectorAll('.cmsRecRecip').forEach(function(cb) { cb.checked = !!checked; });
+window.cmsRecipientsToggleAll = function(checked, audience) {
+  // v120.7.1: optional audience filter ("attended" | "noShow"). Toggles all groups when omitted.
+  var sel = audience
+    ? '.cmsRecRecip[data-audience="' + audience + '"]'
+    : '.cmsRecRecip';
+  document.querySelectorAll(sel).forEach(function(cb) { cb.checked = !!checked; });
 };
 
 window.cmsRecOnPdfSelect = function(input) {
@@ -21495,21 +21587,35 @@ window.cmsRecordingSend = async function() {
   var ctx = _cmsRecordingUpload;
   if (!ctx) { _showToast('Session expired -- please reopen the modal.', '#DC2626'); return; }
 
+  // v120.7.1: collect from BOTH groups, tag each recipient with audience.
   var recipients = [];
   document.querySelectorAll('.cmsRecRecip:checked').forEach(function(cb) {
-    recipients.push({ signupId: cb.getAttribute('data-signup-id'), email: cb.getAttribute('data-email'), name: cb.getAttribute('data-name') });
+    recipients.push({
+      signupId: cb.getAttribute('data-signup-id'),
+      email: cb.getAttribute('data-email'),
+      name: cb.getAttribute('data-name'),
+      audience: cb.getAttribute('data-audience') || 'attended',
+    });
   });
   if (!recipients.length) { _showToast('Please select at least one recipient.', '#DC2626'); return; }
 
-  var subject = document.getElementById('cmsRecSubject').value.trim();
-  var body = document.getElementById('cmsRecBody').value.trim();
+  var hasAttendedRecip = recipients.some(function(r) { return r.audience === 'attended'; });
+  var hasNoShowRecip = recipients.some(function(r) { return r.audience === 'noShow'; });
+
+  // Subject + body inputs only exist when attendees are in the picker.
+  var subjEl = document.getElementById('cmsRecSubject');
+  var bodyEl = document.getElementById('cmsRecBody');
+  var subject = subjEl ? subjEl.value.trim() : '';
+  var body = bodyEl ? bodyEl.value.trim() : '';
   var recordingUrl = document.getElementById('cmsRecUrl').value.trim();
   var passcode = document.getElementById('cmsRecPasscode').value.trim();
   var pdfInput = document.getElementById('cmsRecPdf');
   var pdfFile = pdfInput.files && pdfInput.files[0] ? pdfInput.files[0] : null;
 
-  if (!subject) { _showToast('Subject is required.', '#DC2626'); return; }
-  if (!body) { _showToast('Message body is required.', '#DC2626'); return; }
+  if (hasAttendedRecip) {
+    if (!subject) { _showToast('Subject is required for attendees.', '#DC2626'); return; }
+    if (!body) { _showToast('Message body is required for attendees.', '#DC2626'); return; }
+  }
   if (!recordingUrl && !pdfFile) {
     if (!confirm('You have not provided a recording link or a slides PDF. Send the message anyway?')) return;
   }
@@ -21547,6 +21653,7 @@ window.cmsRecordingSend = async function() {
       pdfDownloadUrl: pdfDownloadUrl,
       pdfFileName: pdfFile ? pdfFile.name : '',
       recipients: recipients,
+      nextSessionsBlurb: ctx.nextSessionsBlurb || '',
     };
 
     var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendEventRecordingEmail', {
@@ -21557,8 +21664,14 @@ window.cmsRecordingSend = async function() {
     var result = await resp.json();
     if (!resp.ok || !result.success) throw new Error(result.error || 'Send failed');
 
-    auditLog('Sent recording & slides', ctx.eventTitle + ' (' + ctx.sessionKey + ') -- ' + result.sent + ' sent, ' + (result.failed || 0) + ' failed');
-    _showToast('Sent to ' + result.sent + ' recipient' + (result.sent === 1 ? '' : 's') + '.', '#16A34A');
+    var sa = result.sentAttended || 0;
+    var sn = result.sentNoShow || 0;
+    var summaryParts = [];
+    if (sa > 0) summaryParts.push(sa + ' attendee' + (sa === 1 ? '' : 's'));
+    if (sn > 0) summaryParts.push(sn + ' no-show' + (sn === 1 ? '' : 's'));
+    var summary = summaryParts.length ? summaryParts.join(' + ') : (result.sent + ' recipient' + (result.sent === 1 ? '' : 's'));
+    auditLog('Sent recording & slides', ctx.eventTitle + ' (' + ctx.sessionKey + ') -- ' + summary + (result.failed ? ', ' + result.failed + ' failed' : ''));
+    _showToast('Sent to ' + summary + '.', '#16A34A');
     cmsCloseRecordingModal();
 
     // Refresh the Event Summary card so the button flips to "Sent ... Resend individually"
