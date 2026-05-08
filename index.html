@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.6</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.7</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5626,7 +5626,6 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
             <button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="cmsExportSignupsCsvFromModal()">Export CSV</button>
             <button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="cmsOpenSessionSheet()">Session Sheet</button>
             <button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#059669;" onclick="cmsToggleAttendanceMode()">Take Attendance</button>
-            <button id="cmsSendFeedbackEmailsBtn" class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;background:#EFF6FF;color:#004E7C;display:none;" onclick="cmsSendFeedbackEmails()">Send Feedback Emails</button>
             <button class="btn btn-ghost" style="font-size:.82rem;padding:6px 14px;" onclick="cmsOpenEventSummary()">Event Summary</button>
             <button class="close" type="button" onclick="cmsCloseSignupsModal()">&times;</button>
           </div>
@@ -19238,19 +19237,6 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
       }
     }
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
-    // Show "Send Feedback Emails" button if any signup has attendance marked
-    // (flat attendanceStatus OR per-session sessionAttendance map)
-    var feedbackBtn = document.getElementById('cmsSendFeedbackEmailsBtn');
-    if (feedbackBtn) {
-      var hasAttendance = _cmsSignupsModalData.signups.some(function(s) {
-        if (s.attendanceStatus) return true;
-        if (s.sessionAttendance && typeof s.sessionAttendance === 'object') {
-          return Object.values(s.sessionAttendance).some(function(sa) { return sa && sa.status; });
-        }
-        return false;
-      });
-      feedbackBtn.style.display = hasAttendance ? '' : 'none';
-    }
   } catch (err) {
     document.getElementById('cmsSignupsList').innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
   }
@@ -21113,7 +21099,6 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   // Section D: Action Buttons
   html += '<div class="es-actions">';
   html += '<button class="btn btn-primary" style="background:#059669;" onclick="cmsSaveEventSummary()">Save Summary</button>';
-  html += '<button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsSendFeedbackEmailsFromSummary()">Send Feedback Emails</button>';
   if (!isRecurring) {
     html += '<button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsSendNoShowReInvitesFromSummary()">Send No-Show Re-invites</button>';
   }
@@ -21251,15 +21236,6 @@ window.cmsSaveEventSummary = async function() {
     _showToast('Summary saved.', '#059669');
   } catch (err) {
     _showToast('Error saving summary: ' + err.message, '#DC2626');
-  }
-};
-
-window.cmsSendFeedbackEmailsFromSummary = function() {
-  var d = _cmsEventSummaryData;
-  if (typeof cmsSendFeedbackEmails === 'function') {
-    cmsSendFeedbackEmails(d.collection, d.eventId, d.selectedSessionDate || null);
-  } else {
-    _showToast('Feedback email function not yet available.', '#64748B');
   }
 };
 
@@ -26642,68 +26618,6 @@ async function cmsSavePaperFeedback(eventId, collection, sessionDate) {
   } catch (err) {
     btn.disabled = false;
     btn.textContent = 'Save Feedback';
-    _showToast('Error: ' + err.message, '#DC2626');
-  }
-}
-
-// ── Send Feedback Emails ────────────────────────────────────────
-async function cmsSendFeedbackEmails(collection, eventId, sessionDate) {
-  var data = _cmsSignupsModalData;
-  collection = collection || (data.isRecurring ? 'recurringEvents' : 'events');
-  eventId = eventId || data.eventId;
-  sessionDate = sessionDate || null;
-  if (!eventId) return;
-
-  // Per-session attendance check when a sessionDate is selected (recurring
-  // programs AND multi-date one-time events). Falls back to flat
-  // attendanceStatus for single-date one-time events and legacy data.
-  var isAttended = function(s) {
-    if (!s.email) return false;
-    if (sessionDate && s.sessionAttendance && s.sessionAttendance[sessionDate]) {
-      return s.sessionAttendance[sessionDate].status === 'attended';
-    }
-    return s.attendanceStatus === 'attended';
-  };
-  var attended = data.signups.filter(isAttended);
-  var alreadySent = attended.filter(function(s) {
-    if (sessionDate) return s.feedbackEmailsSent && s.feedbackEmailsSent[sessionDate];
-    return s.feedbackEmailSentAt;
-  });
-  var toSend = attended.length - alreadySent.length;
-
-  var sessionLabel = sessionDate ? (' for session ' + sessionDate) : '';
-  var msg = 'Send feedback emails to all attendees' + sessionLabel + '?\n\n' +
-    attended.length + ' attended with email\n' +
-    alreadySent.length + ' already sent\n' +
-    toSend + ' new emails will be sent';
-
-  if (attended.length === 0) {
-    _showToast('No attendees recorded' + sessionLabel + '. Mark attendance first.', '#64748B');
-    return;
-  }
-  if (toSend === 0) {
-    _showToast('All attendees have already been sent feedback emails' + sessionLabel + '.', '#64748B');
-    return;
-  }
-
-  if (!confirm(msg)) return;
-
-  try {
-    var body = { collection: collection, eventId: eventId };
-    if (sessionDate) body.sessionDate = sessionDate;
-    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendFeedbackEmails', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    var result = await resp.json();
-    if (result.success) {
-      _showToast('Sent ' + result.sent + ' feedback email' + (result.sent !== 1 ? 's' : '') + ' (' + result.skipped + ' skipped)', '#16A34A');
-      auditLog('Sent feedback emails', (data.eventTitle || 'Event') + (sessionDate ? ' [' + sessionDate + ']' : '') + ' -- Sent: ' + result.sent + ', Skipped: ' + result.skipped);
-    } else {
-      _showToast('Error: ' + (result.error || 'Unknown error'), '#DC2626');
-    }
-  } catch (err) {
     _showToast('Error: ' + err.message, '#DC2626');
   }
 }
