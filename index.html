@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.7</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.8.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20954,6 +20954,28 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     });
   }
 
+  // Follow-up support requests — bucket by signup.registration.role so the
+  // Pink Form Parents/Professionals fields can auto-populate. Available at
+  // function scope so both the display section and the Pink Form defaults
+  // can use them.
+  var _signupById = {};
+  signups.forEach(function(s) { if (s.id) _signupById[s.id] = s; });
+  var followUpYes = filteredFeedback.filter(function(fb) { return fb.requiresFollowUp === 'Yes'; });
+  var followUpParentsCount = 0, followUpProfCount = 0;
+  var followUpEntries = [];
+  followUpYes.forEach(function(fb) {
+    var su = _signupById[fb.signupId] || {};
+    var role = (su.registration && su.registration.role) || '';
+    var isParent = role === 'Parent/Guardian';
+    if (isParent) followUpParentsCount++; else followUpProfCount++;
+    followUpEntries.push({
+      name: su.name || 'Unknown',
+      role: role || 'Unknown',
+      description: (fb.followUpDescription && String(fb.followUpDescription).trim()) || '',
+      isParent: isParent,
+    });
+  });
+
   // Section B: Feedback Summary
   // Sent = attendees (only attendees receive feedback emails);
   // Pending = attended - complete (still awaiting a response);
@@ -21061,6 +21083,30 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     }
     html += '</div>';
     html += '</div>';
+
+    // Follow-Up Support Requested
+    html += '<div class="es-section-title" style="font-size:.9rem;margin-top:18px;color:#9A3412;">Follow-Up Support Requested';
+    html += '<span style="background:#FED7AA;color:#9A3412;padding:2px 10px;border-radius:10px;font-size:.78rem;font-weight:700;margin-left:8px;">' + followUpYes.length + ' of ' + responseCount + '</span>';
+    if (followUpYes.length > 0) {
+      html += '<span style="font-size:.78rem;font-weight:500;color:var(--text-soft);margin-left:8px;">(' + followUpParentsCount + ' parents, ' + followUpProfCount + ' professionals)</span>';
+    }
+    html += '</div>';
+    if (followUpEntries.length > 0) {
+      html += '<div class="es-feedback-card" style="border-color:#FED7AA;background:#FFF7ED;">';
+      html += '<div class="es-comments">';
+      followUpEntries.forEach(function(e) {
+        var tag = e.isParent
+          ? '<span style="display:inline-block;background:#DBEAFE;color:#1E40AF;padding:1px 8px;border-radius:8px;font-size:.7rem;font-weight:700;margin-left:6px;">Parent</span>'
+          : '<span style="display:inline-block;background:#E0E7FF;color:#3730A3;padding:1px 8px;border-radius:8px;font-size:.7rem;font-weight:700;margin-left:6px;">' + rsEscape(e.role) + '</span>';
+        var detail = e.description
+          ? '<div style="margin-top:4px;color:var(--text-default);">' + rsEscape(e.description) + '</div>'
+          : '<div style="margin-top:4px;color:var(--text-soft);font-style:italic;font-size:.82rem;">(no detail provided)</div>';
+        html += '<div class="es-comment"><strong>' + rsEscape(e.name) + '</strong>' + tag + detail + '</div>';
+      });
+      html += '</div></div>';
+    } else {
+      html += '<div style="font-size:.84rem;color:var(--text-soft);font-style:italic;padding:8px 4px;">No follow-up support requested.</div>';
+    }
   } else {
     html += '<div style="padding:12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;font-size:.84rem;color:var(--text-soft);font-style:italic;">No feedback responses yet.</div>';
   }
@@ -21085,8 +21131,19 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     html += '<option value="' + t + '"' + (summary.tierModel === t ? ' selected' : '') + '>' + (t || '-- Select --') + '</option>';
   });
   html += '</select></div>';
-  html += '<div class="es-form-field"><label>Follow Up Support -- Parents</label><input type="number" id="esFollowUpParents" min="0" value="' + (summary.followUpParents || 0) + '"></div>';
-  html += '<div class="es-form-field"><label>Follow Up Support -- Professionals</label><input type="number" id="esFollowUpProfessionals" min="0" value="' + (summary.followUpProfessionals || 0) + '"></div>';
+  // Auto-populate from survey when summary has never been saved; once saved,
+  // use the stored value (admin overrides preserved). typeof check distinguishes
+  // "unsaved" from "saved as 0".
+  var _pinkParents = (typeof summary.followUpParents === 'number') ? summary.followUpParents : followUpParentsCount;
+  var _pinkProf = (typeof summary.followUpProfessionals === 'number') ? summary.followUpProfessionals : followUpProfCount;
+  var _parentsHint = (typeof summary.followUpParents !== 'number' || summary.followUpParents === followUpParentsCount)
+    ? '<div style="font-size:.7rem;color:var(--text-soft);margin-top:2px;">Auto from survey: ' + followUpParentsCount + '</div>'
+    : '<div style="font-size:.7rem;color:#9A3412;margin-top:2px;">Survey: ' + followUpParentsCount + ' (manual override)</div>';
+  var _profHint = (typeof summary.followUpProfessionals !== 'number' || summary.followUpProfessionals === followUpProfCount)
+    ? '<div style="font-size:.7rem;color:var(--text-soft);margin-top:2px;">Auto from survey: ' + followUpProfCount + '</div>'
+    : '<div style="font-size:.7rem;color:#9A3412;margin-top:2px;">Survey: ' + followUpProfCount + ' (manual override)</div>';
+  html += '<div class="es-form-field"><label>Follow Up Support -- Parents</label><input type="number" id="esFollowUpParents" min="0" value="' + _pinkParents + '">' + _parentsHint + '</div>';
+  html += '<div class="es-form-field"><label>Follow Up Support -- Professionals</label><input type="number" id="esFollowUpProfessionals" min="0" value="' + _pinkProf + '">' + _profHint + '</div>';
   html += '</div>';
 
   if (summary.completedAt) {
