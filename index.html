@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.7.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21396,10 +21396,13 @@ window.cmsOpenRecordingModal = async function() {
 
   _cmsRecordingUpload = null;
 
-  // Build default "next sessions" blurb from upcoming events in same collection
+  // Build default "next sessions" blurb from upcoming events in same collection.
+  // v120.7.5: signupDates entries are free-text strings (e.g. "May 13, 2026,
+  // 5:00 pm - 6:00 pm"), so use _rsParseSessionDate — passing them straight
+  // to new Date() produces "Invalid Date" in the rendered email.
   var nextBlurb = '';
   try {
-    var todayIso = new Date().toISOString().split('T')[0];
+    var todayIso = _localToday();
     var upcoming = await db.collection('events')
       .where('signupDates', '!=', null)
       .limit(20).get()
@@ -21411,15 +21414,18 @@ window.cmsOpenRecordingModal = async function() {
       if (ev.archived) return;
       var dates = Array.isArray(ev.signupDates) ? ev.signupDates : [];
       dates.forEach(function(dt) {
-        if (dt && dt > todayIso) candidates.push({ date: dt, title: ev.title || '' });
+        if (!dt || typeof _rsParseSessionDate !== 'function') return;
+        var pd = _rsParseSessionDate(dt);
+        if (!pd) return;
+        var iso = pd.getFullYear() + '-' + String(pd.getMonth()+1).padStart(2,'0') + '-' + String(pd.getDate()).padStart(2,'0');
+        if (iso > todayIso) candidates.push({ raw: dt, iso: iso, parsed: pd, title: ev.title || '' });
       });
     });
-    candidates.sort(function(a, b) { return a.date.localeCompare(b.date); });
+    candidates.sort(function(a, b) { return a.iso.localeCompare(b.iso); });
     var next2 = candidates.slice(0, 2);
     if (next2.length) {
       var parts = next2.map(function(c) {
-        var d = new Date(c.date + 'T00:00:00');
-        var mLabel = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+        var mLabel = c.parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
         return mLabel + (c.title ? ' - ' + c.title : '');
       });
       nextBlurb = 'We look forward to connecting with you again at our next session on ' + parts.join(' and ') + '.';
@@ -21427,9 +21433,10 @@ window.cmsOpenRecordingModal = async function() {
   } catch(e) { /* non-fatal */ }
 
   var defaultSubject = 'Mahalo: ' + eventTitle + ' -- Recording & Slides';
+  // v120.7.5: {name} placeholder is substituted per-recipient by the CF.
   var defaultBody =
-    'Aloha, Everyone.\n\n' +
-    'Mahalo nui loa for taking the time to attend ' + eventTitle + '. We sincerely appreciate the participation and engagement each of you brought to the session.\n\n' +
+    'Aloha {name},\n\n' +
+    'Mahalo nui loa for taking the time to attend ' + eventTitle + '. We sincerely appreciate the participation and engagement you brought to the session.\n\n' +
     'We hope the information shared was helpful and provided strategies and insight to support you in advocating for your keiki.\n\n' +
     'If you have any questions or would like additional resources, please feel free to reach out. We also welcome feedback as we continue to strengthen future sessions.\n\n' +
     'Mahalo for completing the evaluation survey.\n\n' +
@@ -21512,7 +21519,7 @@ window.cmsOpenRecordingModal = async function() {
     h += '</div>';
 
     h += '<div style="margin-bottom:14px;">';
-    h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Body <span style="color:#94A3B8;font-weight:400;">(attendees only -- plain text; links, signature, and confidentiality footer added automatically)</span></label>';
+    h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Body <span style="color:#94A3B8;font-weight:400;">(attendees only -- plain text; <code style="background:#FEF3C7;padding:1px 4px;border-radius:3px;">{name}</code> is replaced per recipient. Links, signature, and footer added automatically.)</span></label>';
     h += '<textarea id="cmsRecBody" rows="14" style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;font-family:inherit;line-height:1.5;">' + rsEscape(defaultBody) + '</textarea>';
     h += '</div>';
   }
