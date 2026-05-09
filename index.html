@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v121.0.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v121.0.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -28314,6 +28314,17 @@ window.cmsBuildStaffActivityReport = async function() {
 
     var rows = [];
     var titles = {};
+    // Hard cap: never include event-dates strictly after today (local time).
+    // The report is for completed events only; future dates are noise.
+    // Dateless legacy entries (dt === null) are kept — only the parseable
+    // future dates are dropped.
+    var _today = new Date();
+    var _startOfToday = new Date(_today.getFullYear(), _today.getMonth(), _today.getDate());
+    var _endOfToday = new Date(_today.getFullYear(), _today.getMonth(), _today.getDate(), 23, 59, 59, 999);
+    function _isFutureDate(dt) {
+      if (!dt) return false; // tolerate dateless / unparseable entries
+      return dt.getTime() > _endOfToday.getTime();
+    }
     allEvents.forEach(function(ev) {
       titles[ev._id] = ev.title || '(untitled)';
       var isRecurring = ev._coll === 'recurringEvents';
@@ -28336,18 +28347,21 @@ window.cmsBuildStaffActivityReport = async function() {
         Object.keys(keys).forEach(function(k) {
           var dt = _rsParseSessionDate(k);
           if (!dt) return;
+          if (_isFutureDate(dt)) return; // skip future event-dates
           rows.push(_buildRow(ev, k, dt, signups, feedback, true, false));
         });
       } else if (isOneTimeMulti) {
         sigDates.forEach(function(raw) {
           var dt = _rsParseSessionDate(raw);
           if (!dt) return;
+          if (_isFutureDate(dt)) return; // skip future event-dates
           rows.push(_buildRow(ev, raw, dt, signups, feedback, false, true));
         });
       } else {
         // Single-date one-time: one row using eventDate / signupDates[0] / fallback
         var raw = sigDates[0] || ev.eventDate || ev.date || '';
         var dt = _rsParseSessionDate(raw);
+        if (_isFutureDate(dt)) return; // skip future event-dates
         rows.push(_buildRow(ev, raw || null, dt, signups, feedback, false, false));
       }
     });
@@ -28941,7 +28955,11 @@ window.cmsBuildStaffActivityReport = async function() {
   }
 
   window.cmsEAClearFilters = function() {
-    _eaCache.filters = { search: '', year: String(new Date().getFullYear()), program: '', tier: '', from: '', to: '' };
+    var _td = new Date();
+    var _todayIso = _td.getFullYear() + '-' +
+      String(_td.getMonth() + 1).padStart(2, '0') + '-' +
+      String(_td.getDate()).padStart(2, '0');
+    _eaCache.filters = { search: '', year: String(new Date().getFullYear()), program: '', tier: '', from: '', to: _todayIso };
     _renderFilterBar();
     _renderCardList();
   };
@@ -29225,7 +29243,14 @@ window.cmsBuildStaffActivityReport = async function() {
       // Default filter: current year if any event-dates fall in it; otherwise blank.
       var currentYear = String(new Date().getFullYear());
       var hasCurrentYear = built.rows.some(function(r) { return String(r.year) === currentYear; });
-      _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '', program: '', tier: '', from: '', to: '' };
+      // Default TO date = today (YYYY-MM-DD, local time). Cosmetic — the row
+      // builder already excludes future dates — but gives the user visual
+      // feedback that the report ends at today. User can still narrow further.
+      var _td = new Date();
+      var _todayIso = _td.getFullYear() + '-' +
+        String(_td.getMonth() + 1).padStart(2, '0') + '-' +
+        String(_td.getDate()).padStart(2, '0');
+      _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '', program: '', tier: '', from: '', to: _todayIso };
       _renderFilterBar();
       _renderCardList();
       auditLog('Generated Event Attendance Report', built.rows.length + ' event-dates');
