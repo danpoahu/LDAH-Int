@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.8.7</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.8.8</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4208,10 +4208,10 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
               <div style="font-weight:700;font-size:.92rem;">Feedback Detail Report</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Every post-event feedback response, grouped by event &amp; session date. Click any respondent to expand all 13 answers.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;" onclick="_showToast('This report will be generated soon.','#64748b')">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildStaffActivityReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📈</div>
               <div style="font-weight:700;font-size:.92rem;">Staff Activity</div>
-              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Interactions logged per staff member, follow-up completion rates.</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Follow-up interactions grouped by staff member, then by family. Includes update timeline.</div>
             </div>
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;" onclick="_showToast('This report will be generated soon.','#64748b')">
               <div style="font-size:1.4rem;margin-bottom:6px;">🌐</div>
@@ -15184,6 +15184,10 @@ window.autoCropImage = function(file) {
     if (type === 'cr_approved' && interactionId) {
       closeNotifications();
       viewInteraction(interactionId, { editUnlockNotifId: notifDocId, changeRequestId: changeRequestId });
+    } else if (interactionId) {
+      // Any other interaction-linked notification (assignment, etc.) — open the detail panel.
+      closeNotifications();
+      viewInteraction(interactionId);
     } else {
       loadNotifications();
     }
@@ -27084,6 +27088,374 @@ window.cmsBuildFeedbackReport = async function() {
     }
   } catch (err) {
     console.error('cmsBuildFeedbackReport error:', err);
+    _showToast('Error building report: ' + err.message, '#DC2626');
+  }
+};
+
+// ── Staff Activity Report (Main → Reports) ────────────────────────
+// Live build of follow-up interactions grouped by staff member, then by
+// family. Includes an inline update timeline derived from createdAt +
+// auditLog entries (reassignments, etc.). Default range: last 30 days.
+window.cmsBuildStaffActivityReport = async function() {
+  _showToast('Building staff activity report...', '#0891B2');
+  try {
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function tsToDate(ts) {
+      if (!ts) return null;
+      if (ts.toDate) return ts.toDate();
+      if (ts.seconds) return new Date(ts.seconds * 1000);
+      return null;
+    }
+    function fmtTime(ts) {
+      var d = tsToDate(ts);
+      if (!d) return '';
+      return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Pacific/Honolulu' });
+    }
+    function fmtDateOnly(ymd) {
+      if (!ymd) return '';
+      var m = String(ymd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return ymd;
+      var d = new Date(parseInt(m[1]) + '-' + m[2] + '-' + m[3] + 'T12:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    function initials(name) {
+      var parts = String(name || '').split(/\s+/).filter(Boolean);
+      if (parts.length === 0) return '??';
+      if (parts.length === 1) return (parts[0][0] || '?').toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    // ── Date range: last 30 days ──
+    var now = new Date();
+    var rangeStart = new Date(now);
+    rangeStart.setDate(rangeStart.getDate() - 30);
+    rangeStart.setHours(0, 0, 0, 0);
+    var todayStr = (function() {
+      var y = now.getFullYear(), m = String(now.getMonth()+1).padStart(2,'0'), d = String(now.getDate()).padStart(2,'0');
+      return y + '-' + m + '-' + d;
+    })();
+    var rangeStartLabel = rangeStart.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    var todayLabel = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    // ── Pull follow-up interactions in range ──
+    var ixSnap = await db.collection('interactions')
+      .where('interactionType', '==', 'Follow-up')
+      .get();
+    var interactions = [];
+    ixSnap.forEach(function(doc) {
+      var data = doc.data() || {};
+      if (data.isDraft) return;
+      var when = tsToDate(data.createdAt);
+      if (when && when < rangeStart) return;
+      interactions.push(Object.assign({ _id: doc.id }, data));
+    });
+
+    // ── Group: ownerUid -> contactId -> [interactions] ──
+    var byOwner = {};
+    interactions.forEach(function(ix) {
+      var oid = ix.ownerUid || '__unassigned__';
+      var cid = ix.contactId || ('__nameOnly__' + (ix.contactName || 'Unknown'));
+      if (!byOwner[oid]) {
+        byOwner[oid] = {
+          ownerName: oid === '__unassigned__' ? 'Unassigned' : (ix.owner || 'Unknown owner'),
+          contacts: {},
+          totalIx: 0,
+        };
+      }
+      // Update ownerName if a later interaction has a non-empty value
+      if (oid !== '__unassigned__' && ix.owner && byOwner[oid].ownerName === 'Unknown owner') {
+        byOwner[oid].ownerName = ix.owner;
+      }
+      if (!byOwner[oid].contacts[cid]) {
+        byOwner[oid].contacts[cid] = {
+          contactId: ix.contactId || '',
+          contactName: ix.contactName || 'Unknown',
+          interactions: [],
+        };
+      }
+      byOwner[oid].contacts[cid].interactions.push(ix);
+      byOwner[oid].totalIx++;
+    });
+
+    // ── Pull contact docs for child info (one round-trip per unique id) ──
+    var contactIds = [];
+    Object.keys(byOwner).forEach(function(oid) {
+      Object.values(byOwner[oid].contacts).forEach(function(c) {
+        if (c.contactId && contactIds.indexOf(c.contactId) === -1) contactIds.push(c.contactId);
+      });
+    });
+    var contactCache = {};
+    for (var i = 0; i < contactIds.length; i++) {
+      try {
+        var c = await db.collection('contacts').doc(contactIds[i]).get();
+        contactCache[contactIds[i]] = c.exists ? c.data() : {};
+      } catch (e) { contactCache[contactIds[i]] = {}; }
+    }
+
+    // ── Pull auditLog reassignments in range ──
+    var auditByIxId = {};
+    try {
+      var auditCutoff = firebase.firestore.Timestamp.fromDate(rangeStart);
+      var auditSnap = await db.collection('auditLog')
+        .where('timestamp', '>=', auditCutoff)
+        .where('action', '==', 'Reassigned interaction')
+        .get();
+      auditSnap.forEach(function(doc) {
+        var data = doc.data() || {};
+        var det = String(data.details || '');
+        var m = det.match(/\(([^)]+)\)\s*$/);
+        if (!m) return;
+        var ixId = m[1];
+        var newOwner = det.replace(/\s*\([^)]+\)\s*$/, '');
+        if (!auditByIxId[ixId]) auditByIxId[ixId] = [];
+        auditByIxId[ixId].push({
+          when: data.timestamp,
+          who: data.performedBy || 'Unknown',
+          text: 'assigned owner: <b>' + esc(newOwner) + '</b>',
+        });
+      });
+    } catch (e) { console.warn('audit log fetch failed:', e.message); }
+
+    // ── Build update timeline per interaction (created + audit + last update) ──
+    function buildTimeline(ix) {
+      var rows = [];
+      // Created
+      var creator = ix.owner && ix.ownerUid
+        ? ix.owner
+        : (ix.source === 'event-feedback-auto' ? 'System (auto)' : 'System');
+      rows.push({
+        when: tsToDate(ix.createdAt),
+        who: creator,
+        text: ix.summary && ix.summary.indexOf('Follow-up support requested after') === 0
+          ? 'created interaction from feedback survey'
+          : 'created interaction',
+      });
+      // Audit log entries
+      (auditByIxId[ix._id] || []).forEach(function(a) {
+        rows.push({ when: tsToDate(a.when), who: a.who, text: a.text });
+      });
+      // Last status / note update — use updatedAt if it's after createdAt
+      var ua = tsToDate(ix.updatedAt);
+      var ca = tsToDate(ix.createdAt);
+      if (ua && ca && (ua.getTime() - ca.getTime()) > 1000) {
+        // Only add if no existing audit entry covers this same minute
+        var dupe = rows.some(function(r) { return r.when && Math.abs(r.when.getTime() - ua.getTime()) < 60000; });
+        if (!dupe) {
+          rows.push({ when: ua, who: ix.owner || 'Staff', text: 'updated interaction (status: ' + esc(ix.status || 'Open') + ')' });
+        }
+      }
+      // Sort chronologically
+      rows.sort(function(a, b) {
+        if (!a.when) return 1; if (!b.when) return -1;
+        return a.when.getTime() - b.when.getTime();
+      });
+      return rows;
+    }
+
+    // ── Build HTML ──
+    function statusClass(s) {
+      if (s === 'Closed') return 'st-closed';
+      if (s === 'Needs admin review') return 'st-review';
+      return 'st-open';
+    }
+    function followUpChip(fud) {
+      if (!fud) return '';
+      var cls = (fud < todayStr) ? 'ix-fudate overdue' : 'ix-fudate';
+      var lbl = (fud < todayStr) ? ('Overdue ' + fmtDateOnly(fud)) : ('Due ' + fmtDateOnly(fud));
+      return '<span class="' + cls + '">' + esc(lbl) + '</span>';
+    }
+    function childLine(contactId) {
+      var c = contactCache[contactId] || {};
+      if (!c.children || !c.children.length) return '';
+      var bits = c.children.map(function(ch) {
+        var name = (ch.name && String(ch.name).trim()) ? ch.name : 'Child';
+        var ar = ch.ageRange || ch.childAgeRange || '';
+        return ar ? (name + ' (' + ar + ')') : name;
+      }).filter(Boolean);
+      if (!bits.length) return '';
+      return '<div class="fam-child">Child' + (bits.length > 1 ? 'ren' : '') + ': ' + esc(bits.join(', ')) + '</div>';
+    }
+
+    // Sort: Unassigned first, then by total interactions desc
+    var ownerKeys = Object.keys(byOwner).sort(function(a, b) {
+      if (a === '__unassigned__') return -1;
+      if (b === '__unassigned__') return 1;
+      return byOwner[b].totalIx - byOwner[a].totalIx;
+    });
+
+    var totalIx = interactions.length;
+    var openCount = interactions.filter(function(i) { return i.status !== 'Closed'; }).length;
+    var closedCount = interactions.filter(function(i) { return i.status === 'Closed'; }).length;
+    var staffCount = ownerKeys.filter(function(k) { return k !== '__unassigned__'; }).length;
+    var unassignedCount = byOwner['__unassigned__'] ? byOwner['__unassigned__'].totalIx : 0;
+
+    var employeesHtml = '';
+    ownerKeys.forEach(function(oid) {
+      var owner = byOwner[oid];
+      var isUnass = (oid === '__unassigned__');
+      var contactKeys = Object.keys(owner.contacts).sort(function(a, b) {
+        return owner.contacts[a].contactName.localeCompare(owner.contacts[b].contactName);
+      });
+      var familyHtml = '';
+      contactKeys.forEach(function(cid) {
+        var fam = owner.contacts[cid];
+        var ixHtml = '';
+        fam.interactions.sort(function(a, b) {
+          var ad = tsToDate(a.createdAt), bd = tsToDate(b.createdAt);
+          return (bd ? bd.getTime() : 0) - (ad ? ad.getTime() : 0);
+        });
+        fam.interactions.forEach(function(ix) {
+          var timeline = buildTimeline(ix);
+          var tlHtml = '';
+          timeline.forEach(function(r) {
+            tlHtml += '<li><time>' + esc(fmtTime(r.when)) + '</time><span class="who">' + esc(r.who) + '</span> ' + r.text + '</li>';
+          });
+          ixHtml +=
+            '<div class="ix">' +
+              '<div class="ix-head">' +
+                '<span class="ix-status ' + statusClass(ix.status) + '">' + esc(ix.status || 'Open') + '</span>' +
+                '<span class="ix-channel">' + esc((ix.channel || '') + ' · ' + (ix.interactionType || 'Follow-up')) + '</span>' +
+                followUpChip(ix.followUpDate) +
+              '</div>' +
+              '<div class="ix-summary">' + esc(ix.summary || '(no summary)') + '</div>' +
+              (ix.notes ? '<div class="ix-notes">' + esc(ix.notes) + '</div>' : '') +
+              '<ul class="updates">' + tlHtml + '</ul>' +
+            '</div>';
+        });
+        var avatarStyle = isUnass ? ' style="background:#94A3B8;"' : '';
+        familyHtml +=
+          '<div class="family">' +
+            '<div class="fam-head">' +
+              '<div class="fam-avatar"' + avatarStyle + '>' + esc(initials(fam.contactName)) + '</div>' +
+              '<div>' +
+                '<div class="fam-name">' + esc(fam.contactName) + '</div>' +
+                childLine(fam.contactId) +
+                '<div class="fam-count">' + fam.interactions.length + ' interaction' + (fam.interactions.length !== 1 ? 's' : '') + '</div>' +
+              '</div>' +
+            '</div>' +
+            ixHtml +
+          '</div>';
+      });
+      var unassClass = isUnass ? ' unassigned' : '';
+      employeesHtml +=
+        '<section class="employee' + unassClass + '">' +
+          '<div class="emp-head">' +
+            '<h2>' + esc(owner.ownerName) + '</h2>' +
+            '<span class="pill">' + owner.totalIx + ' follow-up' + (owner.totalIx !== 1 ? 's' : '') +
+              ' · ' + contactKeys.length + ' famil' + (contactKeys.length === 1 ? 'y' : 'ies') + '</span>' +
+          '</div>' +
+          familyHtml +
+        '</section>';
+    });
+
+    var calloutHtml = unassignedCount > 0
+      ? '<div class="unassigned-callout">' +
+          '<div class="icon-circle">!</div>' +
+          '<div>' +
+            '<div class="heading">' + unassignedCount + ' follow-up' + (unassignedCount !== 1 ? 's' : '') + ' need' + (unassignedCount === 1 ? 's' : '') + ' an owner</div>' +
+            '<div class="sub">No one has claimed these — assign in LDAH-Int → Interactions</div>' +
+          '</div>' +
+        '</div>'
+      : '';
+
+    var styles =
+      '* { box-sizing: border-box; }' +
+      'body { margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; background:#F1F5F9; color:#0F172A; line-height:1.45; }' +
+      '.wrap { max-width:980px; margin:0 auto; padding:24px 18px 60px; }' +
+      'header { background:linear-gradient(135deg,#1a3c6e,#0e5e8a); color:#fff; border-radius:14px; padding:22px 28px; margin-bottom:22px; box-shadow:0 6px 14px rgba(15,23,42,.12); display:flex; align-items:center; gap:22px; }' +
+      'header .logo { flex-shrink:0; background:#fff; border-radius:12px; padding:8px 14px; display:flex; align-items:center; justify-content:center; }' +
+      'header .logo img { display:block; height:56px; width:auto; }' +
+      'header .text { flex:1; min-width:0; }' +
+      'header h1 { margin:0 0 4px; font-size:1.45rem; font-weight:800; }' +
+      'header .sub { color:#cfe1f2; font-size:.9rem; }' +
+      'header .meta { margin-top:10px; display:flex; flex-wrap:wrap; gap:16px; font-size:.78rem; color:#cfe1f2; }' +
+      'header .meta b { color:#fff; font-weight:700; }' +
+      '.unassigned-callout { background:linear-gradient(135deg,#fef3c7,#fde68a); border:2px solid #f59e0b; border-radius:14px; padding:14px 18px; margin-bottom:18px; display:flex; align-items:center; gap:14px; box-shadow:0 1px 3px rgba(245,158,11,.25); }' +
+      '.unassigned-callout .icon-circle { width:36px; height:36px; border-radius:50%; background:#f59e0b; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.1rem; flex-shrink:0; }' +
+      '.unassigned-callout .heading { font-weight:800; color:#92400e; font-size:.98rem; }' +
+      '.unassigned-callout .sub { font-size:.82rem; color:#92400e; }' +
+      '.summary-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:22px; }' +
+      '.stat { background:#fff; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(15,23,42,.06); border:1px solid #E2E8F0; }' +
+      '.stat .num { font-size:1.7rem; font-weight:800; color:#1a3c6e; line-height:1; }' +
+      '.stat .lbl { font-size:.76rem; color:#64748B; font-weight:600; letter-spacing:.04em; text-transform:uppercase; margin-top:5px; }' +
+      '.employee { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(15,23,42,.06); border:1px solid #E2E8F0; margin-bottom:18px; overflow:hidden; }' +
+      '.employee.unassigned { border:2px solid #f59e0b; }' +
+      '.employee.unassigned .emp-head { background:#fffbeb; }' +
+      '.employee.unassigned .emp-head h2 { color:#92400e; }' +
+      '.employee.unassigned .emp-head .pill { background:#f59e0b; color:#fff; }' +
+      '.emp-head { padding:16px 22px; background:#F8FAFC; border-bottom:1px solid #E2E8F0; display:flex; justify-content:space-between; align-items:center; }' +
+      '.emp-head h2 { margin:0; font-size:1.15rem; color:#1a3c6e; font-weight:800; }' +
+      '.emp-head .pill { background:#E0F2FE; color:#075985; padding:3px 11px; border-radius:999px; font-size:.76rem; font-weight:700; }' +
+      '.family { padding:14px 22px 18px; border-bottom:1px solid #F1F5F9; }' +
+      '.family:last-child { border-bottom:none; }' +
+      '.fam-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }' +
+      '.fam-avatar { width:30px; height:30px; border-radius:50%; background:#1a3c6e; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.82rem; flex-shrink:0; }' +
+      '.fam-name { font-weight:800; font-size:1rem; color:#0F172A; }' +
+      '.fam-child { font-size:.78rem; color:#1a3c6e; font-weight:600; }' +
+      '.fam-count { font-size:.76rem; color:#64748B; }' +
+      '.ix { margin-left:40px; padding:12px 14px; background:#FAFCFE; border-radius:10px; border:1px solid #E2E8F0; margin-top:8px; }' +
+      '.ix-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }' +
+      '.ix-status { padding:2px 10px; border-radius:999px; font-size:.72rem; font-weight:700; letter-spacing:.03em; }' +
+      '.st-open { background:#FEF3C7; color:#92400E; }' +
+      '.st-closed { background:#D1FAE5; color:#065F46; }' +
+      '.st-review { background:#FEE2E2; color:#991B1B; }' +
+      '.ix-channel { font-size:.72rem; color:#64748B; font-weight:600; }' +
+      '.ix-fudate { margin-left:auto; font-size:.72rem; color:#475569; background:#F1F5F9; padding:2px 9px; border-radius:6px; }' +
+      '.ix-fudate.overdue { background:#FEE2E2; color:#991B1B; font-weight:700; }' +
+      '.ix-summary { font-weight:600; font-size:.92rem; color:#0F172A; margin-bottom:4px; }' +
+      '.ix-notes { font-size:.82rem; color:#334155; background:#fff; border-left:3px solid #1a3c6e; padding:6px 10px; border-radius:4px; margin:8px 0; }' +
+      '.updates { list-style:none; padding:0; margin:8px 0 0; font-size:.76rem; color:#475569; }' +
+      '.updates li { display:flex; align-items:baseline; gap:8px; padding:3px 0; border-top:1px dotted #E2E8F0; }' +
+      '.updates li:first-child { border-top:none; }' +
+      '.updates time { font-variant-numeric:tabular-nums; color:#94A3B8; min-width:130px; flex-shrink:0; }' +
+      '.updates .who { color:#1a3c6e; font-weight:600; }' +
+      'footer { margin-top:30px; padding-top:18px; border-top:1px solid #E2E8F0; font-size:.75rem; color:#64748B; text-align:center; }' +
+      '@media print { body { background:#fff; } .wrap { padding:0; max-width:none; } .employee { break-inside:avoid; box-shadow:none; } header { box-shadow:none; } }';
+
+    var html =
+      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width,initial-scale=1.0">' +
+      '<title>Staff Activity — Follow-Up Interactions</title><style>' + styles + '</style></head><body><div class="wrap">' +
+      '<header>' +
+        '<div class="logo"><img src="https://www.ldahawaii.org/logo_blue.png" alt="LDAH"></div>' +
+        '<div class="text">' +
+          '<h1>Staff Activity — Follow-Up Interactions</h1>' +
+          '<div class="sub">Grouped by staff member, then by family. Each interaction shows its full update history.</div>' +
+          '<div class="meta">' +
+            '<span><b>Range:</b> ' + esc(rangeStartLabel) + ' – ' + esc(todayLabel) + '</span>' +
+            '<span><b>Filter:</b> interactionType = Follow-up</span>' +
+            '<span><b>Generated:</b> ' + esc(fmtTime({ toDate: function() { return now; } })) + ' HST</span>' +
+          '</div>' +
+        '</div>' +
+      '</header>' +
+      calloutHtml +
+      '<div class="summary-strip">' +
+        '<div class="stat"><div class="num">' + totalIx + '</div><div class="lbl">Follow-ups</div></div>' +
+        '<div class="stat"><div class="num">' + openCount + '</div><div class="lbl">Open</div></div>' +
+        '<div class="stat"><div class="num">' + closedCount + '</div><div class="lbl">Closed</div></div>' +
+        '<div class="stat"><div class="num">' + staffCount + '</div><div class="lbl">Staff active</div></div>' +
+      '</div>' +
+      (totalIx === 0
+        ? '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:30px;text-align:center;color:#64748B;font-style:italic;">No follow-up interactions in the last 30 days.</div>'
+        : employeesHtml) +
+      '<footer>Generated live from Firestore on ' + esc(now.toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' })) + ' HST. Last 30 days.</footer>' +
+      '</div></body></html>';
+
+    var win = window.open('', '_blank');
+    if (!win) {
+      _showToast('Pop-up blocked. Allow pop-ups and try again.', '#DC2626');
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    auditLog('Generated Staff Activity Report', totalIx + ' follow-ups across ' + staffCount + ' staff (' + unassignedCount + ' unassigned)');
+    _showToast('Staff activity report opened in a new tab.', '#16A34A');
+  } catch (err) {
+    console.error('cmsBuildStaffActivityReport error:', err);
     _showToast('Error building report: ' + err.message, '#DC2626');
   }
 };
