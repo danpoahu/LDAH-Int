@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.8.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.8.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14458,6 +14458,27 @@ window.autoCropImage = function(file) {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       auditLog('Reassigned interaction', (newName || 'Unassigned') + ' (' + (_ixViewDocId || '') + ')');
+
+      // Notify the new owner so their bell dances + chimes. Skip when
+      // unassigned or when assigning to self (no need to ring own bell).
+      if (newUid && newUid !== (currentUserData && currentUserData.uid)) {
+        try {
+          var ixDoc = await db.collection('interactions').doc(_ixViewDocId).get();
+          var ixData = ixDoc.exists ? (ixDoc.data() || {}) : {};
+          var who = ixData.contactName || 'someone';
+          var assignedBy = (currentUserData && currentUserData.displayName) || 'a teammate';
+          await createNotification({
+            recipientUid: newUid,
+            recipientName: newName || '',
+            type: 'interaction-assigned',
+            title: 'You\'ve been assigned a follow-up',
+            message: assignedBy + ' assigned you a follow-up for ' + who +
+              (ixData.summary ? ' — ' + ixData.summary : ''),
+            interactionId: _ixViewDocId,
+          });
+        } catch (e) { console.warn('createNotification on owner change failed:', e.message); }
+      }
+
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
       _dashKpiCache = null;
@@ -15247,6 +15268,23 @@ window.autoCropImage = function(file) {
         window._lastCmsAlertCount = cmsCount;
       } else {
         window._lastCmsAlertCount = cmsCount;
+      }
+
+      // Same dance + chime when a PERSONAL notification arrives (e.g. owner
+      // assignment) — baselines on first poll so existing unreads don't ring.
+      if (window._lastPersonalNotifCount === undefined) {
+        window._lastPersonalNotifCount = personalCount;
+      } else if (personalCount > window._lastPersonalNotifCount) {
+        var bellEl2 = document.getElementById('notifBellBtn');
+        if (bellEl2) {
+          bellEl2.classList.remove('cms-bell-wiggle');
+          void bellEl2.offsetWidth;
+          bellEl2.classList.add('cms-bell-wiggle');
+        }
+        if (typeof window._playAlertChime === 'function') window._playAlertChime();
+        window._lastPersonalNotifCount = personalCount;
+      } else {
+        window._lastPersonalNotifCount = personalCount;
       }
     } catch (err) {
       console.warn('Notif badge error:', err.message);
