@@ -4056,7 +4056,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.8.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v120.8.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14101,11 +14101,31 @@ window.autoCropImage = function(file) {
           '</div></div>';
       }
 
-      // Shorten owner name to "First L." format
-      var ownerRaw = d.owner || d.createdBy || '—';
+      // Shorten owner name to "First L." format. Blank → "Unassigned".
+      var ownerRaw = d.owner || d.createdBy || '';
       var ownerParts = ownerRaw.split(/\s+/).filter(Boolean);
-      var ownerShort = ownerRaw;
+      var ownerShort = ownerRaw || 'Unassigned';
       if (ownerParts.length >= 2) ownerShort = ownerParts[0] + ' ' + ownerParts[1][0] + '.';
+
+      // Build an editable owner picker (Oahu staff, excluding Daniel + IT_Help).
+      // Mirrors the status-changer pattern: dropdown + Save button + msg span.
+      // Lazy-populates on first open via _populateOwnerSelect (async).
+      var ownerFieldHtml;
+      if (canChangeStatus && !isEditMode) {
+        ownerFieldHtml =
+          '<div class="ct-info-field"><label>Owner</label><div class="val">' +
+            '<div class="ix-status-changer">' +
+              '<select id="ixOwnerSelect" data-current-uid="' + rsEscape(d.ownerUid || '') + '">' +
+                '<option value="">Loading…</option>' +
+              '</select>' +
+              '<button class="ix-status-save" onclick="changeInteractionOwner()">Save</button>' +
+              '<span id="ixOwnerMsg"></span>' +
+            '</div>' +
+          '</div></div>';
+      } else {
+        ownerFieldHtml =
+          '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>';
+      }
 
       var infoCard, contactSection, detailSection;
 
@@ -14152,7 +14172,7 @@ window.autoCropImage = function(file) {
             '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
             '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
             statusFieldHtml +
-            '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>' +
+            ownerFieldHtml +
             '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>' +
           '</div>';
 
@@ -14179,6 +14199,9 @@ window.autoCropImage = function(file) {
       }
 
       body.innerHTML = infoCard + contactSection + detailSection;
+
+      // Populate the owner picker if it was rendered (read-only mode + canChangeStatus).
+      if (typeof _populateOwnerSelect === 'function') _populateOwnerSelect();
 
       // Populate header contact name
       var headerContactSpan = document.getElementById('ixViewHeaderContact');
@@ -14363,6 +14386,83 @@ window.autoCropImage = function(file) {
   })();
 
   // Change interaction status (from detail view dropdown)
+  // ── Owner picker (auto-created interactions start unassigned) ──
+  // Lists Oahu-based active staff, excluding Daniel + the IT_Help break-glass
+  // account. Cached for the session so reopening the modal is instant.
+  var _assignableOwnersCache = null;
+  var _OWNER_EXCLUDE_EMAILS = ['danpellegrini63@gmail.com', 'dan@oahuappdesign.com'];
+
+  async function _getAssignableOwners() {
+    if (_assignableOwnersCache) return _assignableOwnersCache;
+    try {
+      var snap = await db.collection('userRoles').orderBy('displayName').get();
+      var list = [];
+      snap.forEach(function(doc) {
+        var d = doc.data() || {};
+        if (d.isArchived === true) return;
+        if ((d.location || '') !== 'Oahu') return;
+        var email = String(d.email || '').toLowerCase();
+        if (_OWNER_EXCLUDE_EMAILS.indexOf(email) !== -1) return;
+        list.push({
+          uid: doc.id,
+          displayName: d.displayName || d.email || 'Unknown',
+          email: email,
+        });
+      });
+      _assignableOwnersCache = list;
+      return list;
+    } catch (err) {
+      console.error('getAssignableOwners:', err);
+      return [];
+    }
+  }
+
+  window._populateOwnerSelect = async function() {
+    var sel = document.getElementById('ixOwnerSelect');
+    if (!sel) return;
+    var currentUid = sel.getAttribute('data-current-uid') || '';
+    var owners = await _getAssignableOwners();
+    var html = '<option value="">— Unassigned —</option>';
+    owners.forEach(function(o) {
+      html += '<option value="' + rsEscape(o.uid) + '"' +
+        (o.uid === currentUid ? ' selected' : '') + '>' +
+        rsEscape(o.displayName) + '</option>';
+    });
+    sel.innerHTML = html;
+  };
+
+  window.changeInteractionOwner = async function() {
+    var sel = document.getElementById('ixOwnerSelect');
+    var msg = document.getElementById('ixOwnerMsg');
+    if (!sel || !_ixViewDocId) return;
+    var newUid = sel.value;
+    var newName = '';
+    if (newUid) {
+      var picked = (_assignableOwnersCache || []).find(function(o) { return o.uid === newUid; });
+      if (picked) newName = picked.displayName;
+    }
+    var btn = sel.nextElementSibling;
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+      await db.collection('interactions').doc(_ixViewDocId).update({
+        owner: newName,
+        ownerUid: newUid,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      auditLog('Reassigned interaction', (newName || 'Unassigned') + ' (' + (_ixViewDocId || '') + ')');
+      if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
+      setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
+      _dashKpiCache = null;
+      if (typeof loadInteractions === 'function') loadInteractions();
+      if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
+    } catch (err) {
+      if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Error: ' + err.message; }
+      console.error('Owner update error:', err);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    }
+  };
+
   window.changeInteractionStatus = async function() {
     var sel = document.getElementById('ixStatusSelect');
     var msg = document.getElementById('ixStatusMsg');
