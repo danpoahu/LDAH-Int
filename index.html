@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20670,42 +20670,64 @@ function cmsCgDocRender() {
   html += '</div>';
   body.innerHTML = html;
 
-  // Resolve download URLs asynchronously (Storage SDK). Storage rules
-  // enforce admin/superAdmin read; non-admin browsers will get a permission
-  // error reflected in the panel.
+  // Resolve download URLs via the getConnectGenDocumentDownloadUrl CF.
+  // Storage rules deny direct client reads on connectGen/** by design —
+  // the CF authenticates the staff idToken, audit-logs each URL issuance,
+  // and returns a 10-minute V4 signed URL we use for the iframe/img src
+  // AND the Download link's href. Non-admins get a 403 reflected in the
+  // panel via the existing red error UI.
+  var _v = _cmsCgDocViewer;
   ['iep', 'evaluation'].forEach(function(type) {
     var rec = docs[type];
     if (!rec || !rec.storagePath) return;
     var slotId = 'cmsCgDocPreview_' + type;
     var linkId = 'cmsCgDocDl_' + type;
-    try {
-      firebase.storage().ref(rec.storagePath).getDownloadURL().then(function(url) {
-        var slot = document.getElementById(slotId);
-        var link = document.getElementById(linkId);
-        if (link) { link.href = url; link.style.display = 'inline-block'; }
-        if (!slot) return;
-        var mt = String(rec.mimeType || '').toLowerCase();
-        if (mt === 'application/pdf') {
-          slot.innerHTML = '<iframe src="' + url + '" style="width:100%;height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;" title="' + rsEscape(type) + ' PDF"></iframe>';
-        } else if (mt.indexOf('image/') === 0) {
-          // HEIC/HEIF: most desktop browsers do NOT render these natively.
-          // Show the <img> anyway (Safari on Mac can; falls back gracefully
-          // via the alt and the always-visible Download link if it can't).
-          var isHeic = (mt === 'image/heic' || mt === 'image/heif');
-          var note = isHeic ? '<div style="font-size:.74rem;color:#92400E;background:#FFFBEB;padding:6px 10px;border:1px solid #FCD34D;border-radius:6px;margin-bottom:6px;">HEIC files may not preview in all browsers. Use the Download link if the image area is blank.</div>' : '';
-          slot.innerHTML = note + '<img src="' + url + '" alt="' + rsEscape(rec.originalFilename || type) + '" style="max-width:100%;max-height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#F8FAFC;display:block;">';
-        } else {
-          slot.innerHTML = '<div style="padding:18px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;color:#64748B;font-size:.86rem;">Preview not available for this file type. Use the Download link below.</div>';
-        }
-      }).catch(function(err) {
-        var slot = document.getElementById(slotId);
-        if (slot) slot.innerHTML = '<div style="padding:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:6px;color:#B91C1C;font-size:.84rem;">Unable to load file: ' + rsEscape(err && err.message ? err.message : String(err)) + '</div>';
-      });
-    } catch (e) {
-      var slot2 = document.getElementById(slotId);
-      if (slot2) slot2.innerHTML = '<div style="color:#B91C1C;font-size:.84rem;">Storage error: ' + rsEscape(e.message || String(e)) + '</div>';
-    }
+    _cmsCgGetDocUrl(_v.eventId, _v.signupId, type).then(function(url) {
+      var slot = document.getElementById(slotId);
+      var link = document.getElementById(linkId);
+      if (link) { link.href = url; link.style.display = 'inline-block'; }
+      if (!slot) return;
+      var mt = String(rec.mimeType || '').toLowerCase();
+      if (mt === 'application/pdf') {
+        slot.innerHTML = '<iframe src="' + url + '" style="width:100%;height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;" title="' + rsEscape(type) + ' PDF"></iframe>';
+      } else if (mt.indexOf('image/') === 0) {
+        // HEIC/HEIF: most desktop browsers do NOT render these natively.
+        // Show the <img> anyway (Safari on Mac can; falls back gracefully
+        // via the alt and the always-visible Download link if it can't).
+        var isHeic = (mt === 'image/heic' || mt === 'image/heif');
+        var note = isHeic ? '<div style="font-size:.74rem;color:#92400E;background:#FFFBEB;padding:6px 10px;border:1px solid #FCD34D;border-radius:6px;margin-bottom:6px;">HEIC files may not preview in all browsers. Use the Download link if the image area is blank.</div>' : '';
+        slot.innerHTML = note + '<img src="' + url + '" alt="' + rsEscape(rec.originalFilename || type) + '" style="max-width:100%;max-height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#F8FAFC;display:block;">';
+      } else {
+        slot.innerHTML = '<div style="padding:18px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;color:#64748B;font-size:.86rem;">Preview not available for this file type. Use the Download link below.</div>';
+      }
+    }).catch(function(err) {
+      var slot = document.getElementById(slotId);
+      if (slot) slot.innerHTML = '<div style="padding:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:6px;color:#B91C1C;font-size:.84rem;">Unable to load file: ' + rsEscape(err && err.message ? err.message : String(err)) + '</div>';
+    });
   });
+}
+
+// CF-mediated V4 signed download URL for a Connect-Gen confidential
+// document. Replaces firebase.storage().getDownloadURL() so all reads
+// route through getConnectGenDocumentDownloadUrl (audit-logged, 10-min
+// expiry). Throws on non-2xx — callers render the error in the red
+// "Unable to load file" panel.
+async function _cmsCgGetDocUrl(eventId, signupId, documentType) {
+  var user = firebase.auth().currentUser;
+  if (!user) throw new Error('Not signed in.');
+  var idToken = await user.getIdToken();
+  var res = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/getConnectGenDocumentDownloadUrl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken: idToken, eventId: eventId, signupId: signupId, documentType: documentType })
+  });
+  if (!res.ok) {
+    var detail = '';
+    try { var j = await res.json(); detail = j && j.error ? j.error : ''; } catch (_) {}
+    throw new Error(detail || ('Failed to load document (HTTP ' + res.status + ')'));
+  }
+  var data = await res.json();
+  return data.url;
 }
 
 function cmsCgDocRenderPanel(title, type, rec) {
