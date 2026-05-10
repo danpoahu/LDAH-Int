@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v121.0.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5853,6 +5853,33 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         </div>
         <div class="modal-actions">
           <button class="btn btn-ghost" onclick="cmsCloseSignupsModal()">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connect-Gen Document Viewer Modal (Phase D): staff review of IEP + Evaluation uploaded by parents through the secure consent flow. Disposition + manual destroy run through dedicated CFs (role-gated, audit-logged). -->
+    <div class="overlay" id="cmsCgDocOverlay">
+      <div class="modal" style="max-width:1100px;">
+        <div class="modal-header">
+          <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="cmsCgDocTitle">Connect-Gen Documents</div></div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="close" type="button" onclick="cmsCgDocClose()">&times;</button>
+          </div>
+        </div>
+        <div class="modal-body" style="display:block; padding: 0;">
+          <div id="cmsCgDocSubheader" style="padding:8px 18px;background:#F0F9FF;border-bottom:1px solid #BAE6FD;font-size:.86rem;color:#0C4A6E;"></div>
+          <div id="cmsCgDocBody" style="padding:14px 18px;">
+            <div class="cms-empty"><p>Loading documents...</p></div>
+          </div>
+        </div>
+        <div class="modal-actions" id="cmsCgDocFooter" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <div id="cmsCgDocDispositionStatus" style="font-size:.85rem;color:#475569;"></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <button class="btn btn-ghost" id="cmsCgDocDestroyBtn" style="font-size:.78rem;padding:5px 12px;color:#7C2D12;background:#FFF7ED;border:1px solid #FED7AA;" onclick="cmsCgDocDestroyConfirm()">Destroy Documents Now</button>
+            <button class="btn btn-primary" id="cmsCgDocNoSupportBtn" style="font-size:.84rem;padding:6px 14px;background:#DC2626;color:#fff;border:1px solid #B91C1C;" onclick="cmsCgDocMarkConfirm('noSupport')">Mark: No Additional Support</button>
+            <button class="btn btn-primary" id="cmsCgDocCaseAdvBtn" style="font-size:.84rem;padding:6px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;" onclick="cmsCgDocMarkConfirm('caseAdvocacy')">Mark: Case Advocacy</button>
+            <button class="btn btn-ghost" onclick="cmsCgDocClose()">Close</button>
+          </div>
         </div>
       </div>
     </div>
@@ -20289,6 +20316,11 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   h += '</div>';
   h += '</div>';
 
+  // Connect-Gen documents action row — always visible (not gated on expand)
+  // so staff can review IEP + Evaluation directly from the signup sheet.
+  // Renders only for Connect-Gen context; other events get nothing here.
+  h += cmsCgDocsButtonRow(s, collection, eventId);
+
   // Expandable detail body (hidden by default)
   h += '<div id="' + cardId + '_body" style="display:none;padding:12px 14px 14px;border-top:1px dashed #E2E8F0;background:#FAFCFF;">';
 
@@ -20449,6 +20481,362 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   h += '</div>'; // close body
   h += '</div>'; // close card
   return h;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Connect-Gen Document Review (Phase D)
+   Staff-side viewer for parent-uploaded IEP + Evaluation files. All writes
+   and deletes route through the new Cloud Functions (setConnectGenDisposition
+   + destroyConnectGenDocuments) which re-check role server-side and write
+   audit log entries. Storage rules already restrict reads to admin/superAdmin.
+   ─────────────────────────────────────────────────────────────────────── */
+
+// Connect-Gen recurring event ID — single canonical program in Firestore.
+var CONNECT_GEN_EVENT_ID = 'CmkPXEpPwfAQ5sR377K2';
+
+// Robust context check: open signups modal is for Connect-Gen if (a) recurring
+// event id matches the known Connect-Gen program, or (b) the modal title
+// contains "Connect-Gen". Either marker is sufficient — staff can rename the
+// program label but the doc id is stable.
+function cmsIsConnectGenContext() {
+  try {
+    if (!_cmsSignupsModalData) return false;
+    if (_cmsSignupsModalData.eventId === CONNECT_GEN_EVENT_ID) return true;
+    var t = String(_cmsSignupsModalData.eventTitle || '');
+    return /connect[\s\-]?gen/i.test(t);
+  } catch (_) { return false; }
+}
+
+// Human-readable file size: 2700000 -> "2.6 MB".
+function cmsCgFmtBytes(n) {
+  n = Number(n);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+// Button row injected at the top of each Connect-Gen family card. Renders
+// nothing for non-Connect-Gen events. Disposition + destruction state drive
+// the visible label.
+function cmsCgDocsButtonRow(s, collection, eventId) {
+  if (!cmsIsConnectGenContext()) return '';
+  var docs = (s && s.connectGenDocuments && typeof s.connectGenDocuments === 'object') ? s.connectGenDocuments : null;
+  var hasIep = !!(docs && docs.iep && docs.iep.storagePath);
+  var hasEval = !!(docs && docs.evaluation && docs.evaluation.storagePath);
+  var count = (hasIep ? 1 : 0) + (hasEval ? 1 : 0);
+  var disposition = s.connectGenDisposition || '';
+  var destroyedAt = s.connectGenDocumentsDestroyedAt;
+  // If documents have been destroyed (either via No-Support disposition or
+  // manual destroy), surface the post-action state instead of an action btn.
+  if (destroyedAt && !docs) {
+    var dispLabel = disposition === 'noSupport'
+      ? 'No Additional Support'
+      : (disposition === 'caseAdvocacy' ? 'Case Advocacy completed' : 'manual destroy');
+    return '<div style="padding:8px 14px;background:#F8FAFC;border-top:1px solid #E2E8F0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
+      '<span style="font-size:.78rem;color:#64748B;">Destroyed &mdash; ' + rsEscape(dispLabel) + '</span>' +
+      '</div>';
+  }
+  // No docs uploaded yet — surface neutral muted note so staff know to
+  // expect them.
+  if (count === 0) {
+    return '<div style="padding:8px 14px;background:#F8FAFC;border-top:1px solid #E2E8F0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
+      '<button class="btn btn-ghost" disabled style="font-size:.78rem;padding:4px 12px;background:#F1F5F9;color:#94A3B8;cursor:not-allowed;border:1px solid #E2E8F0;">No documents uploaded</button>' +
+      '</div>';
+  }
+  // Docs present — primary review button.
+  var label;
+  if (disposition === 'caseAdvocacy') {
+    label = 'Review Documents (Case Advocacy)';
+  } else {
+    label = 'Review Documents (' + count + ')';
+  }
+  return '<div style="padding:8px 14px;background:#F0F9FF;border-top:1px solid #BAE6FD;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+    '<span style="font-size:.78rem;font-weight:700;color:#0C4A6E;">Connect-Gen Documents</span>' +
+    '<button class="btn btn-primary" style="font-size:.82rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + rsEscape(label) + '</button>' +
+    (disposition ? '<span style="font-size:.74rem;color:#475569;font-style:italic;">Marked: ' + rsEscape(disposition === 'noSupport' ? 'No Additional Support' : 'Case Advocacy') + '</span>' : '') +
+    '</div>';
+}
+
+// Currently-open viewer state (so footer + body re-renders pick up changes).
+var _cmsCgDocViewer = { collection: '', eventId: '', signupId: '', signup: null };
+
+window.cmsCgDocOpen = async function(collection, eventId, signupId) {
+  _cmsCgDocViewer = { collection: collection, eventId: eventId, signupId: signupId, signup: null };
+  var ov = document.getElementById('cmsCgDocOverlay');
+  document.getElementById('cmsCgDocSubheader').innerHTML = 'Loading...';
+  document.getElementById('cmsCgDocBody').innerHTML = '<div class="cms-empty"><p>Loading documents...</p></div>';
+  document.getElementById('cmsCgDocDispositionStatus').innerHTML = '';
+  ov.classList.add('active');
+  try {
+    var snap = await db.collection(collection).doc(eventId).collection('signups').doc(signupId).get();
+    if (!snap.exists) { throw new Error('Signup not found.'); }
+    var s = Object.assign({ id: snap.id }, snap.data());
+    _cmsCgDocViewer.signup = s;
+    cmsCgDocRender();
+    // Audit-log the view event (single entry per modal open).
+    try {
+      auditLog('Connect-Gen documents viewed',
+        (s.name || s.firstName || 'unknown') + ' — ' + (_cmsSignupsModalData.eventTitle || 'Connect-Gen'));
+    } catch (_) {}
+  } catch (err) {
+    document.getElementById('cmsCgDocBody').innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+window.cmsCgDocClose = function() {
+  var ov = document.getElementById('cmsCgDocOverlay');
+  if (ov) ov.classList.remove('active');
+  _cmsCgDocViewer = { collection: '', eventId: '', signupId: '', signup: null };
+};
+
+// Render the two-panel body + subheader + footer based on the in-memory
+// signup snapshot. Called on open and after any mutation.
+function cmsCgDocRender() {
+  var s = _cmsCgDocViewer.signup || {};
+  // ── Subheader: family name + session date ──
+  var reg = s.registration || {};
+  var parentName = s.name || reg.parentName || [s.firstName, s.lastName].filter(Boolean).join(' ') || '(No name)';
+  var sessionDate = '';
+  try {
+    var keys = (typeof extractSignupSessionKeys === 'function') ? extractSignupSessionKeys(s) : [];
+    if (keys && keys.length) sessionDate = keys.join(', ');
+    else if (Array.isArray(s.selectedSessions) && s.selectedSessions.length) sessionDate = s.selectedSessions.join('; ');
+    else if (Array.isArray(s.selectedDates) && s.selectedDates.length) sessionDate = s.selectedDates.join(', ');
+  } catch (_) {}
+  document.getElementById('cmsCgDocTitle').textContent = 'Connect-Gen Documents — ' + parentName;
+  document.getElementById('cmsCgDocSubheader').innerHTML =
+    '<strong>' + rsEscape(parentName) + '</strong>' +
+    (sessionDate ? '<span style="margin-left:14px;color:#0369A1;">Session: ' + rsEscape(sessionDate) + '</span>' : '');
+
+  // ── Disposition status + footer button state ──
+  var disp = s.connectGenDisposition || '';
+  var destroyedAt = s.connectGenDocumentsDestroyedAt;
+  var statusEl = document.getElementById('cmsCgDocDispositionStatus');
+  if (destroyedAt && !s.connectGenDocuments) {
+    var when = '';
+    if (destroyedAt.toDate) when = destroyedAt.toDate().toLocaleString();
+    else if (destroyedAt.seconds) when = new Date(destroyedAt.seconds * 1000).toLocaleString();
+    var who = s.connectGenDocumentsDestroyedBy || '';
+    statusEl.innerHTML = '<span style="color:#7C2D12;font-weight:600;">Documents destroyed</span>' +
+      (when ? ' on ' + rsEscape(when) : '') + (who ? ' by ' + rsEscape(who) : '') +
+      (disp ? ' &middot; Marked: <strong>' + rsEscape(disp === 'noSupport' ? 'No Additional Support' : 'Case Advocacy') + '</strong>' : '');
+  } else if (disp) {
+    statusEl.innerHTML = 'Currently marked: <strong>' + rsEscape(disp === 'noSupport' ? 'No Additional Support' : 'Case Advocacy') + '</strong> &mdash; you may change the disposition or destroy documents.';
+  } else {
+    statusEl.innerHTML = '<span style="color:#64748B;">No disposition marked yet.</span>';
+  }
+  // Disable disposition buttons + destroy when there are no files left.
+  var hasFiles = !!(s.connectGenDocuments &&
+    ((s.connectGenDocuments.iep && s.connectGenDocuments.iep.storagePath) ||
+     (s.connectGenDocuments.evaluation && s.connectGenDocuments.evaluation.storagePath)));
+  document.getElementById('cmsCgDocDestroyBtn').disabled = !hasFiles;
+  document.getElementById('cmsCgDocDestroyBtn').style.opacity = hasFiles ? '1' : '0.45';
+  document.getElementById('cmsCgDocDestroyBtn').style.cursor = hasFiles ? 'pointer' : 'not-allowed';
+  // Disposition buttons stay clickable even after destroy so staff can
+  // change the recorded outcome later — but if no docs were ever uploaded,
+  // disable both to avoid orphan dispositions.
+  var docsEverPresent = hasFiles || destroyedAt;
+  ['cmsCgDocNoSupportBtn', 'cmsCgDocCaseAdvBtn'].forEach(function(id) {
+    var b = document.getElementById(id);
+    b.disabled = !docsEverPresent;
+    b.style.opacity = docsEverPresent ? '1' : '0.45';
+    b.style.cursor = docsEverPresent ? 'pointer' : 'not-allowed';
+  });
+
+  // ── Body: two side-by-side panels (stack on narrow). ──
+  var body = document.getElementById('cmsCgDocBody');
+  var docs = s.connectGenDocuments || {};
+  var iep = docs.iep || null;
+  var ev = docs.evaluation || null;
+  if (!iep && !ev) {
+    if (destroyedAt) {
+      body.innerHTML = '<div class="cms-empty" style="padding:30px;text-align:center;color:#7C2D12;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;">' +
+        '<p style="font-size:1rem;font-weight:600;margin:0 0 4px;">Documents have been destroyed.</p>' +
+        '<p style="margin:0;font-size:.86rem;color:#9A3412;">Files were permanently deleted from secure storage in line with the consent agreement.</p>' +
+        '</div>';
+    } else {
+      body.innerHTML = '<div class="cms-empty" style="padding:30px;text-align:center;color:#64748B;">No documents uploaded yet.</div>';
+    }
+    return;
+  }
+
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;">';
+  html += cmsCgDocRenderPanel('Individualized Education Program (IEP)', 'iep', iep);
+  html += cmsCgDocRenderPanel('Evaluation / Assessment', 'evaluation', ev);
+  html += '</div>';
+  body.innerHTML = html;
+
+  // Resolve download URLs asynchronously (Storage SDK). Storage rules
+  // enforce admin/superAdmin read; non-admin browsers will get a permission
+  // error reflected in the panel.
+  ['iep', 'evaluation'].forEach(function(type) {
+    var rec = docs[type];
+    if (!rec || !rec.storagePath) return;
+    var slotId = 'cmsCgDocPreview_' + type;
+    var linkId = 'cmsCgDocDl_' + type;
+    try {
+      firebase.storage().ref(rec.storagePath).getDownloadURL().then(function(url) {
+        var slot = document.getElementById(slotId);
+        var link = document.getElementById(linkId);
+        if (link) { link.href = url; link.style.display = 'inline-block'; }
+        if (!slot) return;
+        var mt = String(rec.mimeType || '').toLowerCase();
+        if (mt === 'application/pdf') {
+          slot.innerHTML = '<iframe src="' + url + '" style="width:100%;height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;" title="' + rsEscape(type) + ' PDF"></iframe>';
+        } else if (mt.indexOf('image/') === 0) {
+          // HEIC/HEIF: most desktop browsers do NOT render these natively.
+          // Show the <img> anyway (Safari on Mac can; falls back gracefully
+          // via the alt and the always-visible Download link if it can't).
+          var isHeic = (mt === 'image/heic' || mt === 'image/heif');
+          var note = isHeic ? '<div style="font-size:.74rem;color:#92400E;background:#FFFBEB;padding:6px 10px;border:1px solid #FCD34D;border-radius:6px;margin-bottom:6px;">HEIC files may not preview in all browsers. Use the Download link if the image area is blank.</div>' : '';
+          slot.innerHTML = note + '<img src="' + url + '" alt="' + rsEscape(rec.originalFilename || type) + '" style="max-width:100%;max-height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#F8FAFC;display:block;">';
+        } else {
+          slot.innerHTML = '<div style="padding:18px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;color:#64748B;font-size:.86rem;">Preview not available for this file type. Use the Download link below.</div>';
+        }
+      }).catch(function(err) {
+        var slot = document.getElementById(slotId);
+        if (slot) slot.innerHTML = '<div style="padding:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:6px;color:#B91C1C;font-size:.84rem;">Unable to load file: ' + rsEscape(err && err.message ? err.message : String(err)) + '</div>';
+      });
+    } catch (e) {
+      var slot2 = document.getElementById(slotId);
+      if (slot2) slot2.innerHTML = '<div style="color:#B91C1C;font-size:.84rem;">Storage error: ' + rsEscape(e.message || String(e)) + '</div>';
+    }
+  });
+}
+
+function cmsCgDocRenderPanel(title, type, rec) {
+  var slotId = 'cmsCgDocPreview_' + type;
+  var linkId = 'cmsCgDocDl_' + type;
+  if (!rec || !rec.storagePath) {
+    return '<div style="padding:14px;border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFC;">' +
+      '<div style="font-size:.86rem;font-weight:700;color:#0F172A;margin-bottom:4px;">' + rsEscape(title) + '</div>' +
+      '<div style="font-size:.82rem;color:#94A3B8;">Not uploaded.</div>' +
+      '</div>';
+  }
+  var size = cmsCgFmtBytes(rec.sizeBytes);
+  var meta = (rec.originalFilename ? rec.originalFilename : '(unnamed)') + (size ? ', ' + size : '');
+  var uploadedAt = '';
+  if (rec.uploadedAt && rec.uploadedAt.toDate) uploadedAt = rec.uploadedAt.toDate().toLocaleString();
+  else if (rec.uploadedAt && rec.uploadedAt.seconds) uploadedAt = new Date(rec.uploadedAt.seconds * 1000).toLocaleString();
+  return '<div style="padding:14px;border:1px solid #BAE6FD;border-radius:10px;background:#fff;">' +
+    '<div style="font-size:.92rem;font-weight:700;color:#0C4A6E;margin-bottom:4px;">' + rsEscape(title) + '</div>' +
+    '<div style="font-size:.8rem;color:#475569;margin-bottom:8px;">' + rsEscape(meta) +
+      (uploadedAt ? '<span style="margin-left:8px;color:#94A3B8;">Uploaded ' + rsEscape(uploadedAt) + '</span>' : '') +
+    '</div>' +
+    '<div id="' + slotId + '" style="margin-bottom:8px;"><div style="padding:18px;text-align:center;color:#94A3B8;font-size:.84rem;">Loading preview...</div></div>' +
+    '<a id="' + linkId + '" href="#" target="_blank" rel="noopener" style="display:none;font-size:.84rem;color:#1a3c6e;font-weight:600;text-decoration:underline;">Download original file</a>' +
+    '</div>';
+}
+
+// Disposition mark — wraps the destructive confirmation around the CF call.
+window.cmsCgDocMarkConfirm = function(disposition) {
+  var dispLabel = disposition === 'noSupport' ? 'No Additional Support' : 'Case Advocacy';
+  var msg;
+  if (disposition === 'noSupport') {
+    msg = 'Mark as "No Additional Support"?\n\nThis will PERMANENTLY DELETE the uploaded IEP and Evaluation documents from secure storage in line with the consent agreement (destroyed within 24 hours of attendance).\n\nThis action cannot be undone. Continue?';
+  } else {
+    msg = 'Mark as "Case Advocacy"?\n\nDocuments will be RETAINED in secure storage for the duration of the case. You can review them again from this card.\n\nContinue?';
+  }
+  if (!confirm(msg)) return;
+  cmsCgDocSetDisposition(disposition);
+};
+
+async function cmsCgDocSetDisposition(disposition) {
+  var v = _cmsCgDocViewer;
+  if (!v || !v.signupId) return;
+  try {
+    var idToken = await firebase.auth().currentUser.getIdToken();
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/setConnectGenDisposition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idToken: idToken,
+        eventId: v.eventId,
+        signupId: v.signupId,
+        disposition: disposition,
+        collection: v.collection
+      })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+    _showToast('Disposition saved: ' + (disposition === 'noSupport' ? 'No Additional Support' : 'Case Advocacy'), '#16A34A');
+    // Refresh local view + the open signups list so the button label updates.
+    await cmsCgDocReloadSignup();
+    cmsCgDocRender();
+    cmsCgDocRefreshSignupListEntry();
+  } catch (err) {
+    _showToast('Error: ' + (err.message || err), '#DC2626');
+  }
+}
+
+window.cmsCgDocDestroyConfirm = function() {
+  var reason = prompt('Destroy documents now?\n\nThis permanently deletes the IEP and Evaluation files from secure storage. The signup is preserved.\n\nOptional: enter a short reason (will appear in the audit log).\n\nLeave blank to cancel.');
+  if (reason === null) return; // cancelled
+  reason = String(reason).trim();
+  if (!reason) {
+    if (!confirm('No reason entered. Destroy documents anyway?')) return;
+    reason = 'manual destroy';
+  }
+  cmsCgDocDestroy(reason);
+};
+
+async function cmsCgDocDestroy(reason) {
+  var v = _cmsCgDocViewer;
+  if (!v || !v.signupId) return;
+  try {
+    var idToken = await firebase.auth().currentUser.getIdToken();
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/destroyConnectGenDocuments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idToken: idToken,
+        eventId: v.eventId,
+        signupId: v.signupId,
+        reason: reason,
+        collection: v.collection
+      })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+    _showToast('Documents destroyed.', '#7C2D12');
+    await cmsCgDocReloadSignup();
+    cmsCgDocRender();
+    cmsCgDocRefreshSignupListEntry();
+  } catch (err) {
+    _showToast('Error: ' + (err.message || err), '#DC2626');
+  }
+}
+
+async function cmsCgDocReloadSignup() {
+  var v = _cmsCgDocViewer;
+  if (!v || !v.signupId) return;
+  var snap = await db.collection(v.collection).doc(v.eventId).collection('signups').doc(v.signupId).get();
+  if (snap.exists) {
+    _cmsCgDocViewer.signup = Object.assign({ id: snap.id }, snap.data());
+  }
+}
+
+// Push the freshly-reloaded signup back into the open signups-modal cache so
+// the action row in the underlying list redraws with the new state when
+// staff close the viewer.
+function cmsCgDocRefreshSignupListEntry() {
+  try {
+    var v = _cmsCgDocViewer;
+    if (!v || !v.signupId || !_cmsSignupsModalData || !_cmsSignupsModalData.signups) return;
+    var idx = _cmsSignupsModalData.signups.findIndex(function(x) { return x.id === v.signupId; });
+    if (idx >= 0 && v.signup) {
+      var prev = _cmsSignupsModalData.signups[idx];
+      _cmsSignupsModalData.signups[idx] = Object.assign({}, prev, v.signup, {
+        _collection: prev._collection || v.collection,
+        _eventId: prev._eventId || v.eventId
+      });
+      cmsRenderSignupsList(_cmsSignupsModalData.signups, v.collection, v.eventId);
+    }
+  } catch (_) {}
 }
 
 /* ── Displaced Signups: detect signups with sessions on cancelled dates ──
