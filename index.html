@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14201,10 +14201,11 @@ window.autoCropImage = function(file) {
 
       // ── Merge form submissions into dashboard feed (all queries in parallel) ──
       try {
-        function _pushDashForm(channel, name, summary, status, ts) {
+        function _pushDashForm(channel, name, summary, status, ts, linkedContactId) {
           docs.push({ id: null, _isForm: true, data: {
             channel: channel, contactName: name, summary: summary,
-            status: status || 'new', owner: 'Web Form', createdAt: ts
+            status: status || 'new', owner: 'Web Form', createdAt: ts,
+            linkedContactId: linkedContactId || ''
           }, _ts: ts });
         }
         // Fire all top-level queries at once
@@ -14237,7 +14238,7 @@ window.autoCropImage = function(file) {
           var _signupProms = _actEv.map(function(_e) {
             var _c = _e.isRec ? 'recurringEvents' : 'events';
             return db.collection(_c).doc(_e.id).collection('signups').orderBy('timestamp','desc').limit(10).get().then(function(sSnap) {
-              sSnap.forEach(function(doc) { var d=doc.data(); _pushDashForm('Signup', d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', _e.title+(d.participationType==='Group'?' (Group)':''), d.status, d.timestamp); });
+              sSnap.forEach(function(doc) { var d=doc.data(); _pushDashForm('Signup', d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', _e.title+(d.participationType==='Group'?' (Group)':''), d.status, d.timestamp, d.linkedContactId || d.contactId || ''); });
             });
           });
           await Promise.all(_signupProms);
@@ -14313,7 +14314,7 @@ window.autoCropImage = function(file) {
         var rowClick = isForm
           ? 'onclick="_ixNavToFormSource(\'' + rsEscape(d.channel || '') + '\')"'
           : 'onclick="viewInteraction(\'' + doc.id + '\')"';
-        var contactNavId = !isForm ? (d.contactId || d.clientId || '') : '';
+        var contactNavId = d.contactId || d.clientId || d.linkedContactId || '';
         var nameHtml = contactNavId
           ? '<span onclick="event.stopPropagation(); openContactDetail(\'' + rsEscape(contactNavId) + '\')" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;" title="Open contact card">' + contactDisplay + '</span>'
           : contactDisplay;
@@ -19785,6 +19786,25 @@ window.cmsSaveEvent = async function() {
     if (!payload.startDate || !payload.moveToPastDate || !payload.removeDate) { _showToast('All dates (Start Showing, Move to Past, Remove) are required.', '#DC2626'); btn.disabled = false; btn.textContent = 'Save'; return; }
   }
 
+  // Stage 1: canonical sessions[] on one-time events (additive only — no
+  // reader consumes this yet). Recurring docs stay read-time only; we leave
+  // sessions[] empty and let Stage 2 wire up the projector.
+  var _stage1SessionsCount = 0;
+  try {
+    if (!isRecurring) {
+      var _builtSessions = _buildSessionsForOneTimeEvent(payload);
+      payload.sessions = _builtSessions;
+      payload.sessionsBuiltAt = firebase.firestore.FieldValue.serverTimestamp();
+      _stage1SessionsCount = _builtSessions.length;
+    } else {
+      payload.sessions = [];
+      payload.sessionsBuiltAt = firebase.firestore.FieldValue.serverTimestamp();
+    }
+  } catch (_sessionsErr) {
+    // Never block a save on sessions[] building. Stage 1 is purely additive.
+    console.warn('Stage 1 sessions[] build failed (non-fatal):', _sessionsErr && _sessionsErr.message);
+  }
+
   try {
     // Handle image upload
     var fileInput = document.getElementById('cmsEventImageInput');
@@ -19809,7 +19829,7 @@ window.cmsSaveEvent = async function() {
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       await db.collection(collection).add(payload);
     }
-    auditLog(docId ? 'Updated event' : 'Created event', (isRecurring ? 'Program' : 'Event') + ': ' + title);
+    auditLog(docId ? 'Updated event' : 'Created event', (isRecurring ? 'Program' : 'Event') + ': ' + title + (!isRecurring && _stage1SessionsCount > 0 ? '; sessions[]=' + _stage1SessionsCount + ' entries' : ''));
     cmsCloseEventModal();
     if (isRecurring) {
       await cmsLoadPrograms(true);
@@ -26618,6 +26638,184 @@ function _rsTimeMinusMinutes(hhmm, mins) {
   var ampm = h >= 12 ? 'PM' : 'AM';
   var h12 = h % 12 || 12;
   return h12 + ':' + String(mn).padStart(2,'0') + ' ' + ampm + ' HST';
+}
+
+// ── Stage 1 canonical sessions[] helpers (v122.0.5) ─────────────
+// These build a structured sessions[] array from event docs at save time so
+// every downstream reader (calendar, emails, reports) eventually consumes the
+// same parsed data instead of re-parsing free-text strings. Stage 1 is
+// additive only — no reader has switched over yet. See backfill-event-sessions.js
+// for the Node mirror used to hydrate existing docs.
+//
+// Output schema per session:
+//   { dateKey: "YYYY-MM-DD", startTime: "HH:MM", endTime: "HH:MM",
+//     location: "<raw>", modality: "virtual"|"in-person", rawString: "..." }
+//
+// Returns null when the date can't be parsed — callers drop the entry.
+function _sessionsModalityFor(location) {
+  return /\b(zoom|virtual|online|webinar)\b/i.test(String(location || ''))
+    ? 'virtual' : 'in-person';
+}
+function _sessionsDateKeyFromDate(d) {
+  if (!d || isNaN(d.getTime())) return null;
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + dd;
+}
+// Convert one signupDates[] entry to a structured session record. Reuses
+// _rsParseSessionDate for date extraction and applies the same time regex as
+// _rsExtractSessionStartTime to both start and end of the trailing range.
+// Tolerant: returns null if the date can't be parsed; callers skip nulls and
+// keep the rest of the array so a single bad entry can't break a save.
+function _parseSessionString(rawString, fallbackLocation) {
+  if (rawString == null) return null;
+  var raw = String(rawString);
+  var d = _rsParseSessionDate(raw);
+  var dateKey = _sessionsDateKeyFromDate(d);
+  if (!dateKey) return null;
+
+  // Strip the date prefix to isolate the trailing "5:00 pm-6:00 pm[ | location]" portion.
+  var rest = raw.replace(/^[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}\s*,?\s*/, '').trim();
+
+  // Optional pipe-delimited location override on the entry itself.
+  var locFromEntry = '';
+  if (rest.indexOf('|') !== -1) {
+    var pieces = rest.split('|');
+    rest = pieces[0].trim();
+    locFromEntry = (pieces[1] || '').trim();
+  }
+  var location = locFromEntry || String(fallbackLocation || '').trim();
+
+  // Time range: tolerate hyphen, en-dash, em-dash, spaces around it.
+  var startTime = null, endTime = null;
+  var toHHMM = function(h, mn, ap) {
+    var hh = parseInt(h, 10);
+    var ampm = (ap || '').toLowerCase();
+    if (ampm === 'pm' && hh < 12) hh += 12;
+    if (ampm === 'am' && hh === 12) hh = 0;
+    return String(hh).padStart(2, '0') + ':' + mn;
+  };
+  var rangeRe = /(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)?\s*[-–—]\s*(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)?/;
+  var rm = rest.match(rangeRe);
+  if (rm) {
+    var s_ap = rm[3] || rm[6] || '';
+    var e_ap = rm[6] || rm[3] || '';
+    startTime = toHHMM(rm[1], rm[2], s_ap);
+    endTime = toHHMM(rm[4], rm[5], e_ap);
+  } else {
+    var single = rest.match(/(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)?/);
+    if (single) startTime = toHHMM(single[1], single[2], single[3] || '');
+  }
+
+  return {
+    dateKey: dateKey,
+    startTime: startTime,
+    endTime: endTime,
+    location: location,
+    modality: _sessionsModalityFor(location),
+    rawString: raw
+  };
+}
+// Build sessions[] for a one-time event. Prefers event.signupDates (multi-date)
+// and falls back to a single entry derived from event.eventDate +
+// event.startTime/endTime. Returns [] when nothing parses.
+function _buildSessionsForOneTimeEvent(event) {
+  if (!event) return [];
+  var fallbackLoc = event.location || '';
+  var out = [];
+  if (Array.isArray(event.signupDates) && event.signupDates.length > 0) {
+    event.signupDates.forEach(function(entry) {
+      var sess = _parseSessionString(entry, fallbackLoc);
+      if (sess) out.push(sess);
+    });
+    if (out.length > 0) return out;
+  }
+  // Fallback: derive a single session from top-level fields.
+  if (event.eventDate) {
+    var d = _rsParseSessionDate(event.eventDate);
+    var dateKey = _sessionsDateKeyFromDate(d);
+    if (dateKey) {
+      var toHHMM = function(raw) {
+        if (!raw) return null;
+        var m = String(raw).match(/^(\d{1,2}):(\d{2})/);
+        if (!m) return null;
+        return m[1].padStart(2, '0') + ':' + m[2];
+      };
+      out.push({
+        dateKey: dateKey,
+        startTime: toHHMM(event.startTime),
+        endTime: toHHMM(event.endTime),
+        location: fallbackLoc,
+        modality: _sessionsModalityFor(fallbackLoc),
+        rawString: String(event.eventDate)
+      });
+    }
+  }
+  return out;
+}
+// Skeleton for recurring events. Stage 1 does NOT call this from save — we
+// keep recurring sessions read-time only. Stage 2 will wire this in. Projects
+// matching schedule entries forward over [fromDateKey, toDateKey], skipping
+// dates listed in event.cancelledDates. Defaults to today HST through +90d.
+function _buildSessionsForRecurringEvent(event, opts) {
+  if (!event || !Array.isArray(event.schedules) || event.schedules.length === 0) return [];
+  opts = opts || {};
+  var today = new Date(); today.setHours(0,0,0,0);
+  var fromKey = opts.fromDateKey || _sessionsDateKeyFromDate(today);
+  var endDefault = new Date(today); endDefault.setDate(endDefault.getDate() + 90);
+  var toKey = opts.toDateKey || _sessionsDateKeyFromDate(endDefault);
+  var fromDate = _rsParseSessionDate(fromKey) || today;
+  var toDate = _rsParseSessionDate(toKey) || endDefault;
+  if (!fromDate || !toDate) return [];
+  var cancelled = Array.isArray(event.cancelledDates) ? event.cancelledDates : [];
+  var out = [];
+  event.schedules.forEach(function(sch) {
+    if (!sch) return;
+    var d = new Date(fromDate);
+    while (d <= toDate) {
+      var dow = d.getDay();
+      var match = false;
+      if (sch.frequency === 'weekly' && dow === sch.dayOfWeek) match = true;
+      if (sch.frequency === 'monthly-nth' && dow === sch.dayOfWeek) {
+        var weekNum = Math.ceil(d.getDate() / 7);
+        if (weekNum === sch.weekOfMonth) match = true;
+      }
+      if (match) {
+        var dateKey = _sessionsDateKeyFromDate(d);
+        var isCancelled = cancelled.some(function(cd) {
+          if (!cd || cd.date !== dateKey) return false;
+          if (!cd.location) return true;
+          if (cd.location !== (sch.location || '')) return false;
+          if (cd.venue && cd.venue !== (sch.venue || '')) return false;
+          return true;
+        });
+        if (!isCancelled && dateKey) {
+          var loc = sch.location || '';
+          var toHHMM = function(raw) {
+            if (!raw) return null;
+            var mm = String(raw).match(/^(\d{1,2}):(\d{2})/);
+            if (!mm) return null;
+            return mm[1].padStart(2, '0') + ':' + mm[2];
+          };
+          out.push({
+            dateKey: dateKey,
+            startTime: toHHMM(sch.startTime),
+            endTime: toHHMM(sch.endTime),
+            location: loc,
+            modality: _sessionsModalityFor(loc),
+            rawString: dateKey + '|' + loc + '|' + (sch.startTime || '') + '-' + (sch.endTime || '')
+          });
+        }
+      }
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  out.sort(function(a, b) {
+    if (a.dateKey !== b.dateKey) return a.dateKey < b.dateKey ? -1 : 1;
+    return (a.startTime || '').localeCompare(b.startTime || '');
+  });
+  return out;
 }
 
 window.loadReminderSchedule = async function() {
