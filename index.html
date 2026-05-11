@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.6</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.7</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10212,6 +10212,9 @@ window.autoCropImage = function(file) {
         var merged = [];
         var now = new Date(); now.setHours(0,0,0,0);
         // One-time events: upcoming (between startDate and moveToPastDate)
+        // v122.0.7 — iterate ALL session dates via _getEventDateKeys so
+        // multi-date events (e.g., Learning Labs May 6 + May 13) get a dot
+        // per session, not just the primary eventDate.
         eventsSnap.docs.forEach(function(doc) {
           var d = doc.data();
           if (!d.title) return;
@@ -10224,11 +10227,26 @@ window.autoCropImage = function(file) {
           var visible = true;
           if (moveToPast && !isNaN(moveToPast.getTime()) && now >= moveToPast) visible = false;
           if (!visible) return;
-          merged.push({
-            id: doc.id, title: d.title, date: eventDate,
-            location: d.location || '', description: d.description || '',
-            isRecurring: false
-          });
+          var keys = _getEventDateKeys(d);
+          if (!keys || keys.length === 0) {
+            // Legacy / unparseable — preserve old single-date behavior.
+            merged.push({
+              id: doc.id, title: d.title, date: eventDate,
+              location: d.location || '', description: d.description || '',
+              isRecurring: false
+            });
+          } else {
+            keys.forEach(function(k) {
+              var p = String(k).split('-').map(Number);
+              var dt = new Date(p[0], p[1] - 1, p[2]);
+              if (isNaN(dt.getTime())) return;
+              merged.push({
+                id: doc.id, title: d.title, date: dt,
+                location: d.location || '', description: d.description || '',
+                isRecurring: false
+              });
+            });
+          }
         });
         // Recurring events: generate occurrences for next 90 days
         recurSnap.docs.forEach(function(doc) {
@@ -26816,6 +26834,78 @@ function _buildSessionsForRecurringEvent(event, opts) {
     return (a.startTime || '').localeCompare(b.startTime || '');
   });
   return out;
+}
+
+// ── Stage 2 tolerant accessor (v122.0.7) ──────────────────────────
+// Single point of entry for every reader that wants a structured
+// sessions[] array for an event. Priority order:
+//   1. event.sessions (Stage 1 canonical array on the doc)
+//   2. recurring projection via _buildSessionsForRecurringEvent
+//   3. one-time fallback via _buildSessionsForOneTimeEvent (legacy docs
+//      that haven't been re-saved since Stage 1 deployed)
+//   4. last-resort synthesis from eventDate/startDate + time
+// Always returns an array; never throws. opts can carry:
+//   { fromDateKey, toDateKey, isRecurring } — fromDateKey/toDateKey are
+//   passed through to the recurring projector to bound the window.
+function _getEventSessions(event, opts) {
+  opts = opts || {};
+  try {
+    if (!event) return [];
+    // 1. Canonical sessions[] on the doc.
+    if (Array.isArray(event.sessions) && event.sessions.length > 0) {
+      return event.sessions;
+    }
+    // 2. Recurring projection.
+    var isRecurring = opts.isRecurring === true ||
+      event.collection === 'recurringEvents' ||
+      (Array.isArray(event.schedules) && event.schedules.length > 0);
+    if (isRecurring) {
+      var rec = _buildSessionsForRecurringEvent(event, opts) || [];
+      if (rec.length > 0) return rec;
+    }
+    // 3. One-time fallback for legacy docs.
+    var one = _buildSessionsForOneTimeEvent(event) || [];
+    if (one.length > 0) return one;
+    // 4. Last-resort synthesis.
+    var rawDate = event.eventDate || event.startDate || null;
+    if (rawDate) {
+      var d = _rsParseSessionDate(rawDate);
+      var dateKey = _sessionsDateKeyFromDate(d);
+      if (dateKey) {
+        var toHHMM = function(raw) {
+          if (!raw) return null;
+          var m = String(raw).match(/^(\d{1,2}):(\d{2})/);
+          if (!m) return null;
+          return m[1].padStart(2, '0') + ':' + m[2];
+        };
+        var loc = event.location || '';
+        return [{
+          dateKey: dateKey,
+          startTime: toHHMM(event.startTime || event.time),
+          endTime: toHHMM(event.endTime),
+          location: loc,
+          modality: _sessionsModalityFor(loc),
+          rawString: String(rawDate)
+        }];
+      }
+    }
+    return [];
+  } catch (err) {
+    console.warn('_getEventSessions: unexpected event shape', err, event && event.id);
+    return [];
+  }
+}
+
+// Thin wrapper for callers that only need dateKey strings.
+function _getEventDateKeys(event, opts) {
+  try {
+    return _getEventSessions(event, opts)
+      .map(function(s) { return s && s.dateKey; })
+      .filter(Boolean);
+  } catch (err) {
+    console.warn('_getEventDateKeys: failed', err, event && event.id);
+    return [];
+  }
 }
 
 window.loadReminderSchedule = async function() {
