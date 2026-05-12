@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.8</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.9</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13292,6 +13292,15 @@ window.autoCropImage = function(file) {
 
   window.closeContactForm = function() {
     document.getElementById('ctFormOverlay').classList.remove('active');
+    // v122.0.9: If the user dismisses the form, drop the pending-interaction flag
+    // so a later normal "Add Contact" doesn't accidentally resume a save.
+    if (window._pendingInteractionAfterContactAdd) {
+      window._pendingInteractionAfterContactAdd = false;
+      _quickAddReturnToInteraction = false;
+    }
+    // Reset email placeholder back to "Optional" so the gate-mode override doesn't stick.
+    var em = document.getElementById('ctEmail');
+    if (em) em.placeholder = 'Optional';
   };
 
   window.saveContact = async function() {
@@ -13300,6 +13309,62 @@ window.autoCropImage = function(file) {
     if (!firstName || !lastName) {
       alert('First name and last name are required.');
       return;
+    }
+
+    // v122.0.9: When the contact form was opened by the interaction-save gate,
+    // require a valid email and check for an existing contact with the same email.
+    var emailVal = document.getElementById('ctEmail').value.trim();
+    if (window._pendingInteractionAfterContactAdd) {
+      if (!emailVal) {
+        alert('Email is required when adding a contact from the interaction modal.');
+        document.getElementById('ctEmail').focus();
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+        alert('Please enter a valid email address.');
+        document.getElementById('ctEmail').focus();
+        return;
+      }
+      // Find an existing contact with the same email (case-insensitive).
+      var emailLower = emailVal.toLowerCase();
+      var dupe = _allContacts.find(function(c) {
+        return (c.email || '').toLowerCase() === emailLower;
+      });
+      if (dupe) {
+        // Three-way choice via two sequential confirms (Attach / Create-new-anyway / Cancel).
+        var attach = confirm(
+          'An existing contact uses this email: ' + dupe.displayName + '.\n\n' +
+          'Click OK to ATTACH this interaction to ' + dupe.displayName + '.\n' +
+          'Click Cancel to see other options.'
+        );
+        if (attach) {
+          // Attach: skip new-contact creation, resume interaction save with dupe.id.
+          try {
+            closeContactForm();
+            _quickAddReturnToInteraction = false;
+            window._pendingInteractionAfterContactAdd = false;
+            document.getElementById('intContact').value = dupe.displayName;
+            var addBtnA = document.getElementById('intContactAddBtn');
+            if (addBtnA) addBtnA.style.display = 'none';
+            await window.saveInteractionToFirestore(false);
+          } catch (e) {
+            console.error('Attach-and-save failed:', e);
+            alert('Could not save interaction: ' + e.message);
+          }
+          return;
+        }
+        var createAnyway = confirm(
+          'Create a NEW contact for ' + firstName + ' ' + lastName + ' with the same email anyway?\n\n' +
+          'Click OK to create a new contact (duplicate email).\n' +
+          'Click Cancel to go back and change the email.'
+        );
+        if (!createAnyway) {
+          // Cancel — let the user edit the email; do not create or save anything.
+          document.getElementById('ctEmail').focus();
+          return;
+        }
+        // Fall through to normal new-contact creation below.
+      }
     }
 
     // Collect disability checkboxes
@@ -13311,7 +13376,7 @@ window.autoCropImage = function(file) {
       lastName: lastName,
       displayName: firstName + ' ' + lastName,
       type: (document.querySelector('input[name="ctType"]:checked') || {}).value || 'Parent/Guardian',
-      email: document.getElementById('ctEmail').value.trim(),
+      email: emailVal,
       marketingOptOut: !document.getElementById('ctMarketingOptIn').checked,
       phone: document.getElementById('ctPhone').value.trim(),
       organization: document.getElementById('ctOrg').value.trim(),
@@ -13337,23 +13402,43 @@ window.autoCropImage = function(file) {
     var editId = document.getElementById('ctEditId').value;
 
     try {
+      var newDocRef = null;
+      // v122.0.9: Snapshot the quick-add / pending flags before closeContactForm()
+      // (which clears them as a safety net for user-dismissal paths).
+      var wasQuickAdd = _quickAddReturnToInteraction;
+      var wasPendingSave = !!window._pendingInteractionAfterContactAdd;
       if (editId) {
         await db.collection('contacts').doc(editId).update(data);
       } else {
         data.createdBy = currentUserData?.uid || '';
         data.createdByName = currentUserData?.displayName || '';
         data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-        await db.collection('contacts').add(data);
+        newDocRef = await db.collection('contacts').add(data);
+        // v122.0.9: Optimistically push the new contact onto _allContacts so the
+        // interaction-save fuzzy match resolves it without waiting for loadContacts().
+        try {
+          _allContacts.push({ id: newDocRef.id, ...data });
+        } catch (e) { /* non-fatal */ }
       }
       closeContactForm();
       loadContacts(true);
       // Quick-add: return to interaction modal with new contact selected
-      if (_quickAddReturnToInteraction) {
+      if (wasQuickAdd) {
         _quickAddReturnToInteraction = false;
         var newName = firstName + ' ' + lastName;
         document.getElementById('intContact').value = newName;
         var addBtn = document.getElementById('intContactAddBtn');
         if (addBtn) addBtn.style.display = 'none';
+        // v122.0.9: Resume the interaction save the user originally clicked.
+        if (wasPendingSave) {
+          window._pendingInteractionAfterContactAdd = false;
+          try {
+            await window.saveInteractionToFirestore(false);
+          } catch (e) {
+            console.error('Resumed interaction save failed:', e);
+            alert('Could not save interaction: ' + e.message);
+          }
+        }
       }
     } catch (err) {
       alert('Error saving contact: ' + err.message);
@@ -14082,6 +14167,42 @@ window.autoCropImage = function(file) {
         contactName = match.displayName;
         contactType = match.type;
       }
+    }
+
+    // v122.0.9: Block non-draft save when typed name has no contact match.
+    // Drafts may legitimately have no contact; this gate only applies to real saves.
+    if (!isDraft && contactVal && !contactId) {
+      var proceed = confirm(
+        'No contact found\n\n' +
+        'No contact named "' + contactVal + '" exists. ' +
+        'You’ll need to add this contact before saving the interaction.\n\n' +
+        'Click OK to add the contact now, or Cancel to go back.'
+      );
+      if (!proceed) return;
+      // Stash pending interaction; saveContact's quick-add path will resume the save.
+      window._pendingInteractionAfterContactAdd = true;
+      _quickAddReturnToInteraction = true;
+      // Open the existing contact form, pre-filled with the typed name.
+      var typed = contactVal;
+      var parts = typed.split(' ');
+      openContactForm();
+      setTimeout(function() {
+        var fn = document.getElementById('ctFirstName');
+        var ln = document.getElementById('ctLastName');
+        if (parts.length >= 2) {
+          if (fn) fn.value = parts[0];
+          if (ln) ln.value = parts.slice(1).join(' ');
+        } else if (parts.length === 1 && fn) {
+          fn.value = parts[0];
+        }
+        // Focus the email field so the user knows it's required next.
+        var em = document.getElementById('ctEmail');
+        if (em) {
+          em.placeholder = 'Required';
+          setTimeout(function() { em.focus(); }, 80);
+        }
+      }, 60);
+      return;
     }
 
     var data = {
