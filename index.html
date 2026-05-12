@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.7</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.8</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23143,8 +23143,60 @@ window.cmsResendRegistrationEmail = async function(btn, collection, eventId, sig
   }
 };
 
+/* ── Connect-Gen Monday-virtual docs gate (v122.0.8) ──
+ * Block staff from confirming a CG signup when the session is Monday + virtual
+ * and the IEP + Evaluation documents are not on file. Returns the session key
+ * that triggered the block, or '' if confirmation is allowed.
+ *
+ * sessionDateKey is the per-date key when the action came from
+ * cmsUpdateSignupModeForDate; otherwise '' (signup-level dropdown) — in which
+ * case every selected session is checked.
+ */
+function cmsCgConfirmBlockedKey(event, signup, sessionDateKey) {
+  if (!event || !signup) return '';
+  if (event.zoomMode !== 'program') return '';
+  var docs = signup.connectGenDocuments || {};
+  var docsPresent = !!(docs.iep && docs.iep.storagePath
+                    && docs.evaluation && docs.evaluation.storagePath);
+  if (docsPresent) return '';
+  var keys = [];
+  if (sessionDateKey) {
+    keys = [sessionDateKey];
+  } else if (Array.isArray(signup.selectedSessions) && signup.selectedSessions.length) {
+    keys = signup.selectedSessions.slice();
+  } else if (Array.isArray(signup.selectedDates) && signup.selectedDates.length) {
+    keys = signup.selectedDates.slice();
+  }
+  for (var i = 0; i < keys.length; i++) {
+    var k = String(keys[i] || '');
+    var dm = k.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!dm) continue;
+    // Day-of-week from Y-M-D components (calendar day; tz-agnostic since HST has no DST).
+    var dow = new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3])).getUTCDay();
+    if (dow !== 1) continue;
+    var virtual = cmsIsDateVirtual(event, k);
+    if (virtual !== true) continue;
+    return k;
+  }
+  return '';
+}
+
 window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, status) {
   try {
+    // v122.0.8: CG Monday-virtual docs gate. Block before any write when the
+    // staff member is moving a signup to confirmed without docs on file.
+    if (status === 'confirmed') {
+      var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
+      var sg = _cmsSignupsModalData && _cmsSignupsModalData.signups
+        ? _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; })
+        : null;
+      var blockedKey = cmsCgConfirmBlockedKey(ev, sg, '');
+      if (blockedKey) {
+        _showToast('Awaiting IEP + Evaluation documents (' + blockedKey + ').', '#D97706');
+        cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+        return;
+      }
+    }
     await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ status: status });
     // Update denormalized pendingCount on parent doc
     var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
@@ -23176,6 +23228,17 @@ window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId
     var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
     var sName = s ? (s.name || signupId) : signupId;
     var isOverride = (newValue === 'confirmed-in-person' || newValue === 'confirmed-virtual');
+    // v122.0.8: CG Monday-virtual docs gate. Block any transition to a
+    // confirmed-* value on a Monday-virtual session without docs on file.
+    if (newValue === 'confirmed' || isOverride) {
+      var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
+      var blockedKey = cmsCgConfirmBlockedKey(ev, s, sessionDateKey);
+      if (blockedKey) {
+        _showToast('Awaiting IEP + Evaluation documents (' + blockedKey + ').', '#D97706');
+        cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+        return;
+      }
+    }
     // Read-modify-write on the whole map — avoids Firestore dotted-path issues
     // with session keys that contain pipes, colons, spaces, or commas.
     var currentOverrides = (s && s.dateStatusOverrides) ? Object.assign({}, s.dateStatusOverrides) : {};
