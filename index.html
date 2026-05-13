@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.0.9</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.1.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -26638,6 +26638,7 @@ var _emailLogCache = [];
 var _emailLogPage = 1;
 var _emailLogPageSize = 100;
 var _emailLogStatusFilter = ''; // '', 'sent', 'failed'
+var _emailLogDateFilter = ''; // '', 'today', '7d'
 var _emailLogTypeColors = {
   'registration': '#2563EB',
   'registration-resend': '#7C3AED',
@@ -27418,47 +27419,79 @@ window.cmsSetEmailLogStatus = function(status) {
   renderEmailLogTable();
 };
 
+window.cmsSetEmailLogDate = function(val) {
+  _emailLogDateFilter = (_emailLogDateFilter === val) ? '' : val;
+  _emailLogPage = 1;
+  renderEmailLogTable();
+};
+
 window.renderEmailLogTable = function() {
   var container = document.getElementById('emailLogContent');
   if (!container) return;
   var search = ((document.getElementById('emailLogSearch') || {}).value || '').toLowerCase();
   var typeFilter = ((document.getElementById('emailLogTypeFilter') || {}).value || '');
 
-  // KPI counts come from the full cache so the strip reflects what's loaded,
-  // not what's been filtered down to.
-  var kpiTotal = _emailLogCache.length;
-  var kpiSent = 0, kpiFailed = 0, kpiToday = 0;
+  var kpiFailed = 0, kpiToday = 0, kpi7d = 0;
   var todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  var sevenDaysAgoMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
   _emailLogCache.forEach(function(r) {
-    if (r.success) kpiSent++; else kpiFailed++;
-    var ts = r.sentAt && r.sentAt.toDate ? r.sentAt.toDate() : null;
-    if (ts && ts.getTime() >= todayStart.getTime()) kpiToday++;
+    if (!r.success) kpiFailed++;
+    var tsMs = r.sentAt && r.sentAt.toMillis ? r.sentAt.toMillis() : 0;
+    if (tsMs >= todayStart.getTime()) kpiToday++;
+    if (tsMs >= sevenDaysAgoMs) kpi7d++;
   });
 
   var rows = _emailLogCache.filter(function(r) {
     if (typeFilter && (r.type || '') !== typeFilter) return false;
     if (_emailLogStatusFilter === 'sent' && !r.success) return false;
     if (_emailLogStatusFilter === 'failed' && r.success) return false;
+    var tsMs = r.sentAt && r.sentAt.toMillis ? r.sentAt.toMillis() : 0;
+    if (_emailLogDateFilter === 'today' && tsMs < todayStart.getTime()) return false;
+    if (_emailLogDateFilter === '7d' && tsMs < sevenDaysAgoMs) return false;
     if (!search) return true;
     var blob = ((r.to || '') + ' ' + (r.subject || '') + ' ' + (r.recipientName || '') + ' ' + (r.type || '')).toLowerCase();
     return blob.indexOf(search) !== -1;
   });
 
-  // KPI strip — uses the existing es-stat-cards theme. Active card gets a
-  // stronger border + ring so the current filter is obvious at a glance.
+  var kpi7dDisplay = (kpi7d === _emailLogCache.length && _emailLogCache.length >= 500) ? (kpi7d + '+') : String(kpi7d);
+
+  var lastSendLbl = '—', lastSendStale = false, lastSendTitle = 'No sends in cache';
+  if (_emailLogCache.length && _emailLogCache[0].sentAt && _emailLogCache[0].sentAt.toMillis) {
+    var lastMs = _emailLogCache[0].sentAt.toMillis();
+    var diffMs = Date.now() - lastMs;
+    var diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) lastSendLbl = 'Just now';
+    else if (diffSec < 3600) lastSendLbl = Math.floor(diffSec / 60) + 'm ago';
+    else if (diffSec < 86400) lastSendLbl = Math.floor(diffSec / 3600) + 'h ago';
+    else if (diffSec < 7 * 86400) lastSendLbl = Math.floor(diffSec / 86400) + 'd ago';
+    else {
+      var d = new Date(lastMs);
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      lastSendLbl = months[d.getMonth()] + ' ' + d.getDate();
+    }
+    lastSendStale = diffMs >= 2 * 60 * 60 * 1000;
+    var lastRow = _emailLogCache[0];
+    lastSendTitle = 'Last: ' + (lastRow.type || 'email') + ' to ' + (lastRow.recipientName || lastRow.to || 'unknown');
+  }
+
   var kpiHtml = '<div class="es-stat-cards">';
   var ringActive = 'box-shadow:0 0 0 3px rgba(8,145,178,.35);transform:translateY(-1px);';
-  function kpiCard(bg, color, border, num, lbl, statusVal, title) {
-    var active = (statusVal === '' && _emailLogStatusFilter === '') || (statusVal && statusVal === _emailLogStatusFilter);
+  function kpiCard(bg, color, border, num, lbl, group, val, title) {
+    var current = (group === 'status') ? _emailLogStatusFilter : _emailLogDateFilter;
+    var active = val && val === current;
     var style = 'background:' + bg + ';color:' + color + ';border:1px solid ' + border + ';cursor:pointer;transition:all .15s;' + (active ? ringActive : '');
-    return '<div class="es-stat-card" style="' + style + '" title="' + title + '" onclick="cmsSetEmailLogStatus(\'' + statusVal + '\')">' +
+    var handler = (group === 'status') ? 'cmsSetEmailLogStatus' : 'cmsSetEmailLogDate';
+    return '<div class="es-stat-card" style="' + style + '" title="' + title + '" onclick="' + handler + '(\'' + val + '\')">' +
       '<div class="es-stat-num">' + num + '</div><div class="es-stat-lbl">' + lbl + '</div></div>';
   }
-  kpiHtml += kpiCard('#F1F5F9', '#0F172A', '#CBD5E1', kpiTotal, 'Total Loaded', '', 'Click to clear status filter');
-  kpiHtml += kpiCard('#F0FDF4', '#166534', '#BBF7D0', kpiSent, 'Sent', 'sent', 'Click to filter to successful sends');
-  kpiHtml += kpiCard('#FEF2F2', '#991B1B', '#FECACA', kpiFailed, 'Failed', 'failed', 'Click to filter to failed sends');
-  kpiHtml += '<div class="es-stat-card" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;" title="Sent today (HST)">' +
-    '<div class="es-stat-num">' + kpiToday + '</div><div class="es-stat-lbl">Today</div></div>';
+  kpiHtml += kpiCard('#EFF6FF', '#1E40AF', '#BFDBFE', kpiToday, 'Today', 'date', 'today', 'Click to filter to today (HST)');
+  kpiHtml += kpiCard('#F1F5F9', '#0F172A', '#CBD5E1', kpi7dDisplay, 'Last 7 Days', 'date', '7d', 'Click to filter to last 7 days');
+  kpiHtml += kpiCard('#FEF2F2', '#991B1B', '#FECACA', kpiFailed, 'Failed', 'status', 'failed', 'Click to filter to failed sends');
+  var lastBg = lastSendStale ? '#FEF2F2' : '#F0FDF4';
+  var lastColor = lastSendStale ? '#991B1B' : '#166534';
+  var lastBorder = lastSendStale ? '#FECACA' : '#BBF7D0';
+  kpiHtml += '<div class="es-stat-card" style="background:' + lastBg + ';color:' + lastColor + ';border:1px solid ' + lastBorder + ';" title="' + rsEscape(lastSendTitle) + '">' +
+    '<div class="es-stat-num" style="font-size:1.1rem;">' + lastSendLbl + '</div><div class="es-stat-lbl">Last Send</div></div>';
   kpiHtml += '</div>';
 
   if (!rows.length) {
