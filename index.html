@@ -4224,7 +4224,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.1.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.1.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -26637,8 +26637,6 @@ window.auditLog = async function(action, details) {
 var _emailLogCache = [];
 var _emailLogPage = 1;
 var _emailLogPageSize = 100;
-var _emailLogStatusFilter = ''; // '', 'sent', 'failed'
-var _emailLogDateFilter = ''; // '', 'today', '7d'
 var _emailLogTypeColors = {
   'registration': '#2563EB',
   'registration-resend': '#7C3AED',
@@ -27413,29 +27411,6 @@ window.loadEmailLog = async function() {
   }
 };
 
-window.cmsSetEmailLogStatus = function(status) {
-  _emailLogStatusFilter = (_emailLogStatusFilter === status) ? '' : status;
-  _emailLogPage = 1;
-  renderEmailLogTable();
-};
-
-window.cmsSetEmailLogDate = function(val) {
-  _emailLogDateFilter = (_emailLogDateFilter === val) ? '' : val;
-  _emailLogPage = 1;
-  renderEmailLogTable();
-};
-
-window.cmsClearEmailLogFilters = function() {
-  _emailLogStatusFilter = '';
-  _emailLogDateFilter = '';
-  var typeSel = document.getElementById('emailLogTypeFilter');
-  if (typeSel) typeSel.value = '';
-  var searchInp = document.getElementById('emailLogSearch');
-  if (searchInp) searchInp.value = '';
-  _emailLogPage = 1;
-  renderEmailLogTable();
-};
-
 window.renderEmailLogTable = function() {
   var container = document.getElementById('emailLogContent');
   if (!container) return;
@@ -27454,11 +27429,6 @@ window.renderEmailLogTable = function() {
 
   var rows = _emailLogCache.filter(function(r) {
     if (typeFilter && (r.type || '') !== typeFilter) return false;
-    if (_emailLogStatusFilter === 'sent' && !r.success) return false;
-    if (_emailLogStatusFilter === 'failed' && r.success) return false;
-    var tsMs = r.sentAt && r.sentAt.toMillis ? r.sentAt.toMillis() : 0;
-    if (_emailLogDateFilter === 'today' && tsMs < todayStart.getTime()) return false;
-    if (_emailLogDateFilter === '7d' && tsMs < sevenDaysAgoMs) return false;
     if (!search) return true;
     var blob = ((r.to || '') + ' ' + (r.subject || '') + ' ' + (r.recipientName || '') + ' ' + (r.type || '')).toLowerCase();
     return blob.indexOf(search) !== -1;
@@ -27486,33 +27456,18 @@ window.renderEmailLogTable = function() {
   }
 
   var kpiHtml = '<div class="es-stat-cards">';
-  var ringActive = 'box-shadow:0 0 0 3px rgba(8,145,178,.35);transform:translateY(-1px);';
-  function kpiCard(bg, color, border, num, lbl, group, val, title) {
-    var current = (group === 'status') ? _emailLogStatusFilter : _emailLogDateFilter;
-    var active = val && val === current;
-    var style = 'background:' + bg + ';color:' + color + ';border:1px solid ' + border + ';cursor:pointer;transition:all .15s;' + (active ? ringActive : '');
-    var handler = (group === 'status') ? 'cmsSetEmailLogStatus' : 'cmsSetEmailLogDate';
-    return '<div class="es-stat-card" style="' + style + '" title="' + title + '" onclick="event.stopPropagation();' + handler + '(\'' + val + '\')">' +
-      '<div class="es-stat-num">' + num + '</div><div class="es-stat-lbl">' + lbl + '</div></div>';
-  }
-  kpiHtml += kpiCard('#EFF6FF', '#1E40AF', '#BFDBFE', kpiToday, 'Today', 'date', 'today', 'Click to filter to today (HST)');
-  kpiHtml += kpiCard('#F1F5F9', '#0F172A', '#CBD5E1', kpi7dDisplay, 'Last 7 Days', 'date', '7d', 'Click to filter to last 7 days');
-  kpiHtml += kpiCard('#FEF2F2', '#991B1B', '#FECACA', kpiFailed, 'Failed', 'status', 'failed', 'Click to filter to failed sends');
+  kpiHtml += '<div class="es-stat-card" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;">' +
+    '<div class="es-stat-num">' + kpiToday + '</div><div class="es-stat-lbl">Today</div></div>';
+  kpiHtml += '<div class="es-stat-card" style="background:#F1F5F9;color:#0F172A;border:1px solid #CBD5E1;">' +
+    '<div class="es-stat-num">' + kpi7dDisplay + '</div><div class="es-stat-lbl">Last 7 Days</div></div>';
+  kpiHtml += '<div class="es-stat-card" style="background:#FEF2F2;color:#991B1B;border:1px solid #FECACA;">' +
+    '<div class="es-stat-num">' + kpiFailed + '</div><div class="es-stat-lbl">Failed</div></div>';
   var lastBg = lastSendStale ? '#FEF2F2' : '#F0FDF4';
   var lastColor = lastSendStale ? '#991B1B' : '#166534';
   var lastBorder = lastSendStale ? '#FECACA' : '#BBF7D0';
   kpiHtml += '<div class="es-stat-card" style="background:' + lastBg + ';color:' + lastColor + ';border:1px solid ' + lastBorder + ';" title="' + rsEscape(lastSendTitle) + '">' +
     '<div class="es-stat-num" style="font-size:1.1rem;">' + lastSendLbl + '</div><div class="es-stat-lbl">Last Send</div></div>';
   kpiHtml += '</div>';
-
-  var anyFilterActive = !!(_emailLogStatusFilter || _emailLogDateFilter || typeFilter || search);
-  if (anyFilterActive) {
-    kpiHtml += '<div style="margin:-6px 0 14px;font-size:.82rem;color:var(--text-soft);display:flex;align-items:center;gap:8px;">' +
-      '<span>Showing filtered results</span>' +
-      '<span style="color:#CBD5E1;">·</span>' +
-      '<a href="#" onclick="event.preventDefault();cmsClearEmailLogFilters();" style="color:#0891B2;font-weight:600;text-decoration:none;">Clear all</a>' +
-      '</div>';
-  }
 
   if (!rows.length) {
     container.innerHTML = kpiHtml + '<div class="cms-empty"><p>No email log entries match.</p></div>';
