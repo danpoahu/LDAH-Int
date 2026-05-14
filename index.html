@@ -4289,7 +4289,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.4.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.5.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -19623,24 +19623,31 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
 window.cmsSendAnnouncement = async function(eventId, collection, title) {
   var endpoint = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendEventAnnouncement';
 
-  // Step 1 — dry-run to get counts
-  var dryRunResp;
-  try {
-    dryRunResp = await fetch(endpoint, {
+  // Audience filter state — persisted across dry-runs in this modal session.
+  // v122.5.0: 'all' = current behavior; 'parents' = contact.type === 'Parent/Guardian'.
+  var _annAudience = 'all';
+
+  async function _annDryRun(audience) {
+    var resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventId: eventId, collection: collection, dryRun: true })
+      body: JSON.stringify({ eventId: eventId, collection: collection, dryRun: true, audienceFilter: audience })
     });
+    if (!resp.ok) {
+      var txt = await resp.text();
+      throw new Error(txt);
+    }
+    return resp.json();
+  }
+
+  // Step 1 — initial dry-run to get counts (default: all contacts)
+  var counts;
+  try {
+    counts = await _annDryRun(_annAudience);
   } catch (err) {
-    _showToast('Could not reach announcement service: ' + err.message, '#DC2626');
+    _showToast('Dry-run failed: ' + err.message, '#DC2626');
     return;
   }
-  if (!dryRunResp.ok) {
-    var errTxt = await dryRunResp.text();
-    _showToast('Dry-run failed: ' + errTxt, '#DC2626');
-    return;
-  }
-  var counts = await dryRunResp.json();
 
   // Step 2 — build confirmation modal (self-contained inline styles, no class inheritance)
   var myEmail = (window.currentUserData && window.currentUserData.email) || '';
@@ -19657,12 +19664,24 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       // Body
       '<div style="padding:20px;">' +
         '<h3 style="margin:0 0 14px;color:#004E7C;font-size:1.05rem;font-weight:700;">' + rsEscape(title) + '</h3>' +
+        // Audience filter (v122.5.0)
+        '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:.88rem;">' +
+          '<div style="font-weight:700;color:#004E7C;margin-bottom:6px;">Recipients</div>' +
+          '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0;">' +
+            '<input type="radio" name="cmsAnnAudience" value="all" checked> ' +
+            '<span>All contacts</span>' +
+          '</label>' +
+          '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0;">' +
+            '<input type="radio" name="cmsAnnAudience" value="parents"> ' +
+            '<span>Parents only <span style="color:#64748B;font-size:.82rem;">(type = Parent/Guardian)</span></span>' +
+          '</label>' +
+        '</div>' +
         // Counts
         '<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:.88rem;line-height:1.6;">' +
-          '<div><strong>Eligible recipients:</strong> ' + counts.totalEligible + '</div>' +
-          '<div><strong>Already sent to:</strong> ' + counts.alreadySent + '</div>' +
-          '<div><strong>Already signed up (will skip):</strong> ' + (counts.alreadySignedUp || 0) + '</div>' +
-          '<div><strong>Will send to:</strong> ' + counts.willSendTo + '</div>' +
+          '<div><strong>Eligible recipients:</strong> <span id="cmsAnnCountEligible">' + counts.totalEligible + '</span></div>' +
+          '<div><strong>Already sent to:</strong> <span id="cmsAnnCountSent">' + counts.alreadySent + '</span></div>' +
+          '<div><strong>Already signed up (will skip):</strong> <span id="cmsAnnCountSignedUp">' + (counts.alreadySignedUp || 0) + '</span></div>' +
+          '<div><strong>Will send to:</strong> <span id="cmsAnnCountWillSend">' + counts.willSendTo + '</span></div>' +
           '<div style="margin-top:6px;font-size:.78rem;color:#64748B;">Daily cap: 50. Overflow queued for next day.</div>' +
         '</div>' +
         // Test block
@@ -19694,6 +19713,31 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   function closeModal() { overlay.remove(); }
   document.getElementById('cmsAnnCloseBtn').addEventListener('click', closeModal);
 
+  // Audience radio — live-refresh recipient counts on change (v122.5.0)
+  Array.prototype.forEach.call(
+    overlay.querySelectorAll('input[name="cmsAnnAudience"]'),
+    function(radio) {
+      radio.addEventListener('change', async function() {
+        _annAudience = radio.value === 'parents' ? 'parents' : 'all';
+        var elEligible = document.getElementById('cmsAnnCountEligible');
+        var elSent = document.getElementById('cmsAnnCountSent');
+        var elSignedUp = document.getElementById('cmsAnnCountSignedUp');
+        var elWillSend = document.getElementById('cmsAnnCountWillSend');
+        elWillSend.textContent = '…';
+        try {
+          var c = await _annDryRun(_annAudience);
+          elEligible.textContent = c.totalEligible;
+          elSent.textContent = c.alreadySent;
+          elSignedUp.textContent = c.alreadySignedUp || 0;
+          elWillSend.textContent = c.willSendTo;
+        } catch (err) {
+          elWillSend.textContent = '!';
+          _showToast('Count refresh failed: ' + err.message, '#DC2626');
+        }
+      });
+    }
+  );
+
   // Test send
   document.getElementById('cmsAnnTestBtn').addEventListener('click', async function() {
     var testEmail = document.getElementById('cmsAnnTestEmail').value.trim();
@@ -19704,7 +19748,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       var resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: eventId, collection: collection, testMode: true, testEmail: testEmail })
+        body: JSON.stringify({ eventId: eventId, collection: collection, testMode: true, testEmail: testEmail, audienceFilter: _annAudience })
       });
       var result = await resp.json();
       if (resp.ok && result.sent > 0) {
@@ -19743,12 +19787,13 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       var resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: eventId, collection: collection })
+        body: JSON.stringify({ eventId: eventId, collection: collection, audienceFilter: _annAudience })
       });
       var result = await resp.json();
       if (resp.ok) {
-        resultEl.innerHTML = '<span style="color:#059669;">Sent to ' + result.sent + '. Failed: ' + result.failed + '. Queued for tomorrow: ' + result.queued + '.</span>';
-        _showToast('Announcement sent to ' + result.sent + ' contacts', '#059669');
+        var audienceLabel = _annAudience === 'parents' ? ' (Parents only)' : '';
+        resultEl.innerHTML = '<span style="color:#059669;">Sent to ' + result.sent + audienceLabel + '. Failed: ' + result.failed + '. Queued for tomorrow: ' + result.queued + '.</span>';
+        _showToast('Announcement sent to ' + result.sent + ' contacts' + audienceLabel, '#059669');
         setTimeout(function() {
           closeModal();
           // Refresh the events list so the button label updates
