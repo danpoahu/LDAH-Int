@@ -4337,7 +4337,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.7.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.8.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9393,6 +9393,46 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
       }
 
       // ═══════════════════════════════════════════════════
+      // SECTION 1B: Returning Connect-Gen Families (last 24h)
+      // ═══════════════════════════════════════════════════
+      var returningCGRows = [];
+      try {
+        var cgSigSnap = await db.collection('recurringEvents')
+          .doc('CmkPXEpPwfAQ5sR377K2').collection('signups')
+          .where('isReturningCGFamily','==',true).get();
+        cgSigSnap.forEach(function(d) {
+          var r = d.data() || {};
+          var tsMs = r.timestamp && r.timestamp.toMillis ? r.timestamp.toMillis()
+            : (r.timestamp && r.timestamp.seconds ? r.timestamp.seconds * 1000 : 0);
+          if (!tsMs || tsMs < cutoff.toMillis()) return;
+          if (r.archived === true) return;
+          var session = (Array.isArray(r.selectedSessions) && r.selectedSessions[0])
+            || (Array.isArray(r.selectedDates) && r.selectedDates[0])
+            || '(session not specified)';
+          returningCGRows.push({
+            name: r.name || [r.firstName, r.lastName].filter(Boolean).join(' ') || 'Unknown',
+            session: session,
+            source: r.returningCGSource || ''
+          });
+        });
+      } catch (e) { console.warn('Returning-CG preview:', e.message); }
+
+      var returningCGHtml = '';
+      if (returningCGRows.length > 0) {
+        returningCGHtml = '<div style="border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">';
+        returningCGRows.forEach(function(r, idx) {
+          var bg = idx % 2 === 0 ? '#fafafa' : '#ffffff';
+          var srcLabel = r.source
+            ? ' <span style="color:#92400E;font-size:11px;background:#FEF3C7;padding:1px 6px;border-radius:8px;">' + _escR(r.source) + '</span>'
+            : '';
+          returningCGHtml += '<div style="padding:8px 14px;background:' + bg + ';display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #f0f0f0;font-size:13px;color:#333;">'
+            + '<span><strong>' + _escR(r.name) + '</strong>' + srcLabel + '</span>'
+            + '<span style="font-size:12px;color:#555;">' + _escR(r.session) + '</span></div>';
+        });
+        returningCGHtml += '</div>';
+      }
+
+      // ═══════════════════════════════════════════════════
       // SECTION 2: What Changed Since Yesterday (detailed)
       // ═══════════════════════════════════════════════════
       var changelog = [];
@@ -9683,6 +9723,12 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         + '<h2 style="margin:0;font-size:17px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:6px;">All Active Events &amp; Programs</h2>'
         + '<span style="font-size:12px;color:#666;">' + allSessions.length + ' active | Click to expand</span></div>'
         + sessionsHtml
+        // Section 1B: Returning Connect-Gen Families (only when there are flagged signups in window)
+        + (returningCGRows.length > 0
+            ? '<h2 style="font-size:17px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:6px;margin:28px 0 12px;">Returning Connect-Gen Families</h2>'
+              + '<p style="margin:0 0 10px;font-size:12px;color:#666;">' + returningCGRows.length + ' flagged in last 24 hours &mdash; pre-call 2 days before session</p>'
+              + returningCGHtml
+            : '')
         // Section 2: Changelog
         + '<h2 style="font-size:17px;color:#1a3c6e;border-bottom:2px solid #1a3c6e;padding-bottom:6px;margin:28px 0 12px;">What Changed (Last 24 Hours)</h2>'
         + '<p style="margin:0 0 10px;font-size:12px;color:#666;">' + changelog.length + ' change(s)</p>'
@@ -20872,6 +20918,11 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
     h += '<span title="Came in via announcement email" style="font-size:.7rem;font-weight:600;color:#155E75;background:#CFFAFE;border:1px solid #67E8F9;border-radius:12px;padding:1px 8px;white-space:nowrap;">via announcement</span>';
   } else if (s.signupSource === 'registration-email') {
     h += '<span title="Came in via registration email" style="font-size:.7rem;font-weight:600;color:#86198F;background:#FAE8FF;border:1px solid #F0ABFC;border-radius:12px;padding:1px 8px;white-space:nowrap;">via reg email</span>';
+  }
+  // Returning Connect-Gen family: amber pill, set by the onRecurringEventSignupCreated CF
+  // when either the front-end form question or a prior signup match fires.
+  if (s.isReturningCGFamily === true) {
+    h += '<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:8px;font-size:.72rem;font-weight:600;margin-left:6px;" title="Returning Connect-Gen family — follow-up interaction created">RETURNING</span>';
   }
   if (isArchived) h += '<span style="font-size:.72rem;color:#94A3B8;font-weight:400;">(archived)</span>';
   h += '</div>';
