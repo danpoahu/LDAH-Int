@@ -4289,7 +4289,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.3.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.4.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22443,6 +22443,124 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   html += '<div class="es-stat-num">' + attendanceRate + '%</div><div class="es-stat-lbl">Attendance Rate</div></div>';
   html += '</div>';
 
+  // ── Attendance Totals (pink-sheet sub-section) ─────────────────────────
+  // Mirrors the "Hawaii and Pacific PTI Training Recap Form" Attendance
+  // Totals block. Two read-only rows (Attendance Total, Evaluation Total)
+  // + five auto-computed-with-override rows. Persists into the same
+  // summary doc the Pink Form uses (event.summary or sessionSummaries[date]).
+  //
+  // Auto computation needs feedback + a per-session attended helper. The
+  // helper is also reused by the Pink Form lower down so it stays a single
+  // source of truth (moved up here).
+  function _esIsAttended(s) {
+    if (sessionDate && (isRecurring || isOneTimeMulti)) {
+      return s.sessionAttendance && s.sessionAttendance[sessionDate] &&
+        s.sessionAttendance[sessionDate].status === 'attended';
+    }
+    return s.attendanceStatus === 'attended';
+  }
+  // Feedback for the current scope (selected session if any).
+  var _attFeedback = feedbackDocs;
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
+    var _attendedKeysBySignup = {};
+    signups.forEach(function(s) {
+      if (!s.id) return;
+      var ks = [];
+      if (s.sessionAttendance) {
+        Object.keys(s.sessionAttendance).forEach(function(k) {
+          if (s.sessionAttendance[k] && s.sessionAttendance[k].status === 'attended') ks.push(k);
+        });
+      }
+      _attendedKeysBySignup[s.id] = ks;
+    });
+    _attFeedback = feedbackDocs.filter(function(fb) {
+      if (fb.sessionDate === sessionDate) return true;
+      if (!fb.sessionDate && fb.signupId) {
+        var ks = _attendedKeysBySignup[fb.signupId] || [];
+        if (ks.length === 1 && ks[0] === sessionDate) return true;
+      }
+      return false;
+    });
+  }
+  // Saved summary (pulled fresh because the Pink Form block below references
+  // it too; computing once here keeps everything in sync).
+  var _attSummary = {};
+  if (sessionDate && (isRecurring || isOneTimeMulti) && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
+    _attSummary = eventDoc.sessionSummaries[sessionDate];
+  } else if (!isRecurring && !isOneTimeMulti && eventDoc.summary) {
+    _attSummary = eventDoc.summary;
+  } else if (isOneTimeMulti && !sessionDate && eventDoc.summary) {
+    _attSummary = eventDoc.summary;
+  }
+  // Auto counts
+  var attTotalAuto = totalAttended;
+  var attEvalAuto = _attFeedback.length;
+  var attNewParentAuto = 0;
+  var attParentReturningAuto = 0;
+  var attYouthWithDisabilityAuto = 0;
+  var attProfessionalOtherAuto = 0;
+  var attMilitaryActiveAuto = 0;
+  active.forEach(function(s) {
+    if (!_esIsAttended(s)) return;
+    var reg = s.registration || {};
+    var role = reg.role || '';
+    if (role === 'Parent/Guardian') {
+      if (reg.priorTraining === 'No') attNewParentAuto++;
+      else if (reg.priorTraining === 'Yes') attParentReturningAuto++;
+    } else if (role === 'Youth') {
+      if (Array.isArray(reg.disabilityCategories) && reg.disabilityCategories.length > 0) {
+        attYouthWithDisabilityAuto++;
+      }
+    } else if (role && role !== '') {
+      // Professional, Community Member, and any future role bucket.
+      attProfessionalOtherAuto++;
+    }
+    var milNorm = (typeof _normMilitaryStatus === 'function')
+      ? _normMilitaryStatus(reg.militaryStatus)
+      : reg.militaryStatus;
+    if (milNorm === 'Active Duty') attMilitaryActiveAuto++;
+  });
+  // Override-aware display values (number override wins; otherwise auto)
+  var _attNewParentDisp        = (typeof _attSummary.newParentCount === 'number')                ? _attSummary.newParentCount                : attNewParentAuto;
+  var _attEvalDisp             = (typeof _attSummary.evaluationCount === 'number')               ? _attSummary.evaluationCount               : attEvalAuto;
+  var _attParentReturningDisp  = (typeof _attSummary.attendanceParentReturning === 'number')     ? _attSummary.attendanceParentReturning     : attParentReturningAuto;
+  var _attYouthWDDisp          = (typeof _attSummary.attendanceYouthWithDisability === 'number') ? _attSummary.attendanceYouthWithDisability : attYouthWithDisabilityAuto;
+  var _attProfOtherDisp        = (typeof _attSummary.attendanceProfessionalOther === 'number')   ? _attSummary.attendanceProfessionalOther   : attProfessionalOtherAuto;
+  var _attProfOtherSpecifyDisp = (typeof _attSummary.attendanceProfessionalOtherSpecify === 'string') ? _attSummary.attendanceProfessionalOtherSpecify : '';
+  var _attMilitaryActiveDisp   = (typeof _attSummary.attendanceMilitaryActiveDuty === 'number')  ? _attSummary.attendanceMilitaryActiveDuty  : attMilitaryActiveAuto;
+  function _attHint(autoVal, savedVal) {
+    var overridden = (typeof savedVal === 'number') && savedVal !== autoVal;
+    if (overridden) {
+      return '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:#9A3412;">Auto: ' + autoVal + ' (override)</span>';
+    }
+    return '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:var(--text-soft);">Auto: ' + autoVal + '</span>';
+  }
+  html += '<div class="es-section-title" style="margin-top:14px;">Attendance Totals <span style="font-size:.74rem;font-weight:500;color:var(--text-soft);">(matches pink sheet)</span></div>';
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.88rem;background:#FFF7FA;border:1px solid #FCE7F3;border-radius:8px;overflow:hidden;">';
+  // Row 1 — Attendance Total (read-only)
+  html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;width:55%;">Attendance Total</td>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;font-weight:700;color:#0f172a;font-size:1rem;">' + attTotalAuto + '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:var(--text-soft);font-weight:500;">auto</span></td></tr>';
+  // Row 2 — Evaluation Total (read-only)
+  html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Evaluation Total</td>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;font-weight:700;color:#0f172a;font-size:1rem;">' + attEvalAuto + '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:var(--text-soft);font-weight:500;">auto</span></td></tr>';
+  // Row 3 — New Parent Total (auto + override)
+  html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">New Parent Total</td>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esNewParentCount" min="0" value="' + _attNewParentDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attNewParentAuto, _attSummary.newParentCount) + '</td></tr>';
+  // Row 4 — Parent (returning)
+  html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Parent (returning)</td>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttParentReturning" min="0" value="' + _attParentReturningDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attParentReturningAuto, _attSummary.attendanceParentReturning) + '</td></tr>';
+  // Row 5 — Youth with Disability
+  html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Youth with Disability</td>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttYouthWithDisability" min="0" value="' + _attYouthWDDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attYouthWithDisabilityAuto, _attSummary.attendanceYouthWithDisability) + '</td></tr>';
+  // Row 6 — Professional/Other (specify)
+  html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Professional/Other <span style="font-weight:400;color:var(--text-soft);font-size:.78rem;">(specify)</span></td>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="text" id="esAttProfOtherSpecify" placeholder="specify…" value="' + rsEscape(_attProfOtherSpecifyDisp) + '" style="width:160px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;margin-right:6px;">';
+  html += '<input type="number" id="esAttProfOther" min="0" value="' + _attProfOtherDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attProfessionalOtherAuto, _attSummary.attendanceProfessionalOther) + '</td></tr>';
+  // Row 7 — Military Active Duty
+  html += '<tr><td style="padding:8px 12px;font-weight:600;color:#475569;">Military Active Duty</td>';
+  html += '<td style="padding:8px 12px;text-align:right;"><input type="number" id="esAttMilitaryActive" min="0" value="' + _attMilitaryActiveDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attMilitaryActiveAuto, _attSummary.attendanceMilitaryActiveDuty) + '</td></tr>';
+  html += '</table>';
+
   // Source attribution: where did the signups come from?
   var fromAnnouncement = active.filter(function(s) { return s.signupSource === 'announcement-email'; }).length;
   var fromRegistration = active.filter(function(s) { return s.signupSource === 'registration-email'; }).length;
@@ -22652,49 +22770,17 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   }
 
   // Section C: Staff-Entered Fields (pink form)
-  var summary = {};
-  if (sessionDate && (isRecurring || isOneTimeMulti) && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
-    summary = eventDoc.sessionSummaries[sessionDate];
-  } else if (!isRecurring && !isOneTimeMulti && eventDoc.summary) {
-    summary = eventDoc.summary;
-  } else if (isOneTimeMulti && !sessionDate && eventDoc.summary) {
-    summary = eventDoc.summary;
-  }
+  // Note: summary doc was already loaded above into _attSummary for the
+  // Attendance Totals sub-section. Alias here so the existing Pink Form
+  // code keeps the `summary` variable name it was written against.
+  var summary = _attSummary;
 
-  // Auto-counts derived from current data:
-  //   - newParentAuto: attended Parent/Guardians whose registration says
-  //     they have NOT attended an LDAH event before (priorTraining === 'No')
-  //   - evalCountAuto: total feedback responses for the selected scope
-  function _esIsAttended(s) {
-    if (sessionDate && (isRecurring || isOneTimeMulti)) {
-      return s.sessionAttendance && s.sessionAttendance[sessionDate] &&
-        s.sessionAttendance[sessionDate].status === 'attended';
-    }
-    return s.attendanceStatus === 'attended';
-  }
-  var newParentAuto = active.filter(function(s) {
-    if (!_esIsAttended(s)) return false;
-    var reg = s.registration || {};
-    if (reg.role !== 'Parent/Guardian') return false;
-    return reg.priorTraining === 'No';
-  }).length;
-  var evalCountAuto = filteredFeedback.length;
-
-  // Pre-fill rules: use saved value if present (typeof number distinguishes
-  // "saved as 0" from "never saved"); otherwise fall back to the auto-count.
-  var _pinkNewParent = (typeof summary.newParentCount === 'number') ? summary.newParentCount : newParentAuto;
-  var _pinkEval = (typeof summary.evaluationCount === 'number') ? summary.evaluationCount : evalCountAuto;
-  var _newParentHint = (typeof summary.newParentCount !== 'number' || summary.newParentCount === newParentAuto)
-    ? '<div style="font-size:.7rem;color:var(--text-soft);margin-top:2px;">Auto from registration: ' + newParentAuto + '</div>'
-    : '<div style="font-size:.7rem;color:#9A3412;margin-top:2px;">Auto: ' + newParentAuto + ' (manual override)</div>';
-  var _evalHint = (typeof summary.evaluationCount !== 'number' || summary.evaluationCount === evalCountAuto)
-    ? '<div style="font-size:.7rem;color:var(--text-soft);margin-top:2px;">Auto from feedback: ' + evalCountAuto + '</div>'
-    : '<div style="font-size:.7rem;color:#9A3412;margin-top:2px;">Auto: ' + evalCountAuto + ' (manual override)</div>';
-
+  // newParentCount + evaluationCount inputs are now rendered in the
+  // Attendance Totals sub-section above (rows 3 and 2 respectively).
+  // Evaluation Count is read-only there; we still persist attEvalAuto into
+  // summary.evaluationCount on save so legacy reports stay populated.
   html += '<div class="es-section-title">Staff Report (Pink Form)</div>';
   html += '<div class="es-form-grid">';
-  html += '<div class="es-form-field"><label>New Parent Count</label><input type="number" id="esNewParentCount" min="0" value="' + _pinkNewParent + '">' + _newParentHint + '</div>';
-  html += '<div class="es-form-field"><label>Evaluation Count</label><input type="number" id="esEvaluationCount" min="0" value="' + _pinkEval + '">' + _evalHint + '</div>';
   html += '<div class="es-form-field"><label>Tier Model of Support</label>';
   html += '<select id="esTierModel">';
   ['', 'Tier 1', 'Tier 2', 'Tier 3', 'Tier 4'].forEach(function(t) {
@@ -22873,10 +22959,22 @@ window.cmsSaveEventSummary = async function() {
   var sessionDate = d.selectedSessionDate;
 
   var newParentCount = parseInt(document.getElementById('esNewParentCount').value) || 0;
-  var evaluationCount = parseInt(document.getElementById('esEvaluationCount').value) || 0;
+  // Evaluation Total is now read-only in the Attendance Totals sub-section;
+  // it always tracks live feedback count. We still persist it for legacy
+  // readers (CSV export, daily report, etc.) that look at summary.evaluationCount.
+  var evaluationCount = ((_cmsEventSummaryData && _cmsEventSummaryData.feedbackDocs) ? _cmsEventSummaryData.feedbackDocs.length : 0);
   var tierModel = document.getElementById('esTierModel').value;
   var followUpParents = parseInt(document.getElementById('esFollowUpParents').value) || 0;
   var followUpProfessionals = parseInt(document.getElementById('esFollowUpProfessionals').value) || 0;
+  // New Attendance Totals override fields (auto values used as defaults on
+  // first save; staff can override any row except read-only rows 1+2).
+  var _qInt = function(id) { var el = document.getElementById(id); return el ? (parseInt(el.value) || 0) : 0; };
+  var _qStr = function(id) { var el = document.getElementById(id); return el ? String(el.value || '') : ''; };
+  var attendanceParentReturning      = _qInt('esAttParentReturning');
+  var attendanceYouthWithDisability  = _qInt('esAttYouthWithDisability');
+  var attendanceProfessionalOther    = _qInt('esAttProfOther');
+  var attendanceProfessionalOtherSpecify = _qStr('esAttProfOtherSpecify');
+  var attendanceMilitaryActiveDuty   = _qInt('esAttMilitaryActive');
 
   // Phase 1 fields
   var _presenterSel = document.getElementById('esPresenter');
@@ -22939,6 +23037,12 @@ window.cmsSaveEventSummary = async function() {
     materialsPacked: newMaterialsPacked,
     materialsDisseminated: newMaterialsDisseminated,
     presenterComments: newPresenterComments,
+    // Pink-sheet Attendance Totals override fields (v122.4.0)
+    attendanceParentReturning: attendanceParentReturning,
+    attendanceYouthWithDisability: attendanceYouthWithDisability,
+    attendanceProfessionalOther: attendanceProfessionalOther,
+    attendanceProfessionalOtherSpecify: attendanceProfessionalOtherSpecify,
+    attendanceMilitaryActiveDuty: attendanceMilitaryActiveDuty,
     completedAt: firebase.firestore.FieldValue.serverTimestamp(),
     completedBy: (currentUserData && currentUserData.displayName) || 'Unknown'
   };
@@ -29690,14 +29794,33 @@ window.cmsBuildStaffActivityReport = async function() {
     // staff-entered field on the Event Summary modal and quickly gets stale.
     var evalCount = feedbackForDate.length;
 
-    // New Parent Total — live: attended + role=Parent/Guardian + priorTraining=No.
-    var newParentLiveCount = 0;
+    // Attendance Totals — live auto-counts for the pink-sheet block.
+    // Each row has an auto value (computed here) and an optional staff
+    // override stored on summary. The renderer picks override if it's a
+    // number, otherwise falls back to the auto value.
+    var newParentLiveCount = 0;            // attended + Parent/Guardian + priorTraining=No
+    var parentReturningLiveCount = 0;      // attended + Parent/Guardian + priorTraining=Yes
+    var youthWithDisabilityLiveCount = 0;  // attended + Youth + disabilityCategories non-empty
+    var professionalOtherLiveCount = 0;    // attended + role exists and not Parent/Guardian/Youth
+    var militaryActiveLiveCount = 0;       // attended + _normMilitaryStatus === 'Active Duty'
     active.forEach(function(s) {
       if (!_signupAttendedSession(s, sessionDateKey, isPerSession)) return;
       var reg = s.registration || {};
-      if (reg.role !== 'Parent/Guardian') return;
-      if (reg.priorTraining !== 'No') return;
-      newParentLiveCount++;
+      var role = reg.role || '';
+      if (role === 'Parent/Guardian') {
+        if (reg.priorTraining === 'No') newParentLiveCount++;
+        else if (reg.priorTraining === 'Yes') parentReturningLiveCount++;
+      } else if (role === 'Youth') {
+        if (Array.isArray(reg.disabilityCategories) && reg.disabilityCategories.length > 0) {
+          youthWithDisabilityLiveCount++;
+        }
+      } else if (role && role !== '') {
+        professionalOtherLiveCount++;
+      }
+      var milNorm = (typeof window._normMilitaryStatus === 'function')
+        ? window._normMilitaryStatus(reg.militaryStatus)
+        : reg.militaryStatus;
+      if (milNorm === 'Active Duty') militaryActiveLiveCount++;
     });
 
     var programKey = isRecurring ? ev.title : '__onetime__';
@@ -29724,6 +29847,11 @@ window.cmsBuildStaffActivityReport = async function() {
       totalAttended: totalAttended,
       evaluationCount: evalCount,
       newParentCount: newParentLiveCount,
+      // Additional pink-sheet Attendance Totals auto-counts (v122.4.0)
+      parentReturningCount: parentReturningLiveCount,
+      youthWithDisabilityCount: youthWithDisabilityLiveCount,
+      professionalOtherCount: professionalOtherLiveCount,
+      militaryActiveCount: militaryActiveLiveCount,
       year: year,
       programKey: programKey,
     };
@@ -29887,16 +30015,78 @@ window.cmsBuildStaffActivityReport = async function() {
     html += _kv('Location', r.location || '—');
     html += '</div>';
 
-    // 2. Attendance Totals — all three derive live from signups + feedback.
-    // summary.newParentCount / summary.evaluationCount are intentionally
-    // ignored here (staff-entered fields on the Event Summary modal that
-    // can't be trusted as ground truth for this report).
+    // 2. Attendance Totals — 7-row pink-sheet block (v122.4.0).
+    // Rows 1+2 (Attendance Total, Evaluation Total) are read-only and derive
+    // live from signups + feedback. Rows 3-7 show an auto value with an
+    // override input persisted into summary.attendance* fields. Override
+    // semantics: number-typed saved value wins; otherwise show the auto.
     html += _section('Attendance Totals');
-    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">';
-    html += _stat('Total Attended', r.totalAttended);
-    html += _stat('Evaluation Total', r.evaluationCount);
-    html += _stat('New Parent Total', r.newParentCount);
-    html += '</div>';
+    var _rowId = r.id;
+    var _ovNewParent       = (typeof summary.newParentCount === 'number')                ? summary.newParentCount                : null;
+    var _ovParentReturning = (typeof summary.attendanceParentReturning === 'number')     ? summary.attendanceParentReturning     : null;
+    var _ovYouthWD         = (typeof summary.attendanceYouthWithDisability === 'number') ? summary.attendanceYouthWithDisability : null;
+    var _ovProfOther       = (typeof summary.attendanceProfessionalOther === 'number')   ? summary.attendanceProfessionalOther   : null;
+    var _ovProfOtherSpec   = (typeof summary.attendanceProfessionalOtherSpecify === 'string') ? summary.attendanceProfessionalOtherSpecify : '';
+    var _ovMilitaryActive  = (typeof summary.attendanceMilitaryActiveDuty === 'number')  ? summary.attendanceMilitaryActiveDuty  : null;
+    function _eaHint(autoVal, override) {
+      if (override !== null && override !== autoVal) {
+        return '<span style="margin-left:8px;font-size:.7rem;color:#9A3412;">Auto: ' + autoVal + ' (override)</span>';
+      }
+      return '<span style="margin-left:8px;font-size:.7rem;color:var(--text-soft);">Auto: ' + autoVal + '</span>';
+    }
+    function _eaNumCell(rowKey, autoVal, override, idPrefix) {
+      var dispVal = (override !== null) ? override : autoVal;
+      var inputId = idPrefix + '_' + _attrJsArg(rowKey);
+      return '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;">'
+        + '<input type="number" id="' + inputId + '" min="0" value="' + dispVal + '" '
+        + 'onblur="cmsEASaveAttendanceField(decodeURIComponent(\'' + _attrJsArg(rowKey) + '\'),\'' + idPrefix + '\',this.value)" '
+        + 'style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">'
+        + _eaHint(autoVal, override) + '</td>';
+    }
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.88rem;background:#FFF7FA;border:1px solid #FCE7F3;border-radius:8px;overflow:hidden;">';
+    // Row 1 — Attendance Total (read-only)
+    html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;width:55%;">Attendance Total</td>';
+    html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;font-weight:700;color:#0f172a;font-size:1rem;">' + r.totalAttended + '<span style="margin-left:8px;font-size:.7rem;color:var(--text-soft);font-weight:500;">auto</span></td></tr>';
+    // Row 2 — Evaluation Total (read-only)
+    html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Evaluation Total</td>';
+    html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;font-weight:700;color:#0f172a;font-size:1rem;">' + r.evaluationCount + '<span style="margin-left:8px;font-size:.7rem;color:var(--text-soft);font-weight:500;">auto</span></td></tr>';
+    // Row 3 — New Parent Total
+    html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">New Parent Total</td>';
+    html += _eaNumCell(_rowId, r.newParentCount, _ovNewParent, 'eaNewParent');
+    html += '</tr>';
+    // Row 4 — Parent (returning)
+    html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Parent (returning)</td>';
+    html += _eaNumCell(_rowId, r.parentReturningCount, _ovParentReturning, 'eaParentReturning');
+    html += '</tr>';
+    // Row 5 — Youth with Disability
+    html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Youth with Disability</td>';
+    html += _eaNumCell(_rowId, r.youthWithDisabilityCount, _ovYouthWD, 'eaYouthWithDisability');
+    html += '</tr>';
+    // Row 6 — Professional/Other (specify)
+    html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Professional/Other <span style="font-weight:400;color:var(--text-soft);font-size:.78rem;">(specify)</span></td>';
+    var _profSpecId = 'eaProfOtherSpecify_' + _attrJsArg(_rowId);
+    var _profNumId  = 'eaProfOther_'        + _attrJsArg(_rowId);
+    var _profDisp = (_ovProfOther !== null) ? _ovProfOther : r.professionalOtherCount;
+    html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;">';
+    html += '<input type="text" id="' + _profSpecId + '" placeholder="specify…" value="' + _esc(_ovProfOtherSpec) + '" '
+         +  'onblur="cmsEASaveAttendanceField(decodeURIComponent(\'' + _attrJsArg(_rowId) + '\'),\'eaProfOtherSpecify\',this.value)" '
+         +  'style="width:160px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;margin-right:6px;">';
+    html += '<input type="number" id="' + _profNumId + '" min="0" value="' + _profDisp + '" '
+         +  'onblur="cmsEASaveAttendanceField(decodeURIComponent(\'' + _attrJsArg(_rowId) + '\'),\'eaProfOther\',this.value)" '
+         +  'style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">';
+    html += _eaHint(r.professionalOtherCount, _ovProfOther);
+    html += '</td></tr>';
+    // Row 7 — Military Active Duty
+    html += '<tr><td style="padding:8px 12px;font-weight:600;color:#475569;">Military Active Duty</td>';
+    html += '<td style="padding:8px 12px;text-align:right;">';
+    var _milId = 'eaMilitaryActive_' + _attrJsArg(_rowId);
+    var _milDisp = (_ovMilitaryActive !== null) ? _ovMilitaryActive : r.militaryActiveCount;
+    html += '<input type="number" id="' + _milId + '" min="0" value="' + _milDisp + '" '
+         +  'onblur="cmsEASaveAttendanceField(decodeURIComponent(\'' + _attrJsArg(_rowId) + '\'),\'eaMilitaryActive\',this.value)" '
+         +  'style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">';
+    html += _eaHint(r.militaryActiveCount, _ovMilitaryActive);
+    html += '</td></tr>';
+    html += '</table>';
 
     // 3. Follow Up Support
     html += _section('Follow Up Support');
@@ -30195,6 +30385,50 @@ window.cmsBuildStaffActivityReport = async function() {
     return html;
   }
 
+  // ── On-blur persistence for Attendance Totals override fields (v122.4.0) ──
+  // idPrefix maps to a summary.* key. Number fields parseInt to 0 floor;
+  // the specify text field passes through as a string. Writes a single
+  // dotted-path update so we don't clobber the rest of the summary doc.
+  var _eaAttendanceFieldMap = {
+    eaNewParent:           { field: 'newParentCount',                       kind: 'number' },
+    eaParentReturning:     { field: 'attendanceParentReturning',            kind: 'number' },
+    eaYouthWithDisability: { field: 'attendanceYouthWithDisability',        kind: 'number' },
+    eaProfOther:           { field: 'attendanceProfessionalOther',          kind: 'number' },
+    eaProfOtherSpecify:    { field: 'attendanceProfessionalOtherSpecify',   kind: 'string' },
+    eaMilitaryActive:      { field: 'attendanceMilitaryActiveDuty',         kind: 'number' },
+  };
+  window.cmsEASaveAttendanceField = async function(rowId, prefix, rawVal) {
+    var spec = _eaAttendanceFieldMap[prefix];
+    if (!spec) return;
+    var row = _eaCache.eventDates.find(function(x) { return x.id === rowId; });
+    if (!row) return;
+    var newVal = (spec.kind === 'number') ? (parseInt(rawVal, 10) || 0) : String(rawVal || '');
+    try {
+      var basePath = (row.isPerSession && row.sessionDate)
+        ? ('sessionSummaries.' + row.sessionDate + '.' + spec.field)
+        : ('summary.' + spec.field);
+      var upd = {};
+      upd[basePath] = newVal;
+      upd[(row.isPerSession && row.sessionDate)
+        ? 'sessionSummaries.' + row.sessionDate + '.completedAt'
+        : 'summary.completedAt'] = firebase.firestore.FieldValue.serverTimestamp();
+      upd[(row.isPerSession && row.sessionDate)
+        ? 'sessionSummaries.' + row.sessionDate + '.completedBy'
+        : 'summary.completedBy'] = (currentUserData && currentUserData.displayName) || 'Unknown';
+      await db.collection(row.collection).doc(row.eventId).update(upd);
+      // Mirror into local cache so the hint flips to "(override)" immediately
+      row.summary = row.summary || {};
+      row.summary[spec.field] = newVal;
+      if (typeof auditLog === 'function') {
+        auditLog('Updated attendance totals', (row.eventTitle || 'Event') + (row.sessionDate ? ' [' + row.sessionDate + ']' : '') + ' -- ' + spec.field + ' = ' + newVal);
+      }
+      if (typeof _showToast === 'function') _showToast('Saved.', '#059669');
+      _renderCardList();
+    } catch (err) {
+      if (typeof _showToast === 'function') _showToast('Save failed: ' + err.message, '#DC2626');
+    }
+  };
+
   // ── Public toggle / opener / clear-filters ──
   window.cmsEAToggleCard = function(id) {
     _eaCache.expanded[id] = !_eaCache.expanded[id];
@@ -30340,13 +30574,29 @@ window.cmsBuildStaffActivityReport = async function() {
 
     // ── Page 1 LEFT column ──
     var p1L = '';
-    // Attendance Totals
+    // Attendance Totals — pink-sheet 7-row block (v122.4.0).
+    // Each row uses the staff override if present, otherwise the live auto
+    // count. Rendered as a print-friendly two-column table.
+    function _eaPrintVal(autoVal, override) {
+      return (typeof override === 'number') ? override : autoVal;
+    }
+    var pNewParent       = _eaPrintVal(row.newParentCount,             summary.newParentCount);
+    var pParentReturning = _eaPrintVal(row.parentReturningCount,       summary.attendanceParentReturning);
+    var pYouthWD         = _eaPrintVal(row.youthWithDisabilityCount,   summary.attendanceYouthWithDisability);
+    var pProfOther       = _eaPrintVal(row.professionalOtherCount,     summary.attendanceProfessionalOther);
+    var pProfOtherSpec   = (typeof summary.attendanceProfessionalOtherSpecify === 'string') ? summary.attendanceProfessionalOtherSpecify : '';
+    var pMilitaryActive  = _eaPrintVal(row.militaryActiveCount,        summary.attendanceMilitaryActiveDuty);
+    var _profOtherLabel = 'Professional/Other' + (pProfOtherSpec ? ' (' + pProfOtherSpec + ')' : '');
     p1L += '<div class="ea-print-section">Attendance Totals</div>';
-    p1L += '<div class="ea-print-totals">';
-    p1L += '<div class="cell"><div class="n">' + row.totalAttended + '</div><div class="lbl">Total Attended</div></div>';
-    p1L += '<div class="cell"><div class="n">' + row.evaluationCount + '</div><div class="lbl">Evaluation Total</div></div>';
-    p1L += '<div class="cell"><div class="n">' + row.newParentCount + '</div><div class="lbl">New Parent Total</div></div>';
-    p1L += '</div>';
+    p1L += '<table class="ea-print-table">';
+    p1L += '<tr><td>Attendance Total</td><td class="num">' + row.totalAttended + '</td></tr>';
+    p1L += '<tr><td>Evaluation Total</td><td class="num">' + row.evaluationCount + '</td></tr>';
+    p1L += '<tr><td>New Parent Total</td><td class="num">' + pNewParent + '</td></tr>';
+    p1L += '<tr><td>Parent (returning)</td><td class="num">' + pParentReturning + '</td></tr>';
+    p1L += '<tr><td>Youth with Disability</td><td class="num">' + pYouthWD + '</td></tr>';
+    p1L += '<tr><td>' + _esc(_profOtherLabel) + '</td><td class="num">' + pProfOther + '</td></tr>';
+    p1L += '<tr><td>Military Active Duty</td><td class="num">' + pMilitaryActive + '</td></tr>';
+    p1L += '</table>';
 
     // Follow Up Support
     p1L += '<div class="ea-print-section">Follow Up Support</div>';
