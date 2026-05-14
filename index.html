@@ -28,6 +28,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-functions-compat.js"></script>
   <script src="./formatters.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 
   <style>
     :root{
@@ -856,6 +857,42 @@
     /* Hide the print-only host on screen. It's only visible during
        window.print() (see @media print rules below). */
     #eaPrintHost { display: none; }
+
+    /* Contact Demographics — chart card grid + print-only view */
+    .cd-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    @media (max-width: 900px) { .cd-grid { grid-template-columns:1fr; } }
+    .cd-chart-card { background:#fff; border:1px solid #E2E8F0; border-radius:var(--radius); box-shadow:var(--shadow-soft); padding:16px 16px 12px; }
+    .cd-chart-card h3 { margin:0 0 10px; font-size:.95rem; color:var(--ocean-deep); font-family:'Outfit',sans-serif; }
+    .cd-chart-wrap { position:relative; height:260px; }
+    .cd-chart-wrap.tall { height:340px; }
+    .cd-kpi-strip { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+    .cd-kpi { flex:1; min-width:140px; background:linear-gradient(135deg, var(--ocean-deep), var(--ocean-mid)); color:#fff; padding:14px 18px; border-radius:12px; box-shadow:var(--shadow-soft); }
+    .cd-kpi .cd-kpi-label { font-size:.72rem; opacity:.9; text-transform:uppercase; letter-spacing:.06em; }
+    .cd-kpi .cd-kpi-value { font-family:'Outfit',sans-serif; font-size:1.7rem; font-weight:700; line-height:1.1; margin-top:2px; }
+    .cd-dq { background:#fff; border:1px solid #E2E8F0; border-radius:var(--radius); box-shadow:var(--shadow-soft); padding:18px 20px; margin-top:18px; }
+    .cd-dq h3 { margin:0 0 12px; font-size:1rem; color:var(--ocean-deep); font-family:'Outfit',sans-serif; }
+    .cd-dq table { width:100%; border-collapse:collapse; font-size:.84rem; }
+    .cd-dq th, .cd-dq td { text-align:left; padding:6px 10px; border-bottom:1px solid #F1F5F9; }
+    .cd-dq th { background:#F8FAFC; color:var(--text-soft); font-weight:700; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; }
+    .cd-dq .cd-bar { background:#E2E8F0; height:6px; border-radius:3px; overflow:hidden; min-width:110px; }
+    .cd-dq .cd-bar > span { display:block; height:100%; background:linear-gradient(90deg, var(--ocean-mid), var(--ocean-deep)); }
+    .cd-pct-good { color:#10B981; font-weight:700; }
+    .cd-pct-mid { color:#F59E0B; font-weight:700; }
+    .cd-pct-low { color:#DC2626; font-weight:700; }
+    .cd-error { background:#fff; border-radius:var(--radius); padding:18px; color:#DC2626; text-align:center; box-shadow:var(--shadow-soft); }
+
+    @media print {
+      body.cd-printing { background:#fff !important; }
+      body.cd-printing > *:not(#contactDemographicsInGrid),
+      body.cd-printing main > *:not(:has(#contactDemographicsInGrid)) { display:none !important; }
+      body.cd-printing #contactDemographicsInGrid { display:block !important; padding:12px !important; }
+      body.cd-printing #cdRefreshBtn,
+      body.cd-printing #cdPrintBtn,
+      body.cd-printing .cd-back-print-hide { display:none !important; }
+      body.cd-printing .cd-chart-card { break-inside:avoid; box-shadow:none; }
+      body.cd-printing .cd-grid { grid-template-columns:1fr 1fr; gap:10px; }
+      body.cd-printing .cd-chart-wrap { height:220px; }
+    }
 
     /* Print stylesheet — only fires when an Event Attendance card is
        in print-target mode. Mirrors the Hawaii and Pacific PTI Training
@@ -4289,7 +4326,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.5.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.6.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4421,7 +4458,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
               <div style="font-weight:700;font-size:.92rem;">Interactions Summary</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Weekly/monthly interaction counts by channel, status, and owner.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;" onclick="_showToast('This report will be generated soon.','#64748b')">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildContactDemographicsReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">👥</div>
               <div style="font-weight:700;font-size:.92rem;">Contact Demographics</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Breakdown of contacts by type, region, and engagement level.</div>
@@ -4466,6 +4503,20 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
           </div>
           <div id="eaCardList" style="display:flex;flex-direction:column;gap:10px;">
             <div style="padding:18px;color:var(--text-soft);text-align:center;">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Contact Demographics Report (in-grid; toggled from Reports card) -->
+        <div id="contactDemographicsInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost cd-back-print-hide" style="font-size:.85rem;" onclick="cmsCloseContactDemographicsReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:var(--ocean-deep);margin:0;flex:1;">Contact Demographics</h2>
+            <span id="cdGeneratedAt" style="font-size:.82rem;color:var(--text-soft);"></span>
+            <button id="cdRefreshBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildContactDemographicsReport()" title="Refresh">&#x21bb; Refresh</button>
+            <button id="cdPrintBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsPrintContactDemographicsReport()" title="Print / Save as PDF">Print / Save as PDF</button>
+          </div>
+          <div id="cdBody">
+            <div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading contact data...</div>
           </div>
         </div>
 
@@ -7000,6 +7051,8 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
       var _dIC = document.getElementById('dashInteractionsCard'); if (_dIC) _dIC.style.display = '';
       var _rIG = document.getElementById('reportsInGrid'); if (_rIG) _rIG.style.display = 'none';
       var _eAIG = document.getElementById('eventAttendanceInGrid'); if (_eAIG) _eAIG.style.display = 'none';
+      var _cDIG = document.getElementById('contactDemographicsInGrid'); if (_cDIG) _cDIG.style.display = 'none';
+      try { if (typeof _cdDestroyCharts === 'function') _cdDestroyCharts(); } catch(_){}
       document.body.classList.remove('ea-fullwidth-mode');
       var _iGH = document.getElementById('inGridHost');
       if (_iGH && _iGH._hostedSection) {
@@ -10180,6 +10233,8 @@ window.autoCropImage = function(file) {
       var _dIC = document.getElementById('dashInteractionsCard'); if (_dIC) _dIC.style.display = '';
       var _rIG = document.getElementById('reportsInGrid'); if (_rIG) _rIG.style.display = 'none';
       var _eAIG = document.getElementById('eventAttendanceInGrid'); if (_eAIG) _eAIG.style.display = 'none';
+      var _cDIG = document.getElementById('contactDemographicsInGrid'); if (_cDIG) _cDIG.style.display = 'none';
+      try { if (typeof _cdDestroyCharts === 'function') _cdDestroyCharts(); } catch(_){}
       document.body.classList.remove('ea-fullwidth-mode');
       var _iGH = document.getElementById('inGridHost');
       if (_iGH && _iGH._hostedSection) {
@@ -30838,6 +30893,281 @@ window.cmsBuildStaffActivityReport = async function() {
     } catch (err) {
       console.error('cmsBuildEventAttendanceReport error:', err);
       if (listHost) listHost.innerHTML = '<div style="background:#fff;border-radius:var(--radius);padding:18px;color:#DC2626;text-align:center;box-shadow:var(--shadow-soft);">Error building report: ' + _esc(err.message) + '</div>';
+    }
+  };
+
+  // ── Contact Demographics Report ─────────────────────────────────────
+  var _cdChartInstances = [];
+  var _cdPalette = ['#0891B2','#06B6D4','#F59E0B','#10B981','#DC2626','#7C3AED','#EC4899','#65A30D','#0EA5E9','#F97316','#14B8A6','#A855F7','#84CC16','#EF4444'];
+  var _CD_NP = 'Not provided';
+
+  window._cdDestroyCharts = function() {
+    if (!_cdChartInstances.length) return;
+    for (var i = 0; i < _cdChartInstances.length; i++) {
+      try { _cdChartInstances[i].destroy(); } catch(_){}
+    }
+    _cdChartInstances = [];
+  };
+
+  window.cmsCloseContactDemographicsReport = function() {
+    var cd = document.getElementById('contactDemographicsInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    _cdDestroyCharts();
+    if (cd) cd.style.display = 'none';
+    if (rg) rg.style.display = 'block';
+  };
+
+  window.cmsPrintContactDemographicsReport = function() {
+    document.body.classList.add('cd-printing');
+    setTimeout(function() {
+      window.print();
+      setTimeout(function() { document.body.classList.remove('cd-printing'); }, 250);
+    }, 50);
+  };
+
+  function _cdSafeStr(v) { return (v == null) ? '' : String(v).trim(); }
+  function _cdBucketize(map, key) { var k = key || _CD_NP; map.set(k, (map.get(k) || 0) + 1); }
+  function _cdTopN(map, n) { return Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];}).slice(0, n); }
+  function _cdSortedAll(map) { return Array.from(map.entries()).sort(function(a,b){return b[1]-a[1];}); }
+  function _cdPct(num, den) { if (!den) return 0; return Math.round((num/den) * 1000) / 10; }
+  function _cdHasReal(entries) { return entries.some(function(e){ return e[0] !== _CD_NP && e[1] > 0; }); }
+  function _cdCanonMilitary(v) {
+    var s = _cdSafeStr(v).toLowerCase();
+    if (!s) return _CD_NP;
+    if (s.indexOf('not') !== -1) return 'Not military';
+    if (s.indexOf('active') !== -1) return 'Active Duty';
+    if (s.indexOf('vet') !== -1) return 'Veteran';
+    if (s.indexOf('reserve') !== -1 || s.indexOf('guard') !== -1) return 'Reserves';
+    return v;
+  }
+  function _cdCanonChildAge(v) {
+    var s = _cdSafeStr(v);
+    if (!s) return _CD_NP;
+    var map = {'0-2':'0-2','03-may':'3-5','3-5':'3-5','06-dec':'6-12','6-12':'6-12','13-17':'13-17','high school':'High School','hs':'High School','adult':'Adult'};
+    return map[s.toLowerCase()] || s;
+  }
+  function _cdToDate(ca) {
+    if (!ca) return null;
+    if (typeof ca.toDate === 'function') return ca.toDate();
+    if (ca.seconds) return new Date(ca.seconds * 1000);
+    if (ca._seconds) return new Date(ca._seconds * 1000);
+    if (typeof ca === 'string') { var d = new Date(ca); return isNaN(d) ? null : d; }
+    return null;
+  }
+
+  function _cdAggregate(docs) {
+    var total = docs.length;
+    var optInCount = 0;
+    var parentCount = 0;
+    var typeMap = new Map(), cityMap = new Map(), zipMap = new Map();
+    var childAgeMap = new Map(), ethnicityMap = new Map(), disabilityMap = new Map();
+    var militaryMap = new Map(), priorMap = new Map(), howHeardMap = new Map();
+    var growthMap = new Map();
+
+    var fieldsTracked = ['type','firstName','lastName','email','phone','marketingOptOut','createdAt','streetAddress','city','zipCode','childAgeRange','childGender','ethnicity','disabilityCategories','militaryStatus','militaryBranch','priorTraining','howHeard','howHeardOther','linkedSignups'];
+    var populated = {};
+    fieldsTracked.forEach(function(f){ populated[f] = 0; });
+
+    var now = new Date();
+    var monthKeys = [];
+    for (var i = 11; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      var k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      monthKeys.push(k);
+      growthMap.set(k, 0);
+    }
+
+    docs.forEach(function(c) {
+      // populated counts
+      fieldsTracked.forEach(function(f) {
+        var v = c[f];
+        if (Array.isArray(v)) { if (v.length) populated[f]++; }
+        else if (v !== null && v !== undefined && v !== '' && !(typeof v === 'object' && Object.keys(v).length === 0)) populated[f]++;
+      });
+
+      if (c.marketingOptOut === false) optInCount++;
+
+      var type = _cdSafeStr(c.type) || 'Other/Empty';
+      _cdBucketize(typeMap, type);
+      var isParent = /parent|guardian/i.test(type);
+      if (isParent) parentCount++;
+
+      var city = _cdSafeStr(c.city);
+      if (city) _cdBucketize(cityMap, city);
+      var zip = _cdSafeStr(c.zipCode).slice(0, 5);
+      if (zip) _cdBucketize(zipMap, zip);
+
+      if (isParent) _cdBucketize(childAgeMap, _cdCanonChildAge(c.childAgeRange));
+
+      if (c.ethnicity) _cdBucketize(ethnicityMap, _cdSafeStr(c.ethnicity) || _CD_NP);
+      else _cdBucketize(ethnicityMap, _CD_NP);
+
+      var dc = c.disabilityCategories;
+      if (Array.isArray(dc) && dc.length) {
+        dc.forEach(function(cat){ _cdBucketize(disabilityMap, _cdSafeStr(cat) || _CD_NP); });
+      } else if (isParent) {
+        _cdBucketize(disabilityMap, _CD_NP);
+      }
+
+      _cdBucketize(militaryMap, _cdCanonMilitary(c.militaryStatus));
+
+      var pt = c.priorTraining;
+      if (pt === true || /^yes$/i.test(_cdSafeStr(pt))) _cdBucketize(priorMap, 'Yes (returning)');
+      else if (pt === false || /^no$/i.test(_cdSafeStr(pt))) _cdBucketize(priorMap, 'No (new)');
+      else _cdBucketize(priorMap, _CD_NP);
+
+      var hh = _cdSafeStr(c.howHeard);
+      if (/other/i.test(hh) && c.howHeardOther) hh = 'Other: ' + _cdSafeStr(c.howHeardOther);
+      _cdBucketize(howHeardMap, hh || _CD_NP);
+
+      var created = _cdToDate(c.createdAt);
+      if (created) {
+        var gk = created.getFullYear() + '-' + String(created.getMonth() + 1).padStart(2, '0');
+        if (growthMap.has(gk)) growthMap.set(gk, growthMap.get(gk) + 1);
+      }
+    });
+
+    // Top cities (fall back to zips if cities sparse)
+    var topCitiesData = _cdTopN(cityMap, 10);
+    var cityChartTitle = 'Top Cities';
+    if (topCitiesData.length < 3 && zipMap.size > 0) {
+      topCitiesData = _cdTopN(zipMap, 10);
+      cityChartTitle = 'Top Zip Codes';
+    }
+
+    // Ethnicity: collapse small slices
+    var ethnicityData = _cdSortedAll(ethnicityMap);
+    if (ethnicityData.length > 12) {
+      var top = ethnicityData.slice(0, 11);
+      var otherSum = ethnicityData.slice(11).reduce(function(s, e){ return s + e[1]; }, 0);
+      if (otherSum) top.push(['Other', otherSum]);
+      ethnicityData = top;
+    }
+
+    var disabilityData = _cdTopN(disabilityMap, 14);
+    var howHeardData = _cdTopN(howHeardMap, 10);
+
+    var childAgeOrder = ['0-2','3-5','6-12','13-17','High School','Adult', _CD_NP];
+    var childAgeData = childAgeOrder.filter(function(k){return childAgeMap.has(k);}).map(function(k){return [k, childAgeMap.get(k)];})
+      .concat(Array.from(childAgeMap.entries()).filter(function(e){return childAgeOrder.indexOf(e[0]) === -1;}));
+
+    var militaryOrder = ['Not military','Active Duty','Veteran','Reserves', _CD_NP];
+    var militaryData = militaryOrder.filter(function(k){return militaryMap.has(k);}).map(function(k){return [k, militaryMap.get(k)];});
+
+    var growthData = monthKeys.map(function(k){ return [k, growthMap.get(k) || 0]; });
+
+    var dq = fieldsTracked.map(function(f){
+      var have = populated[f] || 0;
+      return { field: f, have: have, pct: _cdPct(have, total) };
+    }).sort(function(a,b){ return b.pct - a.pct; });
+
+    return {
+      total: total,
+      optInPct: _cdPct(optInCount, total),
+      optInCount: optInCount,
+      parentCount: parentCount,
+      cityChartTitle: cityChartTitle,
+      charts: [
+        { id:'cdTypeChart', kind:'doughnut', title:'Contact Type', data:_cdSortedAll(typeMap), show:typeMap.size > 0 },
+        { id:'cdCityChart', kind:'hbar', title:cityChartTitle, data:topCitiesData, show:topCitiesData.length > 0 },
+        { id:'cdChildAgeChart', kind:'bar', title:'Child Age Range (parent contacts, n=' + parentCount + ')', data:childAgeData, show:_cdHasReal(childAgeData) },
+        { id:'cdEthnicityChart', kind:'hbar', title:'Ethnicity', data:ethnicityData, show:_cdHasReal(ethnicityData) },
+        { id:'cdDisabilityChart', kind:'hbar', title:'Disability Categories (IDEA)', data:disabilityData, show:_cdHasReal(disabilityData) },
+        { id:'cdMilitaryChart', kind:'doughnut', title:'Military Status', data:militaryData, show:_cdHasReal(militaryData) },
+        { id:'cdPriorChart', kind:'doughnut', title:'Prior Training (returning vs new)', data:_cdSortedAll(priorMap), show:_cdHasReal(_cdSortedAll(priorMap)) },
+        { id:'cdHowHeardChart', kind:'hbar', title:'How Heard About LDAH', data:howHeardData, show:_cdHasReal(howHeardData) },
+        { id:'cdGrowthChart', kind:'line', title:'Contact Growth (last 12 months)', data:growthData, show:growthData.some(function(e){return e[1] > 0;}) }
+      ],
+      dq: dq
+    };
+  }
+
+  function _cdMakeChart(c) {
+    var ctx = document.getElementById(c.id);
+    if (!ctx || typeof Chart === 'undefined') return;
+    var labels = c.data.map(function(d){ return String(d[0]); });
+    var values = c.data.map(function(d){ return Number(d[1]); });
+    var baseOpts = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: c.kind === 'doughnut', position: 'bottom', labels: { font: { size: 11 } } },
+        tooltip: { intersect: false }
+      }
+    };
+    var cfg;
+    if (c.kind === 'doughnut') {
+      cfg = { type:'doughnut', data:{ labels:labels, datasets:[{ data:values, backgroundColor:labels.map(function(_,i){return _cdPalette[i % _cdPalette.length];}), borderWidth:1, borderColor:'#fff' }] }, options: baseOpts };
+    } else if (c.kind === 'hbar') {
+      cfg = { type:'bar', data:{ labels:labels, datasets:[{ data:values, backgroundColor:'#0891B2', borderRadius:4 }] }, options: Object.assign({}, baseOpts, { indexAxis:'y', scales:{ x:{ beginAtZero:true, ticks:{ precision:0 } } } }) };
+    } else if (c.kind === 'bar') {
+      cfg = { type:'bar', data:{ labels:labels, datasets:[{ data:values, backgroundColor:'#06B6D4', borderRadius:4 }] }, options: Object.assign({}, baseOpts, { scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } }) };
+    } else if (c.kind === 'line') {
+      cfg = { type:'line', data:{ labels:labels, datasets:[{ data:values, borderColor:'#0891B2', backgroundColor:'rgba(8,145,178,0.15)', fill:true, tension:0.3, pointBackgroundColor:'#0891B2' }] }, options: Object.assign({}, baseOpts, { scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } }) };
+    }
+    if (cfg) _cdChartInstances.push(new Chart(ctx, cfg));
+  }
+
+  function _cdRenderContactDemographics(agg) {
+    var body = document.getElementById('cdBody');
+    if (!body) return;
+    var shownCharts = agg.charts.filter(function(c){ return c.show; });
+    var cardsHtml = shownCharts.map(function(c){
+      return '<div class="cd-chart-card"><h3>' + _esc(c.title) + '</h3>' +
+             '<div class="cd-chart-wrap' + (c.kind === 'hbar' ? ' tall' : '') + '"><canvas id="' + c.id + '"></canvas></div></div>';
+    }).join('');
+
+    var dqRows = agg.dq.map(function(r){
+      var cls = r.pct >= 75 ? 'cd-pct-good' : (r.pct >= 30 ? 'cd-pct-mid' : 'cd-pct-low');
+      return '<tr><td><code>' + _esc(r.field) + '</code></td>' +
+             '<td>' + r.have.toLocaleString() + ' / ' + agg.total.toLocaleString() + '</td>' +
+             '<td class="' + cls + '">' + r.pct + '%</td>' +
+             '<td><div class="cd-bar"><span style="width:' + r.pct + '%"></span></div></td></tr>';
+    }).join('');
+
+    body.innerHTML =
+      '<div class="cd-kpi-strip">' +
+        '<div class="cd-kpi"><div class="cd-kpi-label">Total Contacts</div><div class="cd-kpi-value">' + agg.total.toLocaleString() + '</div></div>' +
+        '<div class="cd-kpi"><div class="cd-kpi-label">Email Opt-In</div><div class="cd-kpi-value">' + agg.optInPct + '%</div></div>' +
+        '<div class="cd-kpi"><div class="cd-kpi-label">Parent / Guardian</div><div class="cd-kpi-value">' + agg.parentCount.toLocaleString() + '</div></div>' +
+      '</div>' +
+      '<div class="cd-grid">' + cardsHtml + '</div>' +
+      '<div class="cd-dq"><h3>Data Quality &mdash; Field Population</h3>' +
+        '<table><thead><tr><th>Field</th><th>Populated</th><th>%</th><th></th></tr></thead>' +
+        '<tbody>' + dqRows + '</tbody></table></div>';
+
+    _cdDestroyCharts();
+    shownCharts.forEach(_cdMakeChart);
+  }
+
+  window.cmsBuildContactDemographicsReport = async function() {
+    var cd = document.getElementById('contactDemographicsInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (cd) cd.style.display = 'block';
+    if (rg) rg.style.display = 'none';
+
+    var body = document.getElementById('cdBody');
+    var stampEl = document.getElementById('cdGeneratedAt');
+    if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading contact data...</div>';
+    if (stampEl) stampEl.textContent = '';
+    _cdDestroyCharts();
+
+    try {
+      var snap = await db.collection('contacts').get();
+      var docs = [];
+      snap.forEach(function(d){ docs.push(d.data() || {}); });
+      var agg = _cdAggregate(docs);
+      _cdRenderContactDemographics(agg);
+
+      var now = new Date();
+      var hst = new Date(now.getTime() - (now.getTimezoneOffset() + 600) * 60000);
+      var hstStr = hst.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) + ' HST';
+      if (stampEl) stampEl.textContent = 'Generated ' + hstStr;
+
+      if (typeof auditLog === 'function') auditLog('Generated Contact Demographics Report', agg.total + ' contacts');
+    } catch (err) {
+      console.error('cmsBuildContactDemographicsReport error:', err);
+      if (body) body.innerHTML = '<div class="cd-error">Error loading contact data: ' + _esc(err.message) + '</div>';
     }
   };
 })();
