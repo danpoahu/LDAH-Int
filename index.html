@@ -4348,7 +4348,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -30019,6 +30019,34 @@ window.cmsBuildStaffActivityReport = async function() {
         // Also include feedback sessionDate keys (some sessions may have feedback
         // without yet-saved attendance; rare but tolerable)
         feedback.forEach(function(f) { if (f.sessionDate) keys[f.sessionDate] = true; });
+        // Also enumerate every past scheduled session from ev.schedules so a row
+        // exists even when nobody signed up or attended. Without this, a Hilo or
+        // Kona Thursday with zero signups disappears from the report — but staff
+        // still need to record the presenter and pink sheet for the class that
+        // actually ran. Lookback bounded to 365 days for performance.
+        if (Array.isArray(ev.schedules) && ev.schedules.length && typeof cmsBuildSessionKey === 'function') {
+          var _schedDaysBack = 365;
+          var _schedFrom = new Date(_today.getFullYear(), _today.getMonth(), _today.getDate() - _schedDaysBack);
+          ev.schedules.forEach(function(sch) {
+            if (!sch) return;
+            var d = new Date(_schedFrom);
+            while (d <= _endOfToday) {
+              var dow = d.getDay();
+              var fires = false;
+              if (sch.frequency === 'weekly' && sch.dayOfWeek === dow) fires = true;
+              else if (sch.frequency === 'monthly-nth' && sch.dayOfWeek === dow && Math.ceil(d.getDate() / 7) === sch.weekOfMonth) fires = true;
+              if (fires) {
+                var iso = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+                var sessKey = cmsBuildSessionKey({
+                  date: iso, location: sch.location || '', venue: sch.venue || '',
+                  startTime: sch.startTime || '', endTime: sch.endTime || ''
+                });
+                if (sessKey) keys[sessKey] = true;
+              }
+              d.setDate(d.getDate() + 1);
+            }
+          });
+        }
         // Group keys by (sessionDateIso + resolved location). Signups commonly
         // store bare-date sessionAttendance keys ("2026-05-07") while feedback
         // stores composite ones ("2026-05-07|Oahu – …|11:00 AM – 1:00 PM").
