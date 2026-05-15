@@ -4348,7 +4348,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -29847,6 +29847,32 @@ window.cmsBuildStaffActivityReport = async function() {
     return s.attendanceStatus === 'attended';
   }
 
+  // Alias-aware variants: accept an array of session keys and match against
+  // any. Used when canonical (composite) + legacy (bare-date) keys describe
+  // the same Connect-Gen session.
+  function _signupAttendedAny(s, keys, isPerSession) {
+    if (!s) return false;
+    if (!isPerSession) return s.attendanceStatus === 'attended';
+    if (!s.sessionAttendance || !keys || !keys.length) return false;
+    for (var i = 0; i < keys.length; i++) {
+      var sa = s.sessionAttendance[keys[i]];
+      if (sa && sa.status === 'attended') return true;
+    }
+    return false;
+  }
+  function _feedbackBelongsAny(fb, keys, signup, isPerSession) {
+    if (!fb) return false;
+    if (!isPerSession) return true;
+    if (keys && keys.indexOf(fb.sessionDate) !== -1) return true;
+    if (!fb.sessionDate && signup && signup.sessionAttendance && keys && keys.length) {
+      var attended = Object.keys(signup.sessionAttendance).filter(function(k) {
+        return signup.sessionAttendance[k] && signup.sessionAttendance[k].status === 'attended';
+      });
+      if (attended.length === 1 && keys.indexOf(attended[0]) !== -1) return true;
+    }
+    return false;
+  }
+
   // Map a feedback doc to a session date — direct field, otherwise infer
   // from the linked signup's attended sessions when there's exactly one
   // attended date matching the candidate.
@@ -29939,11 +29965,32 @@ window.cmsBuildStaffActivityReport = async function() {
         // Also include feedback sessionDate keys (some sessions may have feedback
         // without yet-saved attendance; rare but tolerable)
         feedback.forEach(function(f) { if (f.sessionDate) keys[f.sessionDate] = true; });
+        // Group keys by (sessionDateIso + resolved location). Signups commonly
+        // store bare-date sessionAttendance keys ("2026-05-07") while feedback
+        // stores composite ones ("2026-05-07|Oahu – …|11:00 AM – 1:00 PM").
+        // Both refer to the same Connect-Gen session; without grouping the
+        // report renders two rows that resolve to the same location.
+        var keyGroups = {};
         Object.keys(keys).forEach(function(k) {
           var dt = _rsParseSessionDate(k);
           if (!dt) return;
           if (_isFutureDate(dt)) return; // skip future event-dates
-          rows.push(_buildRow(ev, k, dt, signups, feedback, true, false));
+          var iso = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+          var loc = _eaResolveSessionLocation(ev, k, dt);
+          var gk = iso + '||' + loc;
+          if (!keyGroups[gk]) keyGroups[gk] = { keys: [], dt: dt };
+          keyGroups[gk].keys.push(k);
+        });
+        Object.keys(keyGroups).forEach(function(gk) {
+          var g = keyGroups[gk];
+          // Canonical = composite (has '|') if available so summary lookup,
+          // labels, and feedback matching use the richer key. Aliases are
+          // every other member of the group (typically a legacy bare-date
+          // sessionAttendance key) and get merged into the same row's
+          // signup/feedback filters.
+          var canonical = g.keys.find(function(k) { return k && k.indexOf('|') !== -1; }) || g.keys[0];
+          var aliases = g.keys.filter(function(k) { return k !== canonical; });
+          rows.push(_buildRow(ev, canonical, g.dt, signups, feedback, true, false, aliases));
         });
       } else if (isOneTimeMulti) {
         sigDates.forEach(function(raw) {
@@ -29996,34 +30043,47 @@ window.cmsBuildStaffActivityReport = async function() {
   }
 
   // Build one row descriptor for an event-date.
-  function _buildRow(ev, sessionDateKey, dt, signups, feedback, isRecurring, isOneTimeMulti) {
+  // aliasKeys: additional sessionAttendance / feedback.sessionDate strings
+  // that refer to this same session (e.g. legacy bare-date key alongside a
+  // composite one). Filters and counters match against the union.
+  function _buildRow(ev, sessionDateKey, dt, signups, feedback, isRecurring, isOneTimeMulti, aliasKeys) {
     var isPerSession = isRecurring || isOneTimeMulti;
-    // Pull saved summary for this date
+    var allKeys = [sessionDateKey].concat(aliasKeys || []).filter(Boolean);
+    // Pull saved summary for this date — prefer canonical, fall back to any
+    // alias (legacy bare-date sessionSummaries entries still surface).
     var summary = {};
-    if (isPerSession && sessionDateKey && ev.sessionSummaries && ev.sessionSummaries[sessionDateKey]) {
-      summary = ev.sessionSummaries[sessionDateKey] || {};
+    if (isPerSession && ev.sessionSummaries) {
+      for (var _sk = 0; _sk < allKeys.length; _sk++) {
+        if (ev.sessionSummaries[allKeys[_sk]]) { summary = ev.sessionSummaries[allKeys[_sk]] || {}; break; }
+      }
     } else if (!isPerSession && ev.summary) {
       summary = ev.summary || {};
     }
-    // Filter signups that pertain to this date (for one-time multi: by selectedDates;
-    // for recurring: any signup with sessionAttendance[key]; for flat: all)
+    // Filter signups that pertain to this date. Matches sessionAttendance
+    // under ANY alias and tolerates selectedSessions containing any key.
     var related = signups;
-    if (isPerSession && sessionDateKey) {
+    if (isPerSession && allKeys.length) {
       related = signups.filter(function(s) {
-        if (s.sessionAttendance && s.sessionAttendance[sessionDateKey]) return true;
+        if (s.sessionAttendance) {
+          for (var _ak = 0; _ak < allKeys.length; _ak++) {
+            if (s.sessionAttendance[allKeys[_ak]]) return true;
+          }
+        }
         var sDates = s.selectedSessions || s.selectedDates || [];
-        return sDates.some(function(sd) { return String(sd).indexOf(sessionDateKey) !== -1; });
+        return allKeys.some(function(k) {
+          return sDates.some(function(sd) { return String(sd).indexOf(k) !== -1; });
+        });
       });
     }
     var active = related.filter(function(s) { return s.archived !== true && s.status !== 'cancelled'; });
     var totalAttended = 0;
     active.forEach(function(s) {
-      if (_signupAttendedSession(s, sessionDateKey, isPerSession)) totalAttended++;
+      if (_signupAttendedAny(s, allKeys, isPerSession)) totalAttended++;
     });
 
     var feedbackForDate = feedback.filter(function(f) {
       var sg = active.find(function(s) { return s.id === f.signupId; }) || null;
-      return _feedbackBelongsToSession(f, sessionDateKey, sg, isPerSession);
+      return _feedbackBelongsAny(f, allKeys, sg, isPerSession);
     });
 
     // Sort key year (for filter)
@@ -30049,7 +30109,7 @@ window.cmsBuildStaffActivityReport = async function() {
     var professionalOtherLiveCount = 0;    // attended + role exists and not Parent/Guardian/Youth
     var militaryActiveLiveCount = 0;       // attended + _normMilitaryStatus === 'Active Duty'
     active.forEach(function(s) {
-      if (!_signupAttendedSession(s, sessionDateKey, isPerSession)) return;
+      if (!_signupAttendedAny(s, allKeys, isPerSession)) return;
       var reg = s.registration || {};
       var role = reg.role || '';
       if (role === 'Parent/Guardian') {
@@ -30076,6 +30136,7 @@ window.cmsBuildStaffActivityReport = async function() {
       collection: ev._coll,
       eventTitle: ev.title || '(untitled)',
       sessionDate: sessionDateKey || null,
+      sessionDateKeys: allKeys,
       sessionDateLabel: sessionLabel,
       sessionDateIso: sessionIso,
       sessionDateObj: dt,
@@ -30469,7 +30530,7 @@ window.cmsBuildStaffActivityReport = async function() {
   function _computeAgeCounts(r) {
     var counts = { '0-2':0, '3-5':0, '6-12':0, '13-17':0, 'Adult':0 };
     r.signups.forEach(function(s) {
-      if (!_signupAttendedSession(s, r.sessionDate, r.isPerSession)) return;
+      if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = s.registration || {};
       // Multi-child registration: registration.children[] is the canonical home
       var children = Array.isArray(reg.children) ? reg.children : null;
@@ -30492,7 +30553,7 @@ window.cmsBuildStaffActivityReport = async function() {
     var counts = {};
     _eaEthnicityBuckets.forEach(function(b) { counts[b] = 0; });
     r.signups.forEach(function(s) {
-      if (!_signupAttendedSession(s, r.sessionDate, r.isPerSession)) return;
+      if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = s.registration || {};
       var children = Array.isArray(reg.children) ? reg.children : null;
       if (children && children.length) {
@@ -30513,7 +30574,7 @@ window.cmsBuildStaffActivityReport = async function() {
     var counts = {};
     _eaDisabList.forEach(function(d) { counts[d] = 0; });
     r.signups.forEach(function(s) {
-      if (!_signupAttendedSession(s, r.sessionDate, r.isPerSession)) return;
+      if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = s.registration || {};
       var children = Array.isArray(reg.children) ? reg.children : null;
       var lists = [];
