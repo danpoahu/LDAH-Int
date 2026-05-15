@@ -4348,7 +4348,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -29964,6 +29964,37 @@ window.cmsBuildStaffActivityReport = async function() {
     return { rows: rows, titles: titles };
   }
 
+  // Resolve the location label for one event-date row. Recurring programs
+  // (Connect-Gen, Coffee Connection, etc.) store location per schedule, so
+  // ev.location is usually empty. Composite session keys carry the location
+  // inline ("YYYY-MM-DD|Location – Venue|time-range"); bare-date keys fall
+  // back to a dayOfWeek/weekOfMonth lookup against ev.schedules so 2nd/3rd
+  // Thursday neighbor-island sessions still render.
+  function _eaResolveSessionLocation(ev, sessionDateKey, dt) {
+    if (sessionDateKey && typeof sessionDateKey === 'string' && sessionDateKey.indexOf('|') !== -1) {
+      var locPart = (sessionDateKey.split('|')[1] || '').trim();
+      if (locPart) return locPart;
+    }
+    if (Array.isArray(ev.schedules) && ev.schedules.length && dt) {
+      var dow = dt.getDay();
+      var weekNum = Math.ceil(dt.getDate() / 7);
+      var matches = [];
+      ev.schedules.forEach(function(sch) {
+        if (!sch) return;
+        if (sch.frequency === 'weekly' && sch.dayOfWeek === dow) matches.push(sch);
+        else if (sch.frequency === 'monthly-nth' && sch.dayOfWeek === dow && sch.weekOfMonth === weekNum) matches.push(sch);
+      });
+      if (matches.length) {
+        return matches.map(function(sch) {
+          var loc = sch.location || '';
+          var ven = sch.venue || '';
+          return ven ? (loc ? loc + ' – ' + ven : ven) : loc;
+        }).filter(Boolean).join(' / ');
+      }
+    }
+    return ev.location || '';
+  }
+
   // Build one row descriptor for an event-date.
   function _buildRow(ev, sessionDateKey, dt, signups, feedback, isRecurring, isOneTimeMulti) {
     var isPerSession = isRecurring || isOneTimeMulti;
@@ -30055,7 +30086,7 @@ window.cmsBuildStaffActivityReport = async function() {
       isRecurring: isRecurring,
       isOneTimeMulti: isOneTimeMulti,
       isPerSession: isPerSession,
-      location: ev.location || '',
+      location: _eaResolveSessionLocation(ev, sessionDateKey, dt),
       presenter: presenter,
       tier: tier,
       totalAttended: totalAttended,
