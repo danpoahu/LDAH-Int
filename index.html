@@ -4348,7 +4348,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20178,6 +20178,30 @@ function cmsFmt12(time24) {
   return hour + ':' + m + ' ' + ampm;
 }
 
+// Composite session key matching the format used by W2/App selectedSessions
+// and eventFeedback.sessionDate. Going forward, sessionAttendance uses the
+// same key so 2nd/3rd Thursday Oahu vs neighbor-island sessions stay
+// distinct. Format: "YYYY-MM-DD|Location – Venue|H:MM AM – H:MM PM".
+function cmsBuildSessionKey(sess) {
+  if (!sess || !sess.date) return '';
+  var locVenue = sess.venue ? (sess.location || '') + ' – ' + sess.venue : (sess.location || '');
+  var timeRange = (sess.startTime ? cmsFmt12(sess.startTime) : '') + ' – ' + (sess.endTime ? cmsFmt12(sess.endTime) : '');
+  return sess.date + '|' + locVenue + '|' + timeRange;
+}
+
+// sessionSummaries lookup tolerant of legacy bare-date entries. The dropdown
+// now feeds composite keys; pre-migration summaries are still keyed by the
+// raw "YYYY-MM-DD" prefix, so try that before giving up.
+function cmsLookupSessionSummary(eventDoc, sessionKey) {
+  if (!eventDoc || !eventDoc.sessionSummaries || !sessionKey) return null;
+  if (eventDoc.sessionSummaries[sessionKey]) return eventDoc.sessionSummaries[sessionKey];
+  var bareDate = String(sessionKey).split('|')[0];
+  if (bareDate && bareDate !== sessionKey && eventDoc.sessionSummaries[bareDate]) {
+    return eventDoc.sessionSummaries[bareDate];
+  }
+  return null;
+}
+
 window.cmsAddRecurringScheduleRow = function(sch) {
   var idx = _cmsRecurringSchedules.length;
   var id = (sch && sch.id) ? sch.id : 'sch_' + Date.now() + '_' + idx;
@@ -22271,12 +22295,16 @@ window.cmsSaveAttendance = async function() {
   var skippedFuture = 0;
   var _saveTodayKey = _localToday();
 
+  // Aggregate by signupId. For per-session writes we set the whole
+  // sessionAttendance map (read-modify-write) because dotted-path updates
+  // fail on Firestore field-paths containing pipes / spaces / en-dashes
+  // — exactly the chars in our composite session keys.
+  var bySignup = {};
   checkboxes.forEach(function(cb) {
     var signupId = cb.getAttribute('data-signup-id');
     var sessionDate = cb.getAttribute('data-session-date') || null;
     var attended = cb.checked;
     var status = attended ? 'attended' : 'no-show';
-    var ref = db.collection(collection).doc(d.eventId).collection('signups').doc(signupId);
 
     // v120.6.0: defensive guard — never write attendance for a date that
     // hasn't happened yet. UI already filters future dates out of
@@ -22290,24 +22318,37 @@ window.cmsSaveAttendance = async function() {
       }
     }
 
+    if (!bySignup[signupId]) bySignup[signupId] = { perSession: {}, flat: null };
     if (sessionDate) {
-      // Per-session attendance (recurring programs + multi-date one-time events)
-      var updateObj = {};
-      updateObj['sessionAttendance.' + sessionDate] = {
-        status: status,
-        markedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        markedBy: (currentUserData && currentUserData.displayName) || 'Unknown'
-      };
-      batch.update(ref, updateObj);
+      bySignup[signupId].perSession[sessionDate] = status;
     } else {
-      // Single-date one-time event: update attendanceStatus directly
-      batch.update(ref, {
-        attendanceStatus: status,
-        attendanceMarkedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        attendanceMarkedBy: (currentUserData && currentUserData.displayName) || 'Unknown'
-      });
+      bySignup[signupId].flat = status;
     }
     updates.push({ signupId: signupId, sessionDate: sessionDate, status: status });
+  });
+
+  var markedBy = (currentUserData && currentUserData.displayName) || 'Unknown';
+  Object.keys(bySignup).forEach(function(signupId) {
+    var u = bySignup[signupId];
+    var ref = db.collection(collection).doc(d.eventId).collection('signups').doc(signupId);
+    if (u.flat) {
+      batch.update(ref, {
+        attendanceStatus: u.flat,
+        attendanceMarkedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        attendanceMarkedBy: markedBy
+      });
+    } else if (Object.keys(u.perSession).length) {
+      var cached = d.signups.find(function(x) { return x.id === signupId; });
+      var newMap = Object.assign({}, (cached && cached.sessionAttendance) || {});
+      Object.keys(u.perSession).forEach(function(k) {
+        newMap[k] = {
+          status: u.perSession[k],
+          markedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          markedBy: markedBy
+        };
+      });
+      batch.update(ref, { sessionAttendance: newMap });
+    }
   });
 
   try {
@@ -22320,11 +22361,11 @@ window.cmsSaveAttendance = async function() {
         if (!s.sessionAttendance) s.sessionAttendance = {};
         s.sessionAttendance[u.sessionDate] = {
           status: u.status,
-          markedBy: (currentUserData && currentUserData.displayName) || 'Unknown'
+          markedBy: markedBy
         };
       } else {
         s.attendanceStatus = u.status;
-        s.attendanceMarkedBy = (currentUserData && currentUserData.displayName) || 'Unknown';
+        s.attendanceMarkedBy = markedBy;
       }
     });
     var attendedCount = updates.filter(function(u) { return u.status === 'attended'; }).length;
@@ -22455,6 +22496,7 @@ function cmsRenderAttendanceRecurring(active, collection, eventId) {
 
   sessions.forEach(function(sess) {
     if (sess.cancelled) return; // skip cancelled sessions in attendance mode
+    var sessKey = cmsBuildSessionKey(sess);
     var dateSignups = active.filter(function(s) {
       var sDates = s.selectedSessions || s.selectedDates || [];
       return sDates.some(function(sd) {
@@ -22465,8 +22507,10 @@ function cmsRenderAttendanceRecurring(active, collection, eventId) {
         return true;
       });
     });
-    var sessLabel = sess.dayName + ', ' + sess.date + ' — ' + cmsFmt12(sess.startTime) + ' - ' + cmsFmt12(sess.endTime) + ' @ ' + sess.location;
-    var groupId = 'cmsAttendanceGroup_' + sess.date.replace(/[^a-zA-Z0-9]/g, '_');
+    var sessLabel = sess.dayName + ', ' + sess.date + ' — ' + cmsFmt12(sess.startTime) + ' - ' + cmsFmt12(sess.endTime) + ' @ ' + sess.location + (sess.venue ? ' (' + sess.venue + ')' : '');
+    // groupId derives from the composite key so 2nd/3rd Thursdays (two
+    // sessions on one date) get distinct DOM containers + selectors.
+    var groupId = 'cmsAttendanceGroup_' + sessKey.replace(/[^a-zA-Z0-9]/g, '_');
 
     html += '<div id="' + groupId + '" style="margin-bottom:16px;border:2px solid #059669;border-radius:10px;overflow:hidden;">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#F0FDF4;border-bottom:1px solid #BBF7D0;">';
@@ -22474,7 +22518,7 @@ function cmsRenderAttendanceRecurring(active, collection, eventId) {
     html += '<div style="font-weight:600;font-size:.88rem;color:#065F46;">' + rsEscape(sessLabel) + '</div>';
     html += '<span style="font-size:.78rem;color:var(--text-soft);">' + dateSignups.length + ' signup' + (dateSignups.length !== 1 ? 's' : '') + '</span>';
     html += '</div>';
-    html += '<button class="btn btn-ghost" style="font-size:.76rem;padding:3px 10px;background:#D1FAE5;color:#065F46;font-weight:600;" onclick="cmsMarkAllPresent(\'' + rsEscape(sess.date) + '\')">Mark All Present</button>';
+    html += '<button class="btn btn-ghost" style="font-size:.76rem;padding:3px 10px;background:#D1FAE5;color:#065F46;font-weight:600;" onclick="cmsMarkAllPresent(decodeURIComponent(\'' + _attrJsArg(sessKey) + '\'))">Mark All Present</button>';
     html += '</div>';
 
     if (dateSignups.length === 0) {
@@ -22482,12 +22526,14 @@ function cmsRenderAttendanceRecurring(active, collection, eventId) {
     } else {
       dateSignups.forEach(function(s) {
         var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
-        var sessAtt = (s.sessionAttendance && s.sessionAttendance[sess.date]) || {};
+        // Read attendance: prefer composite key, fall back to legacy bare-date
+        // entry so admins still see pre-migration state correctly.
+        var sessAtt = (s.sessionAttendance && (s.sessionAttendance[sessKey] || s.sessionAttendance[sess.date])) || {};
         var isAttended = sessAtt.status === 'attended' || (!sessAtt.status && s.attendanceStatus === 'attended');
         var isNoShow = sessAtt.status === 'no-show';
         var borderColor = isAttended ? '#059669' : (isNoShow ? '#DC2626' : '#E2E8F0');
         html += '<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-left:4px solid ' + borderColor + ';border-bottom:1px solid #F1F5F9;background:#fff;">';
-        html += '<input type="checkbox" data-signup-id="' + rsEscape(s.id) + '" data-session-date="' + rsEscape(sess.date) + '" ' + (isAttended ? 'checked' : '') + ' style="width:18px;height:18px;cursor:pointer;accent-color:#059669;flex-shrink:0;">';
+        html += '<input type="checkbox" data-signup-id="' + rsEscape(s.id) + '" data-session-date="' + rsEscape(sessKey) + '" ' + (isAttended ? 'checked' : '') + ' style="width:18px;height:18px;cursor:pointer;accent-color:#059669;flex-shrink:0;">';
         html += '<div style="flex:1;min-width:0;">';
         html += '<span style="font-weight:600;font-size:.9rem;">' + name + '</span>';
         if (s.email) html += '<span style="font-size:.8rem;color:var(--text-soft);margin-left:10px;">' + rsEscape(s.email) + '</span>';
@@ -22582,8 +22628,9 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     html += '<select id="esSessionDateSelect" onchange="cmsEventSummarySelectSession(this.value)" style="padding:6px 12px;border:1px solid #CBD5E1;border-radius:8px;font-size:.88rem;">';
     html += '<option value="">-- All Sessions (aggregate) --</option>';
     combinedSessions.forEach(function(sess) {
-      var lbl = sess.date + (sess.location ? ' @ ' + sess.location : '');
-      html += '<option value="' + rsEscape(sess.date) + '"' + (sessionDate === sess.date ? ' selected' : '') + '>' + rsEscape(lbl) + '</option>';
+      var sessKey = cmsBuildSessionKey(sess);
+      var lbl = sess.date + (sess.location ? ' @ ' + sess.location : '') + (sess.venue ? ' (' + sess.venue + ')' : '');
+      html += '<option value="' + rsEscape(sessKey) + '"' + (sessionDate === sessKey ? ' selected' : '') + '>' + rsEscape(lbl) + '</option>';
     });
     html += '</select></div>';
   }
@@ -22699,8 +22746,8 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   // Saved summary (pulled fresh because the Pink Form block below references
   // it too; computing once here keeps everything in sync).
   var _attSummary = {};
-  if (sessionDate && (isRecurring || isOneTimeMulti) && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
-    _attSummary = eventDoc.sessionSummaries[sessionDate];
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
+    _attSummary = cmsLookupSessionSummary(eventDoc, sessionDate) || {};
   } else if (!isRecurring && !isOneTimeMulti && eventDoc.summary) {
     _attSummary = eventDoc.summary;
   } else if (isOneTimeMulti && !sessionDate && eventDoc.summary) {
@@ -23263,8 +23310,9 @@ window.cmsSaveEventSummary = async function() {
 
   // Snapshot prior summary for audit diffing
   var summary = {};
-  if (sessionDate && (isRecurring || isOneTimeMulti) && evDoc.sessionSummaries && evDoc.sessionSummaries[sessionDate]) {
-    summary = evDoc.sessionSummaries[sessionDate];
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
+    summary = cmsLookupSessionSummary(evDoc, sessionDate) || {};
+    if (!Object.keys(summary).length && evDoc.summary) summary = evDoc.summary;
   } else if (evDoc.summary) {
     summary = evDoc.summary;
   }
@@ -23272,7 +23320,12 @@ window.cmsSaveEventSummary = async function() {
   try {
     var updateObj = {};
     if (sessionDate && (isRecurring || isOneTimeMulti)) {
-      updateObj['sessionSummaries.' + sessionDate] = summaryData;
+      // Composite session keys contain pipes / en-dashes / spaces which
+      // break Firestore dotted-path field updates. Read-modify-write the
+      // whole sessionSummaries map instead.
+      var nextSummaries = Object.assign({}, evDoc.sessionSummaries || {});
+      nextSummaries[sessionDate] = summaryData;
+      updateObj.sessionSummaries = nextSummaries;
     } else {
       updateObj.summary = summaryData;
     }
@@ -23755,8 +23808,9 @@ window.cmsExportEventSummaryCsv = function() {
   var isOneTimeMulti = !isRecurring && Array.isArray(eventDoc.signupDates) && eventDoc.signupDates.length > 1;
 
   var summary = {};
-  if (sessionDate && (isRecurring || isOneTimeMulti) && eventDoc.sessionSummaries && eventDoc.sessionSummaries[sessionDate]) {
-    summary = eventDoc.sessionSummaries[sessionDate];
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
+    summary = cmsLookupSessionSummary(eventDoc, sessionDate) || {};
+    if (!Object.keys(summary).length && !isRecurring && eventDoc.summary) summary = eventDoc.summary;
   } else if (!isRecurring && eventDoc.summary) {
     summary = eventDoc.summary;
   }
