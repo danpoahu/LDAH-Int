@@ -4154,7 +4154,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   STAGE v123.1.2 — Home redesign: My Day + Recent Signups (wired to live data)
+   STAGE v123.1.3 — Home redesign: My Day + Recent Signups (wired to live data)
    Scoped to .my-day-card and .recent-signups-card so the rest of
    LDAH-Int is unaffected. Reuses --ocean-deep, --sand, --palm, etc.
    ───────────────────────────────────────────────────────────────── */
@@ -4250,7 +4250,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v123.1.2 — home redesign (My Day + Recent Signups)
+    STAGE · LDAH-Int v123.1.3 — home redesign (My Day + Recent Signups)
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4446,7 +4446,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.3-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4546,7 +4546,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 <div class="myday-chip urgent"><div class="n" id="myDayOverdueN">2</div><div class="l">Overdue</div></div>
                 <div class="myday-chip amber"><div class="n" id="myDayTodayN">4</div><div class="l">Today</div></div>
                 <div class="myday-chip"><div class="n" id="myDayWeekN">7</div><div class="l">This wk</div></div>
-                <div class="myday-chip green"><div class="n" id="myDayDoneN">12</div><div class="l">Done 7d</div></div>
+                <div class="myday-chip green"><div class="n" id="myDayDoneN">12</div><div class="l">Done</div></div>
               </div>
             </div>
 
@@ -4690,51 +4690,66 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               setText('myDayGreeting','Aloha'+(first?' '+first:''));
               loading('myDayTodos');loading('myDayUpdates');
 
-              // The logged-in user's open interactions, bucketed by followUpDate.
+              // The logged-in user's interactions. Open ones bucket by
+              // followUpDate; closed ones render as done rows so completed
+              // work stays visible. Interactions with no followUpDate still
+              // show (as 'open') rather than being dropped.
               try{
                 var tk=todayKey(),wk=addDays(tk,7);
                 var snap=u.uid?await db.collection('interactions').where('ownerUid','==',u.uid).get():null;
-                var overdue=0,today=0,week=0,done=0,actionable=[];
+                var overdue=0,today=0,week=0,done=0,list=[];
                 if(snap)snap.forEach(function(doc){
                   var d=doc.data();
                   if(d.isDraft||d.channel==='Internal Chat')return;
+                  var fu=d.followUpDate||'';
                   if(d.status==='Closed'){
-                    var cd=tsToDate(d.createdAt);
-                    if(cd&&(Date.now()-cd.getTime())<7*86400000)done++;
+                    done++;
+                    list.push({d:d,bucket:'done',sort:fu||'0'});
                     return;
                   }
-                  var fu=d.followUpDate||'';
-                  if(!fu)return;
-                  if(fu<tk){overdue++;actionable.push({d:d,bucket:'overdue',fu:fu});}
-                  else if(fu===tk){today++;actionable.push({d:d,bucket:'today',fu:fu});}
-                  else if(fu<=wk){week++;actionable.push({d:d,bucket:'week',fu:fu});}
+                  if(fu&&fu<tk){overdue++;list.push({d:d,bucket:'overdue',sort:fu});}
+                  else if(fu===tk){today++;list.push({d:d,bucket:'today',sort:fu});}
+                  else if(fu&&fu<=wk){week++;list.push({d:d,bucket:'week',sort:fu});}
+                  else{list.push({d:d,bucket:'open',sort:fu||'~'});}
                 });
                 setText('myDayOverdueN',overdue);setText('myDayTodayN',today);
                 setText('myDayWeekN',week);setText('myDayDoneN',done);
                 var due=overdue+today;
                 setText('myDayHeroSub',due>0?(due+' thing'+(due===1?'':'s')+' need'+(due===1?'s':'')+' you today'):'You’re all caught up — nice.');
-                var ord={overdue:0,today:1,week:2};
-                actionable.sort(function(a,b){return ord[a.bucket]-ord[b.bucket]||(a.fu<b.fu?-1:1);});
+                var ord={overdue:0,today:1,week:2,open:3,done:4};
+                list.sort(function(a,b){
+                  if(ord[a.bucket]!==ord[b.bucket])return ord[a.bucket]-ord[b.bucket];
+                  if(a.bucket==='done')return a.sort<b.sort?1:-1; // done: newest first
+                  return a.sort<b.sort?-1:1;
+                });
+                var META={
+                  overdue:{cls:'todo urgent',pill:'<span class="pill overdue">OVERDUE</span>'},
+                  today:{cls:'todo today',pill:'<span class="pill due">TODAY</span>'},
+                  week:{cls:'todo',pill:'<span class="pill">THIS WEEK</span>'},
+                  open:{cls:'todo',pill:'<span class="pill">OPEN</span>'},
+                  done:{cls:'todo done',pill:'<span class="pill">DONE</span>'}
+                };
                 var todos=document.getElementById('myDayTodos');
                 if(todos){
-                  if(!actionable.length){empty('myDayTodos','Nothing on your list right now 🌴');}
+                  if(!list.length){empty('myDayTodos','No interactions assigned to you yet.');}
                   else{
-                    todos.innerHTML=actionable.slice(0,8).map(function(r){
-                      var d=r.d;
-                      var cls=r.bucket==='overdue'?'todo urgent':(r.bucket==='today'?'todo today':'todo');
-                      var pill=r.bucket==='overdue'?'<span class="pill overdue">OVERDUE</span>':(r.bucket==='today'?'<span class="pill due">TODAY</span>':'<span class="pill">THIS WEEK</span>');
+                    todos.innerHTML=list.slice(0,15).map(function(r){
+                      var d=r.d,m=META[r.bucket];
                       var typePill=d.interactionType?'<span class="pill followup">'+esc(d.interactionType)+'</span>':'';
                       var person=d.contactName?' — <span class="person">'+esc(d.contactName)+'</span>':'';
-                      var sub=[];if(d.status)sub.push(esc(d.status));if(d.channel)sub.push(esc(d.channel));sub.push('follow-up '+esc(r.fu));
-                      return '<div class="'+cls+'" onclick="document.querySelector(\'[data-section=interactions]\').click()">'
+                      var sub=[];
+                      if(d.status)sub.push(esc(d.status));
+                      if(d.channel)sub.push(esc(d.channel));
+                      if(d.followUpDate)sub.push((r.bucket==='done'?'was due ':'follow-up ')+esc(d.followUpDate));
+                      return '<div class="'+m.cls+'" onclick="document.querySelector(\'[data-section=interactions]\').click()">'
                         +'<div class="check" onclick="event.stopPropagation();this.parentElement.classList.toggle(\'done\');"></div>'
                         +'<div class="meta"><div class="ttl">'+esc(d.summary||'(no summary)')+person+'</div>'
-                        +'<div class="sub">'+sub.join(' · ')+'</div></div>'
-                        +'<div class="tags">'+pill+typePill+'</div></div>';
+                        +'<div class="sub">'+(sub.join(' · ')||'—')+'</div></div>'
+                        +'<div class="tags">'+m.pill+typePill+'</div></div>';
                     }).join('');
                   }
                 }
-                setText('myDayTodoCount',actionable.length);
+                setText('myDayTodoCount',Math.min(list.length,15));
               }catch(e){
                 ['myDayOverdueN','myDayTodayN','myDayWeekN','myDayDoneN'].forEach(function(id){setText(id,'—');});
                 empty('myDayTodos','Could not load your tasks.');
