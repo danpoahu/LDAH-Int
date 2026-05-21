@@ -4154,7 +4154,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   STAGE v123.1.6 — Home redesign: My Day + Recent Signups (wired to live data)
+   STAGE v123.1.7 — Home redesign: My Day + Recent Signups (wired to live data)
    Scoped to .my-day-card and .recent-signups-card so the rest of
    LDAH-Int is unaffected. Reuses --ocean-deep, --sand, --palm, etc.
    ───────────────────────────────────────────────────────────────── */
@@ -4250,7 +4250,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v123.1.6 — home redesign (My Day + Recent Signups)
+    STAGE · LDAH-Int v123.1.7 — home redesign (My Day + Recent Signups)
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4446,7 +4446,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.6-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.7-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4848,10 +4848,17 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               try {
                 var snap = await db.collection('userRoles').get();
                 var staff = [];
+                window._viewAsStaffById = {};
                 snap.forEach(function(doc) {
                   var x = doc.data() || {};
                   if (['superAdmin', 'admin', 'webAdmin'].indexOf(x.role) === -1) return;
-                  staff.push({ uid: doc.id, name: x.displayName || x.email || doc.id });
+                  var nm = x.displayName || x.email || doc.id;
+                  staff.push({ uid: doc.id, name: nm });
+                  // Full profile cached so the Alerts panel can mirror role + subs.
+                  window._viewAsStaffById[doc.id] = {
+                    uid: doc.id, displayName: nm, role: x.role,
+                    alertSubs: x.alertSubs || {}, alertPrefs: x.alertPrefs || {}
+                  };
                 });
                 staff.sort(function(a, b) { return a.name.localeCompare(b.name); });
                 sel.innerHTML = '<option value="">Myself</option>' + staff.map(function(s) {
@@ -4868,9 +4875,12 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if (!sel) return;
               var uid = sel.value;
               window._myDayViewAs = uid
-                ? { uid: uid, displayName: sel.options[sel.selectedIndex].textContent }
+                ? ((window._viewAsStaffById && window._viewAsStaffById[uid])
+                    || { uid: uid, displayName: sel.options[sel.selectedIndex].textContent })
                 : null;
               if (typeof window.loadMyDay === 'function') window.loadMyDay();
+              // Refresh the Alerts panel too so the bell mirrors the selection.
+              if (typeof window.loadNotifications === 'function') window.loadNotifications();
             };
 
             // Recent-signup row click → open that event's signups modal.
@@ -16410,11 +16420,17 @@ window.autoCropImage = function(file) {
   //   provider          → counts.providers
   //   calendarRequests  → counts.eventRequests
   // superAdmin or alertSubs.all === true → all categories pass through.
+  // Effective user for the Alerts panel — follows the My Day "Viewing as"
+  // picker so the bell mirrors the selected staff member. The badge poller
+  // and any notification writes stay on the real logged-in user.
+  function _alertViewUser() { return window._myDayViewAs || currentUserData; }
+
   function _filterCountsBySubs(rawCounts) {
     if (!rawCounts) return rawCounts;
-    if (!currentUserData) return rawCounts;
-    var subs = (currentUserData.alertSubs) || {};
-    var allOn = currentUserData.role === 'superAdmin' || subs.all === true;
+    var _u = _alertViewUser();
+    if (!_u) return rawCounts;
+    var subs = (_u.alertSubs) || {};
+    var allOn = _u.role === 'superAdmin' || subs.all === true;
     if (allOn) return rawCounts;
     var on = {
       eventSignup:      subs.eventSignup === true,
@@ -16445,7 +16461,8 @@ window.autoCropImage = function(file) {
   // Stored on window so the badge + bell rendering can share without re-querying.
   window._myOpenFollowUps = []; // [{ id, clientName, followUpDate }]
   async function _fetchMyOpenFollowUps() {
-    if (!currentUserData || !currentUserData.uid || !db) return [];
+    var _u = _alertViewUser();
+    if (!_u || !_u.uid || !db) return [];
     // Today's date in HST (end-of-day inclusive). followUpDate is stored as a YYYY-MM-DD
     // string, so lexicographic compare works without a Timestamp.
     var now = new Date();
@@ -16456,7 +16473,7 @@ window.autoCropImage = function(file) {
     var todayHst = y + '-' + m + '-' + d;
     try {
       var snap = await db.collection('interactions')
-        .where('ownerUid', '==', currentUserData.uid)
+        .where('ownerUid', '==', _u.uid)
         .where('status', '==', 'Open')
         .where('followUpDate', '<=', todayHst)
         .get();
@@ -16673,7 +16690,7 @@ window.autoCropImage = function(file) {
 
     // Build CMS alert items for eligible roles (fetch fresh counts if not cached yet)
     var cmsHtml = '';
-    if (_cmsAlertRoles.includes(currentUserData.role)) {
+    if (_cmsAlertRoles.includes(_alertViewUser().role)) {
       var rawCounts = _cmsAlertCounts || await cmsGetAlertCounts();
       var counts = _filterCountsBySubs(rawCounts);
       if (counts) {
@@ -16750,7 +16767,7 @@ window.autoCropImage = function(file) {
 
     try {
       var snap = await db.collection('notifications')
-        .where('recipientUid', '==', currentUserData.uid)
+        .where('recipientUid', '==', _alertViewUser().uid)
         .orderBy('createdAt', 'desc')
         .limit(50)
         .get();
