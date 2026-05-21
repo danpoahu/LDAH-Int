@@ -4348,7 +4348,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v122.9.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5700,6 +5700,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
         <button class="btn btn-ghost" onclick="cmsExportResourcesCsv()">Export CSV <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Download all resources as a spreadsheet file. Opens in Excel, Google Sheets, or Numbers.')">i</span></button>
         <button class="btn btn-ghost" id="cmsResourceSendUpdatesBtn" data-roles="superAdmin" style="display:none;font-size:.82rem;color:#0891B2;font-weight:700;" onclick="cmsSendResourceUpdateRequests()">Send Update Requests</button>
         <button class="btn btn-ghost" id="cmsArchiveToggle_resources" style="font-size:.82rem;" onclick="cmsToggleArchived('resources')">Show Archived</button>
+        <span id="cmsResourceNextNudge" style="font-size:.78rem;color:var(--text-soft);font-weight:600;align-self:center;"></span>
       </div>
 
       <!-- Partner Applications (collapsed by default; auto-expands when there's something pending) -->
@@ -18200,6 +18201,7 @@ window.cmsLoadResources = async function() {
     });
     cmsRenderResources(_cmsResources);
     cmsRefreshSendUpdatesNudge();
+    cmsRefreshResourceNextNudge();
     // Keep the dashboard pending badge in sync without forcing a full dashboard reload
     try {
       var pendCount = _cmsResources.filter(function(r) { return r.pendingUpdate; }).length;
@@ -18212,6 +18214,52 @@ window.cmsLoadResources = async function() {
   } catch (err) {
     container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
   }
+};
+
+/**
+ * "Next nudge MM/DD/YYYY · N" indicator beside Show Archived on Community
+ * Resources. Computed from _cmsResources — the sendResourceUpdateNudges
+ * cron runs daily 9 AM HST and sends the next nudge once 7 days have
+ * passed since the last touch (3-nudge cap, 30-day cycle ceiling).
+ */
+function cmsNextNudgeDateKey(dueMs) {
+  var hst = function(ms) { return new Date(ms - 10 * 3600 * 1000); }; // HST = UTC-10
+  var d = hst(dueMs);
+  // Cron fires 9:00 AM HST; if the due moment is already past 9 AM that
+  // day, the nudge waits for the next day's run.
+  var ms = dueMs;
+  if (d.getUTCHours() > 9 || (d.getUTCHours() === 9 && (d.getUTCMinutes() > 0 || d.getUTCSeconds() > 0))) {
+    ms += 86400000;
+  }
+  var f = hst(ms);
+  return f.getUTCFullYear() + '-' +
+    String(f.getUTCMonth() + 1).padStart(2, '0') + '-' +
+    String(f.getUTCDate()).padStart(2, '0');
+}
+
+window.cmsRefreshResourceNextNudge = function() {
+  var el = document.getElementById('cmsResourceNextNudge');
+  if (!el) return;
+  var now = Date.now();
+  var SEVEN = 7 * 86400000, CEILING = 30 * 86400000;
+  var byDate = {};
+  (_cmsResources || []).forEach(function(r) {
+    if (r.archived === true) return;
+    if (!r.updateToken || r.updateSubmittedAt) return;      // not in an active cycle
+    var n = Number(r.updateNudgeCount || 0);
+    if (n >= 3) return;                                     // nudge cap
+    var reqAt = (r.updateRequestedAt && r.updateRequestedAt.toMillis) ? r.updateRequestedAt.toMillis() : 0;
+    if (!reqAt || (now - reqAt) > CEILING) return;          // past the 30-day cycle ceiling
+    var lastNudgeAt = (r.lastUpdateNudgeAt && r.lastUpdateNudgeAt.toMillis) ? r.lastUpdateNudgeAt.toMillis() : 0;
+    var base = (n === 0) ? reqAt : lastNudgeAt;
+    if (!base) return;
+    var key = cmsNextNudgeDateKey(base + SEVEN);
+    byDate[key] = (byDate[key] || 0) + 1;
+  });
+  var dates = Object.keys(byDate).sort();
+  if (!dates.length) { el.textContent = ''; return; }
+  var p = dates[0].split('-');
+  el.textContent = 'Next nudge ' + (+p[1]) + '/' + (+p[2]) + '/' + p[0] + ' · ' + byDate[dates[0]];
 };
 
 // Determine whether the semi-annual partner-update cycle is currently due.
