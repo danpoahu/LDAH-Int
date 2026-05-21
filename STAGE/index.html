@@ -4154,7 +4154,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   STAGE v123.1.3 — Home redesign: My Day + Recent Signups (wired to live data)
+   STAGE v123.1.4 — Home redesign: My Day + Recent Signups (wired to live data)
    Scoped to .my-day-card and .recent-signups-card so the rest of
    LDAH-Int is unaffected. Reuses --ocean-deep, --sand, --palm, etc.
    ───────────────────────────────────────────────────────────────── */
@@ -4214,8 +4214,8 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 .my-day-card .upd .body b { color: var(--text-dark); }
 .my-day-card .upd .when { color: var(--text-soft); font-size:.72rem; margin-top:3px; }
 
-.recent-signups-card .signups { padding:6px 16px 14px; display:flex; flex-direction:column; gap:6px; }
-.recent-signups-card .signup { display:grid; grid-template-columns: 36px 1fr auto; gap:10px; align-items:center; padding:8px 10px; border-radius:12px; background:#fff; border:1px solid rgba(8,145,178,.10); }
+.recent-signups-card .signups { padding:6px 16px 14px; display:flex; flex-direction:column; gap:6px; max-height:680px; overflow-y:auto; }
+.recent-signups-card .signup { display:grid; grid-template-columns: 36px 1fr auto; gap:10px; align-items:center; padding:8px 10px; border-radius:12px; background:#fff; border:1px solid rgba(8,145,178,.10); cursor:pointer; }
 .recent-signups-card .signup:hover { background: var(--sand-light); }
 .recent-signups-card .signup .av { width:32px; height:32px; border-radius:50%; background: linear-gradient(135deg, var(--ocean-deep), var(--ocean-mid)); color:#fff; display:grid; place-items:center; font-weight:800; font-size:.74rem; font-family:'Outfit',sans-serif; }
 .recent-signups-card .signup .av.s2 { background: linear-gradient(135deg,#7C3AED,#A855F7); }
@@ -4250,7 +4250,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v123.1.3 — home redesign (My Day + Recent Signups)
+    STAGE · LDAH-Int v123.1.4 — home redesign (My Day + Recent Signups)
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4446,7 +4446,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.3-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.4-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4787,16 +4787,17 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if(!host)return;
               loading('dashRecentSignups');
               try{
-                // Newest 20 signups org-wide. orderBy('timestamp','desc') would
-                // need a descending COLLECTION_GROUP index; the ascending one
-                // (already built) serves this range query — fetch a wide window,
-                // then sort newest-first and take 20 client-side.
+                // Newest 30 signups org-wide (panel shows ~10, scrolls to 30).
+                // orderBy('timestamp','desc') would need a descending
+                // COLLECTION_GROUP index; the ascending one (already built)
+                // serves this range query — fetch a wide window, then sort
+                // newest-first and take 30 client-side.
                 var cutoff=new Date(Date.now()-120*24*3600*1000);
                 var snap=await db.collectionGroup('signups').where('timestamp','>=',cutoff).get();
                 var items=[];
                 snap.forEach(function(doc){items.push({d:doc.data(),evRef:doc.ref.parent.parent});});
                 items.sort(function(a,b){var at=tsToDate(a.d.timestamp),bt=tsToDate(b.d.timestamp);return (bt?bt.getTime():0)-(at?at.getTime():0);});
-                items=items.slice(0,20);
+                items=items.slice(0,30);
                 var titleCache={};
                 for(var i=0;i<items.length;i++){
                   var ref=items[i].evRef;
@@ -4812,7 +4813,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   var initials=nm.split(/\s+/).map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
                   var st=String(d.status||'pending').toLowerCase();
                   var when=tsToDate(d.timestamp);
-                  return '<div class="signup" onclick="document.querySelector(\'[data-section=signups]\').click()">'
+                  var ref=it.evRef;
+                  var evId=ref?ref.id:'';
+                  var isRec=!!(ref&&ref.parent&&ref.parent.id==='recurringEvents');
+                  return '<div class="signup" data-ev="'+esc(evId)+'" data-rec="'+(isRec?'true':'false')+'" data-title="'+esc(it.title)+'">'
                     +'<div class="av">'+esc(initials)+'</div>'
                     +'<div class="info"><div class="nm">'+esc(nm)+'</div>'
                     +'<div class="ev">'+esc(it.title)+'</div>'
@@ -4824,6 +4828,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 console.warn('loadMyDayRecentSignups:',e&&e.message);
               }
             };
+
+            // Recent-signup row click → open that event's signups modal.
+            // Delegated on document because #dashRecentSignups is parsed
+            // after this script block; data-ev gates it to our rows only.
+            document.addEventListener('click',function(e){
+              var row=(e.target&&e.target.closest)?e.target.closest('.signup'):null;
+              if(!row||!row.dataset||!row.dataset.ev)return;
+              if(typeof window.cmsViewSignups==='function')
+                window.cmsViewSignups(row.dataset.ev,row.dataset.rec==='true',row.dataset.title||'');
+            });
 
             // Retained as a harmless fallback for any unwired sample row.
             window._myDayDemo = function(label){if(typeof _showToast==='function')_showToast(label,'#0891B2');};
@@ -4965,7 +4979,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div class="card-header">
               <div>
                 <h3>Recent signups</h3>
-                <p>20 most recent across all events.</p>
+                <p>30 most recent — scroll for the full list.</p>
               </div>
               <a href="javascript:void(0)" class="btn btn-ghost" onclick="document.querySelector('[data-section=signups]').click()">View all</a>
             </div>
