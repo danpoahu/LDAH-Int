@@ -4154,7 +4154,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   STAGE v123.1.5 — Home redesign: My Day + Recent Signups (wired to live data)
+   STAGE v123.1.6 — Home redesign: My Day + Recent Signups (wired to live data)
    Scoped to .my-day-card and .recent-signups-card so the rest of
    LDAH-Int is unaffected. Reuses --ocean-deep, --sand, --palm, etc.
    ───────────────────────────────────────────────────────────────── */
@@ -4250,7 +4250,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v123.1.5 — home redesign (My Day + Recent Signups)
+    STAGE · LDAH-Int v123.1.6 — home redesign (My Day + Recent Signups)
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4446,7 +4446,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.5-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.6-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4527,6 +4527,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <!-- My Day (STAGE v123: replaces Recent interactions) -->
         <div class="card my-day-card" id="dashInteractionsCard">
           <div class="card-body" style="position:relative;padding:0;">
+            <!-- "Viewing as" picker — shown only to Daniel; re-points My Day at another staff member -->
+            <div id="myDayViewAsBar" style="display:none;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid rgba(8,145,178,.12);font-size:.8rem;color:var(--text-soft);font-weight:600;">
+              <span>Viewing as</span>
+              <select id="myDayViewAsSelect" onchange="cmsMyDayViewAsChange()" style="font-size:.8rem;padding:3px 6px;border:1px solid rgba(8,145,178,.25);border-radius:6px;font-family:inherit;"></select>
+            </div>
             <!-- Weather overlay preserved — toggled by existing weather toolbar button -->
             <div id="weatherOverlay" class="weather-overlay">
               <div class="wo-header">
@@ -4685,7 +4690,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             function empty(id,msg){var el=document.getElementById(id);if(el)el.innerHTML='<div style="padding:24px;text-align:center;color:var(--text-soft);font-size:.9rem;">'+esc(msg)+'</div>';}
 
             window.loadMyDay = async function(){
-              var u=window.currentUserData||{};
+              var u=window._myDayViewAs||window.currentUserData||{};
               var first=String(u.displayName||u.email||'').split(/[ @]/)[0]||'';
               setText('myDayGreeting','Aloha'+(first?' '+first:''));
               loading('myDayTodos');loading('myDayUpdates');
@@ -4827,6 +4832,45 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 empty('dashRecentSignups','Could not load recent signups.');
                 console.warn('loadMyDayRecentSignups:',e&&e.message);
               }
+            };
+
+            // "Viewing as" picker — Daniel-only. Re-points My Day at another
+            // staff member's uid (read-only — interactions are staff-readable).
+            var MYDAY_VIEWAS_OWNER = 'YmGV2TlBGqR01dVdxZ0rtFLEFCG3'; // Daniel's uid
+            window._myDayViewAs = null;
+            window.cmsSetupMyDayViewAs = async function() {
+              var bar = document.getElementById('myDayViewAsBar');
+              var sel = document.getElementById('myDayViewAsSelect');
+              if (!bar || !sel) return;
+              var me = window.currentUserData || {};
+              if (me.uid !== MYDAY_VIEWAS_OWNER) { bar.style.display = 'none'; return; }
+              if (sel.options.length > 1) { bar.style.display = 'flex'; return; } // already built
+              try {
+                var snap = await db.collection('userRoles').get();
+                var staff = [];
+                snap.forEach(function(doc) {
+                  var x = doc.data() || {};
+                  if (['superAdmin', 'admin', 'webAdmin'].indexOf(x.role) === -1) return;
+                  staff.push({ uid: doc.id, name: x.displayName || x.email || doc.id });
+                });
+                staff.sort(function(a, b) { return a.name.localeCompare(b.name); });
+                sel.innerHTML = '<option value="">Myself</option>' + staff.map(function(s) {
+                  return '<option value="' + esc(s.uid) + '">' + esc(s.name) + '</option>';
+                }).join('');
+                bar.style.display = 'flex';
+              } catch (e) {
+                bar.style.display = 'none';
+                console.warn('cmsSetupMyDayViewAs:', e && e.message);
+              }
+            };
+            window.cmsMyDayViewAsChange = function() {
+              var sel = document.getElementById('myDayViewAsSelect');
+              if (!sel) return;
+              var uid = sel.value;
+              window._myDayViewAs = uid
+                ? { uid: uid, displayName: sel.options[sel.selectedIndex].textContent }
+                : null;
+              if (typeof window.loadMyDay === 'function') window.loadMyDay();
             };
 
             // Recent-signup row click → open that event's signups modal.
@@ -10357,6 +10401,7 @@ window.autoCropImage = function(file) {
     if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
     if (typeof loadMyDay === 'function') loadMyDay();
     if (typeof loadMyDayRecentSignups === 'function') loadMyDayRecentSignups();
+    if (typeof cmsSetupMyDayViewAs === 'function') cmsSetupMyDayViewAs();
     // Load lookup lists (channels, types, grants) and seed defaults if needed
     if (typeof loadLookupLists === 'function') {
       seedLookupListsIfNeeded().then(function() { loadLookupLists(); });
