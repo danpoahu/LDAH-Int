@@ -4154,7 +4154,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   STAGE v123.0.0 — Home redesign: My Day + Recent Signups
+   STAGE v123.1.0 — Home redesign: My Day + Recent Signups (wired to live data)
    Scoped to .my-day-card and .recent-signups-card so the rest of
    LDAH-Int is unaffected. Reuses --ocean-deep, --sand, --palm, etc.
    ───────────────────────────────────────────────────────────────── */
@@ -4250,7 +4250,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v123.0.0 — home redesign (My Day + Recent Signups)
+    STAGE · LDAH-Int v123.1.0 — home redesign (My Day + Recent Signups)
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4446,7 +4446,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.0.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4663,10 +4663,152 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
         </div>
         <script>
-          // STAGE demo: placeholder click handler until My Day is wired to real data.
-          window._myDayDemo = function(label) {
-            if (typeof _showToast === 'function') _showToast('STAGE demo: ' + label, '#0891B2');
-          };
+          // ── My Day — wired to live Firestore data (v123.1) ──
+          (function(){
+            function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+            function pad(n){return String(n).padStart(2,'0');}
+            function todayKey(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+            function addDays(k,n){var p=k.split('-').map(Number);var d=new Date(p[0],p[1]-1,p[2]+n);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+            function tsToDate(ts){if(!ts)return null;if(ts.toDate)return ts.toDate();if(ts.seconds)return new Date(ts.seconds*1000);var d=new Date(ts);return isNaN(d.getTime())?null:d;}
+            function relWhen(d){
+              if(!d)return '';
+              var now=new Date();
+              var t=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+              if(d.toDateString()===now.toDateString())return t;
+              var y=new Date(now);y.setDate(y.getDate()-1);
+              if(d.toDateString()===y.toDateString())return 'Yesterday '+t;
+              if((now-d)/86400000<7)return d.toLocaleDateString('en-US',{weekday:'short'})+' '+t;
+              return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+            }
+            function setText(id,v){var el=document.getElementById(id);if(el)el.textContent=v;}
+            function loading(id){var el=document.getElementById(id);if(el)el.innerHTML='<div style="padding:22px;text-align:center;color:var(--text-soft);font-size:.88rem;">Loading…</div>';}
+            function empty(id,msg){var el=document.getElementById(id);if(el)el.innerHTML='<div style="padding:24px;text-align:center;color:var(--text-soft);font-size:.9rem;">'+esc(msg)+'</div>';}
+
+            window.loadMyDay = async function(){
+              var u=window.currentUserData||{};
+              var first=String(u.displayName||u.email||'').split(/[ @]/)[0]||'';
+              setText('myDayGreeting','Aloha'+(first?' '+first:''));
+              loading('myDayTodos');loading('myDayUpdates');
+
+              // The logged-in user's open interactions, bucketed by followUpDate.
+              try{
+                var tk=todayKey(),wk=addDays(tk,7);
+                var snap=u.uid?await db.collection('interactions').where('ownerUid','==',u.uid).get():null;
+                var overdue=0,today=0,week=0,done=0,actionable=[];
+                if(snap)snap.forEach(function(doc){
+                  var d=doc.data();
+                  if(d.isDraft||d.channel==='Internal Chat')return;
+                  if(d.status==='Closed'){
+                    var cd=tsToDate(d.createdAt);
+                    if(cd&&(Date.now()-cd.getTime())<7*86400000)done++;
+                    return;
+                  }
+                  var fu=d.followUpDate||'';
+                  if(!fu)return;
+                  if(fu<tk){overdue++;actionable.push({d:d,bucket:'overdue',fu:fu});}
+                  else if(fu===tk){today++;actionable.push({d:d,bucket:'today',fu:fu});}
+                  else if(fu<=wk){week++;actionable.push({d:d,bucket:'week',fu:fu});}
+                });
+                setText('myDayOverdueN',overdue);setText('myDayTodayN',today);
+                setText('myDayWeekN',week);setText('myDayDoneN',done);
+                var due=overdue+today;
+                setText('myDayHeroSub',due>0?(due+' thing'+(due===1?'':'s')+' need'+(due===1?'s':'')+' you today'):'You’re all caught up — nice.');
+                var ord={overdue:0,today:1,week:2};
+                actionable.sort(function(a,b){return ord[a.bucket]-ord[b.bucket]||(a.fu<b.fu?-1:1);});
+                var todos=document.getElementById('myDayTodos');
+                if(todos){
+                  if(!actionable.length){empty('myDayTodos','Nothing on your list right now 🌴');}
+                  else{
+                    todos.innerHTML=actionable.slice(0,8).map(function(r){
+                      var d=r.d;
+                      var cls=r.bucket==='overdue'?'todo urgent':(r.bucket==='today'?'todo today':'todo');
+                      var pill=r.bucket==='overdue'?'<span class="pill overdue">OVERDUE</span>':(r.bucket==='today'?'<span class="pill due">TODAY</span>':'<span class="pill">THIS WEEK</span>');
+                      var typePill=d.interactionType?'<span class="pill followup">'+esc(d.interactionType)+'</span>':'';
+                      var person=d.contactName?' — <span class="person">'+esc(d.contactName)+'</span>':'';
+                      var sub=[];if(d.status)sub.push(esc(d.status));if(d.channel)sub.push(esc(d.channel));sub.push('follow-up '+esc(r.fu));
+                      return '<div class="'+cls+'" onclick="document.querySelector(\'[data-section=interactions]\').click()">'
+                        +'<div class="check" onclick="event.stopPropagation();this.parentElement.classList.toggle(\'done\');"></div>'
+                        +'<div class="meta"><div class="ttl">'+esc(d.summary||'(no summary)')+person+'</div>'
+                        +'<div class="sub">'+sub.join(' · ')+'</div></div>'
+                        +'<div class="tags">'+pill+typePill+'</div></div>';
+                    }).join('');
+                  }
+                }
+                setText('myDayTodoCount',actionable.length);
+              }catch(e){
+                ['myDayOverdueN','myDayTodayN','myDayWeekN','myDayDoneN'].forEach(function(id){setText(id,'—');});
+                empty('myDayTodos','Could not load your tasks.');
+                console.warn('loadMyDay tasks:',e&&e.message);
+              }
+
+              // Updates feed — recent interactions across the org.
+              try{
+                var rs=await db.collection('interactions').orderBy('createdAt','desc').limit(12).get();
+                var rows=[];
+                rs.forEach(function(doc){var d=doc.data();if(d.channel==='Internal Chat')return;rows.push(d);});
+                rows=rows.slice(0,10);
+                if(!rows.length){empty('myDayUpdates','No recent activity.');}
+                else{
+                  document.getElementById('myDayUpdates').innerHTML=rows.map(function(d){
+                    var icCls=d.status==='Closed'?'green':(d.status==='Needs admin review'?'amber':'');
+                    var icCh=d.status==='Closed'?'✓':(d.status==='Needs admin review'?'!':'✎');
+                    var who=d.owner?'<span class="person">'+esc(d.owner)+'</span> ':'';
+                    var ch=d.channel?esc(d.channel)+': ':'';
+                    var person=d.contactName?' — <span class="person">'+esc(d.contactName)+'</span>':'';
+                    return '<div class="upd"><div class="ic '+icCls+'">'+icCh+'</div>'
+                      +'<div class="body">'+who+ch+esc(d.summary||'(interaction)')+person
+                      +'<div class="when">'+esc(relWhen(tsToDate(d.createdAt)))+'</div></div></div>';
+                  }).join('');
+                }
+                setText('myDayUpdateCount',rows.length);
+              }catch(e){
+                empty('myDayUpdates','Could not load updates.');
+                console.warn('loadMyDay updates:',e&&e.message);
+              }
+            };
+
+            window.loadMyDayRecentSignups = async function(){
+              var host=document.getElementById('dashRecentSignups');
+              if(!host)return;
+              loading('dashRecentSignups');
+              try{
+                var cutoff=new Date(Date.now()-24*3600*1000);
+                var snap=await db.collectionGroup('signups').where('timestamp','>=',cutoff).get();
+                var items=[];
+                snap.forEach(function(doc){items.push({d:doc.data(),evRef:doc.ref.parent.parent});});
+                items.sort(function(a,b){var at=tsToDate(a.d.timestamp),bt=tsToDate(b.d.timestamp);return (bt?bt.getTime():0)-(at?at.getTime():0);});
+                items=items.slice(0,10);
+                var titleCache={};
+                for(var i=0;i<items.length;i++){
+                  var ref=items[i].evRef;
+                  if(ref&&!(ref.path in titleCache)){
+                    try{var ev=await ref.get();titleCache[ref.path]=(ev.exists&&ev.data().title)||'Event';}
+                    catch(_){titleCache[ref.path]='Event';}
+                  }
+                  items[i].title=ref?titleCache[ref.path]:'Event';
+                }
+                if(!items.length){empty('dashRecentSignups','No signups in the last 24 hours.');return;}
+                host.innerHTML=items.map(function(it){
+                  var d=it.d,nm=d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'Someone';
+                  var initials=nm.split(/\s+/).map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
+                  var st=String(d.status||'pending').toLowerCase();
+                  var when=tsToDate(d.timestamp);
+                  return '<div class="signup" onclick="document.querySelector(\'[data-section=signups]\').click()">'
+                    +'<div class="av">'+esc(initials)+'</div>'
+                    +'<div class="info"><div class="nm">'+esc(nm)+'</div>'
+                    +'<div class="ev">'+esc(it.title)+'</div>'
+                    +'<span class="st '+esc(st)+'">'+esc(st.toUpperCase())+'</span></div>'
+                    +'<div class="tm">'+esc(when?when.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):'')+'</div></div>';
+                }).join('');
+              }catch(e){
+                empty('dashRecentSignups','Could not load recent signups.');
+                console.warn('loadMyDayRecentSignups:',e&&e.message);
+              }
+            };
+
+            // Retained as a harmless fallback for any unwired sample row.
+            window._myDayDemo = function(label){if(typeof _showToast==='function')_showToast(label,'#0891B2');};
+          })();
         </script>
 
         <!-- Host for sections shown in-grid (replaces interactions card) -->
@@ -10179,6 +10321,8 @@ window.autoCropImage = function(file) {
       }).catch(function() {});
     }
     if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
+    if (typeof loadMyDay === 'function') loadMyDay();
+    if (typeof loadMyDayRecentSignups === 'function') loadMyDayRecentSignups();
     // Load lookup lists (channels, types, grants) and seed defaults if needed
     if (typeof loadLookupLists === 'function') {
       seedLookupListsIfNeeded().then(function() { loadLookupLists(); });
