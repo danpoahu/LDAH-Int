@@ -15661,6 +15661,34 @@ window.autoCropImage = function(file) {
           '</div></div>';
       }
 
+      var presenterFieldHtml = '';
+      if (d && d.workflowStep === 'assignPresenter') {
+        var currentName = d.assignedPresenterName || '';
+        var currentUid  = d.assignedPresenterUid  || '';
+        presenterFieldHtml =
+          '<div class="ct-info-field"><label>Presenter <span style="color:#dc2626;font-weight:600;">(required to Close)</span></label><div class="val">' +
+            '<select id="ixPresenterSelect" class="ix-edit-input" style="min-width:240px;">' +
+              '<option value="">— Select presenter —</option>' +
+            '</select>' +
+            (currentName ? ' <span style="font-size:.78rem;color:var(--text-soft);">Saved: ' + rsEscape(currentName) + '</span>' : '') +
+          '</div></div>';
+        // Populate async; reuse the staff roster helper. Mark current selection if any.
+        setTimeout(function() {
+          _getAssignableOwners().then(function(owners) {
+            var sel = document.getElementById('ixPresenterSelect');
+            if (!sel) return;
+            owners.forEach(function(o) {
+              var opt = document.createElement('option');
+              opt.value = o.uid;
+              opt.dataset.name = o.displayName;
+              opt.textContent = o.displayName;
+              if (currentUid && currentUid === o.uid) opt.selected = true;
+              sel.appendChild(opt);
+            });
+          });
+        }, 0);
+      }
+
       // Shorten owner name to "First L." format. Blank → "Unassigned".
       var ownerRaw = d.owner || d.createdBy || '';
       var ownerParts = ownerRaw.split(/\s+/).filter(Boolean);
@@ -15707,7 +15735,7 @@ window.autoCropImage = function(file) {
             '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
             '<div class="ct-info-field"><label>Channel</label><div class="val"><select id="editChannel" class="ix-edit-input">' + channelOpts + '</select></div></div>' +
             '<div class="ct-info-field"><label>Type</label><div class="val"><select id="editType" class="ix-edit-input">' + typeOpts + '</select></div></div>' +
-            statusFieldHtml +
+            statusFieldHtml + presenterFieldHtml +
             '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>' +
             '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val"><input type="date" id="editFollowUp" class="ix-edit-input" value="' + rsEscape(d.followUpDate || '') + '"></div></div>' +
           '</div>';
@@ -15731,7 +15759,7 @@ window.autoCropImage = function(file) {
             '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
             '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
             '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
-            statusFieldHtml +
+            statusFieldHtml + presenterFieldHtml +
             ownerFieldHtml +
             '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>' +
           '</div>';
@@ -16061,11 +16089,27 @@ window.autoCropImage = function(file) {
     var btn = sel.nextElementSibling;
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
+    // Workflow gate + presenter persistence (assignPresenter step)
+    var presenterSel = document.getElementById('ixPresenterSelect');
+    var updates = {
+      status: newStatus,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if (presenterSel) {
+      if (newStatus === 'Closed' && !presenterSel.value) {
+        if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Select a presenter before closing.'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+        return;
+      }
+      if (presenterSel.value) {
+        var opt = presenterSel.options[presenterSel.selectedIndex];
+        updates.assignedPresenterUid  = presenterSel.value;
+        updates.assignedPresenterName = (opt && opt.dataset && opt.dataset.name) || opt.textContent || '';
+      }
+    }
+
     try {
-      await db.collection('interactions').doc(_ixViewDocId).update({
-        status: newStatus,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
+      await db.collection('interactions').doc(_ixViewDocId).update(updates);
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
