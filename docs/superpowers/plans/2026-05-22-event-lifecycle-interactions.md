@@ -4,7 +4,7 @@
 
 **Goal:** Implement an automated, self-driving interaction chain for the LDAH one-time-event lifecycle. New events spawn setup tasks (assign presenter per session, verify display, send announcements per session); after handoff per session, day-of attendance and an event-summary task chain automatically — each owned by the right staff member at the right time.
 
-**Architecture:** Four new Cloud Functions (Firebase Functions v1 SDK — matching existing codebase style) appended to `LDAH_W2/functions/index.js`. Two LDAH-Int client touches: stamp the creator on event save, and a close-task flow with a Presenter dropdown for `assignPresenter` interactions. Workflow state lives on the interaction docs themselves (`workflowEventId`, `workflowStep`, `workflowSessionKey`) — no new collection. Per-session presenter is stored on the event in a `sessionPresenters` map.
+**Architecture:** Four new Cloud Functions (Firebase Functions v1 SDK — matching existing codebase style) appended to `LDAH_W2/functions/index.js`. Two LDAH-Int client touches: stamp the creator on event save, and a close-task flow with a Presenter dropdown for `assignPresenter` interactions. Workflow state lives on the interaction docs themselves (`workflowEventId`, `workflowStep`, `workflowSessionKey`) — no new collection. Per-session presenter is stored on the event in the existing Event Summary location (`event.summary.presenter` for single-session events; `event.sessionSummaries[sessionKey].presenter` for multi-session), augmented with a new sibling `presenterUid` so the chain engine can route ownership.
 
 **Tech Stack:** Firebase (Functions v1 legacy SDK, Firestore), vanilla JS in the LDAH-Int HTML monolith, Node.js. Single Firebase project `ldah-932d5` — STAGE and live LDAH-Int share one backend.
 
@@ -566,11 +566,23 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
           console.warn("assignPresenter closed without presenter; re-opened", change.after.id);
           return null;
         }
-        const evRef = db.collection("events").doc(eventId);
-        await evRef.update({
-          ["sessionPresenters." + sessionKey]: { uid: uid, name: name },
+        const evSnap = await db.collection("events").doc(eventId).get();
+        if (!evSnap.exists) return null;
+        const ev = evSnap.data() || {};
+        const sessions = getEventSessions(ev) || [];
+        const isSingleSession = sessions.length === 1;
+
+        const updates = {
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+        };
+        if (isSingleSession) {
+          updates["summary.presenter"]    = name;
+          updates["summary.presenterUid"] = uid;
+        } else {
+          updates["sessionSummaries." + sessionKey + ".presenter"]    = name;
+          updates["sessionSummaries." + sessionKey + ".presenterUid"] = uid;
+        }
+        await evSnap.ref.update(updates);
         return null;
       }
 
@@ -585,9 +597,13 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
         const evSnap = await db.collection("events").doc(eventId).get();
         const ev = evSnap.data() || {};
-        const sp = (ev.sessionPresenters && ev.sessionPresenters[sessionKey]) || {};
-        const ownerUid  = sp.uid  || ev.createdByUid  || "";
-        const ownerName = sp.name || ev.createdByName || "";
+        const sessions = getEventSessions(ev) || [];
+        const isSingleSession = sessions.length === 1;
+        const presenterSrc = isSingleSession
+          ? (ev.summary || {})
+          : ((ev.sessionSummaries && ev.sessionSummaries[sessionKey]) || {});
+        const ownerUid  = presenterSrc.presenterUid || ev.createdByUid  || "";
+        const ownerName = presenterSrc.presenter    || ev.createdByName || "";
 
         // Due = sessionKey (YYYY-MM-DD) + 10 days, in HST date
         const sd = new Date(sessionKey + "T12:00:00-10:00");
@@ -680,16 +696,21 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
   - In the browser console:
     ```javascript
     const ev = (await firebase.firestore().collection('events').where('title','==','WORKFLOW-TEST-2').get()).docs[0];
-    console.log('sessionPresenters:', ev.data().sessionPresenters);
+    const data = ev.data();
+    const sessions = (data.signupDates || []).map(s => /^(\d{4}-\d{2}-\d{2})/.exec(s)?.[1]).filter(Boolean);
+    console.log('summary.presenter:', data.summary?.presenter, '| presenterUid:', data.summary?.presenterUid);
+    console.log('sessionSummaries:', data.sessionSummaries);
     ```
-  - Expected: a `sessionPresenters` map with one entry keyed by the session date (`YYYY-MM-DD`), value `{ uid, name }` matching your selection.
+  - Expected: for a single-session event, `data.summary.presenter` and `data.summary.presenterUid` should be set matching your selection; for a multi-session event, the relevant entry in `data.sessionSummaries[<session-date>]` should have `presenter` and `presenterUid` set.
 
 - [ ] **Step 5.5: End-to-end verify: takeAttendance → eventSummary spawn.**
   We need a `takeAttendance` interaction to test this branch. The cron (Phase 6) creates them on the session date, which is days away for `WORKFLOW-TEST-2`. To test now without waiting, manually insert one in the browser console:
   ```javascript
   const ev = (await firebase.firestore().collection('events').where('title','==','WORKFLOW-TEST-2').get()).docs[0];
   const sessionKey = ev.data().signupDates[0];  // first session
-  const sp = (ev.data().sessionPresenters || {})[sessionKey] || { uid: window.currentUserData.uid, name: window.currentUserData.displayName };
+  const isSingle = (ev.data().signupDates || []).length === 1;
+  const src = isSingle ? (ev.data().summary || {}) : ((ev.data().sessionSummaries || {})[sessionKey] || {});
+  const sp = { uid: src.presenterUid || window.currentUserData.uid, name: src.presenter || window.currentUserData.displayName };
   const ref = await firebase.firestore().collection('interactions').add({
     channel: 'Event Day', interactionType: 'Take Attendance',
     contactId: '', contactName: (ev.data().title || '') + ' — ' + sessionKey, contactType: '',
@@ -778,11 +799,15 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
         if (!existing.empty) continue;
 
         const verifyDone = await _lcVerifyDisplayClosed(db, doc.id);
-        const sp = (ev.sessionPresenters && ev.sessionPresenters[sessionKey]) || null;
+        const sessionsForOwner = getEventSessions(ev) || [];
+        const isSingleSession = sessionsForOwner.length === 1;
+        const presenterSrc = isSingleSession
+          ? (ev.summary || {})
+          : ((ev.sessionSummaries && ev.sessionSummaries[sessionKey]) || {});
         let ownerUid, ownerName;
-        if (sp && verifyDone) {
-          ownerUid  = sp.uid;
-          ownerName = sp.name;
+        if (presenterSrc.presenterUid && verifyDone) {
+          ownerUid  = presenterSrc.presenterUid;
+          ownerName = presenterSrc.presenter || "";
         } else {
           ownerUid  = ev.createdByUid  || "";
           ownerName = ev.createdByName || "";
@@ -992,13 +1017,13 @@ This is the full verification protocol from the spec. Run it after all four CFs 
   Expected: 5 rows — 1 `verifyDisplay` (sessionKey empty, owner = you), 2 `assignPresenter` (one per session date, owner = La'a), 2 `sendAnnouncement` (one per session date, owner = you). All `followUpDate` = `startDate` = today.
 
 - [ ] **Step 8.4: Close the first session's Assign Presenter with a presenter.**
-  Open the Assign Presenter row for session 1 in the Interactions tab; pick yourself as presenter; Status → Closed; Save. Verify `event.sessionPresenters[<session1>]` = `{ uid, name }`.
+  Open the Assign Presenter row for session 1 in the Interactions tab; pick yourself as presenter; Status → Closed; Save. Verify the presenter mirrored into the event: for a multi-session event, `event.sessionSummaries[<session1>].presenter` and `.presenterUid` should be set; for a single-session event, `event.summary.presenter` and `.presenterUid` should be set.
 
 - [ ] **Step 8.5: Close Verify Display.**
   Open the Verify Display row; Status → Closed; Save. (No presenter prompt — only assignPresenter shows the dropdown.)
 
 - [ ] **Step 8.6: Confirm session 1 has handed off but session 2 has not.**
-  - `event.sessionPresenters` has session 1's key but not session 2's.
+  - `event.sessionSummaries[<session1>]` has `presenter` / `presenterUid` set, but `event.sessionSummaries[<session2>]` does not (or has no entry).
   - `verifyDisplay` interaction is Closed.
 
 - [ ] **Step 8.7: Force-run the day-of cron.**
@@ -1100,7 +1125,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 9.6: Update project memory.**
 
-  Append a one-line index entry to `/Users/danielpellegrini/.claude/projects/-Users-danielpellegrini/memory/MEMORY.md` under Pending → "(✓ Done)" or move the related entry. Also create a topic file at `memory/project_event-lifecycle-interactions.md` capturing: shipped 2026-05-22 as LDAH-Int v124.0.0; CFs `onEventCreatedLifecycle`, `onInteractionUpdatedLifecycle`, `createDayOfAttendanceTasks` (5 AM HST), `onEventUpdatedLifecycle` on `ldah-932d5`; gated on `event.createdByUid` + `event.lifecycleStatus`; presenter captured at assignPresenter close into `event.sessionPresenters[sessionKey]`; events-only (Programs out of scope).
+  Append a one-line index entry to `/Users/danielpellegrini/.claude/projects/-Users-danielpellegrini/memory/MEMORY.md` under Pending → "(✓ Done)" or move the related entry. Also create a topic file at `memory/project_event-lifecycle-interactions.md` capturing: shipped 2026-05-22 as LDAH-Int v124.0.0; CFs `onEventCreatedLifecycle`, `onInteractionUpdatedLifecycle`, `createDayOfAttendanceTasks` (5 AM HST), `onEventUpdatedLifecycle` on `ldah-932d5`; gated on `event.createdByUid` + `event.lifecycleStatus`; presenter captured at assignPresenter close into `event.summary.presenterUid` / `event.sessionSummaries.<sessionKey>.presenterUid` (unified storage); events-only (Programs out of scope).
 
 ---
 
@@ -1113,7 +1138,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 | §1 Purpose | Whole plan |
 | §2 Scope (events only, post-ship, per-session) | Phases 2, 6 guards (`if (!ev.createdByUid) skip`, `lifecycleStatus` filter) |
 | §3 Workflow diagram + step detail | Phases 2, 5, 6 |
-| §4.1 Event fields (createdByUid, sessionPresenters, lifecycleStatus) | Phases 1 (stamp), 2 (set status), 5 (set sessionPresenters), 5 (set complete) |
+| §4.1 Event fields (createdByUid, lifecycleStatus, unified summary/sessionSummaries presenter+presenterUid) | Phases 1 (stamp), 2 (set status), 5 (write presenter into Event Summary storage), 5 (set complete) |
 | §4.2 Interaction fields (workflowEventId/Step/SessionKey, assignedPresenterUid) | Phases 2 (write at create), 4 (write at close), 5/6/7 (query) |
 | §4.3 Channel / type display names | Phase 2 `LIFECYCLE_CHANNELS` constant |
 | §4.4 Display (event title in contactName) | Phase 2 sets `contactName = title + " — " + sessionKey`; Phase 3 visual confirmation |
@@ -1128,7 +1153,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 **Placeholder scan** — none. The only `REPLACE_WITH_LAAS_UID` token is explicitly called out as a pre-flight step (P.3) with the exact console snippet to resolve it.
 
-**Type / name consistency** — `workflowStep` values (`assignPresenter`/`verifyDisplay`/`sendAnnouncement`/`takeAttendance`/`eventSummary`) are identical in Phases 2, 4, 5, 6, 7. `LIFECYCLE_CHANNELS` keys match. `sessionPresenters` map key is the session date key from `getEventSessions` (`s.dateKey || s.rawString`) consistently across Phases 5 and 6.
+**Type / name consistency** — `workflowStep` values (`assignPresenter`/`verifyDisplay`/`sendAnnouncement`/`takeAttendance`/`eventSummary`) are identical in Phases 2, 4, 5, 6, 7. `LIFECYCLE_CHANNELS` keys match. Presenter storage uses `event.summary.presenter`/`presenterUid` (single-session) and `event.sessionSummaries[<key>].presenter`/`presenterUid` (multi-session) consistently across Phases 5 and 6, with single-vs-multi decided by `getEventSessions(ev).length === 1`.
 
 ---
 

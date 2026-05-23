@@ -116,7 +116,8 @@ Set by the workflow as it runs:
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `sessionPresenters` | map | Keyed by session key. Each entry: `{ uid, name }`. Written when that session's Assign Presenter interaction is closed. Feeds the owner of downstream Take Attendance / Event Summary tasks and the existing Event Summary presenter field. |
+| `summary.presenter` / `summary.presenterUid` | string / string | (Single-session events only.) Set when the session's Assign Presenter interaction is closed. `presenter` is the name (existing field, also written by the Event Summary form). `presenterUid` is additive — gives the chain engine the uid to assign as owner of Take Attendance / Event Summary. |
+| `sessionSummaries.<sessionKey>.presenter` / `.presenterUid` | string / string | (Multi-session events only.) Same as above, keyed per session. Lives on the existing `sessionSummaries` map the Event Summary form already reads. |
 | `lifecycleStatus` | string | `setup` (initial) → `complete` (every session's Event Summary closed). The in-between state is per-session and lives on the interaction records themselves. |
 
 ### 4.2 Interaction document (`interactions/{id}`)
@@ -130,7 +131,8 @@ its own records:
 | `workflowEventCollection` | string | Always `events` for this workflow. |
 | `workflowStep` | string | `assignPresenter` · `verifyDisplay` · `sendAnnouncement` · `takeAttendance` · `eventSummary`. |
 | `workflowSessionKey` | string | Composite session key for the per-session steps (1, 3, 4, 5). Empty for `verifyDisplay`. |
-| `assignedPresenterUid` | string | On a closed `assignPresenter` interaction only — captured from the staff selector at close time. Source of truth for the session's presenter (mirrored into `event.sessionPresenters`). |
+| `assignedPresenterUid` | string | On a closed `assignPresenter` interaction only — captured from the staff selector at close time. Mirrored into the event's `summary.presenterUid` (single-session) or `sessionSummaries.<sessionKey>.presenterUid` (multi-session) so the Event Summary form and Event Attendance Report see the same value. |
+| `assignedPresenterName` | string | On a closed `assignPresenter` interaction only — the displayName matching `assignedPresenterUid`. Mirrored into the event's `summary.presenter` / `sessionSummaries.<sessionKey>.presenter`. |
 
 ### 4.3 Channel / interactionType values (PROPOSED — rename freely)
 
@@ -200,15 +202,23 @@ Fires on create of `events/{id}`.
 Fires on update of `interactions/{id}`. Acts only when a doc with a `workflowStep`
 transitions to `status: Closed`.
 
-- **`assignPresenter` closed:** read `assignedPresenterUid` from the interaction
-  (guaranteed present — the close-task UI requires it, §6.4). Write the
-  `{uid, name}` to `event.sessionPresenters[workflowSessionKey]`. That session's
-  presenter is now recorded.
+- **`assignPresenter` closed:** read `assignedPresenterUid` and `assignedPresenterName`
+  from the interaction (guaranteed present — the close-task UI requires it, §6.4).
+  Mirror them into the event's existing Event Summary storage so the form and the
+  Event Attendance Report immediately see the same value:
+  - Single-session events (sessions count from `getEventSessions(ev)` === 1) →
+    `event.summary.presenter` = name, `event.summary.presenterUid` = uid (dotted-
+    path updates so sibling fields are preserved).
+  - Multi-session events → `event.sessionSummaries.<workflowSessionKey>.presenter`
+    = name, `event.sessionSummaries.<workflowSessionKey>.presenterUid` = uid.
+  That session's presenter is now recorded in one place.
 - **`verifyDisplay` closed:** no further action — this is the event-wide gate. Other
   sessions read it directly when needed.
 - **`takeAttendance` closed:** create the Event Summary interaction for the same
   `workflowEventId` + `workflowSessionKey`:
-  - owner = `event.sessionPresenters[sessionKey].uid` (fallback: event creator)
+  - owner = `event.summary.presenterUid` (single-session) or
+    `event.sessionSummaries[sessionKey].presenterUid` (multi-session); fallback
+    to `event.createdByUid` if not yet set.
   - Open, `followUpDate` = session date + 10 days
 - **`eventSummary` closed:** if every session of the event now has a Closed
   `eventSummary` interaction, set `event.lifecycleStatus = complete`.
@@ -233,8 +243,11 @@ Scheduled daily ~5:00 AM HST.
    (`workflowStep: takeAttendance`, `workflowSessionKey` = that session's key,
    status Open, `followUpDate` = today).
 3. Owner selection:
-   - If the session has been handed off (its `assignPresenter` is closed **and** the
-     event's `verifyDisplay` is closed) → owner = `event.sessionPresenters[sessionKey].uid`.
+   - Look up the session's presenter uid: `event.summary.presenterUid` for single-
+     session events, `event.sessionSummaries[sessionKey].presenterUid` for multi-
+     session.
+   - If that uid is set **and** the event's `verifyDisplay` interaction is closed
+     → owner = that uid.
    - Otherwise → owner = `event.createdByUid` (fallback so attendance is never
      orphaned).
 4. Idempotent — skip if a `takeAttendance` interaction already exists for this
@@ -251,10 +264,25 @@ Scheduled daily ~5:00 AM HST.
   the dropdown has a selection. This is enforced client-side; an additional
   server-side check in `onInteractionUpdatedLifecycle` re-opens the interaction
   (and logs) if a close ever sneaks through without `assignedPresenterUid`.
-- The selection is written to the interaction (`assignedPresenterUid`) and mirrored
-  to `event.sessionPresenters[sessionKey]` by the chain engine (§6.2).
-- There is no event-level Presenter field — that concept has moved to the per-
-  session map.
+- The selection is written to the interaction (`assignedPresenterUid` /
+  `assignedPresenterName`) and mirrored into the event's existing Event Summary
+  presenter location (`event.summary.presenter` for single-session events;
+  `event.sessionSummaries[sessionKey].presenter` for multi-session) by the chain
+  engine (§6.2). This makes the Event Summary form, the Event Attendance Report,
+  and the workflow chain a single source of truth — once one is set, all three
+  display it.
+- The existing Event Summary form's presenter `<select>` sources from the
+  `presenterStaff` roster; values written by the chain engine may come from
+  `userRoles` (the assignable-owners pool used by the Phase 4 dropdown) and not
+  be in `presenterStaff`. The form gracefully renders these as "(not in roster)"
+  options so they display as selected.
+
+The reverse direction is handled by §6.5 (event-update CF): if a staff member
+saves the Event Summary form with a presenter set BEFORE the Assign Presenter
+interaction was closed, that save auto-closes the open Assign Presenter
+interaction for the session and captures the presenter into
+`assignedPresenterUid` / `assignedPresenterName` (uid looked up from `userRoles`
+by displayName if available; left empty otherwise).
 
 ### 6.5 Event Summary auto-close
 
