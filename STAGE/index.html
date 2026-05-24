@@ -4154,7 +4154,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   STAGE v123.1.12 — Home redesign: My Day + Recent Signups (wired to live data)
+   STAGE v123.1.13 — Event Summary form preserves presenterUid on save
    Scoped to .my-day-card and .recent-signups-card so the rest of
    LDAH-Int is unaffected. Reuses --ocean-deep, --sand, --palm, etc.
    ───────────────────────────────────────────────────────────────── */
@@ -4250,7 +4250,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v123.1.12 — home redesign (My Day + Recent Signups)
+    STAGE · LDAH-Int v123.1.13 — Event Summary preserves presenterUid
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4446,7 +4446,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.12-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v123.1.13-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23965,6 +23965,30 @@ window.cmsSaveEventSummary = async function() {
     });
   }
 
+  // Resolve presenterUid: preserve the existing uid when the presenter name
+  // is unchanged (keeps the lifecycle workflow's CF-written uid intact across
+  // form saves), otherwise look up the name in userRoles. Empty when the
+  // presenter is a free-text "__other__" entry not in any roster — that's
+  // fine; downstream consumers fall back to name + La'a routing.
+  var _priorSummaryForUid = {};
+  if (sessionDate && (isRecurring || isOneTimeMulti)) {
+    _priorSummaryForUid = cmsLookupSessionSummary(evDoc, sessionDate) || {};
+    if (!Object.keys(_priorSummaryForUid).length && evDoc.summary) _priorSummaryForUid = evDoc.summary;
+  } else if (evDoc.summary) {
+    _priorSummaryForUid = evDoc.summary;
+  }
+  var _newPresenterUid = '';
+  if (newPresenter) {
+    if (_priorSummaryForUid.presenter === newPresenter && _priorSummaryForUid.presenterUid) {
+      _newPresenterUid = _priorSummaryForUid.presenterUid;
+    } else {
+      try {
+        var _urSnap = await db.collection('userRoles').where('displayName', '==', newPresenter).limit(1).get();
+        if (!_urSnap.empty) _newPresenterUid = _urSnap.docs[0].id;
+      } catch (_) {}
+    }
+  }
+
   var summaryData = {
     newParentCount: newParentCount,
     evaluationCount: evaluationCount,
@@ -23975,6 +23999,7 @@ window.cmsSaveEventSummary = async function() {
     totalAttended: totalAttended,
     totalNoShow: totalNoShow,
     presenter: newPresenter,
+    presenterUid: _newPresenterUid,
     materialsPacked: newMaterialsPacked,
     materialsDisseminated: newMaterialsDisseminated,
     presenterComments: newPresenterComments,
