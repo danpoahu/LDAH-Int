@@ -6473,11 +6473,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
                 <div class="field">
                   <label>Event Date <span style="color:#DC2626;">*</span></label>
-                  <input type="date" id="cmsEventDate">
+                  <input type="date" id="cmsEventDate" oninput="_cmsMaybeAutoFillSignupDate()">
                 </div>
                 <div class="field">
                   <label>Time</label>
-                  <input id="cmsEventTime" placeholder="e.g. 2:00 PM">
+                  <input id="cmsEventTime" placeholder="e.g. 2:00 PM" oninput="_cmsMaybeAutoFillSignupDate()">
                 </div>
               </div>
               <div class="field">
@@ -20072,6 +20072,7 @@ var _cmsProgramsLoadedAt = 0;
 var _cmsCacheTTL = 60000; // 60s cache — navigating back won't re-fetch
 var _cmsSignupsModalData = { eventId: null, isRecurring: false, eventTitle: '', signups: [] };
 var _cmsEventSignupDates = [];
+var _cmsEventSignupDatesAutoFromEvent = false; // true = last entry was auto-filled from eventDate+time
 var _cmsEventCustomQuestions = [];
 var _cmsRecurringSchedules = [];
 var _cmsRecurringQuestions = [];
@@ -20642,6 +20643,7 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
   document.getElementById('cmsEventMoveToPastDate').value = '';
   document.getElementById('cmsEventRemoveDate').value = '';
   _cmsEventSignupDates = [];
+  _cmsEventSignupDatesAutoFromEvent = false;
   _cmsEventCustomQuestions = [];
   document.getElementById('cmsEventShowGroupField').checked = true;
   cmsRenderEventSignupDates();
@@ -20704,6 +20706,7 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
           document.getElementById('cmsEventRemoveDate').value = d.removeDate || '';
           document.getElementById('cmsEventShowGroupField').checked = d.showGroupField !== false;
           if (d.signupDates) _cmsEventSignupDates = d.signupDates.slice();
+          _cmsEventSignupDatesAutoFromEvent = false; // existing entries are user-set — don't auto-overwrite
           if (d.customQuestions) _cmsEventCustomQuestions = d.customQuestions.slice();
           cmsRenderEventSignupDates();
           cmsRenderEventCustomQuestions();
@@ -20750,11 +20753,40 @@ window.cmsClearEventImage = function() {
   document.getElementById('cmsEventImageUpload').innerHTML = '<span class="cms-photo-label">Click to upload image or PDF</span>';
 };
 
+/* ── One-Time Event: auto-fill Signup Date from Event Date + Time ── */
+function _cmsBuildAutoSignupDate(dateStr, timeStr) {
+  if (!dateStr) return '';
+  try {
+    var d = new Date(dateStr + 'T12:00:00'); // noon avoids TZ edge
+    var monthName = d.toLocaleDateString('en-US', { month: 'long' });
+    var day = d.getDate();
+    var year = d.getFullYear();
+    var s = monthName + ' ' + day + ', ' + year;
+    if (timeStr && timeStr.trim()) s += ' - ' + timeStr.trim();
+    return s;
+  } catch (e) { return ''; }
+}
+
+window._cmsMaybeAutoFillSignupDate = function() {
+  // Only act when array is empty OR contains exactly one auto-filled entry
+  if (_cmsEventSignupDates.length > 1) return;
+  if (_cmsEventSignupDates.length === 1 && !_cmsEventSignupDatesAutoFromEvent) return;
+  var dateEl = document.getElementById('cmsEventDate');
+  var timeEl = document.getElementById('cmsEventTime');
+  if (!dateEl || !timeEl) return;
+  var s = _cmsBuildAutoSignupDate(dateEl.value, timeEl.value);
+  if (!s) return;
+  _cmsEventSignupDates = [s];
+  _cmsEventSignupDatesAutoFromEvent = true;
+  cmsRenderEventSignupDates();
+};
+
 /* ── One-Time Event: Signup Dates helpers ── */
 window.cmsAddEventSignupDate = function() {
   var input = document.getElementById('cmsNewSignupDate');
   if (input.value.trim()) {
     _cmsEventSignupDates.push(input.value.trim());
+    _cmsEventSignupDatesAutoFromEvent = false; // user took control — stop auto-filling
     input.value = '';
     cmsRenderEventSignupDates();
   }
@@ -20762,6 +20794,7 @@ window.cmsAddEventSignupDate = function() {
 
 window.cmsRemoveEventSignupDate = function(index) {
   _cmsEventSignupDates.splice(index, 1);
+  _cmsEventSignupDatesAutoFromEvent = false; // explicit removal — stop auto-filling
   cmsRenderEventSignupDates();
 };
 
@@ -21092,6 +21125,13 @@ window.cmsSaveEvent = async function() {
     payload.startDate = document.getElementById('cmsEventStartDate').value;
     payload.moveToPastDate = document.getElementById('cmsEventMoveToPastDate').value;
     payload.removeDate = document.getElementById('cmsEventRemoveDate').value;
+    // Belt-and-suspenders: if user provided eventDate + time but no signupDate
+    // entries (e.g. bypassed the change-listener), synthesize one so the
+    // reminder pipeline always has a session date to work with.
+    if (_cmsEventSignupDates.length === 0 && payload.eventDate && payload.time) {
+      var _autoEntry = _cmsBuildAutoSignupDate(payload.eventDate, payload.time);
+      if (_autoEntry) _cmsEventSignupDates = [_autoEntry];
+    }
     payload.signupDates = _cmsEventSignupDates;
     payload.customQuestions = _cmsEventCustomQuestions;
     payload.showGroupField = document.getElementById('cmsEventShowGroupField').checked;
