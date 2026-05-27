@@ -4154,7 +4154,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   v124.0.2 — Zebra striping on Updates (sand) + ToDo Today (ocean)
+   v124.0.3 — Resource "Next nudge" label uses Wednesday cron + cycle eligibility
    Scoped to .my-day-card and .recent-signups-card so the rest of
    LDAH-Int is unaffected. Reuses --ocean-deep, --sand, --palm, etc.
    ───────────────────────────────────────────────────────────────── */
@@ -4443,7 +4443,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v124.0.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v124.0.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -18803,47 +18803,68 @@ window.cmsLoadResources = async function() {
 /**
  * "Next nudge MM/DD/YYYY · N" indicator beside Show Archived on Community
  * Resources. Computed from _cmsResources — the sendResourceUpdateNudges
- * cron runs daily 9 AM HST and sends the next nudge once 7 days have
- * passed since the last touch (3-nudge cap, 30-day cycle ceiling).
+ * cron now fires weekly on Wednesday 9 AM HST (since 2026-05-27) so the
+ * date is always "next Wednesday." Count = partners still in the
+ * "awaiting" bucket per the dashboard cycle definition.
+ *
+ * Deadline-aware: returns "Nudge cycle ended" past the W2 CF's hard
+ * deadline (RESOURCE_UPDATE_NUDGE_DEADLINE_HST = 2026-07-31).
  */
-function cmsNextNudgeDateKey(dueMs) {
-  var hst = function(ms) { return new Date(ms - 10 * 3600 * 1000); }; // HST = UTC-10
-  var d = hst(dueMs);
-  // Cron fires 9:00 AM HST; if the due moment is already past 9 AM that
-  // day, the nudge waits for the next day's run.
-  var ms = dueMs;
-  if (d.getUTCHours() > 9 || (d.getUTCHours() === 9 && (d.getUTCMinutes() > 0 || d.getUTCSeconds() > 0))) {
-    ms += 86400000;
+var RESOURCE_UPDATE_NUDGE_DEADLINE_MS = Date.UTC(2026, 6, 31, 33, 59, 59); // 23:59:59 HST = +10h UTC
+
+function _cmsResourceCycleGraceWindow(now) {
+  var yr = new Date(now).getFullYear();
+  var may1 = new Date(yr, 4, 1).getTime();
+  var nov1 = new Date(yr, 10, 1).getTime();
+  var cycleStart;
+  if (now >= nov1) cycleStart = nov1;
+  else if (now >= may1) cycleStart = may1;
+  else cycleStart = new Date(yr - 1, 10, 1).getTime();
+  return cycleStart - 7 * 86400000;
+}
+
+function _cmsNextWednesdayHstKey(nowMs) {
+  // HST = UTC-10
+  var hst = new Date(nowMs - 10 * 3600 * 1000);
+  var dow = hst.getUTCDay();         // 0=Sun..3=Wed..6=Sat
+  var hour = hst.getUTCHours();
+  var daysToAdd;
+  if (dow === 3 && hour < 9) {
+    daysToAdd = 0;                   // today, before 9 AM HST → today's run
+  } else {
+    daysToAdd = (3 - dow + 7) % 7;
+    if (daysToAdd === 0) daysToAdd = 7; // already past Wed 9 AM → next week
   }
-  var f = hst(ms);
-  return f.getUTCFullYear() + '-' +
-    String(f.getUTCMonth() + 1).padStart(2, '0') + '-' +
-    String(f.getUTCDate()).padStart(2, '0');
+  var target = new Date(hst.getTime() + daysToAdd * 86400000);
+  return target.getUTCFullYear() + '-' +
+    String(target.getUTCMonth() + 1).padStart(2, '0') + '-' +
+    String(target.getUTCDate()).padStart(2, '0');
 }
 
 window.cmsRefreshResourceNextNudge = function() {
   var el = document.getElementById('cmsResourceNextNudge');
   if (!el) return;
   var now = Date.now();
-  var SEVEN = 7 * 86400000, CEILING = 30 * 86400000;
-  var byDate = {};
+  if (now > RESOURCE_UPDATE_NUDGE_DEADLINE_MS) {
+    el.textContent = 'Nudge cycle ended 7/31';
+    return;
+  }
+  var graceWindow = _cmsResourceCycleGraceWindow(now);
+  var count = 0;
   (_cmsResources || []).forEach(function(r) {
     if (r.archived === true) return;
-    if (!r.updateToken || r.updateSubmittedAt) return;      // not in an active cycle
-    var n = Number(r.updateNudgeCount || 0);
-    if (n >= 3) return;                                     // nudge cap
-    var reqAt = (r.updateRequestedAt && r.updateRequestedAt.toMillis) ? r.updateRequestedAt.toMillis() : 0;
-    if (!reqAt || (now - reqAt) > CEILING) return;          // past the 30-day cycle ceiling
-    var lastNudgeAt = (r.lastUpdateNudgeAt && r.lastUpdateNudgeAt.toMillis) ? r.lastUpdateNudgeAt.toMillis() : 0;
-    var base = (n === 0) ? reqAt : lastNudgeAt;
-    if (!base) return;
-    var key = cmsNextNudgeDateKey(base + SEVEN);
-    byDate[key] = (byDate[key] || 0) + 1;
+    if (!String(r.name || '').trim()) return;        // skip Downloads metadata
+    if (!String(r.email || '').trim()) return;       // can't auto-nudge no-email partners
+    if (!r.updateToken) return;
+    var lu = (r.lastUpdateAt && r.lastUpdateAt.toMillis) ? r.lastUpdateAt.toMillis() : 0;
+    var subAt = (r.updateSubmittedAt && r.updateSubmittedAt.toMillis) ? r.updateSubmittedAt.toMillis() : 0;
+    if (lu >= graceWindow || subAt >= graceWindow) return;
+    count++;
   });
-  var dates = Object.keys(byDate).sort();
-  if (!dates.length) { el.textContent = ''; return; }
-  var p = dates[0].split('-');
-  el.textContent = 'Next nudge ' + (+p[1]) + '/' + (+p[2]) + '/' + p[0] + ' · ' + byDate[dates[0]];
+  if (count === 0) { el.textContent = ''; return; }
+  var key = _cmsNextWednesdayHstKey(now);
+  var p = key.split('-');
+  el.textContent = 'Next nudge ' + (+p[1]) + '/' + (+p[2]) + '/' + p[0] + ' · ' + count;
 };
 
 // Determine whether the semi-annual partner-update cycle is currently due.
