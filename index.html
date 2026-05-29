@@ -4545,7 +4545,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v127.1.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v127.1.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20683,7 +20683,12 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     if (isArchived) {
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreItem(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',function(){' + (isRecurring ? 'cmsLoadPrograms' : 'cmsLoadEvents') + '(true);})">Restore</button>';
     } else {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveEvent(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Archive</button>';
+      // Connect-Gen: suppress Archive entirely (incident 5-29: archiving the
+      // program emailed already-attended families). Other events keep it.
+      var _isCG = /^connect[-\s]?gen$/i.test(String(ev.title || '').trim());
+      if (!_isCG) {
+        html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveEvent(\'' + collection + '\',\'' + rsEscape(ev.id) + '\',\'' + rsEscape(ev.title || '') + '\')">Archive</button>';
+      }
     }
     html += '</div></div>';
   }
@@ -21472,15 +21477,47 @@ window.cmsSaveEvent = async function() {
 };
 
 window.cmsArchiveEvent = async function(collection, docId, title) {
-  // Preview — count registrants who will get the cancellation email
+  // Preview — count registrants who will get the cancellation email.
+  // Mirror the W2 CF's past-date filter exactly so this count matches what
+  // actually gets emailed. (Daniel's incident 5-29: archiving Connect-Gen
+  // recurring emailed 12 past-only registrants — past-date filter added.)
+  var _nowHst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+  var _todayKey = _nowHst.getFullYear() + '-' + String(_nowHst.getMonth()+1).padStart(2,'0') + '-' + String(_nowHst.getDate()).padStart(2,'0');
+  function _archiveSignupHasUpcomingDate(sd, ev) {
+    var dates = Array.isArray(sd.selectedDates) ? sd.selectedDates :
+                Array.isArray(sd.selectedSessions) ? sd.selectedSessions : [];
+    if (dates.length > 0) {
+      return dates.some(function(s){
+        var m = String(s).match(/(\d{4}-\d{2}-\d{2})/);
+        return m && m[1] >= _todayKey;
+      });
+    }
+    var evDates = Array.isArray(ev && ev.signupDates) ? ev.signupDates : [];
+    if (evDates.length > 0) {
+      return evDates.some(function(s){
+        var m = String(s).match(/(\d{4}-\d{2}-\d{2})/);
+        return m && m[1] >= _todayKey;
+      });
+    }
+    if (ev && ev.eventDate) {
+      var m = String(ev.eventDate).match(/(\d{4}-\d{2}-\d{2})/);
+      if (m) return m[1] >= _todayKey;
+    }
+    return true; // Indeterminate — match CF (don't filter out)
+  }
+
   var toEmail = [];
   try {
+    // Pull parent event doc so the fallback path can read signupDates/eventDate.
+    var parentSnap = await db.collection(collection).doc(docId).get();
+    var parentEv = parentSnap.exists ? parentSnap.data() : {};
     var signupsSnap = await db.collection(collection).doc(docId).collection('signups').get();
     signupsSnap.forEach(function(d) {
       var s = d.data();
       if (s.archived === true) return;
       if (s.status === 'cancelled') return;
       if (!s.email) return;
+      if (!_archiveSignupHasUpcomingDate(s, parentEv)) return; // past-only — skip
       toEmail.push({ name: s.name || '(no name)', email: s.email });
     });
   } catch (previewErr) {
@@ -21498,6 +21535,10 @@ window.cmsArchiveEvent = async function(collection, docId, title) {
   msg += '\n\nThis can be undone by restoring from the database.';
 
   if (!confirm(msg)) return;
+  if (toEmail.length > 0) {
+    var typed = prompt('Type ARCHIVE (uppercase) to confirm sending cancellation emails to ' + toEmail.length + ' registrant' + (toEmail.length !== 1 ? 's' : '') + ':');
+    if (typed !== 'ARCHIVE') return;
+  }
   try {
     await db.collection(collection).doc(docId).update({ archived: true });
     auditLog('Archived event', (collection === 'recurringEvents' ? 'Program' : 'Event') + ': ' + title + (toEmail.length ? ' (emailed ' + toEmail.length + ' registrants)' : ''));
