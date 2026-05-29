@@ -3124,6 +3124,13 @@
   text-align: center; padding: 40px 20px; color: var(--text-soft);
   font-size: .95rem;
 }
+.ct-az { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0 4px; }
+.ct-az-btn { min-width:30px; height:30px; padding:0 9px; border-radius:9px; border:1px solid rgba(8,145,178,.14); background:transparent; color:var(--text-soft); font-weight:700; font-size:.8rem; font-family:inherit; cursor:pointer; transition:.18s ease; }
+.ct-az-btn:hover:not(:disabled){ color:var(--ocean-deep); }
+.ct-az-btn.active { background:#fff; color:var(--ocean-deep); box-shadow:0 2px 8px rgba(8,145,178,.14); border-color:rgba(8,145,178,.22); }
+.ct-az-btn:disabled { opacity:.32; cursor:default; }
+.ct-show-more { display:block; margin:10px auto; padding:8px 18px; border-radius:10px; border:1px solid rgba(8,145,178,.2); background:var(--sand-light); color:var(--ocean-deep); font-weight:700; font-size:.82rem; font-family:inherit; cursor:pointer; }
+.ct-show-more:hover { background:#fff; }
 
 /* Contact Form Modal */
 .ct-form-overlay {
@@ -4538,7 +4545,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v126.0.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v127.1.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5464,6 +5471,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <button class="section-refresh-btn" onclick="loadContacts(true)">Refresh</button>
         </div>
 
+        <div class="ct-az" id="ctAz"></div>
+
         <div class="ct-list">
           <div class="ct-list-header">
             <span>Name</span>
@@ -5476,6 +5485,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div id="contactsList">
             <div class="ct-empty">No contacts yet. Click "+ Add Contact" to get started.</div>
           </div>
+          <div id="ctShowMoreWrap"></div>
         </div>
       </section>
 
@@ -12827,6 +12837,41 @@ window.autoCropImage = function(file) {
   });
   var _quickAddReturnToInteraction = false;
 
+  // A–Z alphabet filter state ('' = All / no letter filter)
+  let _ctAzLetter = '';
+  let _ctRenderLimit = 50;
+  function _ctBucket(name){ var c=(name||'').trim().charAt(0).toUpperCase(); return (c>='A'&&c<='Z')?c:'#'; }
+  function renderAzFilter(){
+    var wrap = document.getElementById('ctAz');
+    if (!wrap) return;
+    // Available letters come from the FULL non-archived set (_allContacts),
+    // NOT the search-filtered subset, so they don't vanish as the user types.
+    var present = {};
+    _allContacts.forEach(function(c){ present[_ctBucket(c.displayName)] = true; });
+    var letters = [];
+    for (var i = 65; i <= 90; i++) letters.push(String.fromCharCode(i));
+    letters.push('#');
+    var html = '<button class="ct-az-btn' + (_ctAzLetter === '' ? ' active' : '') +
+               '" onclick="ctAzPick(\'\')">All</button>';
+    letters.forEach(function(L){
+      var disabled = present[L] ? '' : ' disabled';
+      var active = (_ctAzLetter === L) ? ' active' : '';
+      html += '<button class="ct-az-btn' + active + '"' + disabled +
+              ' onclick="ctAzPick(\'' + L + '\')">' + L + '</button>';
+    });
+    wrap.innerHTML = html;
+  }
+  window.ctAzPick = function(val){
+    _ctAzLetter = (_ctAzLetter === val ? '' : val);
+    _ctRenderLimit = 50;
+    renderAzFilter();
+    loadContacts();
+  };
+  window.ctShowMore = function(){
+    _ctRenderLimit += 50;
+    loadContacts();
+  };
+
   function buildContactDatalist() {
     var dl = document.getElementById('contactOptions');
     if (!dl) return;
@@ -14131,9 +14176,11 @@ window.autoCropImage = function(file) {
   window.loadContacts = async function(forceRefresh) {
     var list = document.getElementById('contactsList');
     if (!list) return;
+    var moreWrap = document.getElementById('ctShowMoreWrap');
 
     try {
       if (forceRefresh || !_allContacts.length) {
+        if (moreWrap) moreWrap.innerHTML = '';
         list.innerHTML = '<div class="ct-empty">Loading contacts...</div>';
         var snap = await db.collection('contacts').orderBy('displayName').get();
         _allContacts = [];
@@ -14146,29 +14193,40 @@ window.autoCropImage = function(file) {
       }
 
       if (_allContacts.length === 0) {
+        if (moreWrap) moreWrap.innerHTML = '';
         list.innerHTML = '<div class="ct-empty">No contacts yet. Click "+ Add Contact" to get started.</div>';
         return;
       }
 
+      // Available letters reflect the full non-archived set (_allContacts).
+      renderAzFilter();
+
       var searchVal = (document.getElementById('ctSearch')?.value || '').toLowerCase().trim();
-      var filtered = _allContacts;
-      if (searchVal) {
-        filtered = _allContacts.filter(function(c) {
+      var filtered = _allContacts.filter(function(c) {
+        // A–Z letter filter (AND with text search)
+        if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
+        if (searchVal) {
           return (c.displayName || '').toLowerCase().includes(searchVal) ||
                  (c.type || '').toLowerCase().includes(searchVal) ||
                  (c.organization || '').toLowerCase().includes(searchVal) ||
                  (c.location || '').toLowerCase().includes(searchVal) ||
                  (c.grantProgram || '').toLowerCase().includes(searchVal);
-        });
-      }
+        }
+        return true;
+      });
 
       if (filtered.length === 0) {
+        if (moreWrap) moreWrap.innerHTML = '';
         list.innerHTML = '<div class="ct-empty">No contacts match your search.</div>';
         return;
       }
 
+      // Cap the default "All" view (no letter, no search); letter/search sets are small.
+      var capped = (!_ctAzLetter && !searchVal);
+      var toRender = capped ? filtered.slice(0, _ctRenderLimit) : filtered;
+
       var html = '';
-      filtered.forEach(function(c) {
+      toRender.forEach(function(c) {
         var typeCls = c.type === 'Parent/Guardian' ? 'parent' :
                       c.type === 'Professional' ? 'professional' :
                       c.type === 'Student' ? 'student' : 'organization';
@@ -14191,7 +14249,18 @@ window.autoCropImage = function(file) {
       });
       list.innerHTML = html;
 
+      // "Show more" lives outside #contactsList so it never disturbs the row grid.
+      if (moreWrap) {
+        if (capped && filtered.length > _ctRenderLimit) {
+          var remaining = filtered.length - _ctRenderLimit;
+          moreWrap.innerHTML = '<button class="ct-show-more" onclick="ctShowMore()">Show more (' + remaining + ' more)</button>';
+        } else {
+          moreWrap.innerHTML = '';
+        }
+      }
+
     } catch (err) {
+      if (moreWrap) moreWrap.innerHTML = '';
       list.innerHTML = '<div class="ct-empty" style="color:#DC2626;">Error: ' + err.message + '</div>';
     }
   };
@@ -14200,6 +14269,7 @@ window.autoCropImage = function(file) {
   var ctSearchEl = document.getElementById('ctSearch');
   if (ctSearchEl) {
     ctSearchEl.addEventListener('input', function() {
+      _ctRenderLimit = 50;
       loadContacts();
     });
   }
