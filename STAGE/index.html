@@ -3888,20 +3888,20 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 /* ── CMS Website Sections ── */
 #cmsPersonOverlay .modal, #cmsResourceOverlay .modal, #cmsFaqOverlay .modal,
 #cmsEventOverlay .modal, #cmsOpportunityOverlay .modal, #cmsSignupsOverlay .modal, #cmsEventSummaryOverlay .modal,
-#cmsFutureDatesOverlay .modal {
+#cmsFutureDatesOverlay .modal, #cmsSignupDateEditorOverlay .modal {
   max-height: 90vh; display: flex; flex-direction: column;
 }
 #cmsPersonOverlay .modal-body, #cmsResourceOverlay .modal-body, #cmsFaqOverlay .modal-body,
 #cmsEventOverlay .modal-body, #cmsOpportunityOverlay .modal-body, #cmsSignupsOverlay .modal-body, #cmsEventSummaryOverlay .modal-body,
-#cmsFutureDatesOverlay .modal-body {
+#cmsFutureDatesOverlay .modal-body, #cmsSignupDateEditorOverlay .modal-body {
   overflow-y: auto; flex: 1;
 }
 #cmsPersonOverlay .modal-header, #cmsResourceOverlay .modal-header, #cmsFaqOverlay .modal-header,
 #cmsEventOverlay .modal-header, #cmsOpportunityOverlay .modal-header, #cmsSignupsOverlay .modal-header, #cmsEventSummaryOverlay .modal-header,
-#cmsFutureDatesOverlay .modal-header,
+#cmsFutureDatesOverlay .modal-header, #cmsSignupDateEditorOverlay .modal-header,
 #cmsPersonOverlay .modal-actions, #cmsResourceOverlay .modal-actions, #cmsFaqOverlay .modal-actions,
 #cmsEventOverlay .modal-actions, #cmsOpportunityOverlay .modal-actions, #cmsSignupsOverlay .modal-actions, #cmsEventSummaryOverlay .modal-actions,
-#cmsFutureDatesOverlay .modal-actions {
+#cmsFutureDatesOverlay .modal-actions, #cmsSignupDateEditorOverlay .modal-actions {
   flex-shrink: 0;
 }
 /* ── Event Summary Modal ── */
@@ -4550,7 +4550,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v127.1.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v128.0.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6745,6 +6745,25 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         </div>
         <div class="modal-actions">
           <button class="btn btn-ghost" onclick="cmsCloseFutureDates()">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Change Dates Modal (one-time multi-date events only) — edit which dates a single signup is registered for. v128.0.0. No email is sent on save; reminder pipeline picks up new dates automatically. -->
+    <div class="overlay" id="cmsSignupDateEditorOverlay">
+      <div class="modal" id="cmsSignupDateEditorModal" style="max-width:560px;">
+        <div class="modal-header">
+          <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="cmsSignupDateEditorTitle">Change Dates</div></div>
+          <button class="close" type="button" onclick="cmsCloseSignupDateEditor()">&times;</button>
+        </div>
+        <div class="modal-body" style="display:block; padding: 0;">
+          <div id="cmsSignupDateEditorBody" style="padding:14px 18px 16px;">
+            <div class="cms-empty"><p>Loading dates...</p></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="cmsCloseSignupDateEditor()">Cancel</button>
+          <button class="btn btn-primary" id="cmsSignupDateEditorSaveBtn" onclick="cmsSaveSignupDates()">Save Dates</button>
         </div>
       </div>
     </div>
@@ -22013,6 +22032,15 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
     }
   }
   h += '</select>';
+  // v128.0.0: "Change Dates" button — only for one-time events with 2+ dates,
+  // active signups only. CG/recurring programs have their own per-session UX.
+  if (!isArchived && collection === 'events') {
+    var _evForDates = _cmsSignupsModalData && _cmsSignupsModalData.eventDoc;
+    var _evDates = _evForDates && Array.isArray(_evForDates.signupDates) ? _evForDates.signupDates : [];
+    if (_evDates.length >= 2) {
+      h += '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;background:#EFF6FF;color:#0891B2;" onclick="event.stopPropagation();cmsOpenSignupDateEditor(\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">Change Dates</button>';
+    }
+  }
   h += (isArchived ?
     '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;background:#F0FDF4;color:#16A34A;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',false)">Restore</button>' :
     '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;background:#F5F3FF;color:#7C3AED;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',true)">Archive</button>');
@@ -25135,6 +25163,120 @@ window.cmsArchiveSignup = async function(collection, eventId, signupId, archive)
     cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
     _showToast(archive ? 'Signup archived.' : 'Signup restored.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+// ── Change Dates editor (one-time multi-date events) ─────────────────────
+// v128.0.0. Lets staff edit a single signup's selectedDates without scripting.
+// No emails fire on save; the 3-day and day-of reminder crons read the
+// updated array the next time they run.
+var _cmsSignupDateEditorCtx = null;
+
+window.cmsOpenSignupDateEditor = async function(eventId, signupId) {
+  try {
+    var bodyEl = document.getElementById('cmsSignupDateEditorBody');
+    var titleEl = document.getElementById('cmsSignupDateEditorTitle');
+    titleEl.textContent = 'Change Dates';
+    bodyEl.innerHTML = '<div class="cms-empty"><p>Loading dates...</p></div>';
+    document.getElementById('cmsSignupDateEditorOverlay').classList.add('active');
+
+    // Always re-read both docs fresh — the modal-cached copies may be stale.
+    var evSnap = await db.collection('events').doc(eventId).get();
+    var sgSnap = await db.collection('events').doc(eventId).collection('signups').doc(signupId).get();
+    if (!evSnap.exists) { bodyEl.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Event no longer exists.</div>'; return; }
+    if (!sgSnap.exists) { bodyEl.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Signup no longer exists.</div>'; return; }
+    var ev = evSnap.data();
+    var sg = sgSnap.data();
+    var dates = Array.isArray(ev.signupDates) ? ev.signupDates : [];
+    if (dates.length < 2) {
+      bodyEl.innerHTML = '<div class="cms-empty">This event only has one date. Nothing to edit.</div>';
+      return;
+    }
+    // Canonical priority: selectedDates wins over the legacy selectedSessions field.
+    var currentRaw = Array.isArray(sg.selectedDates) && sg.selectedDates.length
+      ? sg.selectedDates
+      : (Array.isArray(sg.selectedSessions) ? sg.selectedSessions : []);
+    var currentSet = {};
+    currentRaw.forEach(function(d) { currentSet[String(d)] = true; });
+
+    var sName = sg.name || [sg.firstName, sg.lastName].filter(Boolean).join(' ') || '(No name)';
+    titleEl.textContent = 'Change Dates — ' + sName;
+
+    _cmsSignupDateEditorCtx = {
+      eventId: eventId,
+      signupId: signupId,
+      eventTitle: ev.title || _cmsSignupsModalData.eventTitle || 'Event',
+      signupName: sName,
+      previous: currentRaw.slice(),
+      availableDates: dates.slice()
+    };
+
+    var html = '';
+    html += '<div style="background:#EFF6FF;border-left:4px solid #0891B2;border-radius:0 8px 8px 0;padding:10px 14px;font-size:.84rem;color:#0C4A6E;margin-bottom:12px;">';
+    html += 'Updating dates here does <strong>not</strong> send an email to the registrant. The 3-day and day-of reminders will use the new dates automatically.';
+    html += '</div>';
+    html += '<div style="font-size:.82rem;color:#475569;margin-bottom:8px;">Check the dates ' + rsEscape(sName) + ' should be signed up for:</div>';
+    html += '<div id="cmsSignupDateEditorList" style="display:flex;flex-direction:column;gap:6px;">';
+    dates.forEach(function(dateStr, idx) {
+      var checked = currentSet[String(dateStr)] ? ' checked' : '';
+      var cbId = 'cmsSignupDateEditorCb_' + idx;
+      html += '<label for="' + cbId + '" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid #CBD5E1;border-radius:8px;background:#fff;cursor:pointer;font-size:.88rem;color:#0F172A;">';
+      html += '<input type="checkbox" id="' + cbId + '" data-date="' + encodeURIComponent(dateStr) + '"' + checked + ' style="width:16px;height:16px;cursor:pointer;accent-color:#0891B2;flex-shrink:0;">';
+      html += '<span>' + rsEscape(dateStr) + '</span>';
+      html += '</label>';
+    });
+    html += '</div>';
+    bodyEl.innerHTML = html;
+  } catch (err) {
+    var bodyEl2 = document.getElementById('cmsSignupDateEditorBody');
+    if (bodyEl2) bodyEl2.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+window.cmsCloseSignupDateEditor = function() {
+  document.getElementById('cmsSignupDateEditorOverlay').classList.remove('active');
+  _cmsSignupDateEditorCtx = null;
+};
+
+window.cmsSaveSignupDates = async function() {
+  var ctx = _cmsSignupDateEditorCtx;
+  if (!ctx) return;
+  var listEl = document.getElementById('cmsSignupDateEditorList');
+  if (!listEl) return;
+  var cbs = listEl.querySelectorAll('input[type="checkbox"][data-date]');
+  var picked = [];
+  for (var i = 0; i < cbs.length; i++) {
+    if (cbs[i].checked) picked.push(decodeURIComponent(cbs[i].getAttribute('data-date') || ''));
+  }
+  if (picked.length === 0) {
+    alert('Pick at least one date, or use Archive to remove this signup.');
+    return;
+  }
+  var saveBtn = document.getElementById('cmsSignupDateEditorSaveBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+  try {
+    await db.collection('events').doc(ctx.eventId).collection('signups').doc(ctx.signupId).update({
+      selectedDates: picked,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    // Update local cache so the re-render reflects the change immediately.
+    var sLocal = _cmsSignupsModalData && _cmsSignupsModalData.signups
+      ? _cmsSignupsModalData.signups.find(function(x) { return x.id === ctx.signupId; })
+      : null;
+    if (sLocal) sLocal.selectedDates = picked.slice();
+
+    var prevStr = (ctx.previous && ctx.previous.length) ? ctx.previous.join('; ') : '(none)';
+    var nowStr = picked.join('; ');
+    auditLog('Updated signup dates', ctx.signupName + ' — ' + ctx.eventTitle + ' — was [' + prevStr + '], now [' + nowStr + ']');
+
+    cmsCloseSignupDateEditor();
+    if (_cmsSignupsModalData && _cmsSignupsModalData.eventId === ctx.eventId) {
+      cmsRenderSignupsList(_cmsSignupsModalData.signups, 'events', ctx.eventId);
+    }
+    _showToast('Dates updated.', '#16A34A');
+  } catch (err) {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Dates'; }
+    _showToast('Error: ' + err.message, '#DC2626');
+  }
 };
 
 window.cmsExportSignupsCsvFromModal = function() {
@@ -29422,6 +29564,7 @@ var _auditLogActionColors = {
   'Created FAQ': '#0D9488', 'Updated FAQ': '#0D9488', 'Archived FAQ': '#0D9488',
   'Created volunteer opportunity': '#2563EB', 'Updated volunteer opportunity': '#2563EB', 'Archived volunteer opportunity': '#2563EB',
   'Updated signup status': '#D97706', 'Updated signup notes': '#D97706',
+  'Updated signup dates': '#D97706',
   'Archived signup': '#D97706', 'Restored signup': '#D97706',
   'Set per-date mode override': '#D97706', 'Cleared per-date mode override': '#D97706',
   'Rescheduled signup': '#D97706', 'Shared registration across signups': '#D97706',
