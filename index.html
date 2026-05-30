@@ -23647,6 +23647,226 @@ function showConfirmModal({ title, subtitle, body, confirmLabel, cancelLabel, co
   overlay.setAttribute('aria-hidden', 'false');
 }
 
+/* ── Cancel & Reschedule: pure logic helpers (Task 5) ───────────────────────
+ * All functions below are PURE — no DOM access, no Firestore calls.
+ * They are designed to be tested via runCancelRescheduleTests() in the console.
+ *
+ * Codebase notes:
+ *   - Signup session keys live at signup.selectedSessions (composite keys,
+ *     "YYYY-MM-DD|Loc – Venue|H:MM AM") or selectedDates (legacy).
+ *   - _getEventSessions(event) returns session objects {dateKey,startTime,
+ *     endTime,location,modality,rawString}; rawString is the composite key.
+ *   - event.cancelledDates is an array of {date,location,venue,reason}
+ *     objects (not composite strings).
+ *   - There is no global todayKeyHST(); it is computed inline.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+// Returns a Firestore dotted-path-safe version of a composite session key.
+// Pipes, spaces, colons, and other special chars must be escaped so the key
+// can be used as a map field name (e.g. cancelledFromSession[escapedKey]).
+function crEscapeSessionKey(key) {
+  return String(key == null ? '' : key).replace(/[.~\/\[\]#?*$ |]/g, '_');
+}
+
+// Returns the subset of signups that still need a disposition for the given
+// session key: active status, registered for this session, not already
+// handled via dateStatusOverrides or cancelledFromSession.
+function crGetAffectedSignups(allSignups, sessionKey) {
+  if (!Array.isArray(allSignups) || !sessionKey) return [];
+  var activeStatuses = ['confirmed', 'pending', 'new', 'confirmed-virtual', 'confirmed-in-person'];
+  var escapedKey = crEscapeSessionKey(sessionKey);
+  return allSignups.filter(function (s) {
+    if (!s || activeStatuses.indexOf(s.status) === -1) return false;
+    // Use canonical accessor if available; fall back to raw fields.
+    var sessions = (typeof getSignupSessions === 'function')
+      ? getSignupSessions(s)
+      : (s.selectedSessions || s.selectedDates || []);
+    if (!sessions || sessions.indexOf(sessionKey) === -1) return false;
+    var override = s.dateStatusOverrides && s.dateStatusOverrides[sessionKey];
+    if (override === 'cancelled' || override === 'no-show') return false;
+    if (s.cancelledFromSession && s.cancelledFromSession[escapedKey]) return false;
+    return true;
+  });
+}
+
+// Returns future composite session key strings for the event, sorted ascending,
+// excluding the session being cancelled and any already-cancelled sessions.
+// Delegates to _getEventSessions (which returns session objects); extracts
+// rawString as the composite key. event.cancelledDates is {date,location,
+// venue,reason}[] — we match on the date prefix of the composite key.
+function crGetAvailableFutureDates(event, excludeSessionKey) {
+  if (!event) return [];
+  var allSessions = (typeof _getEventSessions === 'function') ? _getEventSessions(event) : [];
+  if (!Array.isArray(allSessions)) allSessions = [];
+  // Compute today's date key in HST (Hawaii Standard Time).
+  var _hstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+  var _todayKey = _hstNow.getFullYear() + '-' +
+    String(_hstNow.getMonth() + 1).padStart(2, '0') + '-' +
+    String(_hstNow.getDate()).padStart(2, '0');
+  // Build a set of cancelled date prefixes from cancelledDates[].
+  var cancelledSet = {};
+  if (Array.isArray(event.cancelledDates)) {
+    for (var i = 0; i < event.cancelledDates.length; i++) {
+      var cd = event.cancelledDates[i];
+      if (cd && cd.date) cancelledSet[cd.date] = true;
+    }
+  }
+  var out = [];
+  for (var j = 0; j < allSessions.length; j++) {
+    var sess = allSessions[j];
+    if (!sess) continue;
+    // Composite key: prefer rawString; synthesise from dateKey if absent.
+    var k = sess.rawString || sess.dateKey || '';
+    if (!k || k === excludeSessionKey) continue;
+    // Extract the date prefix (first segment before '|', or the full string).
+    var datePrefix = String(k).split('|')[0];
+    if (datePrefix < _todayKey) continue;
+    if (cancelledSet[datePrefix]) continue;
+    out.push(k);
+  }
+  return out.sort();
+}
+
+// Given a disposition map { [signupId]: targetSessionKey | 'CANCEL' | undefined },
+// returns aggregate counts useful for drafting the confirmation summary.
+function crComputeEmailPlan(dispositions) {
+  var rescheduleCount = 0;
+  var cancelCount = 0;
+  var byTarget = {};
+  if (!dispositions) return { rescheduleCount: 0, cancelCount: 0, byTarget: byTarget };
+  var keys = Object.keys(dispositions);
+  for (var i = 0; i < keys.length; i++) {
+    var v = dispositions[keys[i]];
+    if (!v) continue;
+    if (v === 'CANCEL') {
+      cancelCount += 1;
+    } else {
+      rescheduleCount += 1;
+      byTarget[v] = (byTarget[v] || 0) + 1;
+    }
+  }
+  return { rescheduleCount: rescheduleCount, cancelCount: cancelCount, byTarget: byTarget };
+}
+
+// Console-runnable test runner for Task 5 pure logic.
+// Usage: open browser console on LDAH-Int, type: runCancelRescheduleTests()
+function runCancelRescheduleTests() {
+  var failures = 0;
+  function check(cond, msg, extra) {
+    if (!cond) { failures += 1; console.error('FAIL:', msg, extra !== undefined ? extra : ''); }
+  }
+
+  // --- crEscapeSessionKey ---
+  check(crEscapeSessionKey('2026-05-30|Pearl City - Library|3:00 PM') === '2026-05-30_Pearl_City_-_Library_3:00_PM',
+    'crEscapeSessionKey replaces pipes and spaces', crEscapeSessionKey('2026-05-30|Pearl City - Library|3:00 PM'));
+  check(crEscapeSessionKey(null) === '', 'crEscapeSessionKey(null) returns empty string');
+  check(crEscapeSessionKey(undefined) === '', 'crEscapeSessionKey(undefined) returns empty string');
+
+  // --- crGetAffectedSignups ---
+  var sk = '2026-05-30|Pearl City - Library|3:00 PM';
+  var otherKey = '2026-06-06|Pearl City - Library|3:00 PM';
+  var escapedSk = crEscapeSessionKey(sk);
+  var fixtures = [
+    { id: 'a', status: 'confirmed', selectedSessions: [sk] },
+    { id: 'b', status: 'cancelled', selectedSessions: [sk] },
+    { id: 'c', status: 'confirmed', selectedSessions: [sk], dateStatusOverrides: {} },
+    { id: 'd', status: 'pending', selectedSessions: [otherKey] },
+    { id: 'e', status: 'confirmed', selectedSessions: [sk], cancelledFromSession: {} }
+  ];
+  // Fixture c: dateStatusOverride marks this session as no-show
+  fixtures[2].dateStatusOverrides[sk] = 'no-show';
+  // Fixture e: already handled via cancelledFromSession
+  fixtures[4].cancelledFromSession[escapedSk] = { fromKey: sk };
+
+  // Stub getSignupSessions to use selectedSessions field
+  var origGetSessions = (typeof window !== 'undefined') ? window.getSignupSessions : undefined;
+  if (typeof window !== 'undefined') window.getSignupSessions = undefined; // force fallback path
+
+  var affected = crGetAffectedSignups(fixtures, sk);
+  var affectedIds = affected.map(function (s) { return s.id; });
+  check(affected.length === 1 && affectedIds[0] === 'a', 'crGetAffectedSignups should return only [a]', affectedIds);
+
+  // Empty inputs
+  check(crGetAffectedSignups([], sk).length === 0, 'crGetAffectedSignups([], sk) returns []');
+  check(crGetAffectedSignups(fixtures, '').length === 0, 'crGetAffectedSignups with empty sessionKey returns []');
+  check(crGetAffectedSignups(null, sk).length === 0, 'crGetAffectedSignups(null, sk) returns []');
+
+  if (typeof window !== 'undefined') window.getSignupSessions = origGetSessions;
+
+  // --- crGetAvailableFutureDates ---
+  var origGetEventSessions = (typeof window !== 'undefined') ? window._getEventSessions : undefined;
+  if (typeof window !== 'undefined') {
+    window._getEventSessions = function (ev) {
+      return (ev._sessions || []).map(function(k) { return { rawString: k, dateKey: String(k).split('|')[0] }; });
+    };
+  }
+
+  var event = {
+    _sessions: [
+      '2026-05-29|Loc|10:00 AM',          // past
+      '2026-05-30|Loc|3:00 PM',           // the one being cancelled (excludeSessionKey)
+      '2026-06-06|Loc|3:00 PM',           // future — should be included
+      '2026-06-13|Loc|3:00 PM',           // future — should be included
+      '2026-06-20|Loc|3:00 PM'            // future but cancelled
+    ],
+    cancelledDates: [{ date: '2026-06-20', location: 'Loc', venue: '', reason: '' }]
+  };
+
+  // Temporarily override the HST today calculation inside crGetAvailableFutureDates
+  // by patching Date (not feasible without risk) — instead just test with real today
+  // and use dates that are reliably future/past relative to any run date.
+  var futureEvent = {
+    _sessions: [
+      '2099-01-01|Loc|10:00 AM',
+      '2099-01-08|Loc|10:00 AM',
+      '2099-01-15|Loc|10:00 AM'
+    ],
+    cancelledDates: [{ date: '2099-01-15', location: 'Loc', venue: '', reason: '' }]
+  };
+  var available = crGetAvailableFutureDates(futureEvent, '2099-01-01|Loc|10:00 AM');
+  check(available.length === 1, 'crGetAvailableFutureDates: excludes excludeKey + cancelledDates entry', available);
+  check(available[0] === '2099-01-08|Loc|10:00 AM', 'crGetAvailableFutureDates: correct remaining key', available);
+
+  // Past dates excluded
+  var pastEvent = {
+    _sessions: [
+      '2000-01-01|Loc|10:00 AM',
+      '2000-01-08|Loc|10:00 AM'
+    ],
+    cancelledDates: []
+  };
+  check(crGetAvailableFutureDates(pastEvent, '').length === 0, 'crGetAvailableFutureDates: all past dates returns []');
+
+  // No-sessions event
+  check(crGetAvailableFutureDates({ _sessions: [], cancelledDates: [] }, sk).length === 0, 'empty _sessions event returns []');
+  check(crGetAvailableFutureDates(null, sk).length === 0, 'null event returns []');
+
+  if (typeof window !== 'undefined') window._getEventSessions = origGetEventSessions;
+
+  // --- crComputeEmailPlan ---
+  var plan1 = crComputeEmailPlan({ a: '2026-06-06|Loc|3:00 PM', d: 'CANCEL', e: '2026-06-06|Loc|3:00 PM' });
+  check(plan1.rescheduleCount === 2, 'crComputeEmailPlan reschedule count', plan1);
+  check(plan1.cancelCount === 1, 'crComputeEmailPlan cancel count', plan1);
+  check(plan1.byTarget['2026-06-06|Loc|3:00 PM'] === 2, 'crComputeEmailPlan byTarget aggregation', plan1);
+
+  // undefined / empty dispositions
+  var plan0 = crComputeEmailPlan({});
+  check(plan0.rescheduleCount === 0 && plan0.cancelCount === 0, 'crComputeEmailPlan empty');
+  var planU = crComputeEmailPlan(undefined);
+  check(planU.rescheduleCount === 0 && planU.cancelCount === 0, 'crComputeEmailPlan undefined');
+
+  // Entries with undefined/null values are skipped
+  var planSkip = crComputeEmailPlan({ x: undefined, y: null, z: 'CANCEL' });
+  check(planSkip.cancelCount === 1 && planSkip.rescheduleCount === 0, 'crComputeEmailPlan skips falsy values');
+
+  if (failures === 0) {
+    console.log('runCancelRescheduleTests: all passed');
+  } else {
+    console.error('runCancelRescheduleTests:', failures, 'failure(s)');
+  }
+  return failures === 0;
+}
+
 window.cmsSendNoShowReInvites = async function(collection, eventId) {
   if (!confirm('Send re-invite emails to all no-shows?')) return;
   try {
