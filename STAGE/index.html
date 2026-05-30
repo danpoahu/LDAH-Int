@@ -3532,6 +3532,33 @@
   font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px;
   background: #CCFBF1; color: #0F766E;
 }
+/* v128.2.0 — Signup filter bar on contact detail. Slim slide-switch + "N hidden" count. */
+.ct-signup-filter-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; margin-bottom: 10px; flex-wrap: wrap;
+  background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;
+  font-size: .82rem; color: var(--text-soft);
+}
+.ct-signup-filter-count { font-weight: 600; color: #475569; }
+.ct-signup-filter-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.ct-signup-filter-toggle .ct-sw-label { font-weight: 600; color: var(--text-dark); font-size: .82rem; }
+.ct-sw {
+  position: relative; display: inline-block; width: 34px; height: 18px;
+  background: #CBD5E1; border-radius: 999px; transition: background .15s;
+  flex-shrink: 0;
+}
+.ct-sw::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  background: #fff; border-radius: 50%; transition: transform .15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+.ct-signup-filter-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.ct-signup-filter-toggle input:checked + .ct-sw { background: var(--ocean-deep); }
+.ct-signup-filter-toggle input:checked + .ct-sw::after { transform: translateX(16px); }
+.ct-signup-hidden-badge {
+  font-size: .7rem; font-weight: 700; padding: 1px 7px; border-radius: 6px;
+  background: #FEF3C7; color: #92400E; margin-left: 4px;
+}
 
 /* Make contact rows clickable */
 .ct-row { cursor: pointer; transition: background .15s, box-shadow .15s; }
@@ -4550,7 +4577,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v128.1.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v128.2.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12351,6 +12378,57 @@ window.autoCropImage = function(file) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   }
   window._localToday = function() { var n = new Date(); return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0'); };
+  // v128.2.0 — Defensive attendance-evidence check.
+  // Returns true if ANY signal suggests the signup has real attendance data
+  // (so it must NEVER be hidden by the default archived+cancelled filter).
+  // Tolerates undefined / null / non-array shapes everywhere.
+  window._signupHasAttendanceEvidence = function(s) {
+    if (!s || typeof s !== 'object') return false;
+    if (s.attended === true) return true;
+    if (s.noShow === true) return true;
+    var atSt = s.attendanceStatus;
+    if (atSt === 'attended' || atSt === 'no-show') return true;
+    // sessionStatuses — could be array of strings or map of date->status
+    var ss = s.sessionStatuses;
+    if (ss) {
+      if (Array.isArray(ss)) {
+        for (var i = 0; i < ss.length; i++) {
+          var v = ss[i];
+          if (v === 'attended' || v === 'no-show') return true;
+          if (v && typeof v === 'object' && (v.status === 'attended' || v.status === 'no-show')) return true;
+        }
+      } else if (typeof ss === 'object') {
+        var ks = Object.keys(ss);
+        for (var j = 0; j < ks.length; j++) {
+          var w = ss[ks[j]];
+          if (w === 'attended' || w === 'no-show') return true;
+          if (w && typeof w === 'object' && (w.status === 'attended' || w.status === 'no-show')) return true;
+        }
+      }
+    }
+    // attendance — array or map with any truthy entry
+    var att = s.attendance;
+    if (att) {
+      if (Array.isArray(att)) {
+        for (var a = 0; a < att.length; a++) { if (att[a]) return true; }
+      } else if (typeof att === 'object') {
+        var ak = Object.keys(att);
+        for (var b = 0; b < ak.length; b++) { if (att[ak[b]]) return true; }
+      } else if (att === true) {
+        return true;
+      }
+    }
+    // sessionAttendance — map of sessionKey -> { status: ... }
+    var sa = s.sessionAttendance;
+    if (sa && typeof sa === 'object' && !Array.isArray(sa)) {
+      var sk = Object.keys(sa);
+      for (var c = 0; c < sk.length; c++) {
+        var rec = sa[sk[c]];
+        if (rec && typeof rec === 'object' && (rec.status === 'attended' || rec.status === 'no-show')) return true;
+      }
+    }
+    return false;
+  };
   function rsEscape(str) {
     var d = document.createElement('div');
     d.textContent = str;
@@ -15069,8 +15147,34 @@ window.autoCropImage = function(file) {
         return;
       }
 
+      // v128.2.0 — Default-hide archived+cancelled signups with no attendance
+      // evidence (Daniel's Virginia O'Toole case: 4 of 6 CG signups were
+      // archived cancellation mistakes that buried the real records). Toggle
+      // is superAdmin-only; the "N hidden" count is visible to everyone.
+      // State is per-card-open (ephemeral) — start OFF on each fresh open
+      // (different contactId, or _ctToggleRerender wasn't the caller).
+      if (window._ctRerenderContactId !== contactId) {
+        window._ctShowHiddenSignups = false;
+      }
+      window._ctRerenderContactId = null;
+      var _hiddenSignupIds = {};
+      results.forEach(function(entry) {
+        if (entry._entryType !== 'signup') return;
+        if (entry.archived === true && entry.status === 'cancelled'
+            && !window._signupHasAttendanceEvidence(entry)) {
+          _hiddenSignupIds[entry.id] = true;
+        }
+      });
+      var _hiddenCount = Object.keys(_hiddenSignupIds).length;
+      var _isSuperAdminCt = currentUserData && currentUserData.role === 'superAdmin';
+
       var tHtml = '';
       results.forEach(function(entry) {
+        if (entry._entryType === 'signup'
+            && _hiddenSignupIds[entry.id]
+            && !window._ctShowHiddenSignups) {
+          return; // skip — filtered out by default
+        }
         if (entry._entryType === 'signup') {
           // ── Signup timeline card ──
           var sts = entry.timestamp || entry.createdAt;
@@ -15087,12 +15191,16 @@ window.autoCropImage = function(file) {
           // Build a unique ID for this signup's expandable section
           var regDetailId = 'ctSignupRegDetails_' + entry.id;
 
+          var _hiddenBadge = _hiddenSignupIds[entry.id]
+            ? '<span class="ct-signup-hidden-badge" title="Archived &amp; cancelled with no attendance — hidden by default">hidden</span>'
+            : '';
           tHtml += '<div class="ct-signup-card">' +
             '<div class="ct-signup-card-top">' +
               '<span class="ct-ix-card-date">' + sDateStr + '</span>' +
               '<span class="ct-signup-badge">Signup</span>' +
               cmsRegStatusBadge(entry) +
               cmsAttendanceBadge(entry, entry.sessionDate || '') +
+              _hiddenBadge +
             '</div>' +
             '<div class="ct-ix-card-summary">' + rsEscape(evTitle) + '</div>' +
             (entry.sessionDate ? '<div class="ct-ix-card-notes">Session: ' + rsEscape(entry.sessionDate) + '</div>' : '') +
@@ -15146,7 +15254,28 @@ window.autoCropImage = function(file) {
         }
       });
 
-      timeline.innerHTML = tHtml;
+      // v128.2.0 — Filter bar only when N > 0. When N is 0, render absolutely
+      // nothing extra (no count, no toggle, no slot) — area looks identical
+      // to pre-v128.2 behavior.
+      var _filterBarHtml = '';
+      if (_hiddenCount > 0) {
+        var _toggleHtml = '';
+        if (_isSuperAdminCt) {
+          _toggleHtml =
+            '<label class="ct-signup-filter-toggle" title="Reveal archived &amp; cancelled signups with no attendance data">' +
+              '<span class="ct-sw-label">Show all signups</span>' +
+              '<input type="checkbox"' + (window._ctShowHiddenSignups ? ' checked' : '') + ' onchange="_ctToggleHiddenSignups(this)">' +
+              '<span class="ct-sw"></span>' +
+            '</label>';
+        }
+        _filterBarHtml =
+          '<div class="ct-signup-filter-bar">' +
+            '<span class="ct-signup-filter-count">' + _hiddenCount +
+              ' hidden &mdash; archived &amp; cancelled</span>' +
+            _toggleHtml +
+          '</div>';
+      }
+      timeline.innerHTML = _filterBarHtml + tHtml;
 
     } catch (err) {
       body.innerHTML = '<p style="color:#DC2626;text-align:center;padding:30px;">Error loading contact: ' + err.message + '</p>';
@@ -15156,6 +15285,21 @@ window.autoCropImage = function(file) {
 
   window.closeContactDetail = function() {
     document.getElementById('ctDetailOverlay').classList.remove('active');
+    // Clear ephemeral filter state so the next contact opens clean.
+    window._ctShowHiddenSignups = false;
+    window._ctRerenderContactId = null;
+  };
+
+  // v128.2.0 — Toggle handler for the "Show all signups" slide-switch on the
+  // contact-detail signup filter bar. Flips the flag and re-opens the same
+  // contact (cheap re-fetch — interactions + signups are typically small).
+  // Marks the rerender so openContactDetail keeps the toggle state.
+  window._ctToggleHiddenSignups = function(cb) {
+    window._ctShowHiddenSignups = !!(cb && cb.checked);
+    if (window._ctCurrentContactId) {
+      window._ctRerenderContactId = window._ctCurrentContactId;
+      window.openContactDetail(window._ctCurrentContactId);
+    }
   };
 
   // ── Per-contact Feedback Modal ──
@@ -22161,9 +22305,40 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
     ddSelected = s.status || 'new';
   }
   var ddStyleColor = (ddSelected === 'confirmed-in-person' || ddSelected === 'confirmed-virtual') ? '#92400E' : (statusColors[ddSelected] || statusColor);
-  h += '<select' + (sessionDateKey ? ' data-sk="' + encodeURIComponent(sessionDateKey) + '"' : '') + ' onchange="' + ddOnchange + '" style="font-size:.78rem;padding:3px 8px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:' + ddStyleColor + ';font-weight:600;cursor:pointer;">';
+  // v128.2.0 — Cancel-block: once the signup's earliest session date is today
+  // or earlier (HST), staff can't flip to "cancelled" via the dropdown.
+  // Flipping post-event erases no-show data Daniel needs for reporting.
+  // Frontend UX guardrail only — no CF enforcement.
+  var _cbHstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+  var _cbTodayKey = _cbHstNow.getFullYear() + '-' + String(_cbHstNow.getMonth()+1).padStart(2,'0') + '-' + String(_cbHstNow.getDate()).padStart(2,'0');
+  function _cbExtractKeys(arr) {
+    var out = [];
+    if (!Array.isArray(arr)) return out;
+    arr.forEach(function(d) {
+      var m = String(d || '').match(/(\d{4}-\d{2}-\d{2})/);
+      if (m) out.push(m[1]);
+    });
+    return out;
+  }
+  var _cbKeys = _cbExtractKeys(s.selectedDates);
+  if (!_cbKeys.length) _cbKeys = _cbExtractKeys(s.selectedSessions);
+  if (!_cbKeys.length) {
+    var _cbEvForDates = _cmsSignupsModalData && _cmsSignupsModalData.eventDoc;
+    _cbKeys = _cbExtractKeys(_cbEvForDates && _cbEvForDates.signupDates);
+  }
+  var _cbMinSessionKey = _cbKeys.length ? _cbKeys.sort()[0] : '';
+  var _cbCancelLocked = !!(_cbMinSessionKey && _cbMinSessionKey <= _cbTodayKey);
+  var _cbTooltip = 'Cancelling after the event date erases no-show data. Use Archive instead if needed.';
+  h += '<select' + (sessionDateKey ? ' data-sk="' + encodeURIComponent(sessionDateKey) + '"' : '') + ' onchange="' + ddOnchange + '" style="font-size:.78rem;padding:3px 8px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:' + ddStyleColor + ';font-weight:600;cursor:pointer;"' + (_cbCancelLocked ? ' title="' + _cbTooltip + '"' : '') + '>';
   ['new','pending','confirmed','cancelled'].forEach(function(st) {
-    h += '<option value="' + st + '"' + (ddSelected === st ? ' selected' : '') + '>' + st.charAt(0).toUpperCase() + st.slice(1) + '</option>';
+    var _isCancelOpt = (st === 'cancelled');
+    var _disabled = (_cbCancelLocked && _isCancelOpt && ddSelected !== 'cancelled') ? ' disabled' : '';
+    // If the signup's current status IS already 'cancelled' (legacy), keep
+    // option selected + visible but still disabled so it can't be re-picked
+    // after a different status is chosen.
+    if (_cbCancelLocked && _isCancelOpt && ddSelected === 'cancelled') _disabled = ' disabled';
+    var _optTitle = (_cbCancelLocked && _isCancelOpt) ? ' title="' + _cbTooltip + '"' : '';
+    h += '<option value="' + st + '"' + (ddSelected === st ? ' selected' : '') + _disabled + _optTitle + '>' + st.charAt(0).toUpperCase() + st.slice(1) + '</option>';
   });
   if (sessionDateKey) {
     var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
@@ -22177,6 +22352,9 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
     }
   }
   h += '</select>';
+  if (_cbCancelLocked) {
+    h += '<span style="font-size:.68rem;color:#94A3B8;font-style:italic;white-space:nowrap;" title="' + _cbTooltip + '">(cancel locked &mdash; session is here)</span>';
+  }
   // v128.0.0: "Change Dates" button — only for one-time events with 2+ dates,
   // active signups only. CG/recurring programs have their own per-session UX.
   if (!isArchived && collection === 'events') {
