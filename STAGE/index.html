@@ -4550,7 +4550,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v128.0.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v128.0.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14367,11 +14367,23 @@ window.autoCropImage = function(file) {
             var m = { 'Birth-2 yrs':'0-2','Birth-2':'0-2','3-5 yrs':'3-5','6-11 yrs':'6-12','6-11':'6-12','12-14 yrs':'13-17','12-14':'13-17','15-18 yrs':'13-17','15-18':'13-17','Beyond H.S.':'Adult','Beyond HS':'Adult' };
             return m[v] || v;
           };
-          document.getElementById('ctChildAgeRange').value = _canonAR(d.childAgeRange || '');
-          document.getElementById('ctChildGender').value = d.childGender || '';
-          document.getElementById('ctEthnicity').value = d.ethnicity || '';
-          // Disability checkboxes
-          var savedDisab = d.disabilityCategories || [];
+          // v128.0.1: Bind child-info inputs to canonical `children[0]` with legacy
+          // top-level fallback. Patricia Lima Paloara's child Samyra lives only on
+          // children[0]; the old code only read flat top-level keys and showed blank.
+          var _ctChildField = function(contact, fieldName, legacyKey) {
+            var c0 = (contact && Array.isArray(contact.children) && contact.children[0]) || null;
+            if (c0 && c0[fieldName] !== undefined && c0[fieldName] !== '' && !(Array.isArray(c0[fieldName]) && c0[fieldName].length === 0)) {
+              return c0[fieldName];
+            }
+            if (legacyKey && contact && contact[legacyKey] !== undefined) return contact[legacyKey];
+            return (c0 && Array.isArray(c0[fieldName])) ? [] : '';
+          };
+          document.getElementById('ctChildAgeRange').value = _canonAR(_ctChildField(d, 'ageRange', 'childAgeRange') || '');
+          document.getElementById('ctChildGender').value = _ctChildField(d, 'gender', 'childGender') || '';
+          document.getElementById('ctEthnicity').value = _ctChildField(d, 'ethnicity', 'ethnicity') || '';
+          // Disability checkboxes (canonical children[0].disabilityCategories first, then legacy top-level)
+          var savedDisab = _ctChildField(d, 'disabilityCategories', 'disabilityCategories') || [];
+          if (!Array.isArray(savedDisab)) savedDisab = [];
           document.querySelectorAll('.ctDisabCb').forEach(function(cb) { cb.checked = savedDisab.indexOf(cb.value) !== -1; });
           // Prior training
           var ptVal = d.priorTraining || 'No';
@@ -14506,6 +14518,43 @@ window.autoCropImage = function(file) {
       var wasQuickAdd = _quickAddReturnToInteraction;
       var wasPendingSave = !!window._pendingInteractionAfterContactAdd;
       if (editId) {
+        // v128.0.1: Mirror the four child-info form fields into canonical
+        // `children[0]` via read-modify-write so we preserve non-form fields
+        // (name, grade, school, notes, sourceInteractionId, addedAt). Legacy
+        // top-level keys above (childAgeRange / childGender / ethnicity /
+        // disabilityCategories) are intentionally kept in `data` so any reader
+        // not yet migrated to children[] continues to see fresh values.
+        try {
+          var _freshSnap = await db.collection('contacts').doc(editId).get();
+          var _existing = _freshSnap.exists ? (_freshSnap.data() || {}) : {};
+          var _prevChildren = Array.isArray(_existing.children) ? _existing.children.slice() : [];
+          var _prevChild0 = _prevChildren[0] || {};
+          // Age-range preservation guard: the dropdown only carries OLD buckets,
+          // so a stored NEW-bucket value (e.g. Patricia's "12-14") is displayed
+          // as its old-bucket equivalent ("13-17") via _canonAR. If the user
+          // saves without touching the dropdown, we'd silently rewrite "12-14"
+          // → "13-17" — the same class of bug as the Event Summary form wiping
+          // presenterUid. So: if the form's value canonicalizes to the same
+          // bucket as the stored value, keep the stored value unchanged.
+          var _canonARSave = function(v) {
+            if (!v) return '';
+            var m = { 'Birth-2 yrs':'0-2','Birth-2':'0-2','3-5 yrs':'3-5','6-11 yrs':'6-12','6-11':'6-12','12-14 yrs':'13-17','12-14':'13-17','15-18 yrs':'13-17','15-18':'13-17','Beyond H.S.':'Adult','Beyond HS':'Adult' };
+            return m[v] || v;
+          };
+          var _prevAR = _prevChild0.ageRange || '';
+          var _formAR = data.childAgeRange || '';
+          var _nextAR = (_prevAR && _canonARSave(_prevAR) === _formAR) ? _prevAR : _formAR;
+          var _nextChild0 = Object.assign({}, _prevChild0, {
+            ageRange: _nextAR,
+            gender: data.childGender || '',
+            ethnicity: data.ethnicity || '',
+            disabilityCategories: Array.isArray(data.disabilityCategories) ? data.disabilityCategories : []
+          });
+          _prevChildren[0] = _nextChild0;
+          data.children = _prevChildren;
+        } catch (e) {
+          console.error('children[0] read-modify-write failed (continuing with legacy flat write):', e);
+        }
         await db.collection('contacts').doc(editId).update(data);
       } else {
         data.createdBy = currentUserData?.uid || '';
