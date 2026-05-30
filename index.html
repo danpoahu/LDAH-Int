@@ -25451,21 +25451,85 @@ function cmsCgConfirmBlockedKey(event, signup, sessionDateKey) {
 }
 
 window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, status) {
-  try {
-    // v122.0.8: CG Monday-virtual docs gate. Block before any write when the
-    // staff member is moving a signup to confirmed without docs on file.
-    if (status === 'confirmed') {
-      var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
-      var sg = _cmsSignupsModalData && _cmsSignupsModalData.signups
-        ? _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; })
-        : null;
-      var blockedKey = cmsCgConfirmBlockedKey(ev, sg, '');
-      if (blockedKey) {
-        _showToast('Awaiting IEP + Evaluation documents (' + blockedKey + ').', '#D97706');
-        cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
-        return;
-      }
+  // No-op guard: skip everything if the dropdown was changed back to the
+  // current stored value (mirrors cmsUpdateSignupModeForDate pattern).
+  var _s0 = _cmsSignupsModalData && _cmsSignupsModalData.signups
+    ? _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; })
+    : null;
+  var _prevStatus = _s0 ? (_s0.status || 'new') : 'new';
+  if (status === _prevStatus) return;
+
+  // v122.0.8: CG Monday-virtual docs gate. Block before any write when the
+  // staff member is moving a signup to confirmed without docs on file.
+  // Runs synchronously before any modal so staff see the toast, not a confirm.
+  if (status === 'confirmed') {
+    var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
+    var sg = _cmsSignupsModalData && _cmsSignupsModalData.signups
+      ? _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; })
+      : null;
+    var blockedKey = cmsCgConfirmBlockedKey(ev, sg, '');
+    if (blockedKey) {
+      _showToast('Awaiting IEP + Evaluation documents (' + blockedKey + ').', '#D97706');
+      cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+      return;
     }
+  }
+
+  // v128.2.0+: Tier 1 confirm modal before writing a cancellation.
+  // The "cancelled" option is already disabled in the DOM for past-date signups
+  // (_cbCancelLocked in cmsRenderSignupCard), so this branch only fires for
+  // future signups — no additional past-date guard needed here.
+  if (status === 'cancelled') {
+    var _sForName = _cmsSignupsModalData && _cmsSignupsModalData.signups
+      ? _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; })
+      : null;
+    var _sName = _sForName ? (_sForName.name || signupId) : signupId;
+    // Locate the global-status dropdown: card has no sessionDateKey suffix,
+    // so its id is signupCard_<signupId>. The select has no data-sk attribute
+    // (per-date selects carry data-sk; the global one does not).
+    var _cardEl = document.getElementById('signupCard_' + signupId);
+    var _ddEl = _cardEl ? _cardEl.querySelector('select:not([data-sk])') : null;
+
+    showConfirmModal({
+      title: 'Cancel signup for ' + _sName + '?',
+      subtitle: '',
+      body: 'This will send them a cancellation email.',
+      confirmLabel: 'Yes, cancel and email',
+      confirmStyle: 'danger',
+      onCancel: function() {
+        if (_ddEl) _ddEl.value = _prevStatus;
+      },
+      onConfirm: async function() {
+        try {
+          await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ status: status });
+          // Update denormalized pendingCount on parent doc
+          var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
+          var pc = 0; var sc = 0;
+          allSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          await db.collection(collection).doc(eventId).update({ pendingCount: pc, signupCount: sc });
+          // Update local cache and re-render
+          var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+          if (s) s.status = status;
+          var sName = s ? (s.name || signupId) : signupId;
+          auditLog('Updated signup status', sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — Status: ' + status);
+          cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+          // Invalidate cache so counts refresh on next nav
+          _cmsEventsLoadedAt = 0; _cmsProgramsLoadedAt = 0;
+          _showToast('Status updated.', '#16A34A');
+        } catch (err) {
+          _showToast('Error: ' + err.message, '#DC2626');
+          // On write failure the dropdown stays at 'cancelled' (already set by
+          // onchange); the modal stays open so the user can retry or dismiss.
+          throw err; // re-throw so showConfirmModal re-enables the confirm button
+        }
+      }
+    });
+    return;
+  }
+
+  // All other status transitions (new, pending, confirmed, no-show, etc.)
+  // write immediately — no modal.
+  try {
     await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({ status: status });
     // Update denormalized pendingCount on parent doc
     var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
