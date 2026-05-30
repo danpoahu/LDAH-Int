@@ -24163,6 +24163,157 @@ function showCancelRescheduleModal(opts) {
   overlay.setAttribute('aria-hidden', 'false');
 }
 
+// ── crApplyDispositions ──────────────────────────────────────────────────────
+// Writes the Cancel & Reschedule modal's confirmed dispositions to Firestore.
+//
+// Phase A (per-signup, FIRST): marks each signup with a rescheduledFrom or
+//   cancelledFromSession map entry, and updates selectedSessions for reschedules
+//   so the existing W2 reschedule-detector CF fires and emails the family.
+//
+// Phase B (date-cancel, LAST): appends the cancelled session to event.cancelledDates[].
+//   The W2 date-cancel CF fires here; Task 8 will teach it to skip signups already
+//   marked in Phase A, preventing duplicate emails.
+//
+// opts: { event, sessionKey, signups, dispositions, collection, source }
+//   event       — Firestore event doc (must have .id)
+//   sessionKey  — composite session key being cancelled  (e.g. "2026-06-13|Pearl City – Library|3:00 PM")
+//   signups     — array of signup objects (may be empty)
+//   dispositions — { [signupId]: compositeTargetKey | 'CANCEL' }
+//   collection  — Firestore collection name (default: 'recurringEvents')
+//   source      — audit label (default: 'cancelRescheduleModal')
+//
+// Throws if any per-signup write fails (caller's catch keeps the modal open).
+// Returns { rescheduleCount, cancelCount } on success.
+async function crApplyDispositions(opts) {
+  var event = opts.event;
+  var sessionKey = opts.sessionKey;
+  var signups = opts.signups || [];
+  var dispositions = opts.dispositions || {};
+  var collection = opts.collection || 'recurringEvents';
+  var source = opts.source || 'cancelRescheduleModal';
+
+  if (!event || !event.id || !sessionKey) {
+    throw new Error('crApplyDispositions: missing event.id or sessionKey');
+  }
+
+  var db = firebase.firestore();
+  var nowTs = firebase.firestore.FieldValue.serverTimestamp(); // safe for top-level doc fields
+  // NOTE: serverTimestamp() cannot be nested inside arrays or map values per
+  // [[feedback-firestore-array-timestamp]]. Use Timestamp.now() for those slots.
+  var nowDate = firebase.firestore.Timestamp.now();
+  var actor = (window.currentUserData && window.currentUserData.email) || 'cms';
+  var escapedOld = crEscapeSessionKey(sessionKey);
+
+  // ── Phase A: per-signup writes ────────────────────────────────────────────
+  // Sequential awaits (not Promise.all) so that partial failures are attributed
+  // per signup and the date-cancel write (Phase B) only runs if ALL succeed.
+  var perSignupErrors = [];
+  var auditEntries = []; // queued; written after Phase B succeeds
+
+  for (var i = 0; i < signups.length; i++) {
+    var s = signups[i];
+    var disp = dispositions[s.id];
+    if (!disp) {
+      perSignupErrors.push({ signupId: s.id, error: 'missing disposition' });
+      continue;
+    }
+    var signupRef = db.collection('signups').doc(s.id);
+    try {
+      if (disp === 'CANCEL') {
+        // Write cancellation marker. Task 9 will add a CF that watches this
+        // marker and emails the family (no W2 CF currently handles it).
+        var cancelUpdate = {};
+        cancelUpdate['cancelledFromSession.' + escapedOld] = {
+          fromKey: sessionKey,
+          at: nowDate,
+          by: actor,
+          status: 'cancelled'
+        };
+        cancelUpdate.lastUpdated = nowTs;
+        await signupRef.update(cancelUpdate);
+        auditEntries.push(['Cancelled signup for session',
+          'Signup ' + s.id + ' | session ' + sessionKey + ' (Cancel & Reschedule modal)']);
+      } else {
+        // Reschedule: write marker + update selectedSessions.
+        // arrayUnion and arrayRemove CANNOT share a single update() call per
+        // Firestore rules, so we do two sequential writes.
+        var rescheduleUpdate = {};
+        rescheduleUpdate['rescheduledFrom.' + escapedOld] = {
+          fromKey: sessionKey,
+          toKey: disp,
+          at: nowDate,
+          by: actor
+        };
+        rescheduleUpdate.lastUpdated = nowTs;
+        // Add the new session key first so the doc is never in a keyless state.
+        rescheduleUpdate.selectedSessions = firebase.firestore.FieldValue.arrayUnion(disp);
+        await signupRef.update(rescheduleUpdate);
+        // Remove the old session key in a separate write (Firestore restriction).
+        await signupRef.update({
+          selectedSessions: firebase.firestore.FieldValue.arrayRemove(sessionKey)
+        });
+        // The existing W2 onRecurringEventSignupUpdated → handleSignupLifecycleEmails
+        // detects selectedSessions content changes and emails "Your session dates
+        // have changed" — no new CF needed for reschedule notifications.
+        auditEntries.push(['Rescheduled signup',
+          'Signup ' + s.id + ' | from ' + sessionKey + ' → ' + disp + ' (Cancel & Reschedule modal)']);
+      }
+    } catch (err) {
+      console.error('crApplyDispositions per-signup write failed:', s.id, err);
+      perSignupErrors.push({ signupId: s.id,
+        error: err && err.message ? err.message : String(err) });
+    }
+  }
+
+  // If any per-signup write failed, abort BEFORE the date-cancel write so the
+  // W2 date-cancel CF cannot race against unwritten or partially-written markers.
+  if (perSignupErrors.length > 0) {
+    var nameList = perSignupErrors.map(function(e) { return e.signupId; }).join(', ');
+    throw new Error('Per-signup writes failed for: ' + nameList + '. Date not cancelled.');
+  }
+
+  // ── Phase B: date-cancel write ────────────────────────────────────────────
+  // Match the cancelledDates entry shape written by cmsToggleSessionCancel /
+  // cmsToggleFutureDateCancel: { date, location, venue, reason }.
+  // No timestamp fields — matching existing schema exactly.
+  var keyParts = String(sessionKey).split('|');
+  var datePrefix = keyParts[0] || '';
+  var locVenue   = keyParts[1] || '';
+  // Best-effort split on en-dash separator ("Location – Venue").
+  var lvParts  = locVenue.split(' – '); // en-dash U+2013
+  var location = lvParts[0] || locVenue;
+  var venue    = lvParts[1] || '';
+
+  var cancelEntry = {
+    date:     datePrefix,
+    location: location,
+    venue:    venue,
+    reason:   'Cancelled via Cancel & Reschedule modal'
+  };
+
+  await db.collection(collection).doc(event.id).update({
+    cancelledDates: firebase.firestore.FieldValue.arrayUnion(cancelEntry),
+    lastUpdated: nowTs
+  });
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  // Non-fatal: write failures here must not roll back the Firestore writes above.
+  try {
+    var plan = crComputeEmailPlan(dispositions);
+    auditLog('Cancelled session',
+      (event.title || event.name || 'Event') + ' — ' + sessionKey +
+      ' (' + plan.rescheduleCount + ' rescheduled, ' + plan.cancelCount + ' cancelled)');
+    for (var j = 0; j < auditEntries.length; j++) {
+      auditLog(auditEntries[j][0], auditEntries[j][1]);
+    }
+  } catch (logErr) {
+    console.warn('crApplyDispositions: audit log write failed (non-fatal):', logErr);
+  }
+
+  var finalPlan = crComputeEmailPlan(dispositions);
+  return { rescheduleCount: finalPlan.rescheduleCount, cancelCount: finalPlan.cancelCount };
+}
+
 window.cmsSendNoShowReInvites = async function(collection, eventId) {
   if (!confirm('Send re-invite emails to all no-shows?')) return;
   try {
