@@ -23398,38 +23398,206 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
 // the Oahu Thursday with it. `location` and `venue` are optional for
 // backwards compatibility; if both are omitted we still write a date-only
 // entry that cancels everything on that date (matches old behavior).
+//
+// Future-date cancellations with active signups are routed through the
+// Cancel & Reschedule modal (Task 10). All other paths (restore, past date,
+// zero-signup future) use the original instant Firestore write.
 window.cmsToggleSessionCancel = async function(eventId, dateStr, location, venue, isCancelled) {
-  try {
-    // Back-compat: old callers used (eventId, dateStr, isCancelled). Detect
-    // and adapt — if 3rd arg looks like a boolean, shift everything down.
-    if (typeof location === 'boolean') { isCancelled = location; location = ''; venue = ''; }
-    if (typeof venue === 'boolean') { isCancelled = venue; venue = ''; }
-    var docRef = db.collection('recurringEvents').doc(eventId);
-    var doc = await docRef.get();
-    if (!doc.exists) return;
-    var data = doc.data();
-    var cancelledDates = data.cancelledDates || [];
-    var loc = location || '';
-    var ven = venue || '';
-    var matchExisting = function(cd) {
-      return cd.date === dateStr && (cd.location || '') === loc && (cd.venue || '') === ven;
-    };
+  // Back-compat: old callers used (eventId, dateStr, isCancelled). Detect
+  // and adapt — if 3rd arg looks like a boolean, shift everything down.
+  if (typeof location === 'boolean') { isCancelled = location; location = ''; venue = ''; }
+  if (typeof venue === 'boolean') { isCancelled = venue; venue = ''; }
 
-    if (isCancelled) {
-      if (!cancelledDates.some(matchExisting)) {
-        cancelledDates.push({ date: dateStr, location: loc, venue: ven, reason: '' });
-      }
-    } else {
-      cancelledDates = cancelledDates.filter(function(cd) { return !matchExisting(cd); });
+  var loc = location || '';
+  var ven = venue || '';
+
+  // ── HST today key ─────────────────────────────────────────────────────────
+  var _todayKey = (function() {
+    try {
+      var _d = new Date();
+      var _parts = _d.toLocaleString('en-US', {
+        timeZone: 'Pacific/Honolulu',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      }).split('/');
+      // toLocaleString returns "MM/DD/YYYY"
+      return _parts[2] + '-' + _parts[0] + '-' + _parts[1];
+    } catch (e) {
+      return new Date().toISOString().slice(0, 10);
     }
+  })();
 
-    await docRef.update({ cancelledDates: cancelledDates });
-    var auditDetail = (data.title || 'Program') + ' — ' + dateStr + (loc ? ' (' + loc + (ven ? ' / ' + ven : '') + ')' : '');
-    auditLog(isCancelled ? 'Cancelled session' : 'Restored session', auditDetail);
-    _cmsSignupsModalData.programDoc.cancelledDates = cancelledDates;
-    cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
-    _showToast(isCancelled ? 'Session cancelled.' : 'Session restored.', isCancelled ? '#DC2626' : '#16A34A');
-  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+  var isPast = dateStr < _todayKey;
+
+  // ── Find checkbox for potential revert ────────────────────────────────────
+  // The checkbox is rendered with inline onchange — no data attribute carries
+  // the full args, so we match on date + location + venue encoded the same way
+  // the call site does (via _attrJsArg). Query by matching the onchange text
+  // pattern. Fallback: null (revert skipped gracefully).
+  var _checkboxEl = (function() {
+    try {
+      var allCbs = document.querySelectorAll('input[type="checkbox"][onchange*="cmsToggleSessionCancel"]');
+      for (var _ci = 0; _ci < allCbs.length; _ci++) {
+        var _cb = allCbs[_ci];
+        var _oc = _cb.getAttribute('onchange') || '';
+        // Match date string and location string in the onchange attr value
+        if (_oc.indexOf(dateStr) !== -1 && (loc === '' || _oc.indexOf(loc) !== -1)) {
+          return _cb;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  })();
+
+  function _revertCheckbox() {
+    if (_checkboxEl) _checkboxEl.checked = !isCancelled;
+  }
+
+  // ── Original instant write (extracted for reuse) ───────────────────────────
+  async function _instantWrite() {
+    try {
+      var docRef = db.collection('recurringEvents').doc(eventId);
+      var doc = await docRef.get();
+      if (!doc.exists) return;
+      var data = doc.data();
+      var cancelledDates = data.cancelledDates || [];
+      var matchExisting = function(cd) {
+        return cd.date === dateStr && (cd.location || '') === loc && (cd.venue || '') === ven;
+      };
+      if (isCancelled) {
+        if (!cancelledDates.some(matchExisting)) {
+          cancelledDates.push({ date: dateStr, location: loc, venue: ven, reason: '' });
+        }
+      } else {
+        cancelledDates = cancelledDates.filter(function(cd) { return !matchExisting(cd); });
+      }
+      await docRef.update({ cancelledDates: cancelledDates });
+      var auditDetail = (data.title || 'Program') + ' — ' + dateStr + (loc ? ' (' + loc + (ven ? ' / ' + ven : '') + ')' : '');
+      auditLog(isCancelled ? 'Cancelled session' : 'Restored session', auditDetail);
+      if (_cmsSignupsModalData && _cmsSignupsModalData.programDoc) {
+        _cmsSignupsModalData.programDoc.cancelledDates = cancelledDates;
+      }
+      cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
+      _showToast(isCancelled ? 'Session cancelled.' : 'Session restored.', isCancelled ? '#DC2626' : '#16A34A');
+    } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+  }
+
+  // ── Restore path: always instant, no modal ────────────────────────────────
+  if (!isCancelled) {
+    await _instantWrite();
+    return;
+  }
+
+  // ── Past date: instant write, no modal ────────────────────────────────────
+  if (isPast) {
+    await _instantWrite();
+    return;
+  }
+
+  // ── Future date: check for affected signups ────────────────────────────────
+  // Build the composite session key so crGetAffectedSignups can match against
+  // selectedSessions[]. The function receives bare dateStr + loc + ven, but
+  // selectedSessions use "date|loc – venue|startTime – endTime". Find the
+  // matching session via _getEventSessions on the programDoc.
+  var _programDoc = (_cmsSignupsModalData && _cmsSignupsModalData.programDoc) || null;
+  var _event = _programDoc ? Object.assign({}, _programDoc, { id: eventId }) : { id: eventId };
+
+  var _compositeKey = (function() {
+    try {
+      if (!_programDoc) return dateStr; // graceful fallback: bare date
+      var _sessions = (typeof _getEventSessions === 'function') ? _getEventSessions(_programDoc) : [];
+      for (var _si = 0; _si < _sessions.length; _si++) {
+        var _s = _sessions[_si];
+        if (!_s) continue;
+        // Match by date and location (venue optional)
+        var _rawKey = _s.rawString || _s.dateKey || '';
+        var _dkey = _s.dateKey || String(_rawKey).split('|')[0];
+        if (_dkey !== dateStr) continue;
+        if (loc && _rawKey.indexOf(loc) === -1) continue;
+        if (_rawKey) return _rawKey;
+        // rawString missing: synthesise via cmsBuildSessionKey
+        if (typeof cmsBuildSessionKey === 'function') {
+          return cmsBuildSessionKey(_s);
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return dateStr; // fallback: bare date (crGetAffectedSignups handles gracefully)
+  })();
+
+  var _allSignups = (_cmsSignupsModalData && _cmsSignupsModalData.signups) || [];
+  var _affected = crGetAffectedSignups(_allSignups, _compositeKey);
+
+  // ── No signups: light confirm ──────────────────────────────────────────────
+  if (_affected.length === 0) {
+    // Build a human-readable date label for the modal subtitle
+    var _dObj = new Date(dateStr + 'T00:00:00');
+    var _dateLabel = !isNaN(_dObj.getTime())
+      ? _dObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+      : dateStr;
+    var _subtitle = _dateLabel + (loc ? ' · ' + loc + (ven ? ' – ' + ven : '') : '');
+    showConfirmModal({
+      title: 'Cancel session?',
+      subtitle: _subtitle,
+      body: 'No signups are on this date. Cancelling only marks the date for future visibility.',
+      confirmLabel: 'Yes, cancel',
+      confirmStyle: 'danger',
+      onCancel: _revertCheckbox,
+      onConfirm: _instantWrite
+    });
+    return;
+  }
+
+  // ── Future date with signups: full Cancel & Reschedule modal ──────────────
+  var _availableDates = crGetAvailableFutureDates(_event, _compositeKey);
+  var _modalConfirmed = false;
+
+  showCancelRescheduleModal({
+    event: _event,
+    sessionKey: _compositeKey,
+    signups: _affected,
+    availableDates: _availableDates,
+    onConfirm: async function(opts) {
+      await crApplyDispositions({
+        event: _event,
+        sessionKey: _compositeKey,
+        signups: _affected,
+        dispositions: opts.dispositions,
+        source: 'cmsToggleSessionCancel',
+        collection: 'recurringEvents'
+      });
+      _modalConfirmed = true;
+      // Sync in-memory programDoc so the re-render reflects the new cancellation
+      if (_cmsSignupsModalData && _cmsSignupsModalData.programDoc) {
+        var _pd = _cmsSignupsModalData.programDoc;
+        var _matchFn = function(cd) {
+          return cd.date === dateStr && (cd.location || '') === loc && (cd.venue || '') === ven;
+        };
+        if (!(_pd.cancelledDates || []).some(_matchFn)) {
+          _pd.cancelledDates = (_pd.cancelledDates || []).concat([{
+            date: dateStr, location: loc, venue: ven,
+            reason: 'Cancelled via Cancel & Reschedule modal'
+          }]);
+        }
+      }
+      cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
+    }
+  });
+
+  // MutationObserver: if the modal closes without confirming (Back button),
+  // revert the checkbox. Disconnects after one aria-hidden→true transition.
+  var _overlay = document.getElementById('grCancelModalOverlay');
+  if (_overlay) {
+    var _mo = new MutationObserver(function(records) {
+      for (var _ri = 0; _ri < records.length; _ri++) {
+        if (records[_ri].attributeName === 'aria-hidden' &&
+            _overlay.getAttribute('aria-hidden') === 'true') {
+          _mo.disconnect();
+          if (!_modalConfirmed) _revertCheckbox();
+          return;
+        }
+      }
+    });
+    _mo.observe(_overlay, { attributes: true, attributeFilter: ['aria-hidden'] });
+  }
 };
 
 window.cmsCloseSignupsModal = function() {
