@@ -24213,6 +24213,9 @@ async function crApplyDispositions(opts) {
   for (var i = 0; i < signups.length; i++) {
     var s = signups[i];
     var disp = dispositions[s.id];
+    // Defensive: caller (Cancel & Reschedule modal) guarantees every signup
+    // in `signups` has a disposition before this function is called. If that
+    // invariant breaks, surface as an error rather than silently skip.
     if (!disp) {
       perSignupErrors.push({ signupId: s.id, error: 'missing disposition' });
       continue;
@@ -24234,9 +24237,25 @@ async function crApplyDispositions(opts) {
         auditEntries.push(['Cancelled signup for session',
           'Signup ' + s.id + ' | session ' + sessionKey + ' (Cancel & Reschedule modal)']);
       } else {
-        // Reschedule: write marker + update selectedSessions.
-        // arrayUnion and arrayRemove CANNOT share a single update() call per
-        // Firestore rules, so we do two sequential writes.
+        // Reschedule branch — single update to avoid double CF trigger on selectedSessions.
+        // Two sequential writes (arrayUnion then arrayRemove) each trigger
+        // handleSignupLifecycleEmails on W2, causing two "dates changed" emails per family.
+        // Computing the array client-side and writing it as a plain value means one
+        // write → one CF invocation → one email.
+        // Trade-off: bypasses atomic arrayUnion/arrayRemove race protection. Acceptable in
+        // LDAH-Int's CMS context where only one staff member acts on a signup at a time.
+        var oldSessions = Array.isArray(s.selectedSessions) ? s.selectedSessions.slice() : [];
+        // Remove old key; de-dup new key in one pass.
+        var newSessions = [];
+        var sawNew = false;
+        for (var ssi = 0; ssi < oldSessions.length; ssi++) {
+          var k = oldSessions[ssi];
+          if (k === sessionKey) continue; // remove old
+          if (k === disp) { sawNew = true; }
+          newSessions.push(k);
+        }
+        if (!sawNew) newSessions.push(disp);
+
         var rescheduleUpdate = {};
         rescheduleUpdate['rescheduledFrom.' + escapedOld] = {
           fromKey: sessionKey,
@@ -24245,13 +24264,8 @@ async function crApplyDispositions(opts) {
           by: actor
         };
         rescheduleUpdate.lastUpdated = nowTs;
-        // Add the new session key first so the doc is never in a keyless state.
-        rescheduleUpdate.selectedSessions = firebase.firestore.FieldValue.arrayUnion(disp);
+        rescheduleUpdate.selectedSessions = newSessions;
         await signupRef.update(rescheduleUpdate);
-        // Remove the old session key in a separate write (Firestore restriction).
-        await signupRef.update({
-          selectedSessions: firebase.firestore.FieldValue.arrayRemove(sessionKey)
-        });
         // The existing W2 onRecurringEventSignupUpdated → handleSignupLifecycleEmails
         // detects selectedSessions content changes and emails "Your session dates
         // have changed" — no new CF needed for reschedule notifications.
