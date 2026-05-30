@@ -23684,16 +23684,39 @@ function crGetAffectedSignups(allSignups, sessionKey) {
     if (!sessions || sessions.indexOf(sessionKey) === -1) return false;
     var override = s.dateStatusOverrides && s.dateStatusOverrides[sessionKey];
     if (override === 'cancelled' || override === 'no-show') return false;
+    // cancelledFromSession is written by crApplyDispositions (Task 7) using
+    // crEscapeSessionKey on the session key. Use the SAME escaper here so
+    // reads match writes — diverging escapers will silently miss markers.
     if (s.cancelledFromSession && s.cancelledFromSession[escapedKey]) return false;
     return true;
   });
+}
+
+// Returns true if a candidate composite session key is cancelled for the given
+// event. Matches _cmsCancelledMatchesSessionStr logic: no location = legacy
+// date-wide cancellation; otherwise requires location (and venue if present)
+// to appear in the composite key.
+function crIsSessionCancelled(event, candidateKey) {
+  if (!Array.isArray(event.cancelledDates)) return false;
+  var datePrefix = String(candidateKey).split('|')[0];
+  for (var i = 0; i < event.cancelledDates.length; i++) {
+    var cd = event.cancelledDates[i];
+    if (!cd || !cd.date) continue;
+    if (cd.date !== datePrefix) continue;
+    if (!cd.location) return true; // legacy date-wide cancellation
+    if (candidateKey.indexOf(cd.location) === -1) continue;
+    if (cd.venue && candidateKey.indexOf(cd.venue) === -1) continue;
+    return true;
+  }
+  return false;
 }
 
 // Returns future composite session key strings for the event, sorted ascending,
 // excluding the session being cancelled and any already-cancelled sessions.
 // Delegates to _getEventSessions (which returns session objects); extracts
 // rawString as the composite key. event.cancelledDates is {date,location,
-// venue,reason}[] — we match on the date prefix of the composite key.
+// venue,reason}[] — we match per-session using crIsSessionCancelled so that
+// a Hilo cancellation does not exclude Pearl City sessions on the same date.
 function crGetAvailableFutureDates(event, excludeSessionKey) {
   if (!event) return [];
   var allSessions = (typeof _getEventSessions === 'function') ? _getEventSessions(event) : [];
@@ -23703,14 +23726,6 @@ function crGetAvailableFutureDates(event, excludeSessionKey) {
   var _todayKey = _hstNow.getFullYear() + '-' +
     String(_hstNow.getMonth() + 1).padStart(2, '0') + '-' +
     String(_hstNow.getDate()).padStart(2, '0');
-  // Build a set of cancelled date prefixes from cancelledDates[].
-  var cancelledSet = {};
-  if (Array.isArray(event.cancelledDates)) {
-    for (var i = 0; i < event.cancelledDates.length; i++) {
-      var cd = event.cancelledDates[i];
-      if (cd && cd.date) cancelledSet[cd.date] = true;
-    }
-  }
   var out = [];
   for (var j = 0; j < allSessions.length; j++) {
     var sess = allSessions[j];
@@ -23721,7 +23736,7 @@ function crGetAvailableFutureDates(event, excludeSessionKey) {
     // Extract the date prefix (first segment before '|', or the full string).
     var datePrefix = String(k).split('|')[0];
     if (datePrefix < _todayKey) continue;
-    if (cancelledSet[datePrefix]) continue;
+    if (crIsSessionCancelled(event, k)) continue;
     out.push(k);
   }
   return out.sort();
@@ -23757,14 +23772,17 @@ function runCancelRescheduleTests() {
   }
 
   // --- crEscapeSessionKey ---
-  check(crEscapeSessionKey('2026-05-30|Pearl City - Library|3:00 PM') === '2026-05-30_Pearl_City_-_Library_3:00_PM',
-    'crEscapeSessionKey replaces pipes and spaces', crEscapeSessionKey('2026-05-30|Pearl City - Library|3:00 PM'));
+  check(crEscapeSessionKey('2026-05-30|Pearl City – Library|3:00 PM') === '2026-05-30_Pearl_City_–_Library_3:00_PM',
+    'crEscapeSessionKey replaces pipes and spaces', crEscapeSessionKey('2026-05-30|Pearl City – Library|3:00 PM'));
   check(crEscapeSessionKey(null) === '', 'crEscapeSessionKey(null) returns empty string');
   check(crEscapeSessionKey(undefined) === '', 'crEscapeSessionKey(undefined) returns empty string');
+  check(crEscapeSessionKey('2026-05-30|Pearl City – Library|10:00 AM – 12:00 PM')
+        .indexOf('–') !== -1,
+    'crEscapeSessionKey preserves en-dash (en-dash is valid in Firestore field names)');
 
   // --- crGetAffectedSignups ---
-  var sk = '2026-05-30|Pearl City - Library|3:00 PM';
-  var otherKey = '2026-06-06|Pearl City - Library|3:00 PM';
+  var sk = '2026-05-30|Pearl City – Library|3:00 PM';
+  var otherKey = '2026-06-06|Pearl City – Library|3:00 PM';
   var escapedSk = crEscapeSessionKey(sk);
   var fixtures = [
     { id: 'a', status: 'confirmed', selectedSessions: [sk] },
@@ -23792,6 +23810,20 @@ function runCancelRescheduleTests() {
   check(crGetAffectedSignups(null, sk).length === 0, 'crGetAffectedSignups(null, sk) returns []');
 
   if (typeof window !== 'undefined') window.getSignupSessions = origGetSessions;
+
+  // 3a: dateStatusOverrides for a DIFFERENT date should not exclude the signup
+  var sigDiffOverride = { id: 'f', status: 'confirmed', selectedSessions: [sk],
+    dateStatusOverrides: { '2099-01-01|Loc|10:00 AM': 'cancelled' } };
+  var affDiff = crGetAffectedSignups([sigDiffOverride], sk);
+  check(affDiff.length === 1, 'override for different date should not exclude signup');
+
+  // 3b: cancelledFromSession for a DIFFERENT session should not exclude the signup
+  var otherEscaped = crEscapeSessionKey('2099-01-01|Loc|10:00 AM');
+  var sigOtherCfs = { id: 'g', status: 'confirmed', selectedSessions: [sk],
+    cancelledFromSession: {} };
+  sigOtherCfs.cancelledFromSession[otherEscaped] = { fromKey: '2099-01-01|Loc|10:00 AM' };
+  var affOther = crGetAffectedSignups([sigOtherCfs], sk);
+  check(affOther.length === 1, 'cancelledFromSession for different key should not exclude');
 
   // --- crGetAvailableFutureDates ---
   var origGetEventSessions = (typeof window !== 'undefined') ? window._getEventSessions : undefined;
@@ -23840,6 +23872,22 @@ function runCancelRescheduleTests() {
   // No-sessions event
   check(crGetAvailableFutureDates({ _sessions: [], cancelledDates: [] }, sk).length === 0, 'empty _sessions event returns []');
   check(crGetAvailableFutureDates(null, sk).length === 0, 'null event returns []');
+
+  // 3c: two sessions on same date, different locations — only cancelled one excluded
+  var multiLocEvent = {
+    _sessions: [
+      '2026-06-17|Pearl City – Library|3:00 PM',
+      '2026-06-17|Hilo – Center|3:00 PM',
+      '2026-06-24|Pearl City – Library|3:00 PM'
+    ],
+    cancelledDates: [{ date: '2026-06-17', location: 'Hilo', venue: 'Center' }]
+  };
+  var multiLocAvailable = crGetAvailableFutureDates(multiLocEvent, '2026-05-30|X|X');
+  check(multiLocAvailable.indexOf('2026-06-17|Pearl City – Library|3:00 PM') !== -1,
+    'multi-location: non-cancelled session on same date should remain available');
+  check(multiLocAvailable.indexOf('2026-06-17|Hilo – Center|3:00 PM') === -1,
+    'multi-location: cancelled session should be excluded');
+  check(multiLocAvailable.length === 2, 'multi-location: 2 available (1 same-date kept, 1 next week)', multiLocAvailable);
 
   if (typeof window !== 'undefined') window._getEventSessions = origGetEventSessions;
 
