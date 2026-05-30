@@ -4550,7 +4550,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v128.0.1-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v128.1.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7442,6 +7442,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <div>
           <label>Phone</label>
           <input id="ctPhone" placeholder="Optional">
+        </div>
+        <div class="span2" id="ctAdvocateSection" style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:10px 14px;margin-bottom:0;">
+          <div style="font-weight:700;color:var(--ocean-deep);font-size:.9rem;margin-bottom:4px;">External Advocate</div>
+          <div style="font-size:.78rem;color:var(--text-soft);font-weight:500;margin-bottom:8px;">
+            Is there an external advocate for this family? (e.g. translator, community advocate)
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="ctExternalAdvocate" list="contactOptions" placeholder="Start typing a contact's name..." style="flex:1;padding:8px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:.88rem;background:white;color:var(--text-dark);font-family:inherit;box-sizing:border-box;" autocomplete="off">
+            <button type="button" class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="document.getElementById('ctExternalAdvocate').value=''">Clear</button>
+          </div>
+          <!-- Reverse view: families this contact advocates for. Populated on form open, hidden if empty. -->
+          <div id="ctAdvocateForList" style="display:none;margin-top:10px;padding:8px 12px;background:#FFFFFF;border-left:3px solid #0891B2;border-radius:0 6px 6px 0;">
+            <div style="font-size:.82rem;font-weight:600;color:#0C4A6E;margin-bottom:4px;">Family advocate for:</div>
+            <div id="ctAdvocateForListItems" style="font-size:.84rem;color:#0F172A;"></div>
+          </div>
         </div>
         <div class="span2" style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:10px 14px;">
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;">
@@ -14327,6 +14342,10 @@ window.autoCropImage = function(file) {
     document.getElementById('ctPriorTrainingDate').value = '';
     document.getElementById('ctHowHeard').value = '';
     document.getElementById('ctAccommodations').value = '';
+    // External advocate defaults (cleared even for new contacts).
+    document.getElementById('ctExternalAdvocate').value = '';
+    document.getElementById('ctAdvocateForList').style.display = 'none';
+    document.getElementById('ctAdvocateForListItems').innerHTML = '';
     // Build disability checkboxes
     var _disabList = ['ADD-ADHD', 'Autism Spectrum (ASD)', 'Deaf/Hard of Hearing', 'Developmental Disability', 'Emotional Disability', 'Gifted', 'Intellectual Disability', 'Multiple Disabilities', 'No IDEA Disability', 'Orthopedic (Physical)', 'Other Health Disability', 'Specific Learning Disability', 'Speech or Language', 'Suspected', 'Traumatic Brain Injury', 'Visual (incl. blindness)', 'Deaf/Blindness'];
     var disGrid = document.getElementById('ctDisabilityGrid');
@@ -14392,6 +14411,29 @@ window.autoCropImage = function(file) {
           document.getElementById('ctPriorTrainingDate').value = d.priorTrainingDate || '';
           document.getElementById('ctHowHeard').value = d.howHeard || '';
           document.getElementById('ctAccommodations').value = d.accommodations || '';
+          // v128.1.0: External Advocate — forward direction. Look up the linked
+          // contact in the _allContacts cache and show their displayName so the
+          // datalist input acts as a type-to-narrow picker.
+          var advInput = document.getElementById('ctExternalAdvocate');
+          if (d && d.externalAdvocateId) {
+            var advRow = (_allContacts || []).find(function(c) { return c.id === d.externalAdvocateId; });
+            if (advRow) advInput.value = advRow.displayName || '';
+          }
+          // v128.1.0: External Advocate — reverse direction. Families this
+          // contact advocates for. Computed live so we don't denormalize.
+          try {
+            var revSnap = await db.collection('contacts').where('externalAdvocateId', '==', docId).get();
+            if (!revSnap.empty) {
+              var revHtml = '';
+              revSnap.forEach(function(r) {
+                var rd = r.data() || {};
+                var name = rd.displayName || '(no name)';
+                revHtml += '<div style="margin:2px 0;"><a href="#" style="color:#0891B2;font-weight:600;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;" onclick="event.preventDefault();closeContactForm();openContactDetail(\'' + rsEscape(r.id) + '\')">' + rsEscape(name) + '</a></div>';
+              });
+              document.getElementById('ctAdvocateForListItems').innerHTML = revHtml;
+              document.getElementById('ctAdvocateForList').style.display = 'block';
+            }
+          } catch (e) { console.warn('reverse advocate query failed:', e.message); }
         }
       } catch (e) { console.error(e); }
     }
@@ -14510,6 +14552,27 @@ window.autoCropImage = function(file) {
     };
 
     var editId = document.getElementById('ctEditId').value;
+
+    // v128.1.0: External Advocate — resolve typed name against _allContacts
+    // (case-insensitive displayName match). Reject unknown names and self-links
+    // up front; explicit null write ensures clearing the field actually unsets.
+    var advTyped = (document.getElementById('ctExternalAdvocate').value || '').trim();
+    var resolvedAdvocateId = null;
+    if (advTyped) {
+      var advMatch = (_allContacts || []).find(function(c) {
+        return (c.displayName || '').trim().toLowerCase() === advTyped.toLowerCase();
+      });
+      if (!advMatch) {
+        alert('No contact matches "' + advTyped + '". Pick a name from the dropdown or clear the field.');
+        return;
+      }
+      if (editId && advMatch.id === editId) {
+        alert('A contact cannot be their own advocate. Pick a different contact or clear the field.');
+        return;
+      }
+      resolvedAdvocateId = advMatch.id;
+    }
+    data.externalAdvocateId = resolvedAdvocateId;
 
     try {
       var newDocRef = null;
@@ -14789,8 +14852,23 @@ window.autoCropImage = function(file) {
               ? '<span style="color:#94A3B8;font-weight:600;">Opted out</span>'
               : '<span style="color:#16a34a;font-weight:700;display:inline-flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Opted in</span>')
             + '</div></div>' +
+          // v128.1.0: External Advocate — forward direction (this contact's advocate).
+          // Resolved synchronously from _allContacts; "(not found)" if the linked id
+          // points to a deleted/missing contact.
+          (c.externalAdvocateId
+            ? (function() {
+                var advRow = (_allContacts || []).find(function(x) { return x.id === c.externalAdvocateId; });
+                var inner = advRow
+                  ? '<a href="#" onclick="event.preventDefault();openContactDetail(\'' + rsEscape(c.externalAdvocateId) + '\')" style="color:var(--ocean-deep);font-weight:700;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;">' + rsEscape(advRow.displayName || '(no name)') + '</a>'
+                  : '<span style="color:#94A3B8;font-weight:600;">(not found)</span>';
+                return '<div class="ct-info-field"><label>External Advocate</label><div class="val">' + inner + '</div></div>';
+              })()
+            : '') +
           '<div class="ct-info-field"><label>Created By</label><div class="val">' + rsEscape(c.createdByName || '—') + '</div></div>' +
           (c.notes ? '<div class="ct-info-field span2"><label>Notes</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(c.notes) + '</div></div>' : '') +
+          // v128.1.0: External Advocate — reverse direction slot. Populated
+          // async via where('externalAdvocateId','==',contactId); hidden when empty.
+          '<div class="ct-info-field span2" id="ctDetailAdvocateForRow" style="display:none;"><label>Family Advocate For</label><div class="val" id="ctDetailAdvocateForVal"></div></div>' +
         '</div>';
 
       // Connect-Gen consent block — present only when the contact has signed.
@@ -14913,6 +14991,24 @@ window.autoCropImage = function(file) {
       var timelineHtml = '<div class="ct-ix-timeline" id="ctDetailTimeline"><p style="color:var(--text-soft);font-size:.85rem;">Loading activity…</p></div>';
 
       body.innerHTML = infoHtml + timelineLabel + timelineHtml;
+
+      // v128.1.0: External Advocate — reverse-direction async fill. Same query
+      // pattern as the form's reverse view; clicking a name swaps the modal
+      // in-place to that contact's detail.
+      db.collection('contacts').where('externalAdvocateId', '==', contactId).get().then(function(revSnap) {
+        if (revSnap.empty) return;
+        var row = document.getElementById('ctDetailAdvocateForRow');
+        var val = document.getElementById('ctDetailAdvocateForVal');
+        if (!row || !val) return;
+        var parts = [];
+        revSnap.forEach(function(r) {
+          var rd = r.data() || {};
+          var name = rd.displayName || '(no name)';
+          parts.push('<a href="#" onclick="event.preventDefault();openContactDetail(\'' + rsEscape(r.id) + '\')" style="color:var(--ocean-deep);font-weight:700;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;">' + rsEscape(name) + '</a>');
+        });
+        val.innerHTML = parts.join(', ');
+        row.style.display = '';
+      }).catch(function(err) { console.warn('reverse advocate query (detail) failed:', err.message); });
 
       // Fully render the Connect-Gen card now that infoHtml is in the DOM —
       // pulls the linked signup so we can show the typed signature, child
