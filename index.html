@@ -25490,68 +25490,116 @@ window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, sta
  * For the two override values, keep status='confirmed' and record the
  * override at dateStatusOverrides[sessionDateKey]. For the four base values,
  * update status globally and DELETE the per-date override.
+ *
+ * v128.2.0+: shows a Tier 1 confirm modal before writing.
  */
 window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId, sessionDateKey, newValue) {
-  try {
-    var ref = db.collection(collection).doc(eventId).collection('signups').doc(signupId);
-    var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
-    var sName = s ? (s.name || signupId) : signupId;
-    var isOverride = (newValue === 'confirmed-in-person' || newValue === 'confirmed-virtual');
-    // v122.0.8: CG Monday-virtual docs gate. Block any transition to a
-    // confirmed-* value on a Monday-virtual session without docs on file.
-    if (newValue === 'confirmed' || isOverride) {
-      var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
-      var blockedKey = cmsCgConfirmBlockedKey(ev, s, sessionDateKey);
-      if (blockedKey) {
-        _showToast('Awaiting IEP + Evaluation documents (' + blockedKey + ').', '#D97706');
-        cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
-        return;
-      }
+  var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+  var sName = s ? (s.name || signupId) : signupId;
+  var isOverride = (newValue === 'confirmed-in-person' || newValue === 'confirmed-virtual');
+
+  // No-op guard: if the dropdown was changed back to whatever is already stored,
+  // skip the modal entirely.
+  var currentMode = (s && s.dateStatusOverrides && s.dateStatusOverrides[sessionDateKey])
+    ? s.dateStatusOverrides[sessionDateKey]
+    : (s ? (s.status || 'new') : 'new');
+  if (newValue === currentMode) return;
+
+  // v122.0.8: CG Monday-virtual docs gate. Block any transition to a
+  // confirmed-* value on a Monday-virtual session without docs on file.
+  // Runs synchronously before the modal so staff see the toast, not a confirm.
+  if (newValue === 'confirmed' || isOverride) {
+    var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
+    var blockedKey = cmsCgConfirmBlockedKey(ev, s, sessionDateKey);
+    if (blockedKey) {
+      _showToast('Awaiting IEP + Evaluation documents (' + blockedKey + ').', '#D97706');
+      cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+      return;
     }
-    // Read-modify-write on the whole map — avoids Firestore dotted-path issues
-    // with session keys that contain pipes, colons, spaces, or commas.
-    var currentOverrides = (s && s.dateStatusOverrides) ? Object.assign({}, s.dateStatusOverrides) : {};
-    var update = {};
-    var logMsg;
-    if (isOverride) {
-      if (!s || s.status !== 'confirmed') update.status = 'confirmed';
-      currentOverrides[sessionDateKey] = newValue;
-      update.dateStatusOverrides = currentOverrides;
-      logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Mode: ' + newValue;
-      await ref.update(update);
-      if (s) {
-        if (update.status) s.status = 'confirmed';
-        s.dateStatusOverrides = currentOverrides;
-      }
-      auditLog('Set per-date mode override', logMsg);
-    } else {
-      update.status = newValue;
-      delete currentOverrides[sessionDateKey];
-      update.dateStatusOverrides = currentOverrides;
-      await ref.update(update);
-      if (s) {
-        s.status = newValue;
-        s.dateStatusOverrides = currentOverrides;
-      }
-      // v120.7.2: log as "Updated signup status" so cancellations made via
-      // the per-date dropdown surface in the audit log under the same action
-      // name as cancellations made elsewhere. Override-clear is noted in the
-      // details for full traceability.
-      logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Status: ' + newValue + ' (per-date override cleared)';
-      auditLog('Updated signup status', logMsg);
-      // Update denormalized counts for base-status changes
-      var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
-      var pc = 0; var sc = 0;
-      allSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
-      await db.collection(collection).doc(eventId).update({ pendingCount: pc, signupCount: sc });
-      _cmsEventsLoadedAt = 0; _cmsProgramsLoadedAt = 0;
-    }
-    cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
-    _showToast(isOverride ? 'Mode override saved.' : 'Status updated.', '#16A34A');
-  } catch (err) {
-    console.error('cmsUpdateSignupModeForDate error:', err);
-    _showToast('Error: ' + err.message, '#DC2626');
   }
+
+  // ── Build modal copy ──────────────────────────────────────────────────────
+  // friendlyDate: extract YYYY-MM-DD prefix and format for display.
+  var _skDateMatch = String(sessionDateKey).match(/^(\d{4}-\d{2}-\d{2})/);
+  var _skDatePrefix = _skDateMatch ? _skDateMatch[1] : '';
+  var friendlyDate = _skDatePrefix
+    ? new Date(_skDatePrefix + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    : sessionDateKey;
+
+  // subtitle: everything after the date prefix (location / venue / time context)
+  var subtitleRaw = _skDatePrefix ? String(sessionDateKey).slice(_skDatePrefix.length).replace(/^[|,\s]+/, '') : '';
+  var modalSubtitle = subtitleRaw || '';
+
+  // modeLabel: human-readable label for the new value
+  var modeLabel = newValue;
+  if (newValue === 'confirmed-virtual') modeLabel = 'virtual';
+  else if (newValue === 'confirmed-in-person') modeLabel = 'in-person';
+
+  // Locate the dropdown DOM element so we can revert it if the user cancels.
+  // The card id is: signupCard_<signupId>_<sessionDateKey with non-alnum → _>
+  var _idSuffix = '_' + String(sessionDateKey).replace(/[^a-zA-Z0-9]/g, '_');
+  var _cardEl = document.getElementById('signupCard_' + signupId + _idSuffix);
+  var _ddEl = _cardEl ? _cardEl.querySelector('select') : null;
+
+  showConfirmModal({
+    title: 'Change ' + friendlyDate + ' to ' + modeLabel + ' for ' + sName + '?',
+    subtitle: modalSubtitle,
+    body: 'No email will be sent — they\'ll see the new mode next visit.',
+    confirmLabel: 'Yes, change',
+    onCancel: function() {
+      // Revert the dropdown to the previous value so the UI stays consistent.
+      if (_ddEl) _ddEl.value = currentMode;
+    },
+    onConfirm: async function() {
+      try {
+        var ref = db.collection(collection).doc(eventId).collection('signups').doc(signupId);
+        // Read-modify-write on the whole map — avoids Firestore dotted-path issues
+        // with session keys that contain pipes, colons, spaces, or commas.
+        var currentOverrides = (s && s.dateStatusOverrides) ? Object.assign({}, s.dateStatusOverrides) : {};
+        var update = {};
+        var logMsg;
+        if (isOverride) {
+          if (!s || s.status !== 'confirmed') update.status = 'confirmed';
+          currentOverrides[sessionDateKey] = newValue;
+          update.dateStatusOverrides = currentOverrides;
+          logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Mode: ' + newValue;
+          await ref.update(update);
+          if (s) {
+            if (update.status) s.status = 'confirmed';
+            s.dateStatusOverrides = currentOverrides;
+          }
+          auditLog('Set per-date mode override', logMsg);
+        } else {
+          update.status = newValue;
+          delete currentOverrides[sessionDateKey];
+          update.dateStatusOverrides = currentOverrides;
+          await ref.update(update);
+          if (s) {
+            s.status = newValue;
+            s.dateStatusOverrides = currentOverrides;
+          }
+          // v120.7.2: log as "Updated signup status" so cancellations made via
+          // the per-date dropdown surface in the audit log under the same action
+          // name as cancellations made elsewhere. Override-clear is noted in the
+          // details for full traceability.
+          logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Status: ' + newValue + ' (per-date override cleared)';
+          auditLog('Updated signup status', logMsg);
+          // Update denormalized counts for base-status changes
+          var allSnap = await db.collection(collection).doc(eventId).collection('signups').get();
+          var pc = 0; var sc = 0;
+          allSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          await db.collection(collection).doc(eventId).update({ pendingCount: pc, signupCount: sc });
+          _cmsEventsLoadedAt = 0; _cmsProgramsLoadedAt = 0;
+        }
+        cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+        _showToast(isOverride ? 'Mode override saved.' : 'Status updated.', '#16A34A');
+      } catch (err) {
+        console.error('cmsUpdateSignupModeForDate error:', err);
+        _showToast('Error: ' + err.message, '#DC2626');
+        throw err; // re-throw so showConfirmModal re-enables the confirm button
+      }
+    }
+  });
 };
 
 window.cmsSaveSignupNotes = async function(collection, eventId, signupId, textareaId) {
