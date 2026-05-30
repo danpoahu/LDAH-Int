@@ -23915,6 +23915,260 @@ function runCancelRescheduleTests() {
   return failures === 0;
 }
 
+// ─── Cancel & Reschedule: shared UI helpers ───────────────────────────────────
+
+function crEscapeHTML(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]);
+  });
+}
+
+function crSessionKeyLabel(sessionKey) {
+  if (!sessionKey) return '';
+  var parts = String(sessionKey).split('|');
+  var datePrefix = parts[0] || '';
+  var locVenue = parts[1] || '';
+  var time = parts[2] || '';
+  var d;
+  try { d = new Date(datePrefix + 'T00:00:00'); } catch (e) { d = null; }
+  var dateLabel = (d && !isNaN(d.getTime()))
+    ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : datePrefix;
+  var out = dateLabel;
+  if (locVenue) out += ', ' + locVenue;
+  if (time) out += ', ' + time;
+  return out;
+}
+
+// ─── showCancelRescheduleModal ─────────────────────────────────────────────────
+// Tier 2 modal: lets staff choose a per-signup disposition (reschedule or cancel
+// email) before committing a session cancellation. Calls opts.onConfirm with
+// { dispositions, sessionKey } when staff clicks Confirm. Does NOT write to
+// Firestore — that is Task 7 (crApplyDispositions).
+//
+// opts = {
+//   event,          // event doc (for title)
+//   sessionKey,     // composite key being cancelled e.g. "2026-05-30|Loc|3:00 PM"
+//   signups,        // array of signup docs affected (from crGetAffectedSignups)
+//   availableDates, // array of composite session keys staff may reschedule to
+//   onConfirm,      // async function({ dispositions, sessionKey })
+// }
+function showCancelRescheduleModal(opts) {
+  var event = opts.event;
+  var sessionKey = opts.sessionKey;
+  var signups = (opts.signups || []).slice();
+  var availableDates = opts.availableDates || [];
+  var onConfirm = opts.onConfirm;
+
+  var overlay = document.getElementById('grCancelModalOverlay');
+  var parts = String(sessionKey).split('|');
+  var datePrefix = parts[0] || '';
+  var locVenue = parts[1] || '';
+  var time = parts[2] || '';
+  var dateLabel = (function () {
+    try {
+      var d = new Date(datePrefix + 'T00:00:00');
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      }
+    } catch (e) { /* fall through */ }
+    return datePrefix;
+  })();
+
+  document.getElementById('grModalTitle').textContent = 'Cancel Session';
+  document.getElementById('grModalSubtitle').textContent =
+    (event.title || event.name || 'Event') + ' — ' + dateLabel +
+    (locVenue ? ' · ' + locVenue : '') +
+    (time ? ' · ' + time : '');
+
+  var dispositions = {}; // { signupId: compositeKey | 'CANCEL' }
+
+  function optionsHTML() {
+    var html = '';
+    for (var i = 0; i < availableDates.length; i++) {
+      var k = availableDates[i];
+      html += '<option value="' + crEscapeHTML(k) + '">' + crEscapeHTML(crSessionKeyLabel(k)) + '</option>';
+    }
+    return html;
+  }
+
+  function familyDisplayName(s) {
+    return s.lifecycleFirstName
+      || (s.registration && s.registration.parentFirstName)
+      || (s.registration && s.registration.parentName)
+      || 'Family';
+  }
+
+  function childCountOf(s) {
+    var arr = (s.children && s.children.length) ? s.children
+      : ((s.registration && s.registration.children) || []);
+    return arr.length || 1;
+  }
+
+  function rowsHTML() {
+    var html = '';
+    for (var i = 0; i < signups.length; i++) {
+      var s = signups[i];
+      var name = familyDisplayName(s);
+      var n = childCountOf(s);
+      html +=
+        '<div class="gr-row" data-signup-id="' + crEscapeHTML(s.id) + '">' +
+          '<div class="gr-row-name">' + crEscapeHTML(name) + ' family (' + n + ' ' + (n === 1 ? 'kid' : 'kids') + ')</div>' +
+          '<select class="gr-row-select" data-disposition data-signup-id="' + crEscapeHTML(s.id) + '">' +
+            '<option value="">Choose…</option>' +
+            optionsHTML() +
+            '<option value="CANCEL">Send cancellation email</option>' +
+          '</select>' +
+        '</div>';
+    }
+    return html;
+  }
+
+  function previewHTML() {
+    var plan = crComputeEmailPlan(dispositions);
+    if (signups.length === 0) {
+      return '<p style="margin:0;color:#6b7280;">No active signups affected. Cancelling this date only marks it for future visibility.</p>';
+    }
+    var lines = '';
+    if (plan.rescheduleCount > 0) {
+      lines += '<div class="gr-preview-line">' + plan.rescheduleCount + ' famil' +
+        (plan.rescheduleCount === 1 ? 'y' : 'ies') + ' → “Your ' +
+        crEscapeHTML(dateLabel) + ' session moved” (per new date)</div>';
+    }
+    if (plan.cancelCount > 0) {
+      lines += '<div class="gr-preview-line">' + plan.cancelCount + ' famil' +
+        (plan.cancelCount === 1 ? 'y' : 'ies') + ' → “Your ' +
+        crEscapeHTML(dateLabel) + ' session was cancelled”</div>';
+    }
+    if (lines === '') {
+      lines = '<div class="gr-preview-line" style="color:#6b7280;">No disposition chosen yet.</div>';
+    }
+    return '<div class="gr-preview">' + lines + '</div>';
+  }
+
+  function bulkHTML() {
+    var moveControls = '';
+    if (availableDates.length > 0) {
+      moveControls =
+        '<select class="gr-bulk-select" id="grBulkSelect">' +
+          '<option value="">Move all to…</option>' +
+          optionsHTML() +
+        '</select>' +
+        '<button type="button" class="gr-btn gr-btn-secondary" id="grBulkApply">Apply</button>';
+    }
+    return '<div class="gr-bulk">' +
+      moveControls +
+      '<button type="button" class="gr-btn gr-btn-secondary" id="grBulkCancelAll" style="margin-left:auto;">' +
+        'Cancel all (email)' +
+      '</button>' +
+    '</div>';
+  }
+
+  function renderBody() {
+    var introText = signups.length === 0
+      ? 'No active signups are on this date. Confirm to mark it cancelled.'
+      : signups.length + ' famil' + (signups.length === 1 ? 'y is' : 'ies are') +
+        ' signed up. Choose what happens to each before you cancel. <strong>No emails will send until you confirm.</strong>';
+    document.getElementById('grModalBody').innerHTML =
+      '<p style="margin-top:0;">' + introText + '</p>' +
+      (signups.length > 0 ? bulkHTML() + rowsHTML() : '') +
+      previewHTML();
+
+    // Restore selected disposition values after re-render
+    var sels = document.querySelectorAll('#grModalBody [data-disposition]');
+    for (var i = 0; i < sels.length; i++) {
+      var id = sels[i].getAttribute('data-signup-id');
+      if (dispositions[id]) sels[i].value = dispositions[id];
+    }
+  }
+
+  function allChosen() {
+    if (signups.length === 0) return true;
+    for (var i = 0; i < signups.length; i++) {
+      if (!dispositions[signups[i].id]) return false;
+    }
+    return true;
+  }
+
+  function renderFooter() {
+    var plan = crComputeEmailPlan(dispositions);
+    var total = plan.rescheduleCount + plan.cancelCount;
+    var confirmLabel = signups.length === 0
+      ? 'Confirm cancel'
+      : 'Confirm — send ' + total + ' email' + (total === 1 ? '' : 's');
+    var disabledAttr = allChosen() ? '' : ' disabled';
+    document.getElementById('grModalFooter').innerHTML =
+      '<button type="button" class="gr-btn gr-btn-secondary" id="grConfirmCancel">Back</button>' +
+      '<button type="button" class="gr-btn gr-btn-danger" id="grConfirmOk"' + disabledAttr + '>' +
+      crEscapeHTML(confirmLabel) + '</button>';
+
+    document.getElementById('grConfirmCancel').onclick = function () {
+      overlay.classList.remove('gr-open');
+      overlay.setAttribute('aria-hidden', 'true');
+    };
+    document.getElementById('grConfirmOk').onclick = async function () {
+      var btn = document.getElementById('grConfirmOk');
+      btn.disabled = true;
+      try {
+        if (typeof onConfirm === 'function') {
+          await onConfirm({ dispositions: Object.assign({}, dispositions), sessionKey: sessionKey });
+        }
+        overlay.classList.remove('gr-open');
+        overlay.setAttribute('aria-hidden', 'true');
+      } catch (err) {
+        console.error('showCancelRescheduleModal confirm failed:', err);
+        var existingErr = document.getElementById('grInlineError');
+        if (existingErr) existingErr.remove();
+        var errDiv = document.createElement('div');
+        errDiv.id = 'grInlineError';
+        errDiv.style.cssText = 'background:#fef2f2;border-left:3px solid #dc2626;padding:10px 14px;margin-top:10px;border-radius:4px;color:#991b1b;font-size:13px;';
+        errDiv.textContent = 'Some writes failed: ' + (err && err.message ? err.message : 'unknown error') + '. Try again or close to abort.';
+        document.getElementById('grModalBody').appendChild(errDiv);
+        btn.disabled = !allChosen(); // re-enable iff dispositions still complete
+      }
+    };
+  }
+
+  // Event delegation — reassign each call so re-opens don't inherit stale closures
+  overlay.onchange = function (e) {
+    var t = e.target;
+    if (!t || !t.matches('[data-disposition]')) return;
+    var id = t.getAttribute('data-signup-id');
+    if (t.value) {
+      dispositions[id] = t.value;
+    } else {
+      delete dispositions[id];
+    }
+    renderFooter();
+    // Only footer updates on per-row change; body keeps its DOM state (no re-render)
+  };
+  overlay.onclick = function (e) {
+    var t = e.target;
+    if (!t || !t.id) return;
+    if (t.id === 'grBulkApply') {
+      var sel = document.getElementById('grBulkSelect');
+      if (!sel || !sel.value) return;
+      for (var i = 0; i < signups.length; i++) {
+        if (!dispositions[signups[i].id]) dispositions[signups[i].id] = sel.value;
+      }
+      renderBody();
+      renderFooter();
+    } else if (t.id === 'grBulkCancelAll') {
+      for (var j = 0; j < signups.length; j++) {
+        dispositions[signups[j].id] = 'CANCEL';
+      }
+      renderBody();
+      renderFooter();
+    }
+  };
+
+  renderBody();
+  renderFooter();
+  overlay.classList.add('gr-open');
+  overlay.setAttribute('aria-hidden', 'false');
+}
+
 window.cmsSendNoShowReInvites = async function(collection, eventId) {
   if (!confirm('Send re-invite emails to all no-shows?')) return;
   try {
