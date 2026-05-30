@@ -23439,6 +23439,10 @@ window.cmsToggleSessionCancel = async function(eventId, dateStr, location, venue
       for (var _ci = 0; _ci < allCbs.length; _ci++) {
         var _cb = allCbs[_ci];
         var _oc = _cb.getAttribute('onchange') || '';
+        // NOTE: substring match assumes callers pass the full canonical location string.
+        // "Pearl" would match a "Pearl City" checkbox. All LDAH render sites currently
+        // pass the full string, so this is safe today. If checkboxes ever gain a
+        // data-session-key attribute, switch to that for an unambiguous match.
         // Match date string and location string in the onchange attr value
         if (_oc.indexOf(dateStr) !== -1 && (loc === '' || _oc.indexOf(loc) !== -1)) {
           return _cb;
@@ -23476,7 +23480,9 @@ window.cmsToggleSessionCancel = async function(eventId, dateStr, location, venue
       if (_cmsSignupsModalData && _cmsSignupsModalData.programDoc) {
         _cmsSignupsModalData.programDoc.cancelledDates = cancelledDates;
       }
-      cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
+      if (_cmsSignupsModalData) {
+        cmsRenderSignupsList(_cmsSignupsModalData.signups, 'recurringEvents', eventId);
+      }
       _showToast(isCancelled ? 'Session cancelled.' : 'Session restored.', isCancelled ? '#DC2626' : '#16A34A');
     } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
   }
@@ -23510,14 +23516,27 @@ window.cmsToggleSessionCancel = async function(eventId, dateStr, location, venue
         if (!_s) continue;
         // Match by date and location (venue optional)
         var _rawKey = _s.rawString || _s.dateKey || '';
-        var _dkey = _s.dateKey || String(_rawKey).split('|')[0];
+        var _dkey = _s.dateKey || _s.date || String(_rawKey).split('|')[0];
         if (_dkey !== dateStr) continue;
         if (loc && _rawKey.indexOf(loc) === -1) continue;
-        if (_rawKey) return _rawKey;
-        // rawString missing: synthesise via cmsBuildSessionKey
+        // Always synthesise via cmsBuildSessionKey so the key uses the
+        // canonical 12-hour + en-dash format that selectedSessions stores.
+        // _rawKey (rawString) uses 24h + ASCII hyphen and must NOT be
+        // returned directly — it won't match signup selectedSessions entries.
         if (typeof cmsBuildSessionKey === 'function') {
-          return cmsBuildSessionKey(_s);
+          // cmsBuildSessionKey expects { date, location, venue, startTime, endTime }.
+          // _getEventSessions may return { dateKey, location, startTime, endTime }
+          // (no 'date', no 'venue'), so adapt before calling.
+          var _sessArg = {
+            date:      _s.date      || _dkey,
+            location:  _s.location  || '',
+            venue:     _s.venue     || '',
+            startTime: _s.startTime || '',
+            endTime:   _s.endTime   || ''
+          };
+          return cmsBuildSessionKey(_sessArg);
         }
+        if (_rawKey) return _rawKey; // fallback if cmsBuildSessionKey unavailable
       }
     } catch (e) { /* ignore */ }
     return dateStr; // fallback: bare date (crGetAffectedSignups handles gracefully)
