@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presenter Prep Task &amp; Event Summary Tasks — Design</title>
+<style>
+  :root { --ink:#1d2733; --muted:#5b6b7c; --line:#e2e8f0; --accent:#0f766e; --accent2:#059669; --bg:#f7f9fb; --card:#fff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  .wrap { max-width:880px; margin:0 auto; padding:40px 28px 80px; }
+  header { border-bottom:3px solid var(--accent); padding-bottom:18px; margin-bottom:28px; }
+  h1 { font-size:1.7rem; margin:0 0 8px; letter-spacing:-.01em; }
+  h2 { font-size:1.25rem; margin:36px 0 12px; padding-top:8px; color:var(--accent); }
+  h3 { font-size:1.02rem; margin:22px 0 8px; }
+  .meta-line { color:var(--muted); font-size:.92rem; }
+  .meta-line b { color:var(--ink); }
+  .status { display:inline-block; background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0;
+    border-radius:999px; padding:2px 12px; font-size:.78rem; font-weight:600; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:18px 22px; margin:16px 0; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+  p { margin:10px 0; }
+  ul,ol { margin:10px 0; padding-left:22px; }
+  li { margin:5px 0; }
+  code { background:#eef2f5; padding:1px 6px; border-radius:5px; font-size:.88em;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:#0f172a; color:#e2e8f0; padding:16px 18px; border-radius:10px;
+    overflow:auto; font-size:.84rem; line-height:1.5; }
+  pre code { background:none; padding:0; color:inherit; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:.92rem; }
+  th,td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:#f1f5f9; font-weight:600; }
+  td code { white-space:nowrap; }
+  .pill { display:inline-block; border-radius:6px; padding:2px 9px; font-size:.74rem;
+    font-weight:600; }
+  .pill.green { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
+  .pill.amber { background:#fffbeb; color:#92400e; border:1px solid #fde68a; }
+  .num { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px;
+    background:var(--accent); color:#fff; border-radius:50%; font-size:.85rem; font-weight:700;
+    margin-right:8px; vertical-align:middle; }
+  blockquote { border-left:4px solid var(--accent2); margin:12px 0; padding:6px 16px;
+    background:#f0fdf4; color:#14532d; border-radius:0 8px 8px 0; }
+  a { color:var(--accent); }
+  .note { color:var(--muted); font-size:.9rem; }
+  footer { margin-top:48px; padding-top:18px; border-top:1px solid var(--line);
+    color:var(--muted); font-size:.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Presenter Prep Task, Event Summary Follow-up &amp; Task Action Buttons</h1>
+  <div class="meta-line">
+    <b>Date:</b> 2026-06-02 &nbsp;·&nbsp; <span class="status">Approved — pending spec review</span><br>
+    <b>Builds on:</b> Event-Lifecycle Interactions (live as LDAH-Int v124.0.0, 2026-05-24)
+  </div>
+</header>
+
+<h2>Background</h2>
+<div class="card">
+<p>The event-lifecycle engine already maintains an <code>interactions</code> collection with a workflow chain in <code>LDAH_W2/functions/index.js</code>:</p>
+<ul>
+  <li><b>On event create</b> → <code>onEventCreatedLifecycle</code> spawns Verify Display, Assign Presenter (per session, owned by La'a), and Send Announcements interactions.</li>
+  <li><b>Day-of</b> → <code>createDayOfAttendanceTasks</code> (5 AM HST cron) creates a <b>Take Attendance</b> task per session, owned by the presenter.</li>
+  <li><b>On Take Attendance close</b> → <code>onInteractionUpdatedLifecycle</code> auto-spawns an <b>Event Summary</b> task, owned by the presenter, <code>followUpDate = sessionDate + 10 days</code>.</li>
+</ul>
+<p>Two gaps relative to the desired presenter workflow:</p>
+<ol>
+  <li>There is <b>no</b> task reminding the presenter to <em>prepare to present</em> ahead of the event.</li>
+  <li>The Event Summary follow-up window (+10 days) is longer than wanted, and the day-of tasks have no one-click path into the actual Take Attendance / Event Summary screens.</li>
+</ol>
+</div>
+
+<h2>Goals</h2>
+<div class="card">
+<ol>
+  <li><b>Presenter prep task</b> — 3 days before each session, create a "Present Event" task owned by the session's presenter, follow-up the day after that session.</li>
+  <li><b>Event Summary follow-up</b> — change from +10 days to <b>+5 days</b> (long enough for participant feedback to arrive before the task is chased).</li>
+  <li><b>Action buttons</b> — Take Attendance and Event Summary task cards each get a button that opens the corresponding modal for that event + session.</li>
+</ol>
+<p class="note"><b>Non-goals:</b> no change to presenter assignment, Take Attendance timing, or existing interaction-type names. The optional "review who's coming" button on the prep card is <b>deferred</b>.</p>
+</div>
+
+<h2><span class="num">1</span>New <code>createPresenterPrepTasks</code> scheduled function</h2>
+<div class="card">
+<p>New Cloud Function in <code>LDAH_W2/functions/index.js</code>, modeled on the existing <code>createDayOfAttendanceTasks</code> (~line 12297).</p>
+<ul>
+  <li><b>Schedule:</b> daily, ~5 AM HST (<code>0 5 * * *</code>), same cadence as the day-of cron.</li>
+  <li><b>Logic per run:</b> scan events whose session date is exactly <b>3 days out</b>. For each matching session, create one lifecycle interaction:</li>
+</ul>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td><code>interactionType</code></td><td><span class="pill green">Present Event</span></td></tr>
+  <tr><td><code>channel</code></td><td><code>Event Prep</code> (new channel)</td></tr>
+  <tr><td><code>workflowStep</code></td><td><code>presenterPrep</code></td></tr>
+  <tr><td><code>workflowEventId</code></td><td>event doc id</td></tr>
+  <tr><td><code>workflowEventCollection</code></td><td>source collection (<code>events</code> / recurring)</td></tr>
+  <tr><td><code>workflowSessionKey</code></td><td>composite session key (YYYY-MM-DD…)</td></tr>
+  <tr><td><code>workflowEventTitle</code></td><td>clean event title (no date suffix) — see Part 3</td></tr>
+  <tr><td><code>workflowIsRecurring</code></td><td>boolean, derived from collection — see Part 3</td></tr>
+  <tr><td><code>ownerUid</code> / <code>owner</code></td><td>session presenter (<code>sessionSummaries[key].presenterUid</code> / <code>summary.presenterUid</code>); <b>fallback to La'a</b> (<code>hj6YnfnZ66Yul9mtnULRW5FTWKH3</code>) if unassigned</td></tr>
+  <tr><td><code>contactName</code></td><td>event title + session date (existing convention)</td></tr>
+  <tr><td><code>followUpDate</code></td><td><b>day after</b> that session (sessionDate + 1 day)</td></tr>
+  <tr><td><code>status</code></td><td><code>Open</code></td></tr>
+</table>
+<ul>
+  <li><b>Scope:</b> <b>per session.</b> Recurring weekly series get a prep task before each session.</li>
+  <li><b>Presenter resolution:</b> read the per-session presenter the same way the day-of cron does. If empty (Assign Presenter not yet closed 3 days out), <b>fall back to La'a</b>.</li>
+  <li><b>Idempotency:</b> before creating, query <code>interactions</code> for an existing doc with the same <code>workflowEventId</code> + <code>workflowSessionKey</code> + <code>workflowStep: presenterPrep</code>. Skip if found.</li>
+  <li><b>Follow-up semantics (confirmed):</b> the task surfaces 3 days before and is flagged for follow-up the day <em>after</em> the session — intentionally a wide window covering the run-up and the day past the event.</li>
+</ul>
+</div>
+
+<h2><span class="num">2</span>Event Summary follow-up: +10 → +5 days</h2>
+<div class="card">
+<p>Single-value change in <code>onInteractionUpdatedLifecycle</code> (~line 12215–12252), where the Event Summary interaction is created on Take Attendance close:</p>
+<ul>
+  <li><code>followUpDate = sessionDate + 10 days</code> → <code>followUpDate = sessionDate + 5 days</code>.</li>
+</ul>
+<p>No structural change. Take Attendance (day-of) → on close → Event Summary remains the flow; the form-save auto-close behavior is unchanged.</p>
+</div>
+
+<h2><span class="num">3</span>Action buttons on task cards</h2>
+<div class="card">
+<p>Task cards render in the <b>My Day</b> view (<code>loadMyDay</code>, <code>LDAH-Internal/index.html</code> ~line 4885; card markup ~4934–4946). The interaction doc (<code>d</code>) already carries <code>workflowStep</code>, <code>workflowEventId</code>, and <code>workflowSessionKey</code> — simply not read by the renderer today. Buttons are added conditionally on <code>workflowStep</code>.</p>
+
+<h3>Button → opener mapping</h3>
+<ul>
+  <li><span class="pill green">takeAttendance</span> → <b>"Take Attendance →"</b> button (green <code>#059669</code>). Calls <code>cmsViewSignups(workflowEventId, workflowIsRecurring, workflowEventTitle)</code> (~line 21914), opening the signups/attendance modal.</li>
+  <li><span class="pill amber">eventSummary</span> → <b>"Open Event Summary →"</b> button. The summary modal (<code>cmsOpenEventSummary</code>, ~25058) opens <em>from</em> the signups modal and reads global <code>_cmsSignupsModalData</code>, so a small helper is needed:
+    <ol>
+      <li><code>await cmsViewSignups(workflowEventId, workflowIsRecurring, workflowEventTitle)</code></li>
+      <li>set the selected session to <code>workflowSessionKey</code></li>
+      <li><code>cmsOpenEventSummary()</code></li>
+    </ol>
+  </li>
+  <li><code>presenterPrep</code> → no button (deferred). Future option: open the event's signups so the presenter can review who's coming.</li>
+</ul>
+
+<h3>Card wiring details</h3>
+<ul>
+  <li>Read <code>d.workflowStep</code>, <code>d.workflowEventId</code>, <code>d.workflowSessionKey</code>, <code>d.workflowEventTitle</code>, <code>d.workflowIsRecurring</code> in the <code>loadMyDay</code> <code>.map()</code> closure.</li>
+  <li>Each button uses <code>onclick="event.stopPropagation(); …"</code> so it doesn't also trigger the card's <code>viewInteraction(...)</code> open-detail click.</li>
+  <li>Escape interpolated values with the existing <code>rsEscape</code> helper.</li>
+  <li>Styled to match the small in-modal buttons (<code>font-size:.75rem; padding:4px 10px</code>).</li>
+</ul>
+
+<h3>Supporting data on interaction docs</h3>
+<p><code>cmsViewSignups</code> needs <code>isRecurring</code> and a clean event <b>title</b>, neither on the interaction doc today (it stores <code>workflowEventCollection</code> and <code>contactName</code> = title + date). So the <b>three creating paths</b> must also stamp:</p>
+<ul>
+  <li><b><code>workflowEventTitle</code></b> — event title without the date suffix.</li>
+  <li><b><code>workflowIsRecurring</code></b> — boolean derived from <code>workflowEventCollection</code>.</li>
+</ul>
+<p>Creating paths to update: <code>onEventCreatedLifecycle</code> / <code>_lcBuildInteractionDoc</code>, <code>createDayOfAttendanceTasks</code>, and <code>onInteractionUpdatedLifecycle</code> (plus the new <code>createPresenterPrepTasks</code>). Centralizing in <code>_lcBuildInteractionDoc</code> (~line 12048) is preferred so every interaction consistently carries the two fields.</p>
+</div>
+
+<h2>Data flow</h2>
+<div class="card">
+<pre><code>createPresenterPrepTasks (5 AM cron)
+  └─ session 3 days out → Present Event task (owner: presenter|La'a, follow-up: session+1)
+
+createDayOfAttendanceTasks (5 AM cron)
+  └─ session today → Take Attendance task (owner: presenter)
+       └─ on close (onInteractionUpdatedLifecycle)
+            └─ Event Summary task (owner: presenter, follow-up: session+5)  ← was +10
+                 └─ on Event Summary form save → auto-close
+
+My Day cards:
+  takeAttendance card → [Take Attendance →]   cmsViewSignups(...)
+  eventSummary  card → [Open Event Summary →] cmsViewSignups(...) → select session → cmsOpenEventSummary()</code></pre>
+</div>
+
+<h2>Testing</h2>
+<div class="card">
+<ul>
+  <li><b>Prep cron:</b> seed an event with a session 3 days out; run <code>createPresenterPrepTasks</code>; confirm exactly one <code>presenterPrep</code> interaction, correct owner (assigned presenter, then La'a fallback when unassigned), <code>followUpDate = session + 1</code>, no duplicate on re-run.</li>
+  <li><b>Event Summary follow-up:</b> close a Take Attendance task; confirm the spawned Event Summary has <code>followUpDate = session + 5</code>.</li>
+  <li><b>Buttons:</b> in My Day, confirm the takeAttendance card opens the attendance modal for the right event/session, and the eventSummary card opens the summary modal pre-selected to the right session; confirm <code>stopPropagation</code> prevents the detail modal from also opening.</li>
+  <li><b>Idempotency:</b> run both crons twice; confirm no duplicate interactions.</li>
+</ul>
+</div>
+
+<h2>Versioning / deploy notes</h2>
+<div class="card">
+<ul>
+  <li>Functions live in <b><code>LDAH_W2/functions</code></b> (project <code>ldah-932d5</code>); frontend buttons in <b><code>LDAH-Internal/index.html</code></b>. Two repos.</li>
+  <li>Bump LDAH-Int version on the index.html push.</li>
+  <li>Redeploy the <b>exported</b> triggers: new <code>createPresenterPrepTasks</code> schedule + edited <code>onInteractionUpdatedLifecycle</code> / <code>createDayOfAttendanceTasks</code> / <code>_lcBuildInteractionDoc</code>.</li>
+  <li>New collection fields only (<code>workflowEventTitle</code>, <code>workflowIsRecurring</code>, <code>presenterPrep</code> interactions) — confirm the existing <code>interactions</code> rule permits these writes; no new collection.</li>
+</ul>
+</div>
+
+<h2>Open items / future</h2>
+<div class="card">
+<ul>
+  <li>Optional <code>presenterPrep</code> "review who's coming" button (deferred).</li>
+  <li>No backfill required: prep tasks are forward-looking; the +5-day change applies to newly spawned Event Summary tasks only.</li>
+</ul>
+<blockquote>Two spots worth your eye before the implementation plan: the <b>"Present Event" / "Event Prep"</b> labels (easy to retitle now), and a sanity check that La'a's fallback UID <code>hj6YnfnZ66Yul9mtnULRW5FTWKH3</code> is still current.</blockquote>
+</div>
+
+<footer>
+LDAH-Internal · design spec · 2026-06-02 · companion to
+<code>2026-06-02-presenter-prep-and-summary-tasks-design.md</code>
+</footer>
+</div>
+</body>
+</html>
