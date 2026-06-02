@@ -4612,7 +4612,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v129.0.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v130.0.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4882,6 +4882,49 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               }
             };
 
+            // Deep-link helpers for lifecycle task cards in My Day. isRecurring is
+            // derived from the task's workflowEventCollection (recurringEvents ->
+            // true) so these work for Connect-Gen and one-time events alike. The
+            // interaction's contactName ("Title — session") is a fine modal heading;
+            // cmsViewSignups loads the real event for the content.
+            window.myDayOpenAttendance = function(id){
+              var d=(window._myDayDocs||{})[id];
+              if(!d||!d.workflowEventId||typeof window.cmsViewSignups!=='function')return;
+              var rec=(d.workflowEventCollection==='recurringEvents');
+              window.cmsViewSignups(d.workflowEventId,rec,d.contactName||'Event');
+            };
+            // Opens the Event Summary editor pre-selected to THIS task's session
+            // date. cmsOpenEventSummary resets selectedSessionDate to null
+            // internally, so (mirroring cmsEAOpenSummaryEditor) we re-apply the
+            // date + re-render after a tick so it sticks. workflowSessionKey is
+            // the ISO YYYY-MM-DD date, which is exactly what the recurring session
+            // dropdown matches on. NOTE: the recurring dropdown only lists the last
+            // 14 days, so very old sessions won't pre-select.
+            window.myDayOpenSummary = async function(id){
+              var d=(window._myDayDocs||{})[id];
+              if(!d||!d.workflowEventId||typeof window.cmsViewSignups!=='function'||typeof window.cmsOpenEventSummary!=='function')return;
+              var rec=(d.workflowEventCollection==='recurringEvents');
+              var sk=d.workflowSessionKey||null;
+              try{
+                await window.cmsViewSignups(d.workflowEventId,rec,d.contactName||'Event');
+                if(typeof _cmsEventSummaryData!=='undefined'&&_cmsEventSummaryData)
+                  _cmsEventSummaryData.selectedSessionDate=sk;
+                await window.cmsOpenEventSummary();
+                setTimeout(function(){
+                  try{
+                    if(sk&&typeof _cmsEventSummaryData!=='undefined'&&_cmsEventSummaryData){
+                      _cmsEventSummaryData.selectedSessionDate=sk;
+                      if(typeof cmsRenderEventSummary==='function')
+                        cmsRenderEventSummary(_cmsSignupsModalData,_cmsEventSummaryData.eventDoc||{},_cmsEventSummaryData.feedbackDocs||[],_cmsEventSummaryData.announcementSent);
+                    }
+                  }catch(e2){console.warn('myDayOpenSummary re-apply:',e2&&e2.message);}
+                },300);
+              }catch(e){
+                console.warn('myDayOpenSummary:',e&&e.message);
+                alert('Could not open Event Summary — '+((e&&e.message)||'please try again')+'.');
+              }
+            };
+
             window.loadMyDay = async function(){
               var u=window._myDayViewAs||window.currentUserData||{};
               var first=String(u.displayName||u.email||'').split(/[ @]/)[0]||'';
@@ -4931,18 +4974,30 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 if(todos){
                   if(!list.length){empty('myDayTodos','No interactions assigned to you yet.');}
                   else{
+                    window._myDayDocs={};
                     todos.innerHTML=list.slice(0,15).map(function(r){
                       var d=r.d,m=META[r.bucket];
+                      window._myDayDocs[d._id]=d; // cache for the deep-link buttons below
                       var typePill=d.interactionType?'<span class="pill followup">'+esc(d.interactionType)+'</span>':'';
                       var person=d.contactName?' — <span class="person">'+esc(d.contactName)+'</span>':'';
                       var sub=[];
                       if(d.status)sub.push(esc(d.status));
                       if(d.channel)sub.push(esc(d.channel));
                       if(d.followUpDate)sub.push((r.bucket==='done'?'was due ':'follow-up ')+esc(d.followUpDate));
+                      // Deep-link buttons for lifecycle tasks that have a dedicated
+                      // screen: Take Attendance opens the signups/attendance modal;
+                      // Event Summary opens the summary editor. Open tasks only.
+                      var actionBtn='';
+                      if(r.bucket!=='done'&&d.workflowEventId){
+                        if(d.workflowStep==='takeAttendance')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;" onclick="event.stopPropagation();myDayOpenAttendance(\''+d._id+'\')">Take Attendance &rarr;</button>';
+                        else if(d.workflowStep==='eventSummary')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0891b2;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;" onclick="event.stopPropagation();myDayOpenSummary(\''+d._id+'\')">Open Event Summary &rarr;</button>';
+                      }
                       return '<div class="'+m.cls+'" onclick="viewInteraction(\''+d._id+'\')">'
                         +'<div class="check" onclick="event.stopPropagation();myDayToggleDone(this,\''+d._id+'\')"></div>'
                         +'<div class="meta"><div class="ttl">'+esc(d.summary||'(no summary)')+person+'</div>'
-                        +'<div class="sub">'+(sub.join(' · ')||'—')+'</div></div>'
+                        +'<div class="sub">'+(sub.join(' · ')||'—')+'</div>'+actionBtn+'</div>'
                         +'<div class="tags">'+m.pill+typePill+'</div></div>';
                     }).join('');
                   }
