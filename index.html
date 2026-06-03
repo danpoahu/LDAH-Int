@@ -4612,7 +4612,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v130.0.6</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v131.0.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6470,6 +6470,19 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <div class="lm-card-body">
           <div id="cmsResourceAppsList" style="padding:0 12px 14px;">
             <div style="color:var(--text-soft);font-size:.88rem;">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nudge Cycle Schedule (superAdmin) — self-managing Partner Resource cycle dates -->
+      <div class="lm-card collapsed" id="cmsNudgeCycleCard" data-roles="superAdmin" style="margin-bottom:18px;display:none;">
+        <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed');if(!this.parentElement.classList.contains('collapsed'))cmsRenderNudgeCycleEditor();">
+          Nudge Cycle Schedule
+          <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The semi-annual Partner Resource update cycles. Nudge emails run weekly from each start date until its deadline; after the deadline La&#39;akea gets call-tasks for partners who still have not updated. These dates repeat every year automatically — edit them here if the schedule ever changes (no code change needed).')">i</span>
+        </div>
+        <div class="lm-card-body">
+          <div id="cmsNudgeCycleEditor" style="padding:4px 14px 16px;">
+            <div style="color:var(--text-soft);font-size:.88rem;">Loading…</div>
           </div>
         </div>
       </div>
@@ -10497,15 +10510,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       // Mirrors the dashboard panel + the daily-report email.
       var cycleHtml = '';
       try {
-        var _yr2 = hNow.getFullYear();
-        var _may1c = new Date(_yr2, 4, 1).getTime();
-        var _nov1c = new Date(_yr2, 10, 1).getTime();
-        var _nowMsc = hNow.getTime();
-        var cycleStartMs2;
-        if (_nowMsc >= _nov1c)      cycleStartMs2 = _nov1c;
-        else if (_nowMsc >= _may1c) cycleStartMs2 = _may1c;
-        else                          cycleStartMs2 = new Date(_yr2 - 1, 10, 1).getTime();
-        var graceWindow2 = cycleStartMs2 - (7 * 24 * 60 * 60 * 1000);
+        await cmsLoadNudgeCycleConfig();
+        var _cyc2 = cmsResourceCycleNow(hNow.getTime());
+        var cycleStartMs2 = _cyc2.cycleStartMs;
+        var graceWindow2 = _cyc2.graceWindowMs;
 
         var resTotal2 = 0, confirmed2 = 0, pendingReview2 = 0, awaiting2 = 0, noEmail2 = 0;
         var resSnap2 = await db.collection('resources').get();
@@ -19464,6 +19472,7 @@ window.cmsLoadResources = async function() {
       var d = doc.data();
       if (d.archived !== true || _cmsShowArchived['resources']) _cmsResources.push({ id: doc.id, ...d });
     });
+    await cmsLoadNudgeCycleConfig();
     cmsRenderResources(_cmsResources);
     cmsRefreshSendUpdatesNudge();
     cmsRefreshResourceNextNudge();
@@ -19491,18 +19500,117 @@ window.cmsLoadResources = async function() {
  * Deadline-aware: returns "Nudge cycle ended" past the W2 CF's hard
  * deadline (RESOURCE_UPDATE_NUDGE_DEADLINE_HST = 2026-07-31).
  */
-var RESOURCE_UPDATE_NUDGE_DEADLINE_MS = Date.UTC(2026, 6, 31, 33, 59, 59); // 23:59:59 HST = +10h UTC
-
-function _cmsResourceCycleGraceWindow(now) {
-  var yr = new Date(now).getFullYear();
-  var may1 = new Date(yr, 4, 1).getTime();
-  var nov1 = new Date(yr, 10, 1).getTime();
-  var cycleStart;
-  if (now >= nov1) cycleStart = nov1;
-  else if (now >= may1) cycleStart = may1;
-  else cycleStart = new Date(yr - 1, 10, 1).getTime();
-  return cycleStart - 7 * 86400000;
+// Partner Resource nudge cycle schedule — read from system/resourceNudgeCycle
+// (editable by superAdmins in the "Nudge Cycle Schedule" card) so the dates
+// self-manage across years. Mirrors the W2 Cloud Function helpers exactly.
+var _cmsNudgeCycleConfig = { graceDays: 7, cycles: [
+  { label: 'Spring', startMonth: 5,  startDay: 1, deadlineMonth: 7, deadlineDay: 31 },
+  { label: 'Fall',   startMonth: 11, startDay: 1, deadlineMonth: 1, deadlineDay: 31 }
+]};
+window.cmsLoadNudgeCycleConfig = async function() {
+  try {
+    var snap = await db.collection('system').doc('resourceNudgeCycle').get();
+    if (snap.exists) {
+      var c = snap.data() || {};
+      if (Array.isArray(c.cycles) && c.cycles.length)
+        _cmsNudgeCycleConfig = { graceDays: (typeof c.graceDays === 'number' ? c.graceDays : 7), cycles: c.cycles };
+    }
+  } catch (e) { console.warn('cmsLoadNudgeCycleConfig:', e && e.message); }
+  return _cmsNudgeCycleConfig;
+};
+function _cmsNcPad2(n) { return String(n).padStart(2, '0'); }
+// Cycle currently in effect for nowMs (from the cached config). Returns
+// { cycleStartMs, graceWindowMs, deadlineMs, deadlineDateKey, cycleKey, label }.
+// A deadline month earlier than the start month rolls into the next year.
+function cmsResourceCycleNow(nowMs) {
+  var cfg = _cmsNudgeCycleConfig;
+  var cycles = (cfg.cycles && cfg.cycles.length) ? cfg.cycles : [];
+  var graceDays = (typeof cfg.graceDays === 'number') ? cfg.graceDays : 7;
+  var nowYr = new Date(nowMs).getUTCFullYear();
+  var cand = [];
+  [nowYr - 1, nowYr, nowYr + 1].forEach(function(yr) {
+    cycles.forEach(function(c) {
+      var startMs = Date.UTC(yr, c.startMonth - 1, c.startDay);
+      if (startMs > nowMs) return;
+      var dlYear = (c.deadlineMonth < c.startMonth) ? yr + 1 : yr;
+      cand.push({
+        cycleStartMs: startMs,
+        deadlineMs: Date.UTC(dlYear, c.deadlineMonth - 1, c.deadlineDay, 33, 59, 59),
+        deadlineDateKey: dlYear + '-' + _cmsNcPad2(c.deadlineMonth) + '-' + _cmsNcPad2(c.deadlineDay),
+        cycleKey: yr + '-' + _cmsNcPad2(c.startMonth) + '-' + _cmsNcPad2(c.startDay),
+        label: c.label || ''
+      });
+    });
+  });
+  cand.sort(function(a, b) { return b.cycleStartMs - a.cycleStartMs; });
+  var cur = cand[0] || { cycleStartMs: Date.UTC(nowYr, 4, 1), deadlineMs: Date.UTC(nowYr, 6, 31, 33, 59, 59), deadlineDateKey: nowYr + '-07-31', cycleKey: nowYr + '-05-01', label: 'Spring' };
+  cur.graceWindowMs = cur.cycleStartMs - graceDays * 86400000;
+  return cur;
 }
+
+function _cmsResourceCycleGraceWindow(now) { return cmsResourceCycleNow(now).graceWindowMs; }
+
+// ── Nudge Cycle Schedule admin editor (superAdmin) ──
+window.cmsRenderNudgeCycleEditor = function() {
+  var host = document.getElementById('cmsNudgeCycleEditor');
+  if (!host) return;
+  var cfg = _cmsNudgeCycleConfig;
+  var monthOpts = function(sel) { var o = ''; for (var m = 1; m <= 12; m++) o += '<option value="' + m + '"' + (m === sel ? ' selected' : '') + '>' + m + '</option>'; return o; };
+  var inS = 'padding:4px 6px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;';
+  var rows = (cfg.cycles || []).map(function(c, i) {
+    return '<tr>'
+      + '<td style="padding:6px 10px 6px 0;font-weight:700;color:var(--ocean-deep);">' + rsEscape(c.label || ('Cycle ' + (i + 1))) + '</td>'
+      + '<td style="padding:6px 10px 6px 0;white-space:nowrap;">Start <select id="nc_sm_' + i + '" style="' + inS + '">' + monthOpts(c.startMonth) + '</select> / <input id="nc_sd_' + i + '" type="number" min="1" max="31" value="' + c.startDay + '" style="' + inS + 'width:54px;"></td>'
+      + '<td style="padding:6px 0;white-space:nowrap;">Deadline <select id="nc_dm_' + i + '" style="' + inS + '">' + monthOpts(c.deadlineMonth) + '</select> / <input id="nc_dd_' + i + '" type="number" min="1" max="31" value="' + c.deadlineDay + '" style="' + inS + 'width:54px;"></td>'
+      + '</tr>';
+  }).join('');
+  var cur = cmsResourceCycleNow(Date.now());
+  host.innerHTML =
+    '<p style="font-size:.82rem;color:var(--text-soft);margin:0 0 12px;">These dates repeat every year automatically. If a deadline month is earlier than its start month, the deadline rolls into the next year (e.g. Fall Nov &rarr; Jan).</p>'
+    + '<table style="border-collapse:collapse;font-size:.88rem;">' + rows + '</table>'
+    + '<div style="margin-top:12px;font-size:.85rem;">Grace days before each start: <input id="nc_grace" type="number" min="0" max="60" value="' + (typeof cfg.graceDays === 'number' ? cfg.graceDays : 7) + '" style="' + inS + 'width:58px;"></div>'
+    + '<div style="margin-top:12px;font-size:.8rem;color:var(--text-soft);">Right now: <b>' + rsEscape(cur.label) + '</b> cycle &mdash; started ' + cur.cycleKey + ', deadline/call-tasks ' + cur.deadlineDateKey + '.</div>'
+    + '<div style="margin-top:14px;"><button class="btn btn-primary" style="font-size:.85rem;" onclick="cmsSaveNudgeCycle()">Save Schedule</button>'
+    + '<span id="nc_saveMsg" style="margin-left:12px;font-size:.83rem;font-weight:600;"></span></div>';
+};
+
+window.cmsSaveNudgeCycle = async function() {
+  var msg = document.getElementById('nc_saveMsg');
+  var base = _cmsNudgeCycleConfig.cycles || [];
+  var cycles = base.map(function(c, i) {
+    return {
+      label: c.label || ('Cycle ' + (i + 1)),
+      startMonth: parseInt((document.getElementById('nc_sm_' + i) || {}).value, 10),
+      startDay: parseInt((document.getElementById('nc_sd_' + i) || {}).value, 10),
+      deadlineMonth: parseInt((document.getElementById('nc_dm_' + i) || {}).value, 10),
+      deadlineDay: parseInt((document.getElementById('nc_dd_' + i) || {}).value, 10)
+    };
+  });
+  var graceDays = parseInt((document.getElementById('nc_grace') || {}).value, 10);
+  if (isNaN(graceDays) || graceDays < 0) graceDays = 7;
+  for (var k = 0; k < cycles.length; k++) {
+    var cc = cycles[k];
+    if (!(cc.startMonth >= 1 && cc.startMonth <= 12 && cc.deadlineMonth >= 1 && cc.deadlineMonth <= 12 && cc.startDay >= 1 && cc.startDay <= 31 && cc.deadlineDay >= 1 && cc.deadlineDay <= 31)) {
+      if (msg) { msg.style.color = '#DC2626'; msg.textContent = 'Months 1–12, days 1–31.'; }
+      return;
+    }
+  }
+  try {
+    await db.collection('system').doc('resourceNudgeCycle').set({
+      graceDays: graceDays, cycles: cycles,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: (window.currentUserData && (currentUserData.displayName || currentUserData.email)) || 'unknown'
+    }, { merge: true });
+    _cmsNudgeCycleConfig = { graceDays: graceDays, cycles: cycles };
+    if (window.auditLog) window.auditLog('Updated Resource Nudge Cycle Schedule', cycles.map(function(c) { return c.label + ' ' + c.startMonth + '/' + c.startDay + ' to ' + c.deadlineMonth + '/' + c.deadlineDay; }).join('; ') + '; grace ' + graceDays + 'd');
+    if (typeof cmsRefreshResourceNextNudge === 'function') cmsRefreshResourceNextNudge();
+    cmsRenderNudgeCycleEditor();
+    var m2 = document.getElementById('nc_saveMsg');
+    if (m2) { m2.style.color = '#059669'; m2.textContent = '✓ Saved'; setTimeout(function() { if (m2) m2.textContent = ''; }, 2500); }
+  } catch (e) {
+    if (msg) { msg.style.color = '#DC2626'; msg.textContent = 'Error: ' + (e && e.message); }
+  }
+};
 
 function _cmsNextWednesdayHstKey(nowMs) {
   // HST = UTC-10
@@ -19526,11 +19634,13 @@ window.cmsRefreshResourceNextNudge = function() {
   var el = document.getElementById('cmsResourceNextNudge');
   if (!el) return;
   var now = Date.now();
-  if (now > RESOURCE_UPDATE_NUDGE_DEADLINE_MS) {
-    el.textContent = 'Nudge cycle ended 7/31';
+  var cyc = cmsResourceCycleNow(now);
+  if (now > cyc.deadlineMs) {
+    var dp = cyc.deadlineDateKey.split('-');
+    el.textContent = 'Nudge cycle ended ' + (+dp[1]) + '/' + (+dp[2]);
     return;
   }
-  var graceWindow = _cmsResourceCycleGraceWindow(now);
+  var graceWindow = cyc.graceWindowMs;
   var count = 0;
   (_cmsResources || []).forEach(function(r) {
     if (r.archived === true) return;
@@ -19558,15 +19668,7 @@ var CYCLE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 function cmsIsResourceUpdateCycleOverdue() {
   if (!_cmsResources || !_cmsResources.length) return false;
   var nowMs = Date.now();
-  var d = new Date();
-  var year = d.getFullYear();
-  var may1 = new Date(year, 4, 1).getTime();   // months are 0-indexed
-  var nov1 = new Date(year, 10, 1).getTime();
-  var cycleStartMs;
-  if (nowMs >= nov1)      cycleStartMs = nov1;
-  else if (nowMs >= may1) cycleStartMs = may1;
-  else                    cycleStartMs = new Date(year - 1, 10, 1).getTime();
-  var graceWindowMs = cycleStartMs - CYCLE_GRACE_MS;
+  var graceWindowMs = cmsResourceCycleNow(nowMs).graceWindowMs;
   var ran = _cmsResources.some(function(r) {
     var reqAt = (r.updateRequestedAt && r.updateRequestedAt.toMillis) ? r.updateRequestedAt.toMillis() : 0;
     return reqAt >= graceWindowMs;
