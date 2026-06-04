@@ -920,6 +920,7 @@
       body.war-printing main > *:not(:has(#websiteAppAnalyticsInGrid)) { display:none !important; }
       body.war-printing #websiteAppAnalyticsInGrid { display:block !important; padding:12px !important; }
       body.war-printing #warRefreshBtn,
+      body.war-printing #warCsvBtn,
       body.war-printing #warPrintBtn,
       body.war-printing .war-tabs,
       body.war-printing .cd-back-print-hide { display:none !important; }
@@ -4445,7 +4446,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v132.1.1 — Website &amp; App Analytics report
+    STAGE · LDAH-Int v132.1.2 — Website &amp; App Analytics report
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4641,7 +4642,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v132.1.1-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v132.1.2-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5316,6 +5317,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <h2 style="font-family:'Outfit',sans-serif;color:var(--ocean-deep);margin:0;flex:1;">Website &amp; App Analytics</h2>
             <span id="warGeneratedAt" style="font-size:.82rem;color:var(--text-soft);"></span>
             <button id="warRefreshBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildWebsiteAppAnalyticsReport()" title="Refresh">&#x21bb; Refresh</button>
+            <button id="warCsvBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsExportWebsiteAppAnalyticsCSV()" title="Download detailed CSV (raw data, no charts)">&#x2913; CSV</button>
             <button id="warPrintBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsPrintWebsiteAppAnalyticsReport()" title="Print / Save as PDF">Print / Save as PDF</button>
           </div>
           <div id="warBody">
@@ -34838,6 +34840,7 @@ window.cmsBuildStaffActivityReport = async function() {
   // .cd-* report CSS + Chart.js. Prefix _war* to avoid colliding with the
   // live Web/App Analytics dashboard (wa*/getSiteAnalyticsTotals) helpers.
   var _warChartInstances = [];
+  var _warLastAgg = null, _warLastDocs = null;
   var _warPalette = _cdPalette;
   var _WAR_PAGE_LABELS = { home:'Home', contact:'Contact', volunteer:'Volunteer', events:'Events', whoweare:'Who We Are', resources:'Resources', readiness:'Readiness', specialed:'Special Ed', military:'Military', pacific:'Pacific', community:'Community', install:'Install App', cms:'CMS', accessibility:'Accessibility' };
   var _WAR_FORM_LABELS = { anti_bullying_pledge:'Anti-Bullying Pledges', provider_request:'Provider Requests', event_request:'Calendar Requests', event_signup:'Event Signups', recurring_event_signup:'Program Signups', volunteer_application:'Volunteer Applications', contact_form:'Contact Messages' };
@@ -35130,6 +35133,7 @@ window.cmsBuildStaffActivityReport = async function() {
       var docs = [];
       snap.forEach(function(d){ docs.push(Object.assign({ id:d.id }, d.data() || {})); });
       var agg = _warAggregate(docs);
+      _warLastDocs = docs; _warLastAgg = agg;
       _warRender(agg);
 
       var now = new Date();
@@ -35141,6 +35145,100 @@ window.cmsBuildStaffActivityReport = async function() {
       console.error('cmsBuildWebsiteAppAnalyticsReport error:', err);
       if (body) body.innerHTML = '<div class="cd-error">Error loading analytics data: ' + _warEsc(err.message) + '</div>';
     }
+  };
+
+  // Detail CSV export — raw data only (no charts). Uses the data cached
+  // when the report was last built (_warLastAgg / _warLastDocs).
+  window.cmsExportWebsiteAppAnalyticsCSV = function() {
+    var agg = _warLastAgg;
+    if (!agg) { if (typeof _showToast === 'function') _showToast('Open the report first, then export.', '#64748b'); return; }
+    var docs = _warLastDocs || [];
+    var esc = function(v) {
+      if (v === null || v === undefined) return '';
+      var s = String(v);
+      return (/[",\n]/.test(s)) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    var rows = [];
+    var R = function() { rows.push(Array.prototype.slice.call(arguments)); };
+    var now = new Date();
+    var hst = new Date(now.getTime() - (now.getTimezoneOffset() + 600) * 60000);
+
+    R('LDAH Website & App Analytics Report');
+    R('Generated', hst.toLocaleString('en-US', { dateStyle:'medium', timeStyle:'short' }) + ' HST');
+    R('Reporting Period', (agg.minDate || '') + ' to ' + (agg.maxDate || ''));
+    R('Active Days', agg.dayCount);
+    R('Note', 'Combines website and mobile-app activity (analytics data has no per-platform tag).');
+    R();
+
+    R('=== SUMMARY METRICS ===');
+    R('Metric', 'Total');
+    R('Unique Visitors', agg.uniqueVisitors);
+    R('Page Views', agg.totalPageviews);
+    R('Total Engagements', agg.totalInteractions);
+    R('Form Submissions', agg.formSubmits);
+    R('Document Views', agg.documentViews);
+    R('Donation Clicks', agg.donationClicks);
+    R('Phone Call Taps', agg.phoneCalls);
+    R('Email Link Clicks', agg.emailClicks);
+    R('Outbound Links', agg.outboundClicks);
+    R('Modal / Popup Opens', agg.modalOpens);
+    R();
+
+    R('=== DAILY ACTIVITY ===');
+    R('Date', 'Page Views', 'Unique Visitors');
+    docs.map(function(d) {
+      return [ (d.date || d.id || ''), (d.totalPageviews || 0), ((d.visitorIds && Array.isArray(d.visitorIds)) ? d.visitorIds.length : 0) ];
+    }).sort(function(a, b) { return a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0); })
+      .forEach(function(r) { R(r[0], r[1], r[2]); });
+    R();
+
+    R('=== MONTHLY ACTIVITY ===');
+    R('Month', 'Page Views', 'Unique Visitors');
+    agg.months.forEach(function(m, i) { R(m, agg.monthlyPV[i][1], agg.monthlyVis[i][1]); });
+    R();
+
+    R('=== PAGE VIEWS BY PAGE ===');
+    R('Page', 'Views', '% of Views');
+    Object.entries(agg.pageviewsByPage).sort(function(a, b) { return b[1] - a[1]; }).forEach(function(e) {
+      var pct = agg.totalPageviews ? (Math.round(e[1] / agg.totalPageviews * 1000) / 10) : 0;
+      R(_WAR_PAGE_LABELS[e[0]] || e[0], e[1], pct + '%');
+    });
+    R();
+
+    R('=== ENGAGEMENT BREAKDOWN ===');
+    R('Engagement Type', 'Count');
+    R('Phone Call Taps', agg.phoneCalls);
+    R('Email Link Clicks', agg.emailClicks);
+    R('Outbound Links', agg.outboundClicks);
+    R('Document / PDF Views', agg.documentViews);
+    R('Modal / Popup Opens', agg.modalOpens);
+    R('Form Submissions', agg.formSubmits);
+    R('Donation Clicks', agg.donationClicks);
+    R();
+
+    R('=== FORM SUBMISSIONS BY TYPE ===');
+    R('Form Type', 'Submissions');
+    Object.entries(agg.formSubmitsByType).sort(function(a, b) { return b[1] - a[1]; }).forEach(function(e) {
+      R(_WAR_FORM_LABELS[e[0]] || e[0], e[1]);
+    });
+    R();
+
+    R('=== DOCUMENT / PDF VIEWS ===');
+    R('Document', 'Views');
+    Object.entries(agg.documentViewsByDoc).sort(function(a, b) { return b[1] - a[1]; }).forEach(function(e) {
+      var lbl = e[0].replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+      R(lbl, e[1]);
+    });
+
+    var csv = rows.map(function(row) { return row.map(esc).join(','); }).join('\n');
+    var blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ldah_website_app_analytics_' + now.toISOString().split('T')[0] + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if (typeof auditLog === 'function') auditLog('Exported Website & App Analytics CSV', agg.totalPageviews + ' page views');
   };
 
   // ── Native Hawaiian Family Survey Report ────────────────────────────
