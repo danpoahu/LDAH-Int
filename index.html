@@ -4637,7 +4637,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v132.2.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v132.3.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5133,23 +5133,34 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
             // "Viewing as" picker — Daniel-only. Re-points My Day at another
             // staff member's uid (read-only — interactions are staff-readable).
-            var MYDAY_VIEWAS_OWNER = 'YmGV2TlBGqR01dVdxZ0rtFLEFCG3'; // Daniel's uid
+            // Who can use the "Viewing as" picker. Add a uid here to grant access. (2026-06-05)
+            var MYDAY_VIEWAS_OWNERS = [
+              'YmGV2TlBGqR01dVdxZ0rtFLEFCG3', // Daniel R. Pellegrini
+              'rorJEIUS4sX7jYgzqORK8G7iPdM2'  // Rosie Rowe
+            ];
             window._myDayViewAs = null;
             window.cmsSetupMyDayViewAs = async function() {
               var bar = document.getElementById('myDayViewAsBar');
               var sel = document.getElementById('myDayViewAsSelect');
               if (!bar || !sel) return;
               var me = window.currentUserData || {};
-              if (me.uid !== MYDAY_VIEWAS_OWNER) { bar.style.display = 'none'; return; }
+              if (MYDAY_VIEWAS_OWNERS.indexOf(me.uid) === -1) { bar.style.display = 'none'; return; }
               if (sel.options.length > 1) { bar.style.display = 'flex'; return; } // already built
               try {
                 var snap = await db.collection('userRoles').get();
                 var staff = [];
                 window._viewAsStaffById = {};
+                var seenEmails = {};
                 snap.forEach(function(doc) {
                   var x = doc.data() || {};
                   if (['superAdmin', 'admin', 'webAdmin'].indexOf(x.role) === -1) return;
                   var nm = x.displayName || x.email || doc.id;
+                  // Skip the IT_Help break-glass account — not a real view target.
+                  if (/it[\s._-]*help/i.test(nm) || /it[\s._-]*help/i.test(x.email || '')) return;
+                  // De-dupe by email so a person with two role docs shows once.
+                  var emKey = String(x.email || doc.id).toLowerCase();
+                  if (seenEmails[emKey]) return;
+                  seenEmails[emKey] = true;
                   staff.push({ uid: doc.id, name: nm });
                   // Full profile cached so the Alerts panel can mirror role + subs.
                   window._viewAsStaffById[doc.id] = {
@@ -5158,8 +5169,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   };
                 });
                 staff.sort(function(a, b) { return a.name.localeCompare(b.name); });
-                sel.innerHTML = '<option value="">Myself</option>' + staff.map(function(s) {
-                  return '<option value="' + esc(s.uid) + '">' + esc(s.name) + '</option>';
+                // No "Myself" option — selecting your own name shows your own My Day.
+                // Default-select the current user so it opens on self.
+                sel.innerHTML = staff.map(function(s) {
+                  return '<option value="' + esc(s.uid) + '"' + (s.uid === me.uid ? ' selected' : '') + '>' + esc(s.name) + '</option>';
                 }).join('');
                 bar.style.display = 'flex';
               } catch (e) {
@@ -16802,12 +16815,33 @@ window.autoCropImage = function(file) {
     var btn = sel.nextElementSibling;
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     try {
+      // Capture the prior owner before reassigning so we can clear their stale
+      // assignment notification — they no longer own this interaction. (2026-06-05)
+      var priorIxSnap = await db.collection('interactions').doc(_ixViewDocId).get();
+      var priorOwnerUid = priorIxSnap.exists ? ((priorIxSnap.data() || {}).ownerUid || '') : '';
+
       await db.collection('interactions').doc(_ixViewDocId).update({
         owner: newName,
         ownerUid: newUid,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
       auditLog('Reassigned interaction', (newName || 'Unassigned') + ' (' + (_ixViewDocId || '') + ')');
+
+      // Delete the prior owner's assignment notification(s) for this interaction
+      // — it's no longer their task, so it should disappear from their bell.
+      // (The bell shows read+unread, so deleting is what actually removes it.)
+      if (priorOwnerUid && priorOwnerUid !== newUid) {
+        try {
+          var staleSnap = await db.collection('notifications')
+            .where('recipientUid', '==', priorOwnerUid)
+            .where('interactionId', '==', _ixViewDocId)
+            .where('type', '==', 'interaction-assigned')
+            .get();
+          var staleBatch = db.batch();
+          staleSnap.forEach(function(nd) { staleBatch.delete(nd.ref); });
+          await staleBatch.commit();
+        } catch (e) { console.warn('clear prior-owner notif failed:', e.message); }
+      }
 
       // Notify the new owner so their bell dances + chimes. Skip when
       // unassigned or when assigning to self (no need to ring own bell).
@@ -16877,6 +16911,21 @@ window.autoCropImage = function(file) {
 
     try {
       await db.collection('interactions').doc(_ixViewDocId).update(updates);
+
+      // When an interaction is closed, the assignment task is done — delete any
+      // 'interaction-assigned' notifications for it so they stop showing in the
+      // bell (which lists read+unread alike). (2026-06-05)
+      if (newStatus === 'Closed') {
+        try {
+          var doneSnap = await db.collection('notifications')
+            .where('interactionId', '==', _ixViewDocId)
+            .where('type', '==', 'interaction-assigned')
+            .get();
+          var doneBatch = db.batch();
+          doneSnap.forEach(function(nd) { doneBatch.delete(nd.ref); });
+          await doneBatch.commit();
+        } catch (e) { console.warn('clear assignment notifs on close failed:', e.message); }
+      }
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
