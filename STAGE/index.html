@@ -4667,7 +4667,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.0.4-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.1.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21823,6 +21823,48 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
     return resp.json();
   }
 
+  function _annUpdateSelCount() {
+    var host = document.getElementById('cmsAnnRecipientList');
+    var n = host ? host.querySelectorAll('.cmsAnnRecip:checked').length : 0;
+    var el = document.getElementById('cmsAnnSelCount'); if (el) el.textContent = n;
+    var ws = document.getElementById('cmsAnnCountWillSend'); if (ws) ws.textContent = n;
+  }
+  function _annSelectedIds() {
+    var host = document.getElementById('cmsAnnRecipientList');
+    if (!host) return [];
+    return Array.prototype.map.call(host.querySelectorAll('.cmsAnnRecip:checked'), function(cb) { return cb.getAttribute('data-rid'); });
+  }
+  function _annRenderRecipientList(recips) {
+    var host = document.getElementById('cmsAnnRecipientList');
+    if (!host) return;
+    recips = recips || [];
+    if (!recips.length) {
+      host.innerHTML = '<div style="padding:12px;color:#64748B;font-size:.85rem;">No eligible recipients on the contact list.</div>';
+    } else {
+      var html = '';
+      recips.forEach(function(r) {
+        var nm = rsEscape(r.displayName || r.email || '(no name)');
+        var em = rsEscape(r.email || '');
+        if (r.signedUp) {
+          html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F5F9;background:#F0FDF4;">' +
+            '<span style="color:#16A34A;font-weight:700;width:16px;text-align:center;flex-shrink:0;">&#10003;</span>' +
+            '<div style="flex:1;min-width:0;"><span style="font-weight:600;font-size:.85rem;">' + nm + '</span>' +
+            '<span style="font-size:.74rem;color:#64748B;margin-left:8px;">' + em + '</span></div>' +
+            '<span style="font-size:.72rem;color:#16A34A;font-weight:700;flex-shrink:0;">Signed up</span></div>';
+        } else {
+          html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F5F9;">' +
+            '<input type="checkbox" class="cmsAnnRecip" data-rid="' + rsEscape(r.id) + '" checked style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">' +
+            '<div style="flex:1;min-width:0;"><span style="font-weight:600;font-size:.85rem;">' + nm + '</span>' +
+            '<span style="font-size:.74rem;color:#64748B;margin-left:8px;">' + em + '</span></div>' +
+            (r.alreadySent ? '<span style="font-size:.72rem;color:#92400E;flex-shrink:0;">already emailed</span>' : '') + '</div>';
+        }
+      });
+      host.innerHTML = html;
+    }
+    Array.prototype.forEach.call(host.querySelectorAll('.cmsAnnRecip'), function(cb) { cb.addEventListener('change', _annUpdateSelCount); });
+    _annUpdateSelCount();
+  }
+
   // Step 1 — initial dry-run to get counts (default: all contacts)
   var counts;
   try {
@@ -21867,6 +21909,15 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
           '<div><strong>Will send to:</strong> <span id="cmsAnnCountWillSend">' + counts.willSendTo + '</span></div>' +
           '<div style="margin-top:6px;font-size:.78rem;color:#64748B;">Daily cap: 50. Overflow queued for next day.</div>' +
         '</div>' +
+        // Recipient roster (selectable). Signed-up rows are locked with a green check.
+        '<div style="margin-bottom:14px;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
+            '<strong style="color:#004E7C;font-size:.9rem;">Recipients</strong>' +
+            '<span style="font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" id="cmsAnnSelAll">Select all</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelNone">Select none</a></span>' +
+          '</div>' +
+          '<div id="cmsAnnRecipientList" style="max-height:260px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:8px;"></div>' +
+          '<div style="font-size:.78rem;color:#64748B;margin-top:6px;">Selected to send: <strong id="cmsAnnSelCount">0</strong> &middot; <span style="color:#16A34A;">&#10003;</span> = already signed up (skipped)</div>' +
+        '</div>' +
         // Test block
         '<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:12px 14px;margin-bottom:14px;">' +
           '<div style="font-weight:700;color:#92400E;margin-bottom:8px;font-size:.92rem;">Test first</div>' +
@@ -21896,6 +21947,17 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   function closeModal() { overlay.remove(); }
   document.getElementById('cmsAnnCloseBtn').addEventListener('click', closeModal);
 
+  // Render the selectable recipient roster from the dry-run.
+  _annRenderRecipientList(counts.recipients);
+  document.getElementById('cmsAnnSelAll').addEventListener('click', function() {
+    Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) { cb.checked = true; });
+    _annUpdateSelCount();
+  });
+  document.getElementById('cmsAnnSelNone').addEventListener('click', function() {
+    Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) { cb.checked = false; });
+    _annUpdateSelCount();
+  });
+
   // Audience radio — live-refresh recipient counts on change (v122.5.0)
   Array.prototype.forEach.call(
     overlay.querySelectorAll('input[name="cmsAnnAudience"]'),
@@ -21912,7 +21974,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
           elEligible.textContent = c.totalEligible;
           elSent.textContent = c.alreadySent;
           elSignedUp.textContent = c.alreadySignedUp || 0;
-          elWillSend.textContent = c.willSendTo;
+          _annRenderRecipientList(c.recipients); // re-renders roster + sets Will-send from selection
         } catch (err) {
           elWillSend.textContent = '!';
           _showToast('Count refresh failed: ' + err.message, '#DC2626');
@@ -21965,12 +22027,18 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
     sendBtn.disabled = true;
     sendBtn.textContent = 'Sending...';
     var resultEl = document.getElementById('cmsAnnSendResult');
+    var _selIds = _annSelectedIds();
+    if (_selIds.length === 0) {
+      resultEl.innerHTML = '<span style="color:#DC2626;">No recipients selected — check at least one person.</span>';
+      sendBtn.disabled = false; sendBtn.textContent = 'Send Blast';
+      return;
+    }
     resultEl.innerHTML = '<span style="color:#64748B;">Sending — this can take up to a minute for 50 recipients...</span>';
     try {
       var resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: eventId, collection: collection, audienceFilter: _annAudience })
+        body: JSON.stringify({ eventId: eventId, collection: collection, audienceFilter: _annAudience, recipientIds: _selIds })
       });
       var result = await resp.json();
       if (resp.ok) {
