@@ -4667,7 +4667,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.0.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.0.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -34958,15 +34958,37 @@ window.cmsBuildStaffActivityReport = async function() {
     }
   };
 
+  async function _ooFillPresenters(selected) {
+    var sel = document.getElementById('oneOffPresenter');
+    if (!sel) return;
+    var names = [];
+    try { if (typeof window.cmsGetActivePresenterStaff === 'function') names = (await window.cmsGetActivePresenterStaff()) || []; } catch (_) {}
+    var html = '<option value="">&mdash; Select presenter &mdash;</option>';
+    var has = false;
+    names.forEach(function(n) { if (n === selected) has = true; html += '<option value="' + _esc(n) + '">' + _esc(n) + '</option>'; });
+    if (selected && !has) html += '<option value="' + _esc(selected) + '">' + _esc(selected) + '</option>';
+    sel.innerHTML = html;
+    sel.value = selected || '';
+  }
+
   window.cmsOpenOneOffModal = async function(editId) {
     _ooEditId = editId || null;
     _ooAttendees = [];
     _ooExistingContactIds = {};
     try { if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') await window.loadContacts(); } catch (_) {}
+    // Reports may open this modal without the Contacts UI loaded; ensure the
+    // attendee lookup always has the FULL contact list (every type, not just parents).
+    if (!_allContacts || !_allContacts.length) {
+      try {
+        var _cs = await db.collection('contacts').orderBy('displayName').get();
+        _allContacts = [];
+        _cs.forEach(function(cd) { var x = cd.data(); if (x.archived === true) return; _allContacts.push({ id: cd.id, ...x }); });
+      } catch (_) {}
+    }
+    var presenterSel = '';
     var ov = document.getElementById('oneOffOverlay');
     document.getElementById('oneOffModalTitle').textContent = _ooEditId ? 'Edit One-Off Event' : 'Add One-Off Event';
     document.getElementById('oneOffName').value = '';
-    document.getElementById('oneOffPresenter').value = '';
     document.getElementById('oneOffLocation').value = '';
     document.getElementById('oneOffDescription').value = '';
     var dEl = document.getElementById('oneOffDate');
@@ -34979,7 +35001,7 @@ window.cmsBuildStaffActivityReport = async function() {
         if (doc.exists) {
           var d = doc.data();
           document.getElementById('oneOffName').value = d.title || '';
-          document.getElementById('oneOffPresenter').value = (d.summary && d.summary.presenter) || '';
+          presenterSel = (d.summary && d.summary.presenter) || '';
           document.getElementById('oneOffLocation').value = d.location || '';
           document.getElementById('oneOffDescription').value = d.description || '';
           if (d.eventDate) dEl.value = d.eventDate;
@@ -34996,6 +35018,7 @@ window.cmsBuildStaffActivityReport = async function() {
         });
       } catch (e) { _showToast('Could not load event: ' + (e && e.message || e), '#DC2626'); }
     }
+    await _ooFillPresenters(presenterSel);
     _ooRenderAttendees();
     _ooWireSearch();
     if (ov) ov.style.display = 'flex';
@@ -36412,13 +36435,13 @@ window.cmsBuildStaffActivityReport = async function() {
 </div>
 
 <!-- One-Off Event modal (hand-keyed pink sheet) -->
-<div id="oneOffOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;" onclick="if(event.target===this) cmsCloseOneOffModal()">
+<div id="oneOffOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;align-items:flex-start;justify-content:center;padding:20px 16px;overflow-y:auto;" onclick="if(event.target===this) cmsCloseOneOffModal()">
   <div role="dialog" aria-modal="true" aria-labelledby="oneOffModalTitle" style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">
     <div style="background:#DB2777;color:#fff;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;">
       <strong id="oneOffModalTitle" style="font-size:1.05rem;">Add One-Off Event</strong>
       <button type="button" onclick="cmsCloseOneOffModal()" style="background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1;">&times;</button>
     </div>
-    <div style="padding:18px;max-height:70vh;overflow-y:auto;">
+    <div style="padding:18px;max-height:84vh;overflow-y:auto;">
       <div style="margin-bottom:12px;">
         <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Event name *</label>
         <input id="oneOffName" type="text" placeholder="e.g. Resource Fair Pop-Up" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
@@ -36430,7 +36453,9 @@ window.cmsBuildStaffActivityReport = async function() {
         </div>
         <div>
           <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Presenter</label>
-          <input id="oneOffPresenter" type="text" placeholder="Facilitator name" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+          <select id="oneOffPresenter" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;background:#fff;">
+            <option value="">&mdash; Select presenter &mdash;</option>
+          </select>
         </div>
       </div>
       <div style="margin-bottom:12px;">
