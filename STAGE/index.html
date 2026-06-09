@@ -4667,7 +4667,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.0.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.0.3-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -34958,6 +34958,37 @@ window.cmsBuildStaffActivityReport = async function() {
     }
   };
 
+  // Same 8-item materials list + summary fields as the standard Event Summary.
+  var _OO_MATERIALS = [
+    { k: 'agencyBrochure', label: 'Agency Brochure' },
+    { k: 'eduTrainingBrochure', label: 'Education & Training Brochure' },
+    { k: 'learningDisabilityBrochure', label: 'What is a Learning Disability Brochure' },
+    { k: 'adhdBrochure', label: 'Understanding ADHD Brochure' },
+    { k: 'dyslexiaBrochure', label: 'Understanding Dyslexia Brochure' },
+    { k: 'autism', label: 'Understanding Autism' },
+    { k: 'flyers', label: 'Flyers' },
+    { k: 'newsletters', label: 'Newsletters' }
+  ];
+  function _ooMaterialsFromInputs() {
+    var packed = {}, diss = {};
+    _OO_MATERIALS.forEach(function(m) {
+      var p = document.getElementById('ooMatPacked_' + m.k);
+      var d = document.getElementById('ooMatDiss_' + m.k);
+      packed[m.k] = p ? (parseInt(p.value) || 0) : 0;
+      diss[m.k] = d ? (parseInt(d.value) || 0) : 0;
+    });
+    return { packed: packed, diss: diss };
+  }
+  function _ooFillMaterials(packedMap, dissMap) {
+    packedMap = packedMap || {}; dissMap = dissMap || {};
+    _OO_MATERIALS.forEach(function(m) {
+      var p = document.getElementById('ooMatPacked_' + m.k);
+      var d = document.getElementById('ooMatDiss_' + m.k);
+      if (p) p.value = (typeof packedMap[m.k] === 'number') ? packedMap[m.k] : 0;
+      if (d) d.value = (typeof dissMap[m.k] === 'number') ? dissMap[m.k] : 0;
+    });
+  }
+
   async function _ooFillPresenters(selected) {
     var sel = document.getElementById('oneOffPresenter');
     if (!sel) return;
@@ -34985,7 +35016,7 @@ window.cmsBuildStaffActivityReport = async function() {
         _cs.forEach(function(cd) { var x = cd.data(); if (x.archived === true) return; _allContacts.push({ id: cd.id, ...x }); });
       } catch (_) {}
     }
-    var presenterSel = '';
+    var presenterSel = '', matPacked = {}, matDiss = {};
     var ov = document.getElementById('oneOffOverlay');
     document.getElementById('oneOffModalTitle').textContent = _ooEditId ? 'Edit One-Off Event' : 'Add One-Off Event';
     document.getElementById('oneOffName').value = '';
@@ -35003,6 +35034,8 @@ window.cmsBuildStaffActivityReport = async function() {
           var d = doc.data();
           document.getElementById('oneOffName').value = d.title || '';
           presenterSel = (d.summary && d.summary.presenter) || '';
+          matPacked = (d.summary && d.summary.materialsPacked) || {};
+          matDiss = (d.summary && d.summary.materialsDisseminated) || {};
           document.getElementById('oneOffLocation').value = d.location || '';
           document.getElementById('oneOffTier').value = (d.summary && d.summary.tierModel) || '';
           document.getElementById('oneOffDescription').value = d.description || '';
@@ -35021,6 +35054,7 @@ window.cmsBuildStaffActivityReport = async function() {
       } catch (e) { _showToast('Could not load event: ' + (e && e.message || e), '#DC2626'); }
     }
     await _ooFillPresenters(presenterSel);
+    _ooFillMaterials(matPacked, matDiss);
     _ooRenderAttendees();
     _ooWireSearch();
     if (ov) ov.style.display = 'flex';
@@ -35040,6 +35074,7 @@ window.cmsBuildStaffActivityReport = async function() {
     var location = (document.getElementById('oneOffLocation').value || '').trim();
     var tier = document.getElementById('oneOffTier').value || '';
     var description = (document.getElementById('oneOffDescription').value || '').trim();
+    var mats = _ooMaterialsFromInputs();
     var btn = document.getElementById('oneOffSaveBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
     var staffName = (window.currentUserData && window.currentUserData.displayName) || 'Staff';
@@ -35050,12 +35085,12 @@ window.cmsBuildStaffActivityReport = async function() {
       if (eventId) {
         await db.collection('events').doc(eventId).update({
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, 'summary.presenter': presenter, 'summary.tierModel': tier, updatedAt: ts()
+          isOneOff: true, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, updatedAt: ts()
         });
       } else {
         var evRef = await db.collection('events').add({
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, summary: { presenter: presenter, tierModel: tier }, signupDates: [], archived: false,
+          isOneOff: true, summary: { presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss }, signupDates: [], archived: false,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
         });
         eventId = evRef.id;
@@ -36480,6 +36515,26 @@ window.cmsBuildStaffActivityReport = async function() {
       <div style="margin-bottom:16px;">
         <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Description</label>
         <textarea id="oneOffDescription" rows="3" placeholder="What was this gathering about?" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;resize:vertical;"></textarea>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:6px;">Distribution of Materials</label>
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+          <thead><tr>
+            <th style="text-align:left;padding:4px 6px;color:#64748B;border-bottom:1px solid #E2E8F0;">Material</th>
+            <th style="text-align:center;padding:4px 6px;color:#64748B;border-bottom:1px solid #E2E8F0;width:64px;"># Packed</th>
+            <th style="text-align:center;padding:4px 6px;color:#64748B;border-bottom:1px solid #E2E8F0;width:88px;"># Disseminated</th>
+          </tr></thead>
+          <tbody>
+            <tr><td style="padding:3px 6px;">Agency Brochure</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_agencyBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_agencyBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+            <tr><td style="padding:3px 6px;">Education &amp; Training Brochure</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_eduTrainingBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_eduTrainingBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+            <tr><td style="padding:3px 6px;">What is a Learning Disability Brochure</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_learningDisabilityBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_learningDisabilityBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+            <tr><td style="padding:3px 6px;">Understanding ADHD Brochure</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_adhdBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_adhdBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+            <tr><td style="padding:3px 6px;">Understanding Dyslexia Brochure</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_dyslexiaBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_dyslexiaBrochure" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+            <tr><td style="padding:3px 6px;">Understanding Autism</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_autism" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_autism" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+            <tr><td style="padding:3px 6px;">Flyers</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_flyers" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_flyers" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+            <tr><td style="padding:3px 6px;">Newsletters</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_newsletters" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_newsletters" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
+          </tbody>
+        </table>
       </div>
       <div style="border-top:1px solid #F1F5F9;padding-top:14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
