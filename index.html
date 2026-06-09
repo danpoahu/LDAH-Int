@@ -4672,7 +4672,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.1.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.1.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4930,6 +4930,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   status: nowDone?'Closed':'Open',
                   updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
+                // Checking it off closes the task — clear its assignment notifications
+                // from the bell, same as the detail-panel STATUS dropdown does.
+                if(nowDone && typeof window._clearAssignmentNotifs==='function'){ await window._clearAssignmentNotifs(id); }
                 if(typeof window.refreshDashKpis==='function')window.refreshDashKpis();
                 if(typeof window.loadInteractions==='function')window.loadInteractions();
                 if(typeof window.loadDashRecentInteractions==='function')window.loadDashRecentInteractions();
@@ -17255,6 +17258,24 @@ window.autoCropImage = function(file) {
     }
   };
 
+  // When an interaction is closed, the assignment task is done — delete any
+  // 'interaction-assigned' notifications for it so they stop showing in the
+  // bell (which lists read+unread alike). Shared by EVERY close path
+  // (status dropdown + My Day checkbox) so none can re-orphan a notification.
+  // (2026-06-05; extracted to a shared helper 2026-06-09)
+  window._clearAssignmentNotifs = async function(interactionId) {
+    if (!interactionId || !db) return;
+    try {
+      var doneSnap = await db.collection('notifications')
+        .where('interactionId', '==', interactionId)
+        .where('type', '==', 'interaction-assigned')
+        .get();
+      var doneBatch = db.batch();
+      doneSnap.forEach(function(nd) { doneBatch.delete(nd.ref); });
+      await doneBatch.commit();
+    } catch (e) { console.warn('clear assignment notifs on close failed:', e.message); }
+  };
+
   window.changeInteractionStatus = async function() {
     var sel = document.getElementById('ixStatusSelect');
     var msg = document.getElementById('ixStatusMsg');
@@ -17286,20 +17307,8 @@ window.autoCropImage = function(file) {
     try {
       await db.collection('interactions').doc(_ixViewDocId).update(updates);
 
-      // When an interaction is closed, the assignment task is done — delete any
-      // 'interaction-assigned' notifications for it so they stop showing in the
-      // bell (which lists read+unread alike). (2026-06-05)
-      if (newStatus === 'Closed') {
-        try {
-          var doneSnap = await db.collection('notifications')
-            .where('interactionId', '==', _ixViewDocId)
-            .where('type', '==', 'interaction-assigned')
-            .get();
-          var doneBatch = db.batch();
-          doneSnap.forEach(function(nd) { doneBatch.delete(nd.ref); });
-          await doneBatch.commit();
-        } catch (e) { console.warn('clear assignment notifs on close failed:', e.message); }
-      }
+      // Closing the task → clear its assignment notifications from the bell.
+      if (newStatus === 'Closed') { await window._clearAssignmentNotifs(_ixViewDocId); }
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
@@ -18097,53 +18106,15 @@ window.autoCropImage = function(file) {
       }
     }
 
-    try {
-      var snap = await db.collection('notifications')
-        .where('recipientUid', '==', _alertViewUser().uid)
-        .orderBy('createdAt', 'desc')
-        .limit(50)
-        .get();
-
-      var notifHtml = '';
-      if (!snap.empty) {
-        if (cmsHtml) notifHtml += '<div class="notif-cms-section-label">Your Notifications</div>';
-        snap.forEach(function(doc) {
-          var n = doc.data();
-          var ts = n.createdAt ? n.createdAt.toDate() : null;
-          var timeStr = ts ? ts.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ' ' +
-            ts.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-          var typeBadge = '';
-          if (n.type === 'cr_approved') typeBadge = '<span class="notif-type-badge approved">Approved</span>';
-          if (n.type === 'cr_rejected') typeBadge = '<span class="notif-type-badge rejected">Rejected</span>';
-          var unreadClass = n.read ? '' : ' unread';
-          var editHint = (n.type === 'cr_approved' && !n.editUsed) ? '<div style="font-size:.78rem;color:var(--ocean-deep);font-weight:700;margin-top:3px;">📝 Click to edit interaction</div>' : '';
-
-          notifHtml += '<div class="notif-item' + unreadClass + '" onclick="handleNotifClick(\'' +
-            doc.id + '\',\'' + (n.type || '') + '\',\'' +
-            (n.interactionId || '') + '\',\'' + (n.changeRequestId || '') + '\')">' +
-            '<div class="notif-title">' + rsEscape(n.title || '') + typeBadge + '</div>' +
-            '<div class="notif-msg">' + rsEscape(n.message || '') + '</div>' +
-            editHint +
-            '<div class="notif-time">' + timeStr + '</div>' +
-          '</div>';
-        });
-      }
-
-      var combined = followUpsHtml + cmsHtml + notifHtml;
-      if (!combined) {
-        body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">No notifications yet.</p>';
-      } else {
-        body.innerHTML = combined;
-      }
-    } catch (err) {
-      // Still show follow-ups + CMS alerts even if personal notifications fail
-      var safe = followUpsHtml + cmsHtml;
-      if (safe) {
-        body.innerHTML = safe + '<p style="color:#DC2626;font-size:.8rem;text-align:center;padding:10px 20px;">Error loading personal notifications.</p>';
-      } else {
-        body.innerHTML = '<p style="color:#DC2626;text-align:center;padding:20px;">Error loading notifications.</p>';
-      }
-      console.error('Notif load error:', err);
+    // Personal "Your Notifications" category (the notifications collection) was
+    // removed 2026-06-09 per Daniel — the bell shows only follow-ups + Website
+    // Alerts now. Assignment notifications no longer linger here when a task is
+    // closed via the My Day checkbox.
+    var combined = followUpsHtml + cmsHtml;
+    if (!combined) {
+      body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">No notifications yet.</p>';
+    } else {
+      body.innerHTML = combined;
     }
   };
 
@@ -18169,11 +18140,9 @@ window.autoCropImage = function(file) {
   window.updateNotifBadge = async function() {
     if (!currentUserData) return;
     try {
-      var snap = await db.collection('notifications')
-        .where('recipientUid', '==', currentUserData.uid)
-        .where('read', '==', false)
-        .get();
-      var personalCount = snap.size;
+      // 'Your Notifications' category removed 2026-06-09 — the bell counts only
+      // CMS/Website alerts + follow-ups now.
+      var personalCount = 0;
 
       // Add CMS alert counts for eligible roles — filtered by current user's alertSubs
       var cmsCount = 0;
@@ -18252,23 +18221,6 @@ window.autoCropImage = function(file) {
         window._lastCmsAlertCount = cmsCount;
       } else {
         window._lastCmsAlertCount = cmsCount;
-      }
-
-      // Same dance + chime when a PERSONAL notification arrives (e.g. owner
-      // assignment) — baselines on first poll so existing unreads don't ring.
-      if (window._lastPersonalNotifCount === undefined) {
-        window._lastPersonalNotifCount = personalCount;
-      } else if (personalCount > window._lastPersonalNotifCount) {
-        var bellEl2 = document.getElementById('notifBellBtn');
-        if (bellEl2) {
-          bellEl2.classList.remove('cms-bell-wiggle');
-          void bellEl2.offsetWidth;
-          bellEl2.classList.add('cms-bell-wiggle');
-        }
-        if (typeof window._playAlertChime === 'function') window._playAlertChime();
-        window._lastPersonalNotifCount = personalCount;
-      } else {
-        window._lastPersonalNotifCount = personalCount;
       }
     } catch (err) {
       console.warn('Notif badge error:', err.message);
