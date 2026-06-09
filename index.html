@@ -4663,7 +4663,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v135.0.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.0.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5292,6 +5292,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseEventAttendanceReport()">&larr; Back to Reports</button>
             <h2 style="font-family:'Outfit',sans-serif;color:var(--ocean-deep);margin:0;flex:1;">Event Attendance Report</h2>
+            <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#DB2777;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="cmsOpenOneOffModal()">+ Add One-Off Event</button>
             <span id="eaReportCount" style="font-size:.82rem;color:var(--text-soft);"></span>
           </div>
           <div id="eaFilterBar" style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px;margin-bottom:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end;">
@@ -33934,7 +33935,8 @@ window.cmsBuildStaffActivityReport = async function() {
     'Connect-Gen':        { bg: '#65A30D', text: '#FFFFFF' }, // palm
     'Parent Talk Cafe':   { bg: '#F97316', text: '#FFFFFF' }, // sunset-coral
     'Short Film Contest': { bg: '#FBBF24', text: '#1F2937' }, // plumeria — dark text for WCAG
-    'Other Event':        { bg: '#64748B', text: '#FFFFFF' }  // slate
+    'Other Event':        { bg: '#64748B', text: '#FFFFFF' }, // slate
+    'One-Off':            { bg: '#DB2777', text: '#FFFFFF' }  // rose — hand-keyed one-off gathering (pink sheet)
   };
 
   // v125.0.0: one card uses the shared .cms-card pattern. Whole card is
@@ -33942,7 +33944,7 @@ window.cmsBuildStaffActivityReport = async function() {
   // v125.0.2: left border + chip colored by event type.
   function _renderEventAttendanceCard(r) {
     var encId = _attrJsArg(r.id);
-    var eventType = _classifyEAEventType(r.eventTitle);
+    var eventType = (r.eventDoc && r.eventDoc.isOneOff) ? 'One-Off' : _classifyEAEventType(r.eventTitle);
     var colors = _EA_TYPE_COLORS[eventType] || _EA_TYPE_COLORS['Other Event'];
     var html = '';
     html += '<div class="cms-card ea-card-v2" data-session-key="' + encId + '" onclick="openEAModal(decodeURIComponent(\'' + encId + '\'))" style="cursor:pointer;border-left:4px solid ' + colors.bg + ';">';
@@ -34491,6 +34493,11 @@ window.cmsBuildStaffActivityReport = async function() {
       _showToast('Edit Summary: row not found.', '#DC2626');
       return;
     }
+    // One-off gatherings reuse their own compact modal as the summary editor.
+    if (row.eventDoc && row.eventDoc.isOneOff) {
+      if (typeof window.cmsOpenOneOffModal === 'function') window.cmsOpenOneOffModal(row.eventId);
+      return;
+    }
     console.log('cmsEAOpenSummaryEditor: row resolved', { eventId: row.eventId, isRecurring: row.isRecurring, isPerSession: row.isPerSession, sessionDate: row.sessionDate });
     try {
       // cmsViewSignups loads + opens the signups modal in background; we then
@@ -34798,6 +34805,275 @@ window.cmsBuildStaffActivityReport = async function() {
     } catch (err) {
       console.error('cmsBuildEventAttendanceReport error:', err);
       if (listHost) listHost.innerHTML = '<div style="background:#fff;border-radius:var(--radius);padding:18px;color:#DC2626;text-align:center;box-shadow:var(--shadow-soft);">Error building report: ' + _esc(err.message) + '</div>';
+    }
+  };
+
+  // ── One-Off Event (hand-keyed pink sheet) ──────────────────────────
+  // Records a small one-off gathering straight into the Event Attendance
+  // Report: event-level fields + attendees pulled from contacts (same
+  // quick-lookup as New Interaction) or quick-added. Stored as a normal
+  // one-time `events` doc flagged isOneOff:true with one attended signup
+  // per attendee, so the report renders it with no report changes.
+  var _ooAttendees = [];          // [{contactId,name,email,phone,type,_contact,_existing}]
+  var _ooEditId = null;           // eventId when editing, else null
+  var _ooExistingContactIds = {}; // contactIds already signed up (edit mode)
+
+  function _ooReg(c) {
+    c = c || {};
+    var reg = {
+      role: c.type || '',
+      priorTraining: c.priorTraining || '',
+      militaryStatus: c.militaryStatus || '',
+      militaryBranch: c.militaryBranch || ''
+    };
+    var kids = Array.isArray(c.children) ? c.children : [];
+    var dis = (kids[0] && Array.isArray(kids[0].disabilityCategories)) ? kids[0].disabilityCategories
+            : (Array.isArray(c.disabilityCategories) ? c.disabilityCategories : []);
+    if (dis && dis.length) reg.disabilityCategories = dis;
+    return reg;
+  }
+
+  function _ooRenderAttendees() {
+    var host = document.getElementById('oneOffAttendeeList');
+    var cnt = document.getElementById('oneOffAttendeeCount');
+    if (cnt) cnt.textContent = String(_ooAttendees.length);
+    if (!host) return;
+    if (!_ooAttendees.length) {
+      host.innerHTML = '<div style="color:var(--text-soft);font-size:.85rem;padding:6px 2px;">No attendees added yet.</div>';
+      return;
+    }
+    var html = '';
+    _ooAttendees.forEach(function(a, i) {
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F5F9;background:#fff;">';
+      html += '<div style="flex:1;min-width:0;"><span style="font-weight:600;font-size:.9rem;">' + _esc(a.name) + '</span>';
+      if (a.type) html += '<span style="font-size:.76rem;color:var(--text-soft);margin-left:8px;">' + _esc(a.type) + '</span>';
+      if (a.email) html += '<span style="font-size:.76rem;color:var(--text-soft);margin-left:8px;">' + _esc(a.email) + '</span>';
+      html += '</div>';
+      html += '<button type="button" onclick="cmsOoRemoveAttendee(' + i + ')" style="background:none;border:none;color:#DC2626;cursor:pointer;font-size:1.1rem;line-height:1;padding:2px 6px;" title="Remove">&times;</button>';
+      html += '</div>';
+    });
+    host.innerHTML = '<div style="border:1px solid #F1F5F9;border-radius:8px;overflow:hidden;">' + html + '</div>';
+  }
+
+  window.cmsOoRemoveAttendee = function(i) { _ooAttendees.splice(i, 1); _ooRenderAttendees(); };
+
+  function _ooAddContact(c) {
+    if (!c || !c.id) return;
+    if (_ooAttendees.some(function(a) { return a.contactId === c.id; })) {
+      if (typeof _showToast === 'function') _showToast('Already added.', '#F59E0B');
+      return;
+    }
+    _ooAttendees.push({
+      contactId: c.id,
+      name: c.displayName || ([c.firstName, c.lastName].filter(Boolean).join(' ')) || '(no name)',
+      email: c.email || '', phone: c.phone || '', type: c.type || '', _contact: c
+    });
+    _ooRenderAttendees();
+  }
+
+  function _ooRenderDropdown(items) {
+    var dd = document.getElementById('oneOffAttendeeDropdown');
+    if (!dd) return;
+    if (!items.length) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
+    var html = '';
+    items.forEach(function(c) {
+      var nm = c.displayName || ([c.firstName, c.lastName].filter(Boolean).join(' '));
+      html += '<div onclick="cmsOoPickContact(\'' + _attrJsArg(c.id) + '\')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #F1F5F9;font-size:.88rem;">'
+            + _esc(nm) + (c.type ? '<span style="color:var(--text-soft);font-size:.76rem;margin-left:8px;">' + _esc(c.type) + '</span>' : '') + '</div>';
+    });
+    dd.innerHTML = html;
+    dd.style.display = 'block';
+  }
+
+  window.cmsOoPickContact = function(id) {
+    var c = _allContacts.find(function(x) { return x.id === id; });
+    if (c) _ooAddContact(c);
+    var inp = document.getElementById('oneOffAttendeeSearch');
+    if (inp) inp.value = '';
+    var dd = document.getElementById('oneOffAttendeeDropdown');
+    if (dd) { dd.style.display = 'none'; dd.innerHTML = ''; }
+  };
+
+  function _ooWireSearch() {
+    var inp = document.getElementById('oneOffAttendeeSearch');
+    if (!inp || inp._ooWired) return;
+    inp._ooWired = true;
+    inp.addEventListener('input', function() {
+      var v = inp.value.trim().toLowerCase();
+      if (v.length < 1) { _ooRenderDropdown([]); return; }
+      var matches = _allContacts.filter(function(c) {
+        var nm = (c.displayName || ([c.firstName, c.lastName].filter(Boolean).join(' '))).toLowerCase();
+        return nm.indexOf(v) >= 0;
+      }).slice(0, 30);
+      _ooRenderDropdown(matches);
+    });
+    document.addEventListener('click', function(e) {
+      var dd = document.getElementById('oneOffAttendeeDropdown');
+      if (dd && e.target !== inp && !dd.contains(e.target)) dd.style.display = 'none';
+    });
+  }
+
+  window.cmsOoToggleNewContact = function() {
+    var box = document.getElementById('oneOffNewContactBox');
+    if (box) box.style.display = (box.style.display === 'block') ? 'none' : 'block';
+  };
+
+  window.cmsOoQuickAddContact = async function() {
+    var name = (document.getElementById('ooNewName').value || '').trim();
+    if (!name) { _showToast('Name is required.', '#DC2626'); return; }
+    var parts = name.split(/\s+/);
+    var firstName = parts.shift() || '';
+    var lastName = parts.join(' ');
+    var type = document.getElementById('ooNewType').value || 'Parent/Guardian';
+    var phone = (document.getElementById('ooNewPhone').value || '').trim();
+    var email = (document.getElementById('ooNewEmail').value || '').trim();
+    var btn = document.getElementById('ooNewSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding...'; }
+    try {
+      var data = {
+        displayName: name, firstName: firstName, lastName: lastName,
+        type: type, email: email, phone: phone,
+        source: 'one-off gathering quick-add', archived: false,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        createdBy: (window.currentUserData && window.currentUserData.uid) || '',
+        createdByName: (window.currentUserData && window.currentUserData.displayName) || ''
+      };
+      var ref = await db.collection('contacts').add(data);
+      var c = { id: ref.id, displayName: name, firstName: firstName, lastName: lastName, type: type, email: email, phone: phone };
+      _allContacts.push(c);
+      _ooAddContact(c);
+      document.getElementById('ooNewName').value = '';
+      document.getElementById('ooNewPhone').value = '';
+      document.getElementById('ooNewEmail').value = '';
+      var box = document.getElementById('oneOffNewContactBox');
+      if (box) box.style.display = 'none';
+    } catch (e) {
+      _showToast('Could not add contact: ' + (e && e.message || e), '#DC2626');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Create & add'; }
+    }
+  };
+
+  async function _ooFillPresenters(selected) {
+    var sel = document.getElementById('oneOffPresenter');
+    if (!sel) return;
+    var names = [];
+    try { if (typeof window.cmsGetActivePresenterStaff === 'function') names = (await window.cmsGetActivePresenterStaff()) || []; } catch (_) {}
+    var html = '<option value="">&mdash; Select presenter &mdash;</option>';
+    var has = false;
+    names.forEach(function(n) { if (n === selected) has = true; html += '<option value="' + _esc(n) + '">' + _esc(n) + '</option>'; });
+    if (selected && !has) html += '<option value="' + _esc(selected) + '">' + _esc(selected) + '</option>';
+    sel.innerHTML = html;
+    sel.value = selected || '';
+  }
+
+  window.cmsOpenOneOffModal = async function(editId) {
+    _ooEditId = editId || null;
+    _ooAttendees = [];
+    _ooExistingContactIds = {};
+    try { if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') await window.loadContacts(); } catch (_) {}
+    // Reports may open this modal without the Contacts UI loaded; ensure the
+    // attendee lookup always has the FULL contact list (every type, not just parents).
+    if (!_allContacts || !_allContacts.length) {
+      try {
+        var _cs = await db.collection('contacts').orderBy('displayName').get();
+        _allContacts = [];
+        _cs.forEach(function(cd) { var x = cd.data(); if (x.archived === true) return; _allContacts.push({ id: cd.id, ...x }); });
+      } catch (_) {}
+    }
+    var presenterSel = '';
+    var ov = document.getElementById('oneOffOverlay');
+    document.getElementById('oneOffModalTitle').textContent = _ooEditId ? 'Edit One-Off Event' : 'Add One-Off Event';
+    document.getElementById('oneOffName').value = '';
+    document.getElementById('oneOffLocation').value = '';
+    document.getElementById('oneOffDescription').value = '';
+    var dEl = document.getElementById('oneOffDate');
+    var t = new Date();
+    dEl.value = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+    var nb = document.getElementById('oneOffNewContactBox'); if (nb) nb.style.display = 'none';
+    if (_ooEditId) {
+      try {
+        var doc = await db.collection('events').doc(_ooEditId).get();
+        if (doc.exists) {
+          var d = doc.data();
+          document.getElementById('oneOffName').value = d.title || '';
+          presenterSel = (d.summary && d.summary.presenter) || '';
+          document.getElementById('oneOffLocation').value = d.location || '';
+          document.getElementById('oneOffDescription').value = d.description || '';
+          if (d.eventDate) dEl.value = d.eventDate;
+        }
+        var sSnap = await db.collection('events').doc(_ooEditId).collection('signups').get();
+        sSnap.forEach(function(sd) {
+          var s = sd.data();
+          var cid = s.linkedContactId || '';
+          if (cid) _ooExistingContactIds[cid] = true;
+          _ooAttendees.push({
+            contactId: cid, name: s.name || '(no name)', email: s.email || '',
+            phone: s.phone || '', type: (s.registration && s.registration.role) || '', _existing: true
+          });
+        });
+      } catch (e) { _showToast('Could not load event: ' + (e && e.message || e), '#DC2626'); }
+    }
+    await _ooFillPresenters(presenterSel);
+    _ooRenderAttendees();
+    _ooWireSearch();
+    if (ov) ov.style.display = 'flex';
+  };
+
+  window.cmsCloseOneOffModal = function() {
+    var ov = document.getElementById('oneOffOverlay');
+    if (ov) ov.style.display = 'none';
+  };
+
+  window.cmsSaveOneOff = async function() {
+    var name = (document.getElementById('oneOffName').value || '').trim();
+    var dateIso = document.getElementById('oneOffDate').value;
+    if (!name) { _showToast('Event name is required.', '#DC2626'); return; }
+    if (!dateIso) { _showToast('Date is required.', '#DC2626'); return; }
+    var presenter = (document.getElementById('oneOffPresenter').value || '').trim();
+    var location = (document.getElementById('oneOffLocation').value || '').trim();
+    var description = (document.getElementById('oneOffDescription').value || '').trim();
+    var btn = document.getElementById('oneOffSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    var staffName = (window.currentUserData && window.currentUserData.displayName) || 'Staff';
+    var staffUid = (window.currentUserData && window.currentUserData.uid) || '';
+    var ts = firebase.firestore.FieldValue.serverTimestamp;
+    try {
+      var eventId = _ooEditId;
+      if (eventId) {
+        await db.collection('events').doc(eventId).update({
+          title: name, description: description, location: location, eventDate: dateIso,
+          isOneOff: true, 'summary.presenter': presenter, updatedAt: ts()
+        });
+      } else {
+        var evRef = await db.collection('events').add({
+          title: name, description: description, location: location, eventDate: dateIso,
+          isOneOff: true, summary: { presenter: presenter }, signupDates: [], archived: false,
+          createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
+        });
+        eventId = evRef.id;
+      }
+      var dateDisplay = (typeof _fmtFullDate === 'function') ? _fmtFullDate(new Date(dateIso + 'T00:00:00')) : dateIso;
+      var adds = _ooAttendees.filter(function(a) { return !a._existing && !_ooExistingContactIds[a.contactId]; });
+      for (var i = 0; i < adds.length; i++) {
+        var a = adds[i];
+        var c = a._contact || _allContacts.find(function(x) { return x.id === a.contactId; }) || {};
+        await db.collection('events').doc(eventId).collection('signups').add({
+          name: a.name, email: a.email || '', phone: a.phone || '',
+          linkedContactId: a.contactId || '', status: 'confirmed',
+          attendanceStatus: 'attended', attendanceMarkedAt: ts(), attendanceMarkedBy: staffName,
+          selectedDates: [dateDisplay], registration: _ooReg(c),
+          source: 'one-off gathering', isOneOffAttendee: true, createdAt: ts()
+        });
+      }
+      if (typeof auditLog === 'function') auditLog(_ooEditId ? 'Updated one-off event' : 'Created one-off event', name + ' — ' + dateIso + ' — ' + _ooAttendees.length + ' attendee(s)');
+      _showToast(_ooEditId ? 'One-off event updated.' : 'One-off event added.', '#16A34A');
+      window.cmsCloseOneOffModal();
+      if (typeof window.cmsBuildEventAttendanceReport === 'function') await window.cmsBuildEventAttendanceReport();
+    } catch (e) {
+      _showToast('Error saving: ' + (e && e.message || e), '#DC2626');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
     }
   };
 
@@ -36150,6 +36426,72 @@ window.cmsBuildStaffActivityReport = async function() {
     <div class="qc-actions">
       <button type="button" class="qc-cancel" onclick="quickContactCancel()">Cancel</button>
       <button type="button" class="qc-save" id="qcSaveBtn" onclick="quickContactSave()">Create &amp; use</button>
+    </div>
+  </div>
+</div>
+
+<!-- One-Off Event modal (hand-keyed pink sheet) -->
+<div id="oneOffOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;align-items:flex-start;justify-content:center;padding:20px 16px;overflow-y:auto;" onclick="if(event.target===this) cmsCloseOneOffModal()">
+  <div role="dialog" aria-modal="true" aria-labelledby="oneOffModalTitle" style="background:#fff;border-radius:14px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">
+    <div style="background:#DB2777;color:#fff;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;">
+      <strong id="oneOffModalTitle" style="font-size:1.05rem;">Add One-Off Event</strong>
+      <button type="button" onclick="cmsCloseOneOffModal()" style="background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1;">&times;</button>
+    </div>
+    <div style="padding:18px;max-height:84vh;overflow-y:auto;">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Event name *</label>
+        <input id="oneOffName" type="text" placeholder="e.g. Resource Fair Pop-Up" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Date *</label>
+          <input id="oneOffDate" type="date" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+        </div>
+        <div>
+          <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Presenter</label>
+          <select id="oneOffPresenter" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;background:#fff;">
+            <option value="">&mdash; Select presenter &mdash;</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Location</label>
+        <input id="oneOffLocation" type="text" placeholder="(optional)" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Description</label>
+        <textarea id="oneOffDescription" rows="3" placeholder="What was this gathering about?" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;resize:vertical;"></textarea>
+      </div>
+      <div style="border-top:1px solid #F1F5F9;padding-top:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:.92rem;color:#475569;">Attendees (<span id="oneOffAttendeeCount">0</span>) &middot; all marked attended</strong>
+          <button type="button" onclick="cmsOoToggleNewContact()" style="font-size:.78rem;background:#0891B2;color:#fff;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;">+ New contact</button>
+        </div>
+        <div style="position:relative;margin-bottom:8px;">
+          <input id="oneOffAttendeeSearch" type="text" placeholder="Search contacts by name&hellip;" autocomplete="off" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+          <div id="oneOffAttendeeDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #CBD5E1;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 8px 20px rgba(0,0,0,.12);max-height:220px;overflow-y:auto;z-index:5;"></div>
+        </div>
+        <div id="oneOffNewContactBox" style="display:none;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px;margin-bottom:8px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <input id="ooNewName" type="text" placeholder="Full name" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+            <select id="ooNewType" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;">
+              <option value="Parent/Guardian">Parent/Guardian</option>
+              <option value="Professional">Professional</option>
+              <option value="Organization/Agency">Organization/Agency</option>
+              <option value="Community Member">Community Member</option>
+              <option value="Other">Other</option>
+            </select>
+            <input id="ooNewPhone" type="tel" placeholder="Phone (optional)" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+            <input id="ooNewEmail" type="email" placeholder="Email (optional)" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+          </div>
+          <button type="button" id="ooNewSaveBtn" onclick="cmsOoQuickAddContact()" style="font-size:.82rem;background:#16A34A;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600;">Create &amp; add</button>
+        </div>
+        <div id="oneOffAttendeeList"></div>
+      </div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid #F1F5F9;display:flex;justify-content:flex-end;gap:10px;background:#fff;">
+      <button type="button" onclick="cmsCloseOneOffModal()" style="font-size:.85rem;background:#fff;border:1px solid #CBD5E1;border-radius:6px;padding:7px 14px;cursor:pointer;color:#475569;">Cancel</button>
+      <button type="button" id="oneOffSaveBtn" onclick="cmsSaveOneOff()" style="font-size:.85rem;background:#DB2777;color:#fff;border:none;border-radius:6px;padding:7px 16px;cursor:pointer;font-weight:600;">Save</button>
     </div>
   </div>
 </div>
