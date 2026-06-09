@@ -4676,7 +4676,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.1.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.1.3-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4934,6 +4934,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   status: nowDone?'Closed':'Open',
                   updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
+                // Checking it off closes the task — clear its assignment notifications
+                // from the bell, same as the detail-panel STATUS dropdown does.
+                if(nowDone && typeof window._clearAssignmentNotifs==='function'){ await window._clearAssignmentNotifs(id); }
                 if(typeof window.refreshDashKpis==='function')window.refreshDashKpis();
                 if(typeof window.loadInteractions==='function')window.loadInteractions();
                 if(typeof window.loadDashRecentInteractions==='function')window.loadDashRecentInteractions();
@@ -17259,6 +17262,24 @@ window.autoCropImage = function(file) {
     }
   };
 
+  // When an interaction is closed, the assignment task is done — delete any
+  // 'interaction-assigned' notifications for it so they stop showing in the
+  // bell (which lists read+unread alike). Shared by EVERY close path
+  // (status dropdown + My Day checkbox) so none can re-orphan a notification.
+  // (2026-06-05; extracted to a shared helper 2026-06-09)
+  window._clearAssignmentNotifs = async function(interactionId) {
+    if (!interactionId || !db) return;
+    try {
+      var doneSnap = await db.collection('notifications')
+        .where('interactionId', '==', interactionId)
+        .where('type', '==', 'interaction-assigned')
+        .get();
+      var doneBatch = db.batch();
+      doneSnap.forEach(function(nd) { doneBatch.delete(nd.ref); });
+      await doneBatch.commit();
+    } catch (e) { console.warn('clear assignment notifs on close failed:', e.message); }
+  };
+
   window.changeInteractionStatus = async function() {
     var sel = document.getElementById('ixStatusSelect');
     var msg = document.getElementById('ixStatusMsg');
@@ -17290,20 +17311,8 @@ window.autoCropImage = function(file) {
     try {
       await db.collection('interactions').doc(_ixViewDocId).update(updates);
 
-      // When an interaction is closed, the assignment task is done — delete any
-      // 'interaction-assigned' notifications for it so they stop showing in the
-      // bell (which lists read+unread alike). (2026-06-05)
-      if (newStatus === 'Closed') {
-        try {
-          var doneSnap = await db.collection('notifications')
-            .where('interactionId', '==', _ixViewDocId)
-            .where('type', '==', 'interaction-assigned')
-            .get();
-          var doneBatch = db.batch();
-          doneSnap.forEach(function(nd) { doneBatch.delete(nd.ref); });
-          await doneBatch.commit();
-        } catch (e) { console.warn('clear assignment notifs on close failed:', e.message); }
-      }
+      // Closing the task → clear its assignment notifications from the bell.
+      if (newStatus === 'Closed') { await window._clearAssignmentNotifs(_ixViewDocId); }
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
