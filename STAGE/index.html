@@ -4676,7 +4676,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v136.1.6-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v137.0.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5126,51 +5126,61 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               }
             };
 
-            window.loadMyDayRecentSignups = async function(){
+            // Live listener (2026-06-09): new signups appear without a refresh.
+            // Keeps the ascending COLLECTION_GROUP range query (no orderBy → no new
+            // descending index needed) and sorts newest-first + slices to 30 in the
+            // snapshot callback. Event titles are cached across snapshots so a new
+            // signup doesn't re-fetch 30 titles. Org-wide (not per-user), so no
+            // viewing-as re-subscribe is required. Unsub stored for teardown.
+            window._recentSignupsUnsub = window._recentSignupsUnsub || null;
+            window._recentSignupTitleCache = window._recentSignupTitleCache || {};
+            window.loadMyDayRecentSignups = function(){
               var host=document.getElementById('dashRecentSignups');
               if(!host)return;
+              // Detach any prior listener before re-attaching (idempotent).
+              if(window._recentSignupsUnsub){try{window._recentSignupsUnsub();}catch(_){}window._recentSignupsUnsub=null;}
               loading('dashRecentSignups');
-              try{
-                // Newest 30 signups org-wide (panel shows ~10, scrolls to 30).
-                // orderBy('timestamp','desc') would need a descending
-                // COLLECTION_GROUP index; the ascending one (already built)
-                // serves this range query — fetch a wide window, then sort
-                // newest-first and take 30 client-side.
-                var cutoff=new Date(Date.now()-120*24*3600*1000);
-                var snap=await db.collectionGroup('signups').where('timestamp','>=',cutoff).get();
-                var items=[];
-                snap.forEach(function(doc){var dd=doc.data()||{};if(dd.archived===true)return;items.push({d:dd,evRef:doc.ref.parent.parent});});
-                items.sort(function(a,b){var at=tsToDate(a.d.timestamp),bt=tsToDate(b.d.timestamp);return (bt?bt.getTime():0)-(at?at.getTime():0);});
-                items=items.slice(0,30);
-                var titleCache={};
-                for(var i=0;i<items.length;i++){
-                  var ref=items[i].evRef;
-                  if(ref&&!(ref.path in titleCache)){
-                    try{var ev=await ref.get();titleCache[ref.path]=(ev.exists&&ev.data().title)||'Event';}
-                    catch(_){titleCache[ref.path]='Event';}
+              var cutoff=new Date(Date.now()-120*24*3600*1000);
+              window._recentSignupsUnsub=db.collectionGroup('signups').where('timestamp','>=',cutoff)
+                .onSnapshot(async function(snap){
+                  try{
+                    var items=[];
+                    snap.forEach(function(doc){var dd=doc.data()||{};if(dd.archived===true)return;items.push({d:dd,evRef:doc.ref.parent.parent});});
+                    items.sort(function(a,b){var at=tsToDate(a.d.timestamp),bt=tsToDate(b.d.timestamp);return (bt?bt.getTime():0)-(at?at.getTime():0);});
+                    items=items.slice(0,30);
+                    var titleCache=window._recentSignupTitleCache;
+                    for(var i=0;i<items.length;i++){
+                      var ref=items[i].evRef;
+                      if(ref&&!(ref.path in titleCache)){
+                        try{var ev=await ref.get();titleCache[ref.path]=(ev.exists&&ev.data().title)||'Event';}
+                        catch(_){titleCache[ref.path]='Event';}
+                      }
+                      items[i].title=ref?titleCache[ref.path]:'Event';
+                    }
+                    if(!items.length){empty('dashRecentSignups','No signups yet.');return;}
+                    host.innerHTML=items.map(function(it){
+                      var d=it.d,nm=d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'Someone';
+                      var initials=nm.split(/\s+/).map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
+                      var st=String(d.status||'pending').toLowerCase();
+                      var when=tsToDate(d.timestamp);
+                      var ref=it.evRef;
+                      var evId=ref?ref.id:'';
+                      var isRec=!!(ref&&ref.parent&&ref.parent.id==='recurringEvents');
+                      return '<div class="signup" data-ev="'+esc(evId)+'" data-rec="'+(isRec?'true':'false')+'" data-title="'+esc(it.title)+'">'
+                        +'<div class="av">'+esc(initials)+'</div>'
+                        +'<div class="info"><div class="nm">'+esc(nm)+'</div>'
+                        +'<div class="ev">'+esc(it.title)+'</div>'
+                        +'<span class="st '+esc(st)+'">'+esc(st.toUpperCase())+'</span></div>'
+                        +'<div class="tm">'+esc(when?when.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):'')+'</div></div>';
+                    }).join('');
+                  }catch(e){
+                    empty('dashRecentSignups','Could not load recent signups.');
+                    console.warn('loadMyDayRecentSignups render:',e&&e.message);
                   }
-                  items[i].title=ref?titleCache[ref.path]:'Event';
-                }
-                if(!items.length){empty('dashRecentSignups','No signups yet.');return;}
-                host.innerHTML=items.map(function(it){
-                  var d=it.d,nm=d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'Someone';
-                  var initials=nm.split(/\s+/).map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
-                  var st=String(d.status||'pending').toLowerCase();
-                  var when=tsToDate(d.timestamp);
-                  var ref=it.evRef;
-                  var evId=ref?ref.id:'';
-                  var isRec=!!(ref&&ref.parent&&ref.parent.id==='recurringEvents');
-                  return '<div class="signup" data-ev="'+esc(evId)+'" data-rec="'+(isRec?'true':'false')+'" data-title="'+esc(it.title)+'">'
-                    +'<div class="av">'+esc(initials)+'</div>'
-                    +'<div class="info"><div class="nm">'+esc(nm)+'</div>'
-                    +'<div class="ev">'+esc(it.title)+'</div>'
-                    +'<span class="st '+esc(st)+'">'+esc(st.toUpperCase())+'</span></div>'
-                    +'<div class="tm">'+esc(when?when.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):'')+'</div></div>';
-                }).join('');
-              }catch(e){
-                empty('dashRecentSignups','Could not load recent signups.');
-                console.warn('loadMyDayRecentSignups:',e&&e.message);
-              }
+                },function(err){
+                  empty('dashRecentSignups','Could not load recent signups.');
+                  console.warn('loadMyDayRecentSignups listener:',err&&err.message);
+                });
             };
 
             // "Viewing as" picker — Daniel-only. Re-points My Day at another
@@ -11041,8 +11051,9 @@ window.autoCropImage = function(file) {
         showAccessDenied();
       }
     } else {
-      // Clean up listener on sign-out
+      // Clean up listeners on sign-out
       if (_userRolesUnsubscribe) { _userRolesUnsubscribe(); _userRolesUnsubscribe = null; }
+      if (window._recentSignupsUnsub) { try{window._recentSignupsUnsub();}catch(_){} window._recentSignupsUnsub = null; }
       showLogin();
     }
   });
