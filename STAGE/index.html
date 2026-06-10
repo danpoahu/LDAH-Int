@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.3-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.4-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5169,11 +5169,19 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if(!host)return;
               // Detach any prior listener before re-attaching (idempotent).
               if(window._recentSignupsUnsub){try{window._recentSignupsUnsub();}catch(_){}window._recentSignupsUnsub=null;}
+              window._recentSignupsPrimed=false; // first snapshot is the initial load — no applause
               loading('dashRecentSignups');
               var cutoff=new Date(Date.now()-120*24*3600*1000);
               window._recentSignupsUnsub=db.collectionGroup('signups').where('timestamp','>=',cutoff)
                 .onSnapshot(async function(snap){
                   try{
+                    // Applause when a brand-new enrollment arrives — skip the
+                    // initial load (where every doc reads as "added").
+                    try{
+                      var _added = snap.docChanges ? snap.docChanges().filter(function(ch){ return ch.type==='added' && ((ch.doc.data()||{}).archived!==true); }).length : 0;
+                      if(window._recentSignupsPrimed && _added>0 && typeof window._playApplause==='function') window._playApplause();
+                      window._recentSignupsPrimed=true;
+                    }catch(_){}
                     var items=[];
                     snap.forEach(function(doc){var dd=doc.data()||{};if(dd.archived===true)return;items.push({d:dd,evRef:doc.ref.parent.parent});});
                     items.sort(function(a,b){var at=tsToDate(a.d.timestamp),bt=tsToDate(b.d.timestamp);return (bt?bt.getTime():0)-(at?at.getTime():0);});
@@ -7692,6 +7700,48 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           gain.connect(audioCtx.destination);
           osc.start(t0);
           osc.stop(t0 + 0.6);
+        });
+      } catch(e) {}
+    };
+
+    // Celebratory applause — played when a NEW enrollment lands in Recent Signups.
+    // Synthesized (Web Audio, no asset): a short filtered-noise "crowd" with clap
+    // transients, plus a small triumphant C-E-G-C arpeggio on top. (2026-06-09)
+    window._playApplause = function() {
+      try {
+        _ensureAudioCtx();
+        var t0 = audioCtx.currentTime;
+        var dur = 1.4;
+        var bufLen = Math.floor(audioCtx.sampleRate * dur);
+        var buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+        var d = buf.getChannelData(0);
+        for (var i = 0; i < bufLen; i++) { d[i] = (Math.random() * 2 - 1) * 0.55; }
+        // sharper "clap" transients sprinkled through the first ~0.9s
+        for (var c = 0; c < 60; c++) {
+          var pos = Math.floor((Math.random() * 0.9) * audioCtx.sampleRate);
+          for (var k = 0; k < 220 && pos + k < bufLen; k++) {
+            d[pos + k] += (Math.random() * 2 - 1) * Math.exp(-k / 40) * 0.9;
+          }
+        }
+        var src = audioCtx.createBufferSource(); src.buffer = buf;
+        var bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.6;
+        var g = audioCtx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.20, t0 + 0.12);
+        g.gain.setValueAtTime(0.20, t0 + 0.6);
+        g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+        src.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+        src.start(t0); src.stop(t0 + dur);
+        // triumphant arpeggio on top
+        [523.25, 659.25, 783.99, 1046.5].forEach(function(freq, i) {
+          var osc = audioCtx.createOscillator(); var og = audioCtx.createGain();
+          osc.type = 'triangle'; osc.frequency.value = freq;
+          var nt = t0 + 0.04 + i * 0.10;
+          og.gain.setValueAtTime(0.0001, nt);
+          og.gain.exponentialRampToValueAtTime(0.17, nt + 0.02);
+          og.gain.exponentialRampToValueAtTime(0.0008, nt + 0.4);
+          osc.connect(og); og.connect(audioCtx.destination);
+          osc.start(nt); osc.stop(nt + 0.45);
         });
       } catch(e) {}
     };
