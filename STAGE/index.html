@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5042,6 +5042,160 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               window.openContactDetail(cid);
             };
 
+            // ── Photo Release guardrail tasks ──
+            // Builds a self-contained .overlay/.modal (reusing the existing modal
+            // CSS classes), appends it to <body>, and returns {overlay, body, close}.
+            // Caller fills `body` with content + action buttons. Closing removes the
+            // node entirely so repeated opens don't stack stale markup.
+            function _photoReleaseModal(title){
+              var ov=document.createElement('div');
+              ov.className='overlay active';
+              ov.style.zIndex='10001';
+              function close(){ if(ov&&ov.parentNode)ov.parentNode.removeChild(ov); }
+              ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+              var mo=document.createElement('div');
+              mo.className='modal';mo.style.maxWidth='720px';
+              var hd=document.createElement('div');
+              hd.className='modal-header';
+              hd.innerHTML='<div class="left">'+esc(title)+'</div>';
+              var x=document.createElement('button');
+              x.className='close';x.innerHTML='&times;';
+              x.addEventListener('click',close);
+              hd.appendChild(x);
+              var bd=document.createElement('div');
+              bd.className='modal-body';
+              bd.style.display='block'; // override the default 2-col grid
+              mo.appendChild(hd);mo.appendChild(bd);ov.appendChild(mo);
+              document.body.appendChild(ov);
+              return {overlay:ov,body:bd,close:close};
+            }
+
+            // Review / Revert — verify task. Loads the interaction to find its
+            // photoReleaseId, then the photoReleases doc, and shows new vs previous
+            // photo side by side. "Looks good" closes the task; "Revert" calls the
+            // admin-only revertPhotoRelease CF.
+            window.myDayPhotoVerify = async function(interactionId){
+              if(!interactionId)return;
+              try{
+                var ix=await db.collection('interactions').doc(interactionId).get();
+                var prId=ix.exists?(ix.data().photoReleaseId):null;
+                if(!prId){ alert('This task is missing its photo-release reference.'); return; }
+                var prSnap=await db.collection('photoReleases').doc(prId).get();
+                if(!prSnap.exists){ alert('That photo release no longer exists.'); return; }
+                var pr=prSnap.data()||{};
+                var slot=(pr.slot!=null?('Slot '+esc(pr.slot)):'');
+                var head=esc(pr.island||'')+(slot?(' — '+slot):'');
+                var prev=pr.previousPhotoUrl
+                  ? '<img src="'+esc(pr.previousPhotoUrl)+'" alt="Previous photo" style="width:100%;border-radius:12px;border:1px solid rgba(8,145,178,.18);">'
+                  : '<div style="padding:24px;text-align:center;color:var(--text-soft);background:var(--sand-light);border-radius:12px;border:1px dashed rgba(8,145,178,.25);">none / empty slot</div>';
+                var nu=pr.newPhotoUrl
+                  ? '<img src="'+esc(pr.newPhotoUrl)+'" alt="New photo" style="width:100%;border-radius:12px;border:1px solid rgba(8,145,178,.18);">'
+                  : '<div style="padding:24px;text-align:center;color:var(--text-soft);background:var(--sand-light);border-radius:12px;border:1px dashed rgba(8,145,178,.25);">none</div>';
+                var m=_photoReleaseModal('Photo Release — Review');
+                m.body.innerHTML=
+                  '<div style="font-weight:800;font-size:1.05rem;margin-bottom:6px;">'+head+'</div>'
+                  +'<p style="color:var(--text-soft);margin:0 0 14px;">This photo was published to the live site after all releases were signed.</p>'
+                  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">'
+                  +'<div><div style="font-weight:800;margin-bottom:6px;">New (published)</div>'+nu+'</div>'
+                  +'<div><div style="font-weight:800;margin-bottom:6px;">Previous</div>'+prev+'</div>'
+                  +'</div>'
+                  +'<p style="margin:0 0 16px;"><a href="https://ldahawaii.org/pacific.html" target="_blank" rel="noopener" style="color:var(--ocean-mid);font-weight:700;">View the live Pacific page &rarr;</a></p>'
+                  +'<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+                  +'<button id="prvGood" class="btn" style="font-size:.86rem;padding:9px 16px;background:#16A34A;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;">Looks good</button>'
+                  +'<button id="prvRevert" class="btn" style="font-size:.86rem;padding:9px 16px;background:#64748b;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;">Revert to previous photo</button>'
+                  +'</div>';
+                m.body.querySelector('#prvGood').addEventListener('click',async function(){
+                  try{
+                    await db.collection('interactions').doc(interactionId).update({
+                      status:'Closed',
+                      updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    if(window._clearAssignmentNotifs)await window._clearAssignmentNotifs(interactionId);
+                    m.close();
+                    if(window.loadMyDay)window.loadMyDay();
+                    _showToast('Marked complete','#16A34A');
+                  }catch(e){ alert('Could not close this task — '+((e&&e.message)||'please try again')+'.'); }
+                });
+                m.body.querySelector('#prvRevert').addEventListener('click',async function(){
+                  if(!confirm('Revert the live site to the previous photo?'))return;
+                  try{
+                    await firebase.functions().httpsCallable('revertPhotoRelease')({releaseId:prId});
+                    m.close();
+                    if(window.loadMyDay)window.loadMyDay();
+                    _showToast('Reverted to previous photo','#64748b');
+                  }catch(e){
+                    var code=(e&&e.code)||'';
+                    if(code.indexOf('permission-denied')!==-1)
+                      alert('Only an LDAH admin can revert this.');
+                    else
+                      alert('Revert failed — '+((e&&e.message)||'please try again')+'.');
+                  }
+                });
+              }catch(e){
+                console.warn('myDayPhotoVerify:',e&&e.message);
+                alert('Could not load this photo release — '+((e&&e.message)||'please try again')+'.');
+              }
+            };
+
+            // Resolve Stalled Release — stall task. Shows who still owes a signed
+            // release. "Cancel this photo" discards the held photo (CF), "Keep
+            // waiting" just closes the stall task. Either way the task closes.
+            window.myDayPhotoStall = async function(interactionId){
+              if(!interactionId)return;
+              try{
+                var ix=await db.collection('interactions').doc(interactionId).get();
+                var prId=ix.exists?(ix.data().photoReleaseId):null;
+                if(!prId){ alert('This task is missing its photo-release reference.'); return; }
+                var prSnap=await db.collection('photoReleases').doc(prId).get();
+                if(!prSnap.exists){ alert('That photo release no longer exists.'); return; }
+                var pr=prSnap.data()||{};
+                var slot=(pr.slot!=null?('Slot '+esc(pr.slot)):'');
+                var head=esc(pr.island||'')+(slot?(' — '+slot):'');
+                var subjects=Array.isArray(pr.subjects)?pr.subjects:[];
+                var missing=subjects.filter(function(s){return s&&s.status!=='signed';}).map(function(s){return s.email;});
+                var listHtml=missing.length
+                  ? '<ul style="margin:6px 0 16px;padding-left:20px;">'+missing.map(function(em){return '<li style="margin-bottom:4px;">'+esc(em)+'</li>';}).join('')+'</ul>'
+                  : '<p style="color:var(--text-soft);margin:6px 0 16px;">No outstanding releases recorded.</p>';
+                var m=_photoReleaseModal('Photo Release — Stalled');
+                m.body.innerHTML=
+                  '<div style="font-weight:800;font-size:1.05rem;margin-bottom:10px;">'+head+'</div>'
+                  +'<div style="font-weight:700;">Still waiting on '+missing.length+' release'+(missing.length===1?'':'s')+':</div>'
+                  +listHtml
+                  +'<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+                  +'<button id="prsCancel" class="btn" style="font-size:.86rem;padding:9px 16px;background:#b91c1c;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;">Cancel this photo</button>'
+                  +'<button id="prsWait" class="btn" style="font-size:.86rem;padding:9px 16px;background:#64748b;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;">Keep waiting</button>'
+                  +'</div>';
+                async function closeStallTask(){
+                  await db.collection('interactions').doc(interactionId).update({
+                    status:'Closed',
+                    updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+                  });
+                  if(window._clearAssignmentNotifs)await window._clearAssignmentNotifs(interactionId);
+                }
+                m.body.querySelector('#prsCancel').addEventListener('click',async function(){
+                  if(!confirm('Discard the held photo? The live site keeps the current photo.'))return;
+                  try{
+                    await firebase.functions().httpsCallable('cancelPhotoRelease')({releaseId:prId});
+                    await closeStallTask();
+                    m.close();
+                    if(window.loadMyDay)window.loadMyDay();
+                    _showToast('Pending photo cancelled','#64748b');
+                  }catch(e){ alert('Cancel failed — '+((e&&e.message)||'please try again')+'.'); }
+                });
+                m.body.querySelector('#prsWait').addEventListener('click',async function(){
+                  try{
+                    await closeStallTask();
+                    m.close();
+                    if(window.loadMyDay)window.loadMyDay();
+                    _showToast('Will keep waiting','#64748b');
+                  }catch(e){ alert('Could not close this task — '+((e&&e.message)||'please try again')+'.'); }
+                });
+              }catch(e){
+                console.warn('myDayPhotoStall:',e&&e.message);
+                alert('Could not load this photo release — '+((e&&e.message)||'please try again')+'.');
+              }
+            };
+
             window.loadMyDay = async function(){
               var u=window._myDayViewAs||window.currentUserData||{};
               var first=String(u.displayName||u.email||'').split(/[ @]/)[0]||'';
@@ -5105,15 +5259,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                       // screen: Take Attendance opens the signups/attendance modal;
                       // Event Summary opens the summary editor. Open tasks only.
                       var actionBtn='';
-                      if(r.bucket!=='done'&&d.workflowEventId){
-                        if(d.workflowStep==='takeAttendance')
+                      if(r.bucket!=='done'&&(d.workflowEventId||d.photoReleaseId)){
+                        // Lifecycle/event tasks (gated on their workflowEventId).
+                        if(d.workflowEventId&&d.workflowStep==='takeAttendance')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenAttendance(\''+d._id+'\')">Take Attendance &rarr;</button>';
-                        else if(d.workflowStep==='eventSummary')
+                        else if(d.workflowEventId&&d.workflowStep==='eventSummary')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0891b2;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenSummary(\''+d._id+'\')">Open Event Summary &rarr;</button>';
-                        else if(d.workflowStep==='resourceUpdateCall')
+                        else if(d.workflowEventId&&d.workflowStep==='resourceUpdateCall')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenResource(\''+d._id+'\')">Open Resource &rarr;</button>';
-                        else if(d.workflowStep==='registrationAssist'&&(d.workflowContactId||d.contactId))
+                        else if(d.workflowEventId&&d.workflowStep==='registrationAssist'&&(d.workflowContactId||d.contactId))
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenContact(\''+d._id+'\')">Open Contact &rarr;</button>';
+                        // Photo Release guardrail tasks (gated on photoReleaseId).
+                        else if(d.workflowStep==='photoReleaseVerify')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoVerify(\''+d._id+'\')">Review / Revert &rarr;</button>';
+                        else if(d.workflowStep==='photoReleaseStall')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoStall(\''+d._id+'\')">Resolve Stalled Release &rarr;</button>';
                       }
                       return '<div class="'+m.cls+'" onclick="viewInteraction(\''+d._id+'\')">'
                         +'<div class="check" onclick="event.stopPropagation();myDayToggleDone(this,\''+d._id+'\')"></div>'
