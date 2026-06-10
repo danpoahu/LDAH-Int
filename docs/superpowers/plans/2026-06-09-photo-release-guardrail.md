@@ -4,7 +4,9 @@
 
 **Goal:** Hold a partner's person-photo off the live Pacific page until everyone in it e-signs a release; then auto-publish, notify La'a + the partner with tasks (La'a's has a Revert), and chase stalls.
 
-**Architecture:** New `photoReleases` Firestore collection driven by 4 new (additive, safe) Cloud Functions on `ldah-932d5` + 1 daily cron. A new public `photo-release.html` signing page (modeled on `connect-gen-consent.html`). A guardrail in `page-admin.html` intercepts photo `save()` to suspend-and-request instead of publishing. -Int gets a "Photo Releases" admin list and a Revert task action. Tasks are `interactions` docs (the project's existing task model); partner is also emailed because partners are rarely in -Int.
+**Architecture:** New `photoReleases` Firestore collection driven by 4 new (additive, safe) Cloud Functions on `ldah-932d5` + 1 daily cron. A new public `photo-release.html` signing page on W2 (modeled on `connect-gen-consent.html`). The editor is the **-Int CMS WYSIWYG page editor** — a guardrail in `cmsUploadPagePhoto` (index.html:30045) intercepts a gallery-photo change to suspend-and-request instead of writing the live slot. Each island's editor shows an inline **"Awaiting Photo Release"** grid below its 9 live gallery slots (max 9 pending, one per slot). La'a (he/him) gets a verify-with-Revert task when a pending photo promotes to live. Tasks are `interactions` docs (the project's existing task model); the partner is also emailed because partners are rarely in -Int.
+
+**Scope now / later:** Build for the **6 Pacific island galleries** (`samoaPhoto1…9`, `cnmiPhoto1…9`, `fsmPhoto1…9`, `guamPhoto1…9`, `marshallPhoto1…9`, `palauPhoto1…9` — all in `pageContent` doc `pacific`). Design generic (keyed by `island`/`fieldKey`/`slot`) so extending the same guardrail to other CMS pages/galleries later is additive, not a rewrite. Hero/Flag/Contact photos are out of scope for v1 (gallery only).
 
 **Tech Stack:** Vanilla JS, Firebase (Auth/Firestore/Storage/Functions Gen-1), Resend email API, `emailLog` audit, `Pacific/Honolulu` pubsub crons.
 
@@ -21,9 +23,10 @@
 | `functions/photoRelease.js` | W2 | All photo-release CF logic (helpers + 4 handlers + cron body) in one focused module | Create |
 | `functions/index.js` | W2 | Re-export the 4 triggers + cron from the module | Modify |
 | `firestore.rules` | W2 (+ STAGE copy) | `photoReleases` rule | Modify |
-| `photo-release.html` | W2 `STAGE/` then root | Public token signing page | Create |
-| `page-admin.html` | W2 (root; add STAGE test copy) | Guardrail dialog + <1MB JPEG + suspend-on-save | Modify |
-| `index.html` | -Int `STAGE/` then root | "Photo Releases" admin list + Revert/cancel task actions + `workflowStep` buttons | Modify |
+| `photo-release.html` | W2 `STAGE/` then root | Public token signing page (external family member) | Create |
+| `index.html` — `cmsUploadPagePhoto` (~30045) | -Int `STAGE/` then root | Guardrail dialog + <1MB JPEG + suspend-on-change for gallery photos | Modify |
+| `index.html` — `_pe2IslandRenderer` (~30751) | -Int `STAGE/` then root | Inline per-island "Awaiting Photo Release" pending grid below live gallery | Modify |
+| `index.html` — My Day render (~5103) | -Int `STAGE/` then root | Revert/cancel task actions + `workflowStep` buttons | Modify |
 | inspect/seed scripts | `Reports/migrations/` | emulator/live verification | Create as needed |
 
 **Release text + version** live as constants in `functions/photoRelease.js`: `PHOTO_RELEASE_TEXT` and `PHOTO_RELEASE_VERSION = "06/2026; v1"`. Draft delivered to Daniel as HTML preview before live promotion (see Task 11).
@@ -34,15 +37,16 @@
 
 ```js
 {
-  pageKey,            // "pacific" | "pacific-samoa" | "pacific-guam" ...
-  fieldKey,           // "samoaPhoto1"
-  island,             // partner's island label (best-effort from userRoles.location)
+  pageKey,            // Firestore doc in pageContent — "pacific" for all islands (v1)
+  island,             // CMS subpage key: "americansamoa"|"cnmi"|"fsm"|"guam"|"marshallislands"|"palau"
+  fieldKey,           // exact live slot to fill on promotion, e.g. "samoaPhoto3"
+  slot,               // 1..9 (the gallery slot number) — drives the inline pending grid
   requestedBy,        // partner auth uid (== userRoles doc id == interactions.ownerUid)
   requestedByEmail,
   requestedByName,
   requestedAt,        // serverTimestamp()
   newPhotoUrl,        // suspended (pending) image URL in Storage (<1MB JPEG)
-  previousPhotoUrl,   // current pageContent[pageKey][fieldKey] at request time ("" if none)
+  previousPhotoUrl,   // current pageContent.pacific[fieldKey] at request time ("" if empty slot)
   subjectCount,       // N declared in the dialog
   subjects: [         // length N; NO serverTimestamp() inside (use Timestamp.now())
     { email, token, status: "pending"|"signed", signedAt?, signedName?, signedIp? }
@@ -55,7 +59,9 @@
   revertedAt?, cancelledAt?
 }
 ```
-Tokens: 32-hex per subject, globally unique; `getPhotoRelease`/`submitPhotoRelease` look up by `array-contains`-style scan via a flat `tokens` index field: also store `tokenIndex: [token1, token2,...]` at top level so a single `where('tokenIndex','array-contains', token)` query finds the doc.
+Tokens: 32-hex per subject, globally unique; `getPhotoRelease`/`submitPhotoRelease` look up by `where('tokenIndex','array-contains', token)` where `tokenIndex: [token1, token2,...]` is stored at top level.
+
+**Inline pending query (per island editor):** `where('island','==',<island>).where('state','==','awaiting')` → render one tile per result, slotted by `slot`. **Caps:** block a new request if that island already has **9** `awaiting` releases, or if the chosen `slot` already has an `awaiting` release (one pending per slot). Promotion writes `pageContent.pacific[fieldKey]=newPhotoUrl` and flips `state:"live"`, freeing the slot from Pending.
 
 ---
 
@@ -159,7 +165,7 @@ Expected: doc created, `subjects[].status === "pending"`, `tokenIndex.length ===
   3. After txn: **email the partner a progress note** (`type:"photo-release-progress"`, "X of N signed").
   4. **If all signed:** write photo to live — `admin.firestore().collection("pageContent").doc(pageKey).set({[fieldKey]: newPhotoUrl, updatedAt: FieldValue.serverTimestamp()}, {merge:true})`; set release `state:"live", publishedAt`. Then create two tasks + notifications + partner email (Task 6 helper `createVerifyTasks(release)`).
   5. Return `{ status:"signed", complete: <bool> }`.
-- [ ] **Step 2: Acceptance check (emulator)** — sign subject 1 → doc still `awaiting`, partner progress email logged. Sign subject 2 → `pageContent.pacific-test.<field>` updated, release `state:"live"`, two `interactions` tasks + two `notifications` created.
+- [ ] **Step 2: Acceptance check (emulator)** — sign subject 1 → doc still `awaiting`, partner progress email logged. Sign subject 2 → `pageContent.pacific[fieldKey]` updated to `newPhotoUrl`, release `state:"live"`, two `interactions` tasks (`workflowStep:"photoReleaseVerify"`) + two `notifications` created. (Use a spare/empty gallery slot as the test target so no real photo is disturbed.)
 - [ ] **Step 3: Commit.**
 
 ### Task 5: `createVerifyTasks` + `createStallTask` helpers (task/notification writers)
@@ -246,28 +252,46 @@ firebase deploy --only functions:createPhotoReleaseRequest,functions:getPhotoRel
 
 ---
 
-## Phase 3 — Editor guardrail
+## Phase 3 — Editor guardrail (in -Int CMS)
 
-### Task 8: `page-admin.html` — count dialog, <1MB JPEG, suspend-on-save
+### Task 8: `cmsUploadPagePhoto` — count dialog, <1MB JPEG, suspend gallery changes
 
-**Files:** Modify `/Volumes/Xcode_Projects/React/LDAH_W2/page-admin.html` (test via a `STAGE/page-admin.html` copy first).
+**Files:** Modify `/Volumes/Xcode_Projects/React/LDAH-Internal/STAGE/index.html` (then copy to root). Target function `cmsUploadPagePhoto` (~line 30045) and the photo render handlers that call it.
 
-- [ ] **Step 1: Enforce <1MB JPEG** — wrap the existing `compressImage` (lines 1119-1150): after `toBlob`, if `blob.size > 1_000_000`, re-encode at lower quality / smaller max-dimension in a loop until `<1MB` (or quality floor 0.5). Keep JPEG output.
-- [ ] **Step 2: Add the guardrail dialog** — in `save()` (lines 1216-1244), when `isPhoto` is true, before writing `pageContent`: open a modal asking **"How many people in this photo need to sign a release?"** (number input, default 0) + helper text. If `0` → proceed with the existing direct `pageContent` write (current behavior). If `N≥1` → reveal N email inputs; on confirm, POST to `createPhotoReleaseRequest` with `{pageKey:pg, fieldKey:fld, island:<from logged-in user>, newPhotoUrl: photoUrl, previousPhotoUrl: data[pg]?.[fld] || "", requestedBy: auth.currentUser.uid, requestedByEmail: auth.currentUser.email, requestedByName: <displayName>, emails:[...]}`; **do NOT write pageContent** (suspended). Show a toast: "Photo held — releases sent to N recipient(s). It will publish once all sign."
-- [ ] **Step 3: Acceptance check** — on STAGE page-admin against a test field: 0-people path publishes immediately; 2-people path creates a `photoReleases` doc and leaves `pageContent` unchanged. Verify the held image is <1MB JPEG.
-- [ ] **Step 4: Commit.**
+- [ ] **Step 1: Enforce <1MB JPEG** — after `autoCropImage(file)`, if the resulting blob `> 1_000_000` bytes, re-encode via a canvas helper `ensureUnderOneMB(blob)` that steps JPEG quality down (0.85→0.5) and/or max dimension until `<1MB`. Keep `image/jpeg` output. (`autoCropImage` already returns a jpg; this just guarantees the ceiling.)
+- [ ] **Step 2: Detect gallery photos** — add `isGalleryField(fieldKey)` → true when `/Photo[1-9]$/.test(fieldKey)` (samoaPhoto3, guamPhoto7, …). Non-gallery photos (Hero/Flag/Contact) keep current direct-write behavior in v1.
+- [ ] **Step 3: Guardrail dialog** — in `cmsUploadPagePhoto`, when `isGalleryField(fieldKey)`: upload the <1MB blob to Storage as today (so we have `newPhotoUrl`), but **before** the `pageContent` `.set()`, open a modal: **"How many people in this photo need to sign a release?"** (number, default 0) + helper text.
+  - `0` → keep current behavior: write `pageContent.pacific[fieldKey]=url`.
+  - `N≥1` → reveal N email inputs. On confirm: check caps (island `awaiting` < 9 and this `slot` has no `awaiting`); if blocked, toast the reason and stop. Else POST to `createPhotoReleaseRequest` with `{pageKey:'pacific', island:_cmsPageEditorActive, fieldKey, slot:<n from fieldKey>, newPhotoUrl:url, previousPhotoUrl: <current d[fieldKey]||''>, requestedBy: firebase.auth().currentUser.uid, requestedByEmail: firebase.auth().currentUser.email, requestedByName:<displayName>, emails:[...]}`; **do NOT write `pageContent`**. Toast: "Photo held — release sent to N recipient(s). It publishes once all sign," and refresh the editor so the photo shows in the Pending grid (Task 9), not the live slot.
+- [ ] **Step 4: Acceptance check** — on STAGE -Int CMS, Samoa gallery slot 3: 0-people publishes to `pacific.samoaPhoto3`; 2-people creates a `photoReleases` doc (island `americansamoa`, slot 3) and leaves `pacific.samoaPhoto3` unchanged. Held blob is <1MB JPEG. Caps: 10th pending on an island, or 2nd pending on the same slot, is blocked with a toast.
+- [ ] **Step 5: Commit + bump -Int version.**
 
 ---
 
 ## Phase 4 — LDAH-Int
 
-### Task 9: "Photo Releases" admin list
+### Task 9: Inline per-island "Awaiting Photo Release" pending grid
 
-**Files:** Modify `/Volumes/Xcode_Projects/React/LDAH-Internal/STAGE/index.html` (then copy to root).
+**Files:** Modify `/Volumes/Xcode_Projects/React/LDAH-Internal/STAGE/index.html` (then copy to root) — `_pe2IslandRenderer` (~line 30751), injecting after the gallery grid (before `return html;` ~30779).
 
-- [ ] **Step 1:** Add a "Photo Releases" section under Admin/CMS: `db.collection('photoReleases').orderBy('requestedAt','desc').get()`; render rows: thumbnail (`newPhotoUrl`), pageKey/island, requester, per-subject email + status, count `signed/N`, state pill (Awaiting/Live/Reverted/Cancelled — reuse existing pill styles, no emojis), requested + published dates. Read-only list.
-- [ ] **Step 2: Acceptance check** — section lists seeded releases with correct counts/states on desktop + iPad.
-- [ ] **Step 3: Commit + bump -Int version** (per always-bump rule).
+- [ ] **Step 1:** When an island page renders, fetch its pending releases once: `firebase.firestore().collection('photoReleases').where('island','==',pg).where('state','==','awaiting').get()` into a module cache `_photoPendingByIsland[pg]` (refresh on editor load + after a new request). Render a second section below the live gallery:
+```js
+html += '<div class="pe2-section" style="background:#fffbeb"><div class="pe2-section-head"><span class="pe2-section-badge">Pending</span><h2 style="font-size:1.2rem">Awaiting Photo Release</h2></div>';
+html += '<div class="pe2-gallery-grid">';
+(_photoPendingByIsland[pg]||[]).forEach(function(r){
+  var signed=(r.subjects||[]).filter(function(s){return s.status==='signed';}).length;
+  html += '<div class="pe2-card" style="text-align:center;opacity:.9">'
+    + '<img src="'+(r.newPhotoUrl||'')+'" class="pe2-gallery-thumb" style="filter:grayscale(.2)" onerror="this.style.display=\'none\'">'
+    + '<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-top:6px">Slot '+r.slot+' &middot; '+signed+' of '+(r.subjectCount||(r.subjects||[]).length)+' signed</div>'
+    + '<button class="cms-pe-photo-btn" style="margin-top:6px" onclick="photoPendingCancel(\''+r.id+'\')">Cancel</button>'
+    + '</div>';
+});
+if(!(_photoPendingByIsland[pg]||[]).length) html += '<div style="grid-column:1/-1;color:#94a3b8;font-size:.85rem">No photos awaiting release.</div>';
+html += '</div></div>';
+```
+- [ ] **Step 2:** `photoPendingCancel(id)` calls the `cancelPhotoRelease` CF (Task 10.4), then refreshes the editor.
+- [ ] **Step 3: Acceptance check** — Samoa with 2 seeded pending releases shows 2 tiles with "Slot N · X of Y signed" under the live 9-grid, on desktop + iPad; Cancel removes one.
+- [ ] **Step 4: Commit + bump -Int version** (per always-bump rule).
 
 ### Task 10: Revert task action + 30-day stall actions + `workflowStep` buttons
 
@@ -302,10 +326,12 @@ else if(d.workflowStep==='photoReleaseStall')
 
 ## Self-Review
 
-**Spec coverage:** A→guardrail dialog (Task 8); 0-people bypass (Task 8); <1MB JPEG (Task 8.1); suspension + previousPhotoUrl (Task 8.2 / model); B electronic release (Tasks 2,3,4,7); C auto-publish + La'a Revert task + partner task+email (Tasks 4,5,10); D 15/30-day cron (Task 6) + stall actions (Task 10); E Photo Releases list (Task 9); F partner emails on each signature/all-live/15d/30d (Tasks 4,5,6). All covered.
+**Spec coverage:** A→guardrail dialog in `cmsUploadPagePhoto` (Task 8); 0-people bypass + gallery-only detection (Task 8); <1MB JPEG (Task 8.1); suspension + previousPhotoUrl + per-slot/9-island caps (Task 8 / model); B electronic release (Tasks 2,3,4,7); C auto-publish into the live slot + La'a (he) Revert task + partner task+email (Tasks 4,5,10); D 15/30-day cron (Task 6) + stall actions (Task 10); E inline per-island Pending grid replacing the global list (Task 9); F partner emails on each signature/all-live/15d/30d (Tasks 4,5,6). All covered.
 
 **Placeholder scan:** Only intentional placeholder is `PHOTO_RELEASE_TEXT` (legal copy pending Daniel, resolved Task 11) — flagged, not silent.
 
-**Type/name consistency:** `workflowStep` values `photoReleaseVerify`/`photoReleaseStall`, field names `photoReleaseId`, `newPhotoUrl`/`previousPhotoUrl`, `tokenIndex`, helpers `createTask`/`notify`/`createVerifyTasks`/`createStallTask`/`lookupUidByEmail` used consistently across Tasks 4–10.
+**Type/name consistency:** `workflowStep` values `photoReleaseVerify`/`photoReleaseStall`, field names `photoReleaseId`, `island`/`fieldKey`/`slot`, `newPhotoUrl`/`previousPhotoUrl`, `tokenIndex`, helpers `createTask`/`notify`/`createVerifyTasks`/`createStallTask`/`lookupUidByEmail`/`cancelPhotoRelease`/`revertPhotoRelease` used consistently across Tasks 4–10.
 
-**Open items resolved in-plan:** editor surface = `page-admin.html` (confirmed); tasks = `interactions` docs (confirmed); cron pattern confirmed; STAGE via additive CFs + test pageKey + GitHub-Pages STAGE URL.
+**Open items resolved in-plan:** editor surface = **-Int CMS `cmsUploadPagePhoto`** (corrected — not W2 `page-admin.html`); pending UI = inline per-island grid in `_pe2IslandRenderer`; gallery-only v1 (Hero/Flag/Contact deferred); per-slot pending, cap 9/island; tasks = `interactions` docs; cron pattern confirmed; STAGE via additive CFs + test slot + GitHub-Pages STAGE URL; **La'a is he/him** in all copy.
+
+**Future extension (noted, not built):** the same guardrail generalizes to other CMS galleries by reusing `isGalleryField`/`island`/`slot` with different field-key patterns — additive.
