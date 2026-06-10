@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.5-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10875,6 +10875,53 @@ window.autoCropImage = function(file) {
     img.src = URL.createObjectURL(file);
   });
 };
+
+/* ── Photo Release Guardrail helpers (v138.1.0) ── */
+// Re-encode a blob/File to JPEG under 1MB by stepping quality and, if needed,
+// scaling the max dimension down. Already-small inputs pass through untouched.
+window.cmsEnsureUnderOneMB = function(blob) {
+  return new Promise(function(resolve) {
+    if (!blob || typeof blob.size !== 'number' || blob.size <= 1000000) { resolve(blob); return; }
+    if (!blob.type || !blob.type.startsWith('image/')) { resolve(blob); return; }
+    var img = new Image();
+    img.onload = function() {
+      var maxDim = Math.max(img.width, img.height);
+      var origName = (blob.name || 'photo.jpg').replace(/\.[^.]+$/, '') + '.jpg';
+      function attempt(scale, quality) {
+        var w = Math.max(1, Math.round(img.width * scale));
+        var h = Math.max(1, Math.round(img.height * scale));
+        var c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        c.toBlob(function(out) {
+          if (!out) { resolve(blob); URL.revokeObjectURL(img.src); return; }
+          if (out.size <= 1000000) {
+            URL.revokeObjectURL(img.src);
+            resolve(new File([out], origName, { type: 'image/jpeg', lastModified: Date.now() }));
+            return;
+          }
+          // Step quality down first, then shrink dimensions.
+          if (quality > 0.5) { attempt(scale, Math.round((quality - 0.1) * 100) / 100); return; }
+          if (scale > 0.25) { attempt(scale * 0.85, 0.85); return; }
+          // Give up gracefully — return smallest we produced.
+          URL.revokeObjectURL(img.src);
+          resolve(new File([out], origName, { type: 'image/jpeg', lastModified: Date.now() }));
+        }, 'image/jpeg', quality);
+      }
+      // If image is huge, start by capping the longest edge at 2000px.
+      var startScale = maxDim > 2000 ? (2000 / maxDim) : 1;
+      attempt(startScale, 0.85);
+    };
+    img.onerror = function() { resolve(blob); };
+    img.src = URL.createObjectURL(blob);
+  });
+};
+
+// Gallery photo fields are <prefix>Photo1..<prefix>Photo9. Hero/Flag/Contact/Logo are NOT gallery.
+window.cmsIsGalleryField = function(fieldKey) { return /Photo[1-9]$/.test(fieldKey); };
+
+// Per-island cache of pending photo-release requests (state==='awaiting').
+var _photoPendingByIsland = {};
 </script>
 
 <!-- Firebase Auth + User Roles Management -->
@@ -30109,6 +30156,8 @@ var _pe2Draft = {};
 var _pe2DirtyFields = {};
 var _pe2EditingPage = '';
 var _pe2EditingField = '';
+// Pacific island sub-page keys that have the Photo Release guardrail + pending grid.
+var _pe2IslandPageKeys = ['americansamoa', 'cnmi', 'fsm', 'guam', 'marshallislands', 'palau'];
 var _pe2IslandHelp = {
   americansamoa: '<b>American Samoa</b><br>You can edit the following content for this page:<br><br><b>Photos:</b><br>• Hero image (main banner photo)<br>• Flag or logo<br>• Contact photo<br>• Gallery (9 photos)<br><br><b>Text:</b><br>• About Our Partner description<br>• Primary contact info<br>• Support personnel (Dr. Herbert Boat, Segia Ioane)<br><br>All changes stay in the editor until you click <b>Publish to Website</b>.',
   cnmi: '<b>CNMI (Northern Mariana Islands)</b><br>You can edit the following content for this page:<br><br><b>Photos:</b><br>• Hero image (main banner photo)<br>• Flag or logo<br>• Gallery (9 photos)<br><br><b>Text:</b><br>• About Our Partner description<br>• Primary contact info<br>• Support personnel (Jennifer O. Tanaka, Maria L. Olopai)<br><br>All changes stay in the editor until you click <b>Publish to Website</b>.',
@@ -30414,6 +30463,21 @@ window.pe2LoadPageContent = async function(pageKey) {
     var data = doc.exists ? doc.data() : {};
     _pe2Cache[docId] = data;
     if (!_pe2Draft[docId]) _pe2Draft[docId] = JSON.parse(JSON.stringify(data));
+    // Photo Release Guardrail (v138.1.0): load awaiting releases for island
+    // sub-pages so the "Awaiting Photo Release" grid renders populated.
+    if (_pe2IslandPageKeys.indexOf(pageKey) !== -1) {
+      try {
+        var prSnap = await firebase.firestore().collection('photoReleases')
+          .where('island', '==', pageKey).where('state', '==', 'awaiting').get();
+        var prList = [];
+        prSnap.forEach(function(d) { var r = d.data() || {}; r.id = d.id; prList.push(r); });
+        prList.sort(function(a, b) { return (a.slot || 0) - (b.slot || 0); });
+        _photoPendingByIsland[pageKey] = prList;
+      } catch (prErr) {
+        console.error('Photo pending fetch failed for ' + pageKey + ':', prErr);
+        _photoPendingByIsland[pageKey] = _photoPendingByIsland[pageKey] || [];
+      }
+    }
     pe2RenderPage(pageKey, _pe2Draft[docId]);
     _pe2UpdatePublishBar();
   } catch (err) {
@@ -30782,8 +30846,26 @@ function _pe2IslandRenderer(pg, prefix, name, contactFields, hasContactPhoto, ha
       html += '<div class="pe2-card" style="text-align:center"><div class="pe2-editable" onclick="pe2Edit(\'' + pg + '\',\'' + gk + '\',\'Gallery Photo ' + g + '\',\'photo\')"><span class="pe2-badge">Photo</span><img src="' + (d[gk] || '') + '" class="pe2-gallery-thumb" onerror="this.style.display=\'none\'"></div></div>';
     }
     html += '</div></div>';
+    html += _pe2PendingGridHtml(pg);
     return html;
   };
+}
+
+// ── Awaiting Photo Release grid (shared by all island renderers) ──
+function _pe2PendingGridHtml(pg) {
+  var html = '<div class="pe2-section" style="background:#fffbeb"><div class="pe2-section-head"><span class="pe2-section-badge">Pending</span><h2 style="font-size:1.2rem">Awaiting Photo Release</h2></div>';
+  html += '<div class="pe2-gallery-grid">';
+  (_photoPendingByIsland[pg] || []).forEach(function(r) {
+    var signed = (r.subjects || []).filter(function(s) { return s.status === 'signed'; }).length;
+    html += '<div class="pe2-card" style="text-align:center;opacity:.92">'
+      + '<img src="' + (r.newPhotoUrl || '') + '" class="pe2-gallery-thumb" style="filter:grayscale(.15)" onerror="this.style.display=\'none\'">'
+      + '<div style="font-size:.72rem;font-weight:700;color:#b45309;margin-top:6px">Slot ' + r.slot + ' &middot; ' + signed + ' of ' + (r.subjectCount || (r.subjects || []).length) + ' signed</div>'
+      + '<button class="cms-pe-photo-btn" style="margin-top:6px" onclick="photoPendingCancel(\'' + r.id + '\')">Cancel</button>'
+      + '</div>';
+  });
+  if (!(_photoPendingByIsland[pg] || []).length) html += '<div style="grid-column:1/-1;color:#94a3b8;font-size:.85rem">No photos awaiting release.</div>';
+  html += '</div></div>';
+  return html;
 }
 
 window.pe2RenderAmericansamoa = _pe2IslandRenderer('americansamoa', 'samoa', 'American Samoa',
@@ -30839,6 +30921,7 @@ window.pe2RenderMarshallislands = function(d) {
     html += '<div class="pe2-card" style="text-align:center"><div class="pe2-editable" onclick="pe2Edit(\'' + pg + '\',\'' + gk + '\',\'Gallery Photo ' + g + '\',\'photo\')"><span class="pe2-badge">Photo</span><img src="' + (d[gk] || '') + '" class="pe2-gallery-thumb" onerror="this.style.display=\'none\'"></div></div>';
   }
   html += '</div></div>';
+  html += _pe2PendingGridHtml(pg);
   return html;
 };
 
@@ -30969,6 +31052,7 @@ window.pe2SaveField = async function(page, fieldKey, value) {
 
 window.pe2UploadPhoto = async function(page, fieldKey, file, imgEl) {
   file = await autoCropImage(file);
+  file = await cmsEnsureUnderOneMB(file);
   var docId = _cmsPageEditorDocId(page);
   var path = 'gallery/' + docId + '_' + fieldKey + '_' + Date.now() + '.jpg';
   try {
@@ -30976,8 +31060,16 @@ window.pe2UploadPhoto = async function(page, fieldKey, file, imgEl) {
     var ref = firebase.storage().ref(path);
     await ref.put(file);
     var url = await ref.getDownloadURL();
-    imgEl.src = url;
     imgEl.style.opacity = '1';
+    // Photo Release Guardrail (v138.1.0): gallery photos on Pacific island
+    // sub-pages route through a release dialog. Non-gallery photos
+    // (Hero/Flag/Contact/Logo) and non-island pages (e.g. Home heroPhotoN)
+    // keep the existing direct-to-draft behavior.
+    if (cmsIsGalleryField(fieldKey) && _pe2IslandPageKeys.indexOf(page) !== -1) {
+      photoReleasePrompt(page, fieldKey, url, imgEl);
+      return;
+    }
+    imgEl.src = url;
     if (!_pe2Draft[docId]) _pe2Draft[docId] = JSON.parse(JSON.stringify(_pe2Cache[docId] || {}));
     _pe2Draft[docId][fieldKey] = url;
     if (!_pe2DirtyFields[docId]) _pe2DirtyFields[docId] = {};
@@ -30987,6 +31079,166 @@ window.pe2UploadPhoto = async function(page, fieldKey, file, imgEl) {
     console.error('PE2 photo upload error:', err);
     imgEl.style.opacity = '1';
     alert('Photo upload failed: ' + err.message);
+  }
+};
+
+// ── Photo Release Guardrail dialog (gallery photos only) ──
+// Called after the <1MB blob is in Storage (we have `url`) but BEFORE anything
+// is written into pageContent / the editor draft.
+window.photoReleasePrompt = function(island, fieldKey, url, imgEl) {
+  var docId = _cmsPageEditorDocId(island);
+  var liveData = _pe2Cache[docId] || {};
+  var previousPhotoUrl = liveData[fieldKey] || '';
+  var slot = Number((fieldKey.match(/Photo([1-9])$/) || [0, 0])[1]);
+
+  // Build overlay using the existing .overlay/.modal style.
+  var overlay = document.createElement('div');
+  overlay.className = 'overlay active';
+  overlay.style.zIndex = '9001'; // above the pe2 panel (8000)
+  overlay.innerHTML =
+    '<div class="modal" style="width:min(520px,100%)">' +
+      '<div class="modal-header"><div class="left">Photo Release</div>' +
+        '<button class="close" type="button" data-pr-cancel>&times;</button></div>' +
+      '<div class="modal-body" style="display:block">' +
+        '<p style="font-size:.9rem;color:var(--text-soft);line-height:1.45;margin:0 0 12px">' +
+          'Before this gallery photo goes live, everyone identifiable in it needs to sign a photo release. ' +
+          'How many people in this photo need to sign a release?</p>' +
+        '<div class="field" style="max-width:160px"><label for="prCount">People who must sign</label>' +
+          '<input type="number" id="prCount" min="0" step="1" value="0"></div>' +
+        '<div id="prEmails" style="margin-top:14px"></div>' +
+      '</div>' +
+      '<div class="modal-actions">' +
+        '<button class="btn btn-ghost" type="button" data-pr-cancel>Cancel</button>' +
+        '<button class="btn btn-primary" type="button" data-pr-confirm>Continue</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  var countInput = overlay.querySelector('#prCount');
+  var emailsWrap = overlay.querySelector('#prEmails');
+
+  function renderEmailInputs() {
+    var n = parseInt(countInput.value, 10);
+    if (isNaN(n) || n < 0) n = 0;
+    var existing = {};
+    overlay.querySelectorAll('.pr-email-input').forEach(function(inp, i) { existing[i] = inp.value; });
+    var html = '';
+    for (var i = 0; i < n; i++) {
+      html += '<div class="field" style="margin-bottom:10px"><label>Email for person ' + (i + 1) +
+        '</label><input type="email" class="pr-email-input" placeholder="name@example.com" value="' +
+        (existing[i] || '').replace(/"/g, '&quot;') + '"></div>';
+    }
+    emailsWrap.innerHTML = html;
+  }
+  countInput.oninput = renderEmailInputs;
+
+  function close() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+  overlay.querySelectorAll('[data-pr-cancel]').forEach(function(b) { b.onclick = close; });
+
+  overlay.querySelector('[data-pr-confirm]').onclick = async function() {
+    var n = parseInt(countInput.value, 10);
+    if (isNaN(n) || n < 0) n = 0;
+
+    // 0 → publish normally (current direct-to-draft behavior).
+    if (n === 0) {
+      if (imgEl) imgEl.src = url;
+      if (!_pe2Draft[docId]) _pe2Draft[docId] = JSON.parse(JSON.stringify(_pe2Cache[docId] || {}));
+      _pe2Draft[docId][fieldKey] = url;
+      if (!_pe2DirtyFields[docId]) _pe2DirtyFields[docId] = {};
+      _pe2DirtyFields[docId][fieldKey] = true;
+      _pe2UpdatePublishBar();
+      close();
+      cmsShowPageSaved && cmsShowPageSaved();
+      return;
+    }
+
+    // N≥1 → collect + validate emails.
+    var emailEls = overlay.querySelectorAll('.pr-email-input');
+    var emails = [];
+    for (var i = 0; i < emailEls.length; i++) {
+      var v = (emailEls[i].value || '').trim();
+      if (!v) { _showToast('Please enter an email for each person who must sign.', '#DC2626'); return; }
+      emails.push(v);
+    }
+
+    var confirmBtn = this;
+    confirmBtn.disabled = true; confirmBtn.textContent = 'Sending...';
+    try {
+      // Enforce caps against the live awaiting set for this island.
+      var snap = await firebase.firestore().collection('photoReleases')
+        .where('island', '==', island).where('state', '==', 'awaiting').get();
+      if (snap.size >= 9) {
+        _showToast('This island already has 9 photos awaiting release.', '#DC2626');
+        confirmBtn.disabled = false; confirmBtn.textContent = 'Continue';
+        return;
+      }
+      var slotTaken = false;
+      snap.forEach(function(doc) { if ((doc.data() || {}).fieldKey === fieldKey) slotTaken = true; });
+      if (slotTaken) {
+        _showToast('That slot already has a photo awaiting release.', '#DC2626');
+        confirmBtn.disabled = false; confirmBtn.textContent = 'Continue';
+        return;
+      }
+
+      var user = firebase.auth().currentUser || {};
+      var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/createPhotoReleaseRequest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pageKey: 'pacific',
+          island: island,
+          fieldKey: fieldKey,
+          slot: slot,
+          newPhotoUrl: url,
+          previousPhotoUrl: previousPhotoUrl,
+          requestedBy: user.uid || '',
+          requestedByEmail: user.email || '',
+          requestedByName: user.displayName || user.email || '',
+          emails: emails
+        })
+      });
+      if (!resp.ok) { throw new Error('Server returned ' + resp.status); }
+
+      // Held: deliberately do NOT write pageContent / draft for this slot.
+      close();
+      _showToast('Photo held — release sent to ' + emails.length + ' recipient(s). It publishes once all sign.', '#16A34A');
+      // Refresh the pending grid so the held photo shows there, not in the live slot.
+      await photoReleaseRefreshIsland(island);
+    } catch (err) {
+      console.error('Photo release request failed:', err);
+      _showToast('Could not send release request: ' + (err.message || err), '#DC2626');
+      confirmBtn.disabled = false; confirmBtn.textContent = 'Continue';
+    }
+  };
+};
+
+// Fetch awaiting releases for an island into the cache, then re-render if active.
+window.photoReleaseRefreshIsland = async function(island) {
+  try {
+    var snap = await firebase.firestore().collection('photoReleases')
+      .where('island', '==', island).where('state', '==', 'awaiting').get();
+    var list = [];
+    snap.forEach(function(doc) { var r = doc.data() || {}; r.id = doc.id; list.push(r); });
+    list.sort(function(a, b) { return (a.slot || 0) - (b.slot || 0); });
+    _photoPendingByIsland[island] = list;
+  } catch (err) {
+    console.error('Photo pending fetch failed for ' + island + ':', err);
+    _photoPendingByIsland[island] = _photoPendingByIsland[island] || [];
+  }
+  if (_pe2Active === island) {
+    var docId = _cmsPageEditorDocId(island);
+    pe2RenderPage(island, _pe2Draft[docId] || _pe2Cache[docId] || {});
+  }
+};
+
+window.photoPendingCancel = async function(id) {
+  if (!confirm('Cancel this pending photo? The held photo will be discarded.')) return;
+  try {
+    await firebase.functions().httpsCallable('cancelPhotoRelease')({ releaseId: id });
+    _showToast('Pending photo cancelled', '#64748b');
+    await photoReleaseRefreshIsland(_pe2Active);
+  } catch (e) {
+    alert('Cancel failed: ' + (e.message || e));
   }
 };
 
