@@ -4701,7 +4701,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5164,11 +5164,19 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if(!host)return;
               // Detach any prior listener before re-attaching (idempotent).
               if(window._recentSignupsUnsub){try{window._recentSignupsUnsub();}catch(_){}window._recentSignupsUnsub=null;}
+              window._recentSignupsPrimed=false; // first snapshot is the initial load — no applause
               loading('dashRecentSignups');
               var cutoff=new Date(Date.now()-120*24*3600*1000);
               window._recentSignupsUnsub=db.collectionGroup('signups').where('timestamp','>=',cutoff)
                 .onSnapshot(async function(snap){
                   try{
+                    // Applause when a brand-new enrollment arrives — skip the
+                    // initial load (where every doc reads as "added").
+                    try{
+                      var _added = snap.docChanges ? snap.docChanges().filter(function(ch){ return ch.type==='added' && ((ch.doc.data()||{}).archived!==true); }).length : 0;
+                      if(window._recentSignupsPrimed && _added>0 && typeof window._playApplause==='function') window._playApplause();
+                      window._recentSignupsPrimed=true;
+                    }catch(_){}
                     var items=[];
                     snap.forEach(function(doc){var dd=doc.data()||{};if(dd.archived===true)return;items.push({d:dd,evRef:doc.ref.parent.parent});});
                     items.sort(function(a,b){var at=tsToDate(a.d.timestamp),bt=tsToDate(b.d.timestamp);return (bt?bt.getTime():0)-(at?at.getTime():0);});
@@ -7688,6 +7696,43 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           osc.start(t0);
           osc.stop(t0 + 0.6);
         });
+      } catch(e) {}
+    };
+
+    // Celebratory applause — played when a NEW enrollment lands in Recent Signups.
+    // Synthesized (Web Audio, no asset): pure crowd clapping — ~260 short
+    // broadband clap transients scattered over ~1.8s, band-passed, swelling then
+    // settling. NO musical tones (the earlier arpeggio rang like the chat ding).
+    // (2026-06-09)
+    window._playApplause = function() {
+      try {
+        _ensureAudioCtx();
+        var t0 = audioCtx.currentTime;
+        var sr = audioCtx.sampleRate;
+        var dur = 1.8;
+        var bufLen = Math.floor(sr * dur);
+        var buf = audioCtx.createBuffer(1, bufLen, sr);
+        var d = buf.getChannelData(0);
+        for (var i = 0; i < bufLen; i++) { d[i] = (Math.random() * 2 - 1) * 0.05; }
+        for (var c = 0; c < 260; c++) {
+          var pos = Math.floor(Math.random() * dur * 0.9 * sr);
+          var len = 40 + Math.floor(Math.random() * 90);
+          var amp = 0.45 + Math.random() * 0.55;
+          for (var k = 0; k < len && pos + k < bufLen; k++) {
+            d[pos + k] += (Math.random() * 2 - 1) * amp * Math.exp(-k / (len * 0.32));
+          }
+        }
+        for (var j = 0; j < bufLen; j++) { if (d[j] > 1) d[j] = 1; else if (d[j] < -1) d[j] = -1; }
+        var src = audioCtx.createBufferSource(); src.buffer = buf;
+        var hp = audioCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 700;
+        var bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2300; bp.Q.value = 0.45;
+        var g = audioCtx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.42, t0 + 0.16);
+        g.gain.setValueAtTime(0.42, t0 + 1.0);
+        g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+        src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+        src.start(t0); src.stop(t0 + dur);
       } catch(e) {}
     };
   })();
