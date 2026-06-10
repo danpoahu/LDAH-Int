@@ -4707,7 +4707,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -15580,31 +15580,64 @@ window.autoCropImage = function(file) {
       // signups/interactions to render in the timeline.
       var _lnEl = document.getElementById('ctDetailLatestNote');
       if (_lnEl) {
-        var _noteEntry = null;
-        for (var _i = 0; _i < results.length; _i++) {
-          var _e = results[_i];
-          if (_e._entryType === 'interaction' && typeof _e.notes === 'string' && _e.notes.trim()) {
-            _noteEntry = _e;
-            break;
-          }
-        }
-        if (_noteEntry) {
-          var _nparts = String(_noteEntry.notes).split(/\n---\n/);
-          var _nlast = _nparts[_nparts.length - 1].trim();
-          var _nm = _nlast.match(/^\[(.+?)\]\s*([\s\S]*)$/);
-          var _nwho, _ntxt;
-          if (_nm) { _nwho = _nm[1]; _ntxt = _nm[2].trim(); }
-          else { _nwho = _noteEntry.owner || _noteEntry.createdBy || '—'; _ntxt = _nlast; }
-          var _nraw = _noteEntry.createdAt;
-          var _ndate = _nraw ? (_nraw.toDate ? _nraw.toDate() : new Date(_nraw)) : null;
-          var _ndateStr = _ndate ? _ndate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-          _lnEl.innerHTML = '<div class="ctd2-note" onclick="viewInteraction(\'' + rsEscape(_noteEntry.id) + '\')">' +
-            '<div class="nh"><span class="nwho">' + rsEscape(_nwho) + '</span><span class="nwhen">' + _ndateStr + '</span></div>' +
-            (_noteEntry.summary ? '<div class="nctx">on “' + rsEscape(_noteEntry.summary) + '”</div>' : '') +
-            '<div class="ntxt">' + rsEscape(_ntxt.length > 300 ? _ntxt.slice(0, 300) + '…' : _ntxt) + '</div>' +
-          '</div>';
-        } else {
+        // Gather EVERY note entry across all the contact's interactions. Each
+        // interaction's notes field is a \n---\n-delimited log: the first
+        // segment is the original note (author/date = the interaction itself),
+        // later segments carry their own "[Author — stamp]" header.
+        var _allNotes = [];
+        results.forEach(function(e) {
+          if (e._entryType !== 'interaction' || typeof e.notes !== 'string' || !e.notes.trim()) return;
+          var _ixDate = e.createdAt ? (e.createdAt.toDate ? e.createdAt.toDate() : new Date(e.createdAt)) : null;
+          var _ixMs = _ixDate ? _ixDate.getTime() : 0;
+          var _ixStr = _ixDate ? _ixDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+          String(e.notes).split(/\n---\n/).forEach(function(seg) {
+            seg = seg.trim();
+            if (!seg) return;
+            var who, txt, whenStr, whenMs;
+            var mm = seg.match(/^\[(.+?)\]\s*([\s\S]*)$/);
+            if (mm) {
+              txt = mm[2].trim();
+              var meta = mm[1];
+              var di = meta.lastIndexOf('—');
+              if (di !== -1) {
+                who = meta.slice(0, di).trim();
+                whenStr = meta.slice(di + 1).trim();
+                var pd = new Date(whenStr);
+                whenMs = isNaN(pd.getTime()) ? _ixMs : pd.getTime();
+              } else { who = meta.trim(); whenStr = _ixStr; whenMs = _ixMs; }
+            } else {
+              who = e.owner || e.createdBy || '—'; txt = seg; whenStr = _ixStr; whenMs = _ixMs;
+            }
+            _allNotes.push({ who: who, txt: txt, whenStr: whenStr, whenMs: whenMs, ixId: e.id, summary: e.summary || '' });
+          });
+        });
+        _allNotes.sort(function(a, b) { return b.whenMs - a.whenMs; });
+
+        if (!_allNotes.length) {
           _lnEl.innerHTML = '<div class="ctd2-note empty">No notes yet.</div>';
+        } else {
+          var _n0 = _allNotes[0];
+          var _html = '<div class="ctd2-note" onclick="viewInteraction(\'' + rsEscape(_n0.ixId) + '\')">' +
+            '<div class="nh"><span class="nwho">' + rsEscape(_n0.who) + '</span><span class="nwhen">' + rsEscape(_n0.whenStr) + '</span></div>' +
+            (_n0.summary ? '<div class="nctx">on “' + rsEscape(_n0.summary) + '”</div>' : '') +
+            '<div class="ntxt">' + rsEscape(_n0.txt.length > 300 ? _n0.txt.slice(0, 300) + '…' : _n0.txt) + '</div>' +
+          '</div>';
+          if (_allNotes.length > 1) {
+            // Full history (all entries, newest first) in a hidden panel.
+            var _allHtml = _allNotes.map(function(n) {
+              return '<div onclick="viewInteraction(\'' + rsEscape(n.ixId) + '\')" style="background:#fff;border:1px solid #e2e8f0;border-left:3px solid #cbd5e1;border-radius:0 8px 8px 0;padding:7px 11px;margin-bottom:7px;cursor:pointer;">' +
+                '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><span style="font-weight:700;font-size:.8rem;color:#475569;">' + rsEscape(n.who) + '</span><span style="font-size:.72rem;color:var(--text-soft);">' + rsEscape(n.whenStr) + '</span></div>' +
+                (n.summary ? '<div style="font-size:.7rem;color:var(--text-soft);">on “' + rsEscape(n.summary) + '”</div>' : '') +
+                '<div style="font-size:.85rem;color:#334155;margin-top:2px;">' + rsEscape(n.txt) + '</div>' +
+              '</div>';
+            }).join('');
+            var _N = _allNotes.length;
+            _html += '<div style="margin:-4px 0 12px;">' +
+              '<a href="#" onclick="event.preventDefault();var p=document.getElementById(\'ctAllNotesPanel\');if(p.style.display===\'none\'){p.style.display=\'block\';this.textContent=\'Hide notes\';}else{p.style.display=\'none\';this.textContent=\'Show all ' + _N + ' notes\';}" style="font-size:.8rem;font-weight:700;color:var(--ocean-deep);">Show all ' + _N + ' notes</a>' +
+              '<div id="ctAllNotesPanel" style="display:none;margin-top:8px;">' + _allHtml + '</div>' +
+            '</div>';
+          }
+          _lnEl.innerHTML = _html;
         }
       }
 
