@@ -4701,7 +4701,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.0.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27648,6 +27648,16 @@ window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId
         var currentOverrides = (s && s.dateStatusOverrides) ? Object.assign({}, s.dateStatusOverrides) : {};
         var update = {};
         var logMsg;
+        // Per-date cancellation guard: a 'cancelled' pick on a multi-date signup
+        // that still has another active session must be recorded against THIS
+        // date only (dateStatusOverrides), NOT the doc-level status — otherwise
+        // every other non-overridden date inherits 'cancelled' (the
+        // cancel-one-date-cancels-them-all bug). Count-based so it is robust to
+        // the differing session-key formats (rawString vs ISO composite).
+        var _sess = ((typeof getSignupSessions === 'function' && s) ? getSignupSessions(s) : ((s && (s.selectedDates || s.selectedSessions)) || [])) || [];
+        var _alreadyOut = 0;
+        for (var _ovk in currentOverrides) { if (currentOverrides[_ovk] === 'cancelled' || currentOverrides[_ovk] === 'no-show') _alreadyOut++; }
+        var perDateCancel = (newValue === 'cancelled' && _sess.length > 1 && (_sess.length - _alreadyOut - 1) >= 1);
         if (isOverride) {
           if (!s || s.status !== 'confirmed') update.status = 'confirmed';
           currentOverrides[sessionDateKey] = newValue;
@@ -27659,6 +27669,16 @@ window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId
             s.dateStatusOverrides = currentOverrides;
           }
           auditLog('Set per-date mode override', logMsg);
+        } else if (perDateCancel) {
+          // Cancel THIS date only; leave the document status (e.g. pending)
+          // intact so the remaining date(s) stay active. Readers honor
+          // dateStatusOverrides[key]==='cancelled' (see crGetAffectedSignups).
+          currentOverrides[sessionDateKey] = 'cancelled';
+          update.dateStatusOverrides = currentOverrides;
+          await ref.update(update);
+          if (s) s.dateStatusOverrides = currentOverrides;
+          logMsg = sName + ' — ' + (_cmsSignupsModalData.eventTitle || 'Event') + ' — ' + sessionDateKey + ' — Status: cancelled (this date only)';
+          auditLog('Updated signup status', logMsg);
         } else {
           update.status = newValue;
           delete currentOverrides[sessionDateKey];
