@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.5-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.6-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22196,11 +22196,24 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   // v122.5.0: 'all' = current behavior; 'parents' = contact.type === 'Parent/Guardian'.
   var _annAudience = 'all';
 
+  // Multi-date events: target a specific session date so we skip only people
+  // signed up FOR that date and show that date in the email. Single-date or
+  // undated events stay event-wide (_annSessionDate = null = original behavior).
+  var _annDates = [], _annSentDates = {};
+  try {
+    var _evSnap = await db.collection(collection).doc(eventId).get();
+    var _evd = _evSnap.exists ? _evSnap.data() : {};
+    _annDates = Array.isArray(_evd.signupDates) ? _evd.signupDates.slice() : [];
+    _annSentDates = _evd.announcementSentDates || {};
+  } catch (e) {}
+  var _annMultiDate = _annDates.length > 1;
+  var _annSessionDate = _annMultiDate ? _annDates[0] : null;
+
   async function _annDryRun(audience) {
     var resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventId: eventId, collection: collection, dryRun: true, audienceFilter: audience })
+      body: JSON.stringify({ eventId: eventId, collection: collection, dryRun: true, audienceFilter: audience, sessionDate: _annSessionDate })
     });
     if (!resp.ok) {
       var txt = await resp.text();
@@ -22275,6 +22288,16 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       // Body
       '<div style="padding:20px;">' +
         '<h3 style="margin:0 0 14px;color:#004E7C;font-size:1.05rem;font-weight:700;">' + rsEscape(title) + '</h3>' +
+        // Per-date selector (multi-date events only). Targets one session date.
+        (_annMultiDate ? (
+          '<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:.88rem;">' +
+            '<div style="font-weight:700;color:#1E3A8A;margin-bottom:6px;">Which date is this announcement for?</div>' +
+            '<select id="cmsAnnDateSel" style="width:100%;padding:8px 10px;border:1px solid #BFDBFE;border-radius:6px;font-size:.88rem;">' +
+              _annDates.map(function(dt){ return '<option value="' + rsEscape(dt) + '"' + (dt === _annSessionDate ? ' selected' : '') + '>' + rsEscape(dt) + (_annSentDates[dt] ? '  (already announced)' : '') + '</option>'; }).join('') +
+            '</select>' +
+            '<div style="font-size:.78rem;color:#475569;margin-top:6px;">Only people <strong>not</strong> already signed up for this date will be offered.</div>' +
+          '</div>'
+        ) : '') +
         // Audience filter (v122.5.0)
         '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:.88rem;">' +
           '<div style="font-weight:700;color:#004E7C;margin-bottom:6px;">Recipients</div>' +
@@ -22369,6 +22392,26 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
     }
   );
 
+  // Per-date selector — refresh counts + roster when the target date changes.
+  var _annDateSel = document.getElementById('cmsAnnDateSel');
+  if (_annDateSel) {
+    _annDateSel.addEventListener('change', async function() {
+      _annSessionDate = _annDateSel.value;
+      var elWillSend = document.getElementById('cmsAnnCountWillSend');
+      if (elWillSend) elWillSend.textContent = '…';
+      try {
+        var c = await _annDryRun(_annAudience);
+        document.getElementById('cmsAnnCountEligible').textContent = c.totalEligible;
+        document.getElementById('cmsAnnCountSent').textContent = c.alreadySent;
+        document.getElementById('cmsAnnCountSignedUp').textContent = c.alreadySignedUp || 0;
+        _annRenderRecipientList(c.recipients);
+      } catch (err) {
+        if (elWillSend) elWillSend.textContent = '!';
+        _showToast('Count refresh failed: ' + err.message, '#DC2626');
+      }
+    });
+  }
+
   // Test send
   document.getElementById('cmsAnnTestBtn').addEventListener('click', async function() {
     var testEmail = document.getElementById('cmsAnnTestEmail').value.trim();
@@ -22379,7 +22422,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       var resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: eventId, collection: collection, testMode: true, testEmail: testEmail, audienceFilter: _annAudience })
+        body: JSON.stringify({ eventId: eventId, collection: collection, testMode: true, testEmail: testEmail, audienceFilter: _annAudience, sessionDate: _annSessionDate })
       });
       var result = await resp.json();
       if (resp.ok && result.sent > 0) {
@@ -22424,7 +22467,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       var resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: eventId, collection: collection, audienceFilter: _annAudience, recipientIds: _selIds })
+        body: JSON.stringify({ eventId: eventId, collection: collection, audienceFilter: _annAudience, recipientIds: _selIds, sessionDate: _annSessionDate })
       });
       var result = await resp.json();
       if (resp.ok) {
