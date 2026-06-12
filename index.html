@@ -4700,7 +4700,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.7</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.8</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23152,6 +23152,88 @@ window.cmsArchiveEvent = async function(collection, docId, title) {
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
+// Recompute an event's denormalized signupCount/pendingCount from its signups.
+async function cmsRecalculateEventCounts(collection, eventId) {
+  try {
+    var snap = await db.collection(collection).doc(eventId).collection('signups').get();
+    var sc = 0, pc = 0;
+    snap.forEach(function(doc) {
+      var d = doc.data();
+      if (d.archived === true) return;
+      sc++;
+      if (d.status === 'pending' || d.status === 'new') pc++;
+    });
+    await db.collection(collection).doc(eventId).update({ signupCount: sc, pendingCount: pc });
+  } catch (e) { console.warn('count recompute skipped:', e && e.message); }
+}
+
+// Resolve a duplicate signup group: recommend a keeper, confirm, then HARD-DELETE
+// the extra record(s). Delete fires no Cloud Function trigger, so NO email is sent.
+window.cmsOpenDuplicateResolve = function(groupId) {
+  var data = _cmsSignupsModalData;
+  if (!data || !data._dupGroups || !data._dupGroups[groupId]) return;
+  var ids = data._dupGroups[groupId];
+  var recs = data.signups.filter(function(s){ return ids.indexOf(s.id) !== -1; });
+  if (recs.length < 2) return;
+  var collection = data.isRecurring ? 'recurringEvents' : 'events';
+
+  function hasFeedback(s) { return !!(s.feedbackEmailsSent > 0 || s.feedbackEmailSentAt); }
+  function hasAttendance(s) {
+    if (s.attendanceStatus === 'attended' || s.attendanceStatus === 'no-show') return true;
+    var sa = s.sessionAttendance;
+    if (sa && typeof sa === 'object') {
+      return Object.keys(sa).some(function(k){ var v = sa[k]; return v && (v.status === 'attended' || v.status === 'no-show'); });
+    }
+    return false;
+  }
+  function tsMs(s) { return (s.timestamp && s.timestamp.toMillis) ? s.timestamp.toMillis() : 0; }
+
+  var compare = recs.map(function(s){
+    return { id: s.id, hasFeedback: hasFeedback(s), hasAttendance: hasAttendance(s), status: s.status, timestampMs: tsMs(s) };
+  });
+  var keepId = LDAHFormat.recommendKeeper(compare).id;
+  var keepRec = compare.filter(function(c){ return c.id === keepId; })[0];
+  var lossWarn = compare.some(function(c){
+    return c.id !== keepId && ((c.hasFeedback && !keepRec.hasFeedback) || (c.hasAttendance && !keepRec.hasAttendance));
+  });
+
+  function row(s) {
+    var c = compare.filter(function(x){ return x.id === s.id; })[0];
+    var tags = [];
+    if (c.hasAttendance) tags.push('attendance');
+    if (c.hasFeedback) tags.push('feedback');
+    var isKeep = s.id === keepId;
+    return '<div style="border:1px solid ' + (isKeep ? '#16a34a' : '#e5e7eb') + ';border-radius:8px;padding:10px 12px;margin:6px 0;background:' + (isKeep ? '#f0fdf4' : '#fff') + ';">'
+      + '<div style="font-weight:700;">' + (isKeep ? '✓ Keep' : 'Remove') + ' &mdash; ' + rsEscape(s.name || '(no name)') + '</div>'
+      + '<div style="font-size:.8rem;color:#64748b;">' + rsEscape(s.email || '') + ' &middot; ' + rsEscape(s.status || '') + (tags.length ? ' &middot; has ' + tags.join(' + ') : '') + '</div>'
+      + '</div>';
+  }
+  var body = recs.map(row).join('')
+    + (lossWarn ? '<div style="margin-top:8px;padding:8px 12px;background:#fef3e2;border:1px solid #f0c987;border-radius:6px;color:#92400e;font-size:.82rem;">Warning: a record being removed has attendance/feedback the kept one does not. Review before confirming.</div>' : '');
+
+  showConfirmModal({
+    title: 'Resolve duplicate signup',
+    subtitle: 'Removes the extra record silently — no email is sent to the family.',
+    body: body,
+    confirmLabel: 'Remove duplicate' + (recs.length > 2 ? 's' : ''),
+    cancelLabel: 'Cancel',
+    confirmStyle: 'danger',
+    onConfirm: async function() {
+      var removeIds = ids.filter(function(id){ return id !== keepId; });
+      var keepRecFull = recs.filter(function(s){ return s.id === keepId; })[0];
+      for (var i = 0; i < removeIds.length; i++) {
+        await db.collection(collection).doc(data.eventId).collection('signups').doc(removeIds[i]).delete();
+      }
+      await auditLog('Removed duplicate signup',
+        (keepRecFull.name || '') + ' / ' + (keepRecFull.email || '') + ' — ' + (data.eventTitle || '') +
+        ' — kept ' + keepId + ', removed ' + removeIds.join(', '));
+      await cmsRecalculateEventCounts(collection, data.eventId);
+      _showToast('Duplicate removed (no email sent).', '#16A34A');
+      cmsViewSignups(data.eventId, data.isRecurring, data.eventTitle);
+    }
+  });
+};
+
 window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
   _cmsSignupsModalData.eventId = eventId;
   _cmsSignupsModalData.isRecurring = !!isRecurring;
@@ -23199,6 +23281,18 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
       var tb = b.timestamp ? (b.timestamp.toMillis ? b.timestamp.toMillis() : b.timestamp) : 0;
       return tb - ta;
     });
+    // Tag duplicate signups (same person + overlapping active date) for the badge + resolve modal.
+    try {
+      var _dupGroups = (window.LDAHFormat && LDAHFormat.findDuplicateGroups)
+        ? LDAHFormat.findDuplicateGroups(_cmsSignupsModalData.signups) : [];
+      var _dupIndex = {};
+      _dupGroups.forEach(function(grp, gi) { grp.forEach(function(id) { _dupIndex[id] = gi; }); });
+      _cmsSignupsModalData._dupGroups = _dupGroups;
+      _cmsSignupsModalData.signups.forEach(function(s) {
+        if (_dupIndex[s.id] != null) { s._isDuplicate = true; s._dupGroupId = _dupIndex[s.id]; }
+        else { s._isDuplicate = false; s._dupGroupId = null; }
+      });
+    } catch (e) { console.warn('dup detect skipped:', e && e.message); }
     if (progProm) {
       var progDoc = await progProm;
       if (progDoc.exists) {
@@ -23560,6 +23654,13 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   var _regType = s.registrantType || (s.registration && s.registration.role) || '';
   if (_regType) h += '<span style="font-size:.72rem;font-weight:600;color:#0369A1;background:#E0F2FE;border-radius:12px;padding:1px 8px;white-space:nowrap;">' + rsEscape(_regType) + '</span>';
   h += cmsRegStatusBadge(s);
+  if (s._isDuplicate) {
+    h += '<span onclick="event.stopPropagation();cmsOpenDuplicateResolve(' + s._dupGroupId + ')" '
+      + 'title="This person appears more than once for the same date — click to resolve" '
+      + 'style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;'
+      + 'background:#fde68a;color:#92400e;font-size:.66rem;font-weight:700;letter-spacing:.04em;'
+      + 'text-transform:uppercase;cursor:pointer;">Duplicate</span>';
+  }
   h += cmsAttendanceBadge(s, sessionDateKey);
   // Signup-source attribution: tiny pill so staff can see at a glance who came in via the email blast vs other channels
   if (s.signupSource === 'announcement-email') {
