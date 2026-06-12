@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duplicate Signup Handling — Design</title>
+<style>
+  :root{ --ink:#1f2d3d; --muted:#5b6b7b; --line:#dce3ea; --accent:#0d9488; --accent-deep:#0b6e66; --warn:#b45309; --warn-soft:#fef3e2; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6f8;color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .wrap{max-width:820px;margin:24px auto;padding:0 18px;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:30px 36px;box-shadow:0 1px 3px rgba(20,40,60,.06);}
+  h1{font-size:24px;margin:0 0 4px;color:var(--accent-deep);}
+  .meta{color:var(--muted);font-size:13px;margin:0 0 22px;border-bottom:1px solid var(--line);padding-bottom:16px;}
+  h2{font-size:18px;margin:30px 0 8px;color:var(--accent-deep);border-left:4px solid var(--accent);padding-left:10px;}
+  h3{font-size:15px;margin:20px 0 6px;color:var(--ink);text-transform:uppercase;letter-spacing:.03em;}
+  p{margin:0 0 12px;} ul{margin:0 0 12px;padding-left:22px;} li{margin:0 0 7px;}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.88em;background:#f1f5f9;padding:1px 6px;border-radius:4px;color:#0b4f6c;}
+  .def{background:#e9f7f5;border:1px solid #bfe6e1;border-radius:10px;padding:14px 18px;margin:14px 0;}
+  .quote{background:#f8fafc;border-left:4px solid var(--accent);padding:10px 16px;margin:12px 0;font-style:italic;color:#374151;}
+  .warn{background:var(--warn-soft);border:1px solid #f0c987;border-left:4px solid var(--warn);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:.92rem;}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 9px;border-radius:999px;background:#e0f2f1;color:var(--accent-deep);margin-left:6px;}
+  .ships{font-size:12px;color:var(--muted);font-weight:600;}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.92rem;}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;}
+  th{background:#f1f5f9;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <h1>Duplicate Signup Handling — Design</h1>
+  <p class="meta"><strong>Date:</strong> 2026-06-12 &nbsp;·&nbsp; <strong>Status:</strong> Approved (design) &nbsp;·&nbsp; <strong>Repos:</strong> LDAH-Int (Part 1), LDAH_W2 + App (Part 2)</p>
+
+  <h2>Problem</h2>
+  <p>Families occasionally sign up for the same event/date more than once (Lauren Vigil had two <code>confirmed</code> records for the June 17 Parent Talk Cafe, each firing its own confirmation email). Nobody — family or staff — usually notices until someone spots the same name twice. Staff have no clean way to remove the extra without the Cancel &amp; Reschedule modal emailing the family, who don't even know they were in twice. This has happened before and will again.</p>
+  <p><strong>Goal:</strong> (1) help staff <strong>catch and silently remove</strong> duplicates, and (2) <strong>warn</strong> people at the public form before they create one. Prevention is best-effort; staff-side removal is the real backstop.</p>
+
+  <h2>Canonical duplicate definition</h2>
+  <div class="def">
+    <p style="margin:0 0 8px"><strong>Same person + same event + at least one overlapping ACTIVE date.</strong></p>
+    <ul style="margin:0">
+      <li><strong>Same person</strong> = same <code>email</code> (case-insensitive), <code>linkedContactId</code> as secondary match.</li>
+      <li><strong>Overlapping active date</strong> = a date appears in two records' active dates. A date is active if not cancelled (<code>dateStatusOverrides[date]==='cancelled'</code> or doc <code>status==='cancelled'</code> excluded).</li>
+      <li><strong>NOT duplicates:</strong> one signup choosing several dates (<code>["June 10","June 24"]</code>); two signups for <em>different</em> dates; same person across <em>different</em> events.</li>
+    </ul>
+  </div>
+  <p>Shared by Part 1 &amp; Part 2 so they never disagree — implemented once as a pure helper (<code>findDuplicateDateOverlap()</code> / <code>datesOverlap()</code>).</p>
+
+  <h2>Part 1 — LDAH-Int: detect &amp; silently remove <span class="pill">ships first</span></h2>
+  <h3>Detection (client-side)</h3>
+  <p>In the event's signup list / Event Attendance view, group the already-loaded signups by person and apply the definition. No backend, no new function, no triggers. Records in an overlap get a <strong>"Duplicate" badge</strong>.</p>
+  <h3>Resolve action</h3>
+  <p>Clicking the badge opens a modal showing the involved records <strong>side by side</strong> with the <strong>recommended keeper pre-selected</strong>:</p>
+  <ul>
+    <li>Keep the record with <strong>attendance</strong> or <strong>feedback</strong>; else the <strong>earliest</strong> signup.</li>
+    <li><strong>Warn</strong> if the record proposed for removal holds <strong>unique data the keeper lacks</strong> — so staff never silently lose history.</li>
+  </ul>
+  <p>Staff confirm; staff may override which is removed.</p>
+  <h3>Removal mechanism</h3>
+  <ul>
+    <li><strong>Hard-delete</strong> the chosen doc from <code>events/{eventId}/signups/{signupId}</code> — the only <strong>guaranteed-silent</strong> path (there is <code>onEventSignupCreated</code> and <code>onEventSignupUpdated</code> with five email handlers, but <strong>no delete trigger</strong>, so a delete fires nothing).</li>
+    <li>Write an <strong>Audit Log</strong> entry (<code>performedBy</code> = current user): <em>"Removed duplicate signup — Lauren Vigil / lmays8933@… — June 17 Parent Talk Cafe — kept Tzfd…, removed zWnC…"</em> — a permanent record even though the doc is gone.</li>
+    <li><strong>Recompute</strong> that event's <code>signupCount</code>/<code>pendingCount</code> from remaining signups (currently stale, e.g. 9/9 vs 3 real).</li>
+  </ul>
+  <h3>Permissions</h3>
+  <p>superAdmin + admin (same gate as the Audit Log).</p>
+
+  <h2>Part 2 — Prevention at the public form <span class="pill">ships second</span></h2>
+  <h3>Where</h3>
+  <p>Both signup implementations (they drift): <strong>W2</strong> (<code>events.html</code>, vanilla JS) and the <strong>App</strong> (React). Same check in both.</p>
+  <h3>When / behavior — warn but allow</h3>
+  <p>Once email + dates are entered, check the email against existing <strong>active</strong> signups for that <strong>same event</strong> and compute <strong>date overlap</strong>. On overlap, show:</p>
+  <div class="quote">"It looks like you're already signed up for <strong>June 17</strong>. You can still submit if you meant to."</div>
+  <p>Lists only the overlapping date(s). They can proceed anyway; new dates unaffected. <strong>No hard block, no silent drop.</strong></p>
+  <div class="warn"><strong>By design:</strong> the form only knows the typed email, so prevention catches same-person re-submits but not someone using a different email — which is why Part 1 exists.</div>
+
+  <h2>Edge cases</h2>
+  <ul>
+    <li><strong>Multi-date:</strong> one signup with several dates is one signup; only cross-record overlap counts; cancelled dates excluded.</li>
+    <li><strong>Recurring events:</strong> <code>recurringEvents/{eventId}/signups/…</code>; same helper, same silent delete.</li>
+    <li><strong>3+ copies:</strong> modal handles N — keep one, remove the rest.</li>
+    <li><strong>Different-email duplicate:</strong> not auto-detected (acceptable); staff can still remove manually by name.</li>
+    <li><strong>Removed copy had attendance/feedback:</strong> warned before confirm. (Future: merge history onto keeper — out of scope.)</li>
+  </ul>
+
+  <h2>Out of scope (v1)</h2>
+  <ul>
+    <li>Backend scheduled scan + global dashboard "duplicates to review" roll-up (possible later).</li>
+    <li>Auto-merging attendance/feedback from removed copy onto keeper.</li>
+    <li>Hard-block / silent de-dupe at the form.</li>
+  </ul>
+
+  <h2>Testing</h2>
+  <ul>
+    <li>Unit-test <code>datesOverlap</code>/<code>findDuplicateDateOverlap</code>: identical → flag; disjoint → no flag; partial → flag; cancelled excluded.</li>
+    <li>Manual on STAGE: 2-record same-date dup → badge → modal recommends correct keeper → confirm → doc deleted, <strong>no email</strong> (verify Email Log), audit written, counts fixed.</li>
+    <li>Prevention on STAGE: email already registered for a date → warning for that date only; submit-anyway works; brand-new date → no warning.</li>
+  </ul>
+</div></div>
+</body>
+</html>
