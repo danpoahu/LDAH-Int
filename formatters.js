@@ -107,7 +107,7 @@
   // Override keys may be composite ("DATE|loc|time") or the bare date, so we
   // match by equality or substring either direction.
   function activeSignupDates(signup) {
-    if (!signup || signup.status === 'cancelled') return [];
+    if (!signup || signup.status === 'cancelled' || signup.archived === true || signup.displaced === true) return [];
     var dates = Array.isArray(signup.selectedDates) ? signup.selectedDates.slice()
               : (signup.signupDates != null ? [].concat(signup.signupDates) : []);
     var ov = signup.dateStatusOverrides || {};

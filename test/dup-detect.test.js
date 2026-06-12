@@ -48,6 +48,18 @@ test('cancelled doc excluded from overlap', () => {
   assert.equal(g.length, 0);
 });
 
+test('archived signup excluded from duplicates', () => {
+  const g = findDuplicateGroups([
+    { id: 'a', email: 'x@x.com', selectedDates: [D], status: 'confirmed' },
+    { id: 'b', email: 'x@x.com', selectedDates: [D], status: 'pending', archived: true },
+  ]);
+  assert.equal(g.length, 0);
+});
+
+test('displaced signup excluded from active dates', () => {
+  assert.deepEqual(activeSignupDates({ selectedDates: [D], status: 'confirmed', displaced: true }), []);
+});
+
 test('date cancelled via dateStatusOverrides excluded', () => {
   const a = activeSignupDates({ selectedDates: [D10, D24], dateStatusOverrides: { [D10]: 'cancelled' } });
   assert.deepEqual(a, [D24]);
