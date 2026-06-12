@@ -99,10 +99,85 @@
     el.dataset.ldahFormatted = '1';
   }
 
+  // ---- Duplicate signup detection (pure; no DOM/Firestore) ----
+  function _normEmail(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+
+  // Active dates for a signup: [] if the doc is cancelled; otherwise its
+  // selectedDates minus any date whose dateStatusOverrides entry is 'cancelled'.
+  // Override keys may be composite ("DATE|loc|time") or the bare date, so we
+  // match by equality or substring either direction.
+  function activeSignupDates(signup) {
+    if (!signup || signup.status === 'cancelled') return [];
+    var dates = Array.isArray(signup.selectedDates) ? signup.selectedDates.slice()
+              : (signup.signupDates != null ? [].concat(signup.signupDates) : []);
+    var ov = signup.dateStatusOverrides || {};
+    var cancelledKeys = Object.keys(ov).filter(function (k) { return ov[k] === 'cancelled'; });
+    return dates.filter(function (d) {
+      var ds = String(d);
+      return !cancelledKeys.some(function (k) {
+        return k === ds || k.indexOf(ds) !== -1 || ds.indexOf(k) !== -1;
+      });
+    });
+  }
+
+  function datesOverlap(a, b) {
+    if (!a || !b) return false;
+    var setB = {}; b.forEach(function (d) { setB[String(d)] = true; });
+    return a.some(function (d) { return !!setB[String(d)]; });
+  }
+
+  // Group signups by same email + overlapping active dates (transitively).
+  // Input: array of signup objects {id, email, selectedDates, status, dateStatusOverrides}.
+  // Output: array of groups, each an array of signup ids (length >= 2).
+  function findDuplicateGroups(signups) {
+    var byEmail = {};
+    (signups || []).forEach(function (s) {
+      var e = _normEmail(s.email);
+      if (!e) return;
+      var ad = activeSignupDates(s);
+      if (!ad.length) return;
+      (byEmail[e] = byEmail[e] || []).push({ id: s.id, dates: ad });
+    });
+    var groups = [];
+    Object.keys(byEmail).forEach(function (e) {
+      var recs = byEmail[e];
+      var parent = recs.map(function (_, i) { return i; });
+      function find(i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; }
+      function union(i, j) { parent[find(i)] = find(j); }
+      for (var i = 0; i < recs.length; i++) {
+        for (var j = i + 1; j < recs.length; j++) {
+          if (datesOverlap(recs[i].dates, recs[j].dates)) union(i, j);
+        }
+      }
+      var clusters = {};
+      recs.forEach(function (r, idx) { var root = find(idx); (clusters[root] = clusters[root] || []).push(r.id); });
+      Object.keys(clusters).forEach(function (root) {
+        if (clusters[root].length >= 2) groups.push(clusters[root]);
+      });
+    });
+    return groups;
+  }
+
+  // Recommend which record to KEEP. records: [{id, hasFeedback, hasAttendance, status, timestampMs}].
+  // Keep richest (feedback > attendance > confirmed); tiebreak = earliest signup.
+  function recommendKeeper(records) {
+    function score(r) {
+      return (r.hasFeedback ? 1000 : 0) + (r.hasAttendance ? 100 : 0) + (r.status === 'confirmed' ? 10 : 0);
+    }
+    return records.slice().sort(function (a, b) {
+      var d = score(b) - score(a); if (d) return d;
+      return (a.timestampMs || 0) - (b.timestampMs || 0);
+    })[0];
+  }
+
   var api = {
     formatNameSmart: formatNameSmart,
     formatPhone: formatPhone,
-    attachFormatter: attachFormatter
+    attachFormatter: attachFormatter,
+    activeSignupDates: activeSignupDates,
+    datesOverlap: datesOverlap,
+    findDuplicateGroups: findDuplicateGroups,
+    recommendKeeper: recommendKeeper
   };
 
   global.LDAHFormat = api;
