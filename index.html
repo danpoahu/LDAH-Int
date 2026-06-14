@@ -26233,11 +26233,12 @@ window.cmsSaveAttendance = async function() {
   }
 };
 
-// After attendance is saved for a one-time event, create a "Send Recording &
-// Notes" task per session marked: the session's presenter (if set) PLUS a
-// duplicate for La'a; La'a-only when no presenter. Idempotent (won't re-create
-// or resurrect a completed task). Auto-closed by cmsRecordingSend on actual send.
+// Creates two Event Wrap-Up reminder tasks per session on attendance save —
+// (1) Rosie: send Zoom URL+password to presenter; (2) presenter/La'a: send
+// Zoom URL + PowerPoint PDF to attendees. Per-step idempotent (won't re-create
+// or resurrect a completed task).
 var _SENDRECAP_LAA_UID = 'hj6YnfnZ66Yul9mtnULRW5FTWKH3'; // La'a Salvani (LSalvani@LDAHawaii.org)
+var _SENDRECAP_ROSIE_UID = 'rorJEIUS4sX7jYgzqORK8G7iPdM2'; // Rosie Rowe (rrowe@LDAHawaii.org)
 window.cmsCreateSendRecapTasks = async function(eventId, eventTitle, updates) {
   try {
     // Distinct session keys marked this save. null sessionDate -> '_single' to
@@ -26258,36 +26259,57 @@ window.cmsCreateSendRecapTasks = async function(eventId, eventTitle, updates) {
       var presUid = (ss && ss.presenterUid) || (ev.summary && ev.summary.presenterUid) || '';
       var presName = (ss && ss.presenter) || (ev.summary && ev.summary.presenter) || '';
 
-      // Existing sendRecap tasks for this event+session (uses the existing
-      // workflowEventId+workflowStep+workflowSessionKey composite index).
-      var existing = await db.collection('interactions')
-        .where('workflowEventId', '==', eventId)
-        .where('workflowStep', '==', 'sendRecap')
-        .where('workflowSessionKey', '==', key).get();
-      var have = {};
-      existing.forEach(function(x){ var o = x.data().ownerUid; if (o) have[o] = true; });
+      var label = _rsEventSessionLabel(ev, key);
 
-      var label = isSingle ? '' : (' (' + key + ')');
-      var mk = function(ownerUid, ownerName) {
-        return {
-          channel: 'Event Wrap-Up', interactionType: 'Send Recording',
-          contactId: '', contactName: (eventTitle || 'Event') + label, contactType: '', grantProgram: '',
-          summary: 'Send recording & notes to all signups — ' + (eventTitle || 'Event') + label,
-          notes: 'After the session, send the Zoom recording and notes to everyone who signed up. Use the button to open the recording sender.',
+      // ---- Task 1: Rosie — send Zoom Meeting URL + password to the presenter ----
+      var _zSnap = await db.collection('interactions')
+        .where('workflowEventId', '==', eventId)
+        .where('workflowStep', '==', 'sendZoomLink')
+        .where('workflowSessionKey', '==', key).get();
+      var _haveZoom = false;
+      _zSnap.forEach(function(x){ if ((x.data().ownerUid || '') === _SENDRECAP_ROSIE_UID) _haveZoom = true; });
+      if (!_haveZoom) {
+        await db.collection('interactions').add({
+          channel: 'Event Wrap-Up', interactionType: 'Send Zoom Link',
+          contactId: '', contactName: label, contactType: '', grantProgram: '',
+          summary: 'Send out Zoom Meeting URL and password — ' + (presName || 'the presenter'),
+          notes: 'Send the Zoom Meeting URL and password to the presenter (' + (presName || 'TBD') + ') for ' + label + '.',
           followUpDate: today, status: 'Open', isDraft: false,
-          owner: ownerName || '', ownerUid: ownerUid,
+          owner: 'Rosie Rowe', ownerUid: _SENDRECAP_ROSIE_UID,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
           createdBy: 'System', createdByUid: 'system',
           workflowEventId: eventId, workflowEventCollection: 'events',
-          workflowEventTitle: eventTitle || 'Event',
-          workflowStep: 'sendRecap', workflowSessionKey: key
-        };
-      };
-      // La'a always gets a copy.
-      if (!have[_SENDRECAP_LAA_UID]) await db.collection('interactions').add(mk(_SENDRECAP_LAA_UID, 'La\'a Salvani'));
-      // Presenter gets their own copy too (unless they ARE La'a, or none is set).
-      if (presUid && presUid !== _SENDRECAP_LAA_UID && !have[presUid]) await db.collection('interactions').add(mk(presUid, presName));
+          workflowEventTitle: eventTitle,
+          workflowStep: 'sendZoomLink', workflowSessionKey: key
+        });
+      }
+
+      // ---- Task 2: Presenter (fallback La'a) — send Zoom URL + PowerPoint PDF to attendees ----
+      var _slideUid  = presUid  || _SENDRECAP_LAA_UID;
+      var _slideName = presName || "La'a Salvani";
+      var _sSnap = await db.collection('interactions')
+        .where('workflowEventId', '==', eventId)
+        .where('workflowStep', '==', 'sendSlides')
+        .where('workflowSessionKey', '==', key).get();
+      var _haveSlides = false;
+      _sSnap.forEach(function(x){ if ((x.data().ownerUid || '') === _slideUid) _haveSlides = true; });
+      if (!_haveSlides) {
+        await db.collection('interactions').add({
+          channel: 'Event Wrap-Up', interactionType: 'Send Slides',
+          contactId: '', contactName: label, contactType: '', grantProgram: '',
+          summary: 'Send out Zoom URL and PowerPoint PDF — ' + label,
+          notes: 'Send the Zoom URL and attach the PowerPoint PDF to everyone who signed up for ' + label + '.',
+          followUpDate: today, status: 'Open', isDraft: false,
+          owner: _slideName, ownerUid: _slideUid,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdBy: 'System', createdByUid: 'system',
+          workflowEventId: eventId, workflowEventCollection: 'events',
+          workflowEventTitle: eventTitle,
+          workflowStep: 'sendSlides', workflowSessionKey: key
+        });
+      }
     }
   } catch (err) { console.warn('cmsCreateSendRecapTasks:', err && err.message); }
 };
