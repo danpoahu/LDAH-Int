@@ -4700,7 +4700,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v139.1.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v139.1.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27474,6 +27474,9 @@ window.cmsOpenRecordingForDate = async function(eventId, title, sessionDate) {
 };
 
 window.cmsOpenRecordingModal = async function() {
+  // v138.x: accumulating multi-file picker — reset on every open so each open
+  // starts empty (native input replaces; this array accumulates across picks).
+  window._cmsRecFiles = [];
   var esd = _cmsEventSummaryData;
   var md  = _cmsSignupsModalData;
   var sessionDate = esd.selectedSessionDate || null;
@@ -27684,6 +27687,7 @@ window.cmsOpenRecordingModal = async function() {
 window.cmsCloseRecordingModal = function() {
   document.getElementById('cmsRecordingOverlay').classList.remove('active');
   _cmsRecordingUpload = null;
+  window._cmsRecFiles = [];
 };
 
 window.cmsRecipientsToggleAll = function(checked, audience) {
@@ -27695,43 +27699,51 @@ window.cmsRecipientsToggleAll = function(checked, audience) {
 };
 
 window.cmsRecOnPdfSelect = function(input) {
-  // v138.x: multi-file (PDF + JPG). Validate each <= 10 MB, combined <= 20 MB,
-  // and each must be PDF or JPEG. Any failure clears the whole selection.
-  var info = document.getElementById('cmsRecPdfInfo');
-  info.style.color = '#64748B';
-  var files = input.files;
-  if (!files || !files.length) { info.textContent = ''; return; }
-  var total = 0;
-  for (var i = 0; i < files.length; i++) {
-    var f = files[i];
+  // v138.x: multi-file (PDF + JPG) ACCUMULATING picker. The native input replaces
+  // its selection each time, so we ADD newly-picked files to window._cmsRecFiles
+  // (skipping invalid / oversized / duplicate / over-total), then clear the input
+  // so the same file can be re-picked and the native "N files" text resets.
+  if (!window._cmsRecFiles) window._cmsRecFiles = [];
+  var picked = input && input.files ? Array.prototype.slice.call(input.files) : [];
+  var MAXEACH = 10 * 1024 * 1024, MAXTOTAL = 20 * 1024 * 1024;
+  for (var i = 0; i < picked.length; i++) {
+    var f = picked[i];
     var isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
     var isJpg = f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name);
-    if (!isPdf && !isJpg) {
-      _showToast('"' + f.name + '" is not a PDF or JPG. Only PDF or JPG files are accepted.', '#DC2626');
-      info.style.color = '#DC2626'; info.textContent = 'Invalid file type -- selection cleared.';
-      input.value = ''; return;
-    }
-    if (f.size > 10 * 1024 * 1024) {
-      _showToast('"' + f.name + '" is ' + (f.size / (1024 * 1024)).toFixed(1) + ' MB -- each file must be under 10 MB.', '#DC2626');
-      info.style.color = '#DC2626'; info.textContent = 'File too large -- selection cleared.';
-      input.value = ''; return;
-    }
-    total += f.size;
+    if (!isPdf && !isJpg) { _showToast('"' + f.name + '" is not a PDF or JPG. Only PDF or JPG files are accepted.', '#DC2626'); continue; }
+    if (f.size > MAXEACH) { _showToast('"' + f.name + '" is over 10 MB.', '#DC2626'); continue; }
+    // de-dupe by name+size+lastModified
+    var dup = _cmsRecFiles.some(function(x) { return x.name === f.name && x.size === f.size && x.lastModified === f.lastModified; });
+    if (dup) { continue; }
+    // total cap check (accumulated)
+    var curTotal = _cmsRecFiles.reduce(function(s, x) { return s + x.size; }, 0);
+    if (curTotal + f.size > MAXTOTAL) { _showToast('Adding "' + f.name + '" would exceed the 20 MB total. Remove a file first.', '#DC2626'); continue; }
+    _cmsRecFiles.push(f);
   }
-  if (total > 20 * 1024 * 1024) {
-    _showToast('Files total ' + (total / (1024 * 1024)).toFixed(1) + ' MB -- combined must be under 20 MB.', '#DC2626');
-    info.style.color = '#DC2626'; info.textContent = 'Combined size too large -- selection cleared.';
-    input.value = ''; return;
-  }
-  var names = [];
-  for (var j = 0; j < files.length; j++) { names.push(files[j].name); }
-  var totalMb = (total / (1024 * 1024)).toFixed(2);
-  if (files.length === 1) {
-    info.textContent = names[0] + ' (' + totalMb + ' MB)';
-  } else {
-    info.textContent = files.length + ' files (' + totalMb + ' MB total): ' + names.join(', ');
-  }
-  if (total > 18 * 1024 * 1024) { info.style.color = '#D97706'; info.textContent += ' -- large attachments, may bounce for some recipients.'; }
+  if (input) input.value = '';   // allow re-picking the same file + reset native "N files" text
+  cmsRecRenderFileList();
+};
+
+window.cmsRecRenderFileList = function() {
+  var box = document.getElementById('cmsRecPdfInfo');
+  if (!box) return;
+  if (!window._cmsRecFiles) window._cmsRecFiles = [];
+  if (!_cmsRecFiles.length) { box.innerHTML = ''; return; }
+  var total = _cmsRecFiles.reduce(function(s, x) { return s + x.size; }, 0);
+  var rows = _cmsRecFiles.map(function(f, i) {
+    var mb = (f.size / 1048576).toFixed(2);
+    return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.8rem;">'
+      + '<span style="flex:1;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + rsEscape(f.name) + '</span>'
+      + '<span style="color:#94A3B8;">' + mb + ' MB</span>'
+      + '<button type="button" onclick="cmsRecRemoveFile(' + i + ')" title="Remove" style="border:none;background:#FEE2E2;color:#B91C1C;border-radius:5px;width:20px;height:20px;line-height:1;cursor:pointer;font-weight:700;">&times;</button>'
+      + '</div>';
+  }).join('');
+  box.innerHTML = rows + '<div style="margin-top:3px;font-size:.76rem;color:' + (total > 18 * 1048576 ? '#B45309' : '#64748B') + ';">' + _cmsRecFiles.length + ' file' + (_cmsRecFiles.length === 1 ? '' : 's') + ' · ' + (total / 1048576).toFixed(2) + ' MB total</div>';
+};
+
+window.cmsRecRemoveFile = function(i) {
+  if (!window._cmsRecFiles) return;
+  if (i >= 0 && i < _cmsRecFiles.length) { _cmsRecFiles.splice(i, 1); cmsRecRenderFileList(); }
 };
 
 window.cmsRecordingSend = async function() {
@@ -27760,8 +27772,9 @@ window.cmsRecordingSend = async function() {
   var body = bodyEl ? bodyEl.value.trim() : '';
   var recordingUrl = document.getElementById('cmsRecUrl').value.trim();
   var passcode = document.getElementById('cmsRecPasscode').value.trim();
-  var pdfInput = document.getElementById('cmsRecPdf');
-  var selFiles = pdfInput.files && pdfInput.files.length ? pdfInput.files : null;
+  // v138.x: files now come from the accumulating list, NOT the native input
+  // (the input only ever holds the last pick). 0 files => link-only send.
+  var selFiles = (window._cmsRecFiles && _cmsRecFiles.length) ? _cmsRecFiles : null;
 
   if (hasAttendedRecip) {
     if (!subject) { _showToast('Subject is required for attendees.', '#DC2626'); return; }
@@ -27876,6 +27889,7 @@ window.cmsRecordingSend = async function() {
         await _rcBatch.commit();
       }
     } catch (_rcErr) { console.warn('sendRecap auto-close:', _rcErr && _rcErr.message); }
+    window._cmsRecFiles = []; // reset accumulator on successful send (modal closes anyway)
     cmsCloseRecordingModal();
 
     // Refresh the Event Summary card so the button flips to "Sent ... Resend individually"
