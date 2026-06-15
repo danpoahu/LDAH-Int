@@ -4700,7 +4700,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v139.0.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v139.1.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27620,8 +27620,8 @@ window.cmsOpenRecordingModal = async function() {
   h += '</div>';
 
   h += '<div style="margin-bottom:14px;">';
-  h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Slides PDF <span style="color:#94A3B8;font-weight:400;">(optional, under 10 MB, PDF only)</span></label>';
-  h += '<input type="file" id="cmsRecPdf" accept="application/pdf,.pdf" onchange="cmsRecOnPdfSelect(this)" style="font-size:.84rem;">';
+  h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Slides / Handouts <span style="color:#94A3B8;font-weight:400;">(optional -- PDF or JPG, up to 10 MB each / 20 MB total)</span></label>';
+  h += '<input type="file" id="cmsRecPdf" multiple accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg" onchange="cmsRecOnPdfSelect(this)" style="font-size:.84rem;">';
   h += '<div id="cmsRecPdfInfo" style="margin-top:4px;font-size:.78rem;color:#64748B;"></div>';
   h += '</div>';
 
@@ -27674,6 +27674,10 @@ window.cmsOpenRecordingModal = async function() {
     nextSessionsBlurb: nextBlurb || '',
     hasAttendees: attendees.length > 0,
     hasNoShows: noShows.length > 0,
+    // v138.x: was this session already sent to either audience? Used to gate the
+    // "Resend to ALL" confirm + force flag in cmsRecordingSend. Read straight from
+    // the already-loaded recordingEmailSent[sessionKey] entry (no extra Firestore read).
+    alreadySent: !!(priorAttended || priorNoShow),
   };
 };
 
@@ -27691,21 +27695,43 @@ window.cmsRecipientsToggleAll = function(checked, audience) {
 };
 
 window.cmsRecOnPdfSelect = function(input) {
+  // v138.x: multi-file (PDF + JPG). Validate each <= 10 MB, combined <= 20 MB,
+  // and each must be PDF or JPEG. Any failure clears the whole selection.
   var info = document.getElementById('cmsRecPdfInfo');
   info.style.color = '#64748B';
-  if (!input.files || !input.files[0]) { info.textContent = ''; return; }
-  var f = input.files[0];
-  var mb = f.size / (1024 * 1024);
-  if (f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)) {
-    info.style.color = '#DC2626'; info.textContent = 'Only PDF files are accepted.';
+  var files = input.files;
+  if (!files || !files.length) { info.textContent = ''; return; }
+  var total = 0;
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    var isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+    var isJpg = f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name);
+    if (!isPdf && !isJpg) {
+      _showToast('"' + f.name + '" is not a PDF or JPG. Only PDF or JPG files are accepted.', '#DC2626');
+      info.style.color = '#DC2626'; info.textContent = 'Invalid file type -- selection cleared.';
+      input.value = ''; return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      _showToast('"' + f.name + '" is ' + (f.size / (1024 * 1024)).toFixed(1) + ' MB -- each file must be under 10 MB.', '#DC2626');
+      info.style.color = '#DC2626'; info.textContent = 'File too large -- selection cleared.';
+      input.value = ''; return;
+    }
+    total += f.size;
+  }
+  if (total > 20 * 1024 * 1024) {
+    _showToast('Files total ' + (total / (1024 * 1024)).toFixed(1) + ' MB -- combined must be under 20 MB.', '#DC2626');
+    info.style.color = '#DC2626'; info.textContent = 'Combined size too large -- selection cleared.';
     input.value = ''; return;
   }
-  if (f.size > 10 * 1024 * 1024) {
-    info.style.color = '#DC2626'; info.textContent = 'File is ' + mb.toFixed(1) + ' MB -- must be under 10 MB.';
-    input.value = ''; return;
+  var names = [];
+  for (var j = 0; j < files.length; j++) { names.push(files[j].name); }
+  var totalMb = (total / (1024 * 1024)).toFixed(2);
+  if (files.length === 1) {
+    info.textContent = names[0] + ' (' + totalMb + ' MB)';
+  } else {
+    info.textContent = files.length + ' files (' + totalMb + ' MB total): ' + names.join(', ');
   }
-  info.textContent = f.name + ' (' + mb.toFixed(2) + ' MB)';
-  if (f.size > 8 * 1024 * 1024) { info.style.color = '#D97706'; info.textContent += ' -- large attachment, may bounce for some recipients.'; }
+  if (total > 18 * 1024 * 1024) { info.style.color = '#D97706'; info.textContent += ' -- large attachments, may bounce for some recipients.'; }
 };
 
 window.cmsRecordingSend = async function() {
@@ -27735,39 +27761,60 @@ window.cmsRecordingSend = async function() {
   var recordingUrl = document.getElementById('cmsRecUrl').value.trim();
   var passcode = document.getElementById('cmsRecPasscode').value.trim();
   var pdfInput = document.getElementById('cmsRecPdf');
-  var pdfFile = pdfInput.files && pdfInput.files[0] ? pdfInput.files[0] : null;
+  var selFiles = pdfInput.files && pdfInput.files.length ? pdfInput.files : null;
 
   if (hasAttendedRecip) {
     if (!subject) { _showToast('Subject is required for attendees.', '#DC2626'); return; }
     if (!body) { _showToast('Message body is required for attendees.', '#DC2626'); return; }
   }
-  // Both the Zoom recording link AND the slides PDF are MANDATORY — the whole
-  // point of this email is to deliver them, and the default body tells the
-  // family both are included. (v138.1.7: was a skippable confirm; 19 LL emails
-  // went out empty on 6/10 because it could be clicked through.)
+  // The Zoom recording link is MANDATORY — the whole point of this email is to
+  // deliver it, and the default body tells the family it is included. (v138.1.7:
+  // was a skippable confirm; 19 LL emails went out empty on 6/10.) Files (slides /
+  // handouts) are now OPTIONAL and multiple — 0 files sends the link only.
   if (!recordingUrl) {
     _showToast('Zoom recording link is required.', '#DC2626'); return;
   }
   if (!/^https?:\/\//i.test(recordingUrl)) {
     _showToast('Recording URL must start with https://', '#DC2626'); return;
   }
-  if (!pdfFile) {
-    _showToast('Slides PDF is required — attach it before sending.', '#DC2626'); return;
+
+  // v138.x: if this session was already sent, require a deliberate Resend
+  // confirmation and pass force=true so the CF bypasses its per-recipient skip.
+  var force = false;
+  if (ctx.alreadySent) {
+    if (!confirm("This session's recording was already sent. Resend to ALL selected recipients with the current link and files?")) return;
+    force = true;
   }
 
   var btn = document.getElementById('cmsRecordingSendBtn');
   btn.disabled = true; btn.textContent = 'Uploading...';
 
   try {
-    var pdfStoragePath = null;
-    var pdfDownloadUrl = null;
-    if (pdfFile) {
-      var safeName = pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    // v138.x: upload 0..N files (PDF + JPG). Re-validate size limits here
+    // (defense in depth) before uploading anything.
+    var filesPayload = [];
+    if (selFiles) {
+      var totalBytes = 0;
+      for (var vi = 0; vi < selFiles.length; vi++) {
+        if (selFiles[vi].size > 10 * 1024 * 1024) {
+          throw new Error('"' + selFiles[vi].name + '" is over 10 MB.');
+        }
+        totalBytes += selFiles[vi].size;
+      }
+      if (totalBytes > 20 * 1024 * 1024) {
+        throw new Error('Attached files total over 20 MB.');
+      }
       var ts = Date.now();
-      pdfStoragePath = 'recordings/' + ctx.eventId + '/' + ctx.sessionKey + '/' + ts + '_' + safeName;
-      var ref = firebase.storage().ref(pdfStoragePath);
-      await ref.put(pdfFile, { contentType: 'application/pdf' });
-      pdfDownloadUrl = await ref.getDownloadURL();
+      for (var i = 0; i < selFiles.length; i++) {
+        var file = selFiles[i];
+        var ct = file.type === 'image/jpeg' || /\.jpe?g$/i.test(file.name) ? 'image/jpeg' : 'application/pdf';
+        var safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        var storagePath = 'recordings/' + ctx.eventId + '/' + ctx.sessionKey + '/' + ts + '_' + i + '_' + safeName;
+        var ref = firebase.storage().ref(storagePath);
+        await ref.put(file, { contentType: ct });
+        var downloadUrl = await ref.getDownloadURL();
+        filesPayload.push({ storagePath: storagePath, downloadUrl: downloadUrl, fileName: file.name, contentType: ct });
+      }
     }
 
     btn.textContent = 'Sending...';
@@ -27781,9 +27828,8 @@ window.cmsRecordingSend = async function() {
       body: body,
       recordingUrl: recordingUrl || '',
       passcode: passcode || '',
-      pdfStoragePath: pdfStoragePath,
-      pdfDownloadUrl: pdfDownloadUrl,
-      pdfFileName: pdfFile ? pdfFile.name : '',
+      files: filesPayload,
+      force: force,
       recipients: recipients,
       nextSessionsBlurb: ctx.nextSessionsBlurb || '',
     };
@@ -27796,14 +27842,27 @@ window.cmsRecordingSend = async function() {
     var result = await resp.json();
     if (!resp.ok || !result.success) throw new Error(result.error || 'Send failed');
 
-    var sa = result.sentAttended || 0;
-    var sn = result.sentNoShow || 0;
-    var summaryParts = [];
-    if (sa > 0) summaryParts.push(sa + ' attendee' + (sa === 1 ? '' : 's'));
-    if (sn > 0) summaryParts.push(sn + ' no-show' + (sn === 1 ? '' : 's'));
-    var summary = summaryParts.length ? summaryParts.join(' + ') : (result.sent + ' recipient' + (result.sent === 1 ? '' : 's'));
+    // v138.x: honest toast. A 0-send is NOT a success — don't close the modal,
+    // don't auto-close the task, don't flip the card to "Sent".
+    var sa = result.sentAttended || 0, sn = result.sentNoShow || 0;
+    var sent = result.sent || (sa + sn);
+    if (sent === 0) {
+      if ((result.skippedDuplicate || 0) > 0) {
+        _showToast('No emails sent -- all ' + result.skippedDuplicate + ' recipient(s) already received it. Use Resend (confirm) to force.', '#D97706'); // amber
+      } else {
+        _showToast('No emails sent.', '#DC2626'); // red
+      }
+      btn.disabled = false; btn.textContent = 'Send';
+      return;
+    }
+    var parts = [];
+    if (sa > 0) parts.push(sa + ' attendee' + (sa === 1 ? '' : 's'));
+    if (sn > 0) parts.push(sn + ' no-show' + (sn === 1 ? '' : 's'));
+    var summary = parts.length ? parts.join(' + ') : (sent + ' recipient' + (sent === 1 ? '' : 's'));
     auditLog('Sent recording & slides', ctx.eventTitle + ' (' + ctx.sessionKey + ') -- ' + summary + (result.failed ? ', ' + result.failed + ' failed' : ''));
-    _showToast('Sent to ' + summary + '.', '#16A34A');
+    var msg = 'Sent to ' + summary + '.';
+    if (result.attachSkippedForSize) msg += ' (Some files were too large to attach -- download links included.)';
+    _showToast(msg, '#16A34A');
     // Auto-close any open "Send Recording & Notes" tasks for this event+session.
     // ctx.sessionKey matches the task's workflowSessionKey (signupDate | '_single').
     try {
