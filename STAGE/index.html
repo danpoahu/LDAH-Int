@@ -4511,7 +4511,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v134.0.0 — Case advocacy on interactions: toggle + advocate picker spawns a 3-month follow-up task owned by the advocate
+    STAGE · LDAH-Int v139.0.0 — Zoom/Slides wrap-up tasks + Resource Update Review task (deep-link + auto-close)
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v138.1.8-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v139.0.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5049,6 +5049,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if(nav)nav.click();
               setTimeout(function(){ if(typeof window.cmsOpenResourceModal==='function')window.cmsOpenResourceModal(d.workflowEventId); }, 400);
             };
+            // Resource Update Review task -> open the "Review Resource Update"
+            // (approval) modal for that resource. cmsOpenResourceApprovalModal reads
+            // from the in-memory _cmsResources list, so switch to the Resources
+            // section FIRST to populate it, then open a tick later — same pattern as
+            // myDayOpenResource above.
+            window.myDayOpenResourceReview = function(id){
+              var d=(window._myDayDocs||{})[id];
+              if(!d||!d.workflowEventId){ _showToast('Resource not found.', '#DC2626'); return; }
+              var nav=document.querySelector('[data-section="cmsResources"]');
+              if(nav)nav.click();
+              setTimeout(function(){
+                if(typeof window.cmsOpenResourceApprovalModal==='function') window.cmsOpenResourceApprovalModal(d.workflowEventId);
+                else _showToast('Resource review unavailable.', '#DC2626');
+              }, 400);
+            };
             // Registration Assist task -> open the participant's contact card
             // (shows phone + their pending registration). openContactDetail opens
             // a top-level overlay, so it works straight from My Day.
@@ -5302,6 +5317,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0d9488;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenRecap(\''+d._id+'\')">Send Recording &amp; Notes &rarr;</button>';
                         else if(d.workflowEventId&&d.workflowStep==='resourceUpdateCall')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenResource(\''+d._id+'\')">Open Resource &rarr;</button>';
+                        else if(d.workflowEventCollection==='resources'&&d.workflowStep==='resourceUpdateReview')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0d9488;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenResourceReview(\''+d._id+'\')">Review update &rarr;</button>';
                         else if(d.workflowEventId&&d.workflowStep==='registrationAssist'&&(d.workflowContactId||d.contactId))
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenContact(\''+d._id+'\')">Open Contact &rarr;</button>';
                         // Photo Release guardrail tasks (gated on photoReleaseId).
@@ -21364,6 +21381,21 @@ window.cmsOpenResourceApprovalModal = async function(docId) {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       };
       await db.collection('resources').doc(docId).update(update);
+      // Auto-close any open "Resource Update Review" tasks for this resource.
+      try {
+        var _ruSnap = await db.collection('interactions').where('workflowEventId', '==', docId).get();
+        if(!_ruSnap.empty){
+          var _ruBatch = db.batch(); var _ruN = 0;
+          _ruSnap.forEach(function(x){
+            var v = x.data();
+            if(v.workflowStep === 'resourceUpdateReview' && (v.status || '') !== 'Closed'){
+              _ruBatch.update(x.ref, { status:'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+              _ruN++;
+            }
+          });
+          if(_ruN) await _ruBatch.commit();
+        }
+      } catch(e){ if(typeof console!=='undefined') console.error('resourceUpdateReview auto-close', e); }
       try { auditLog('Resource update approved', (newVals.name || resource.name || '') + (changedFields.length ? ' — fields: ' + changedFields.join(', ') : ' — no field changes')); } catch(_){}
       _showToast('Update approved.', '#16A34A');
       close();
@@ -21384,6 +21416,21 @@ window.cmsOpenResourceApprovalModal = async function(docId) {
         pendingUpdate: null,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
+      // Auto-close any open "Resource Update Review" tasks for this resource.
+      try {
+        var _ruSnap = await db.collection('interactions').where('workflowEventId', '==', docId).get();
+        if(!_ruSnap.empty){
+          var _ruBatch = db.batch(); var _ruN = 0;
+          _ruSnap.forEach(function(x){
+            var v = x.data();
+            if(v.workflowStep === 'resourceUpdateReview' && (v.status || '') !== 'Closed'){
+              _ruBatch.update(x.ref, { status:'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+              _ruN++;
+            }
+          });
+          if(_ruN) await _ruBatch.commit();
+        }
+      } catch(e){ if(typeof console!=='undefined') console.error('resourceUpdateReview auto-close', e); }
       try { auditLog('Resource update rejected', resource.name || ''); } catch(_){}
       _showToast('Update rejected.', '#DC2626');
       close();
@@ -26239,11 +26286,12 @@ window.cmsSaveAttendance = async function() {
   }
 };
 
-// After attendance is saved for a one-time event, create a "Send Recording &
-// Notes" task per session marked: the session's presenter (if set) PLUS a
-// duplicate for La'a; La'a-only when no presenter. Idempotent (won't re-create
-// or resurrect a completed task). Auto-closed by cmsRecordingSend on actual send.
+// Creates two Event Wrap-Up reminder tasks per session on attendance save —
+// (1) Rosie: send Zoom URL+password to presenter; (2) presenter/La'a: send
+// Zoom URL + PowerPoint PDF to attendees. Per-step idempotent (won't re-create
+// or resurrect a completed task).
 var _SENDRECAP_LAA_UID = 'hj6YnfnZ66Yul9mtnULRW5FTWKH3'; // La'a Salvani (LSalvani@LDAHawaii.org)
+var _SENDRECAP_ROSIE_UID = 'rorJEIUS4sX7jYgzqORK8G7iPdM2'; // Rosie Rowe (rrowe@LDAHawaii.org)
 window.cmsCreateSendRecapTasks = async function(eventId, eventTitle, updates) {
   try {
     // Distinct session keys marked this save. null sessionDate -> '_single' to
@@ -26264,36 +26312,62 @@ window.cmsCreateSendRecapTasks = async function(eventId, eventTitle, updates) {
       var presUid = (ss && ss.presenterUid) || (ev.summary && ev.summary.presenterUid) || '';
       var presName = (ss && ss.presenter) || (ev.summary && ev.summary.presenter) || '';
 
-      // Existing sendRecap tasks for this event+session (uses the existing
-      // workflowEventId+workflowStep+workflowSessionKey composite index).
-      var existing = await db.collection('interactions')
-        .where('workflowEventId', '==', eventId)
-        .where('workflowStep', '==', 'sendRecap')
-        .where('workflowSessionKey', '==', key).get();
-      var have = {};
-      existing.forEach(function(x){ var o = x.data().ownerUid; if (o) have[o] = true; });
+      // Two pure-reminder tasks per session; staff close them manually.
+      // (The recording-sender auto-close at cmsRecordingSend is intentionally NOT extended to these steps.)
+      var label = _rsEventSessionLabel(ev, key);
 
-      var label = isSingle ? '' : (' (' + key + ')');
-      var mk = function(ownerUid, ownerName) {
-        return {
-          channel: 'Event Wrap-Up', interactionType: 'Send Recording',
-          contactId: '', contactName: (eventTitle || 'Event') + label, contactType: '', grantProgram: '',
-          summary: 'Send recording & notes to all signups — ' + (eventTitle || 'Event') + label,
-          notes: 'After the session, send the Zoom recording and notes to everyone who signed up. Use the button to open the recording sender.',
+      // ---- Task 1: Rosie — send Zoom Meeting URL + password to the presenter ----
+      var _zSnap = await db.collection('interactions')
+        .where('workflowEventId', '==', eventId)
+        .where('workflowStep', '==', 'sendZoomLink')
+        .where('workflowSessionKey', '==', key).get();
+      var _haveZoom = false;
+      _zSnap.forEach(function(x){ if ((x.data().ownerUid || '') === _SENDRECAP_ROSIE_UID) _haveZoom = true; });
+      if (!_haveZoom) {
+        await db.collection('interactions').add({
+          channel: 'Event Wrap-Up', interactionType: 'Send Zoom Link',
+          contactId: '', contactName: label, contactType: '', grantProgram: '',
+          summary: 'Send out Zoom Meeting URL and password — ' + (presName || 'the presenter'),
+          notes: 'Send the Zoom Meeting URL and password to the presenter (' + (presName || 'TBD') + ') for ' + label + '.',
           followUpDate: today, status: 'Open', isDraft: false,
-          owner: ownerName || '', ownerUid: ownerUid,
+          owner: 'Rosie Rowe', ownerUid: _SENDRECAP_ROSIE_UID,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
           createdBy: 'System', createdByUid: 'system',
           workflowEventId: eventId, workflowEventCollection: 'events',
           workflowEventTitle: eventTitle || 'Event',
-          workflowStep: 'sendRecap', workflowSessionKey: key
-        };
-      };
-      // La'a always gets a copy.
-      if (!have[_SENDRECAP_LAA_UID]) await db.collection('interactions').add(mk(_SENDRECAP_LAA_UID, 'La\'a Salvani'));
-      // Presenter gets their own copy too (unless they ARE La'a, or none is set).
-      if (presUid && presUid !== _SENDRECAP_LAA_UID && !have[presUid]) await db.collection('interactions').add(mk(presUid, presName));
+          workflowStep: 'sendZoomLink', workflowSessionKey: key
+        });
+      }
+
+      // ---- Task 2: Presenter (fallback La'a) — send Zoom URL + PowerPoint PDF to attendees ----
+      // Note: if attendance was first saved with no presenter (La'a-owned sendSlides created) and a
+      // presenter is later assigned and attendance re-saved, a second presenter-owned sendSlides is
+      // created and the earlier La'a-owned one is left Open (known, accepted — matches prior behavior).
+      var _slideUid  = presUid  || _SENDRECAP_LAA_UID;
+      var _slideName = presName || "La'a Salvani";
+      var _sSnap = await db.collection('interactions')
+        .where('workflowEventId', '==', eventId)
+        .where('workflowStep', '==', 'sendSlides')
+        .where('workflowSessionKey', '==', key).get();
+      var _haveSlides = false;
+      _sSnap.forEach(function(x){ if ((x.data().ownerUid || '') === _slideUid) _haveSlides = true; });
+      if (!_haveSlides) {
+        await db.collection('interactions').add({
+          channel: 'Event Wrap-Up', interactionType: 'Send Slides',
+          contactId: '', contactName: label, contactType: '', grantProgram: '',
+          summary: 'Send out Zoom URL and PowerPoint PDF — ' + label,
+          notes: 'Send the Zoom URL and attach the PowerPoint PDF to everyone who signed up for ' + label + '.',
+          followUpDate: today, status: 'Open', isDraft: false,
+          owner: _slideName, ownerUid: _slideUid,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdBy: 'System', createdByUid: 'system',
+          workflowEventId: eventId, workflowEventCollection: 'events',
+          workflowEventTitle: eventTitle || 'Event',
+          workflowStep: 'sendSlides', workflowSessionKey: key
+        });
+      }
     }
   } catch (err) { console.warn('cmsCreateSendRecapTasks:', err && err.message); }
 };
@@ -31796,6 +31870,33 @@ var _emailLogTypeColors = {
   'resource-update-nudge': '#F59E0B',
   'unknown': '#64748B'
 };
+
+// ── Event-session label helpers ────────────────────────────────
+// Return the ordinal suffix string for an integer (e.g. 10 → "10th").
+function _rsOrdinal(n){
+  var s = ['th','st','nd','rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+// Build a human-readable task label for a specific session of an event,
+// e.g. "Learning Labs June 10th Navigating Transitions".
+// ev   – the event document (needs .title, optionally .signupDates/.eventDate)
+// key  – the session key string (composite "June 10, 2026 - Topic - time") or
+//        '_single' / falsy for one-shot events.
+function _rsEventSessionLabel(ev, key){
+  ev = ev || {};
+  var title = (ev.title || 'Event').trim();
+  var isSingle = (!key || key === '_single');
+  var series = title.indexOf(':') >= 0 ? title.slice(0, title.indexOf(':')).trim() : title;
+  var dateSource = isSingle ? ((ev.signupDates && ev.signupDates[0]) || ev.eventDate || '') : key;
+  var d = (typeof _rsParseSessionDate === 'function') ? _rsParseSessionDate(dateSource) : null;
+  if (!d || isNaN(d.getTime())) return title + (isSingle ? '' : ' (' + key + ')');
+  var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var formattedDate = MONTHS[d.getMonth()] + ' ' + _rsOrdinal(d.getDate());
+  var src = (typeof dateSource === 'string') ? dateSource : '';
+  var parts = src.split(' - ');
+  var topic = parts.length >= 3 ? parts[1].trim() : '';
+  return series + ' ' + formattedDate + (topic ? ' ' + topic : '');
+}
 
 // ── Reminder Schedule ──────────────────────────────────────────
 // Parse a date-like value (string or Firestore Timestamp) to a local
