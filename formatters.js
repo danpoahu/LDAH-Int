@@ -170,6 +170,49 @@
     })[0];
   }
 
+  // ── Event Summary helpers ──────────────────────────────────────────────
+  // Attendance-total + demographic override rows. The form used to re-save
+  // these numbers on every save, which froze the then-current auto value as a
+  // permanent override (e.g. New Parent saved as 0 before attendance was
+  // marked, then shown as "0 (override)" once auto became 2). These helpers
+  // make a row persist an override ONLY when it truly differs from auto, so
+  // rows otherwise keep tracking the live auto value.
+
+  // Returns the number to store, or null meaning "no override — track auto".
+  function esOverrideToPersist(inputVal, autoVal) {
+    if (inputVal === '' || inputVal == null) return null;
+    var n = parseInt(inputVal, 10);
+    if (isNaN(n)) return null;
+    return (n === autoVal) ? null : n;
+  }
+
+  // Display value + whether it's a real override. Saved number wins; otherwise auto.
+  function esResolveOverride(savedVal, autoVal) {
+    if (typeof savedVal === 'number') return { value: savedVal, overridden: savedVal !== autoVal };
+    return { value: autoVal, overridden: false };
+  }
+
+  function normalizeEmail(email) {
+    return String(email == null ? '' : email).trim().toLowerCase();
+  }
+
+  // Dedup-safe contact lookup by email. Blank email never matches (avoids the
+  // duplicate-contact problem that has bitten enrichment).
+  function findContactByEmail(contacts, email) {
+    var e = normalizeEmail(email);
+    if (!e || !Array.isArray(contacts)) return null;
+    for (var i = 0; i < contacts.length; i++) {
+      if (normalizeEmail(contacts[i] && contacts[i].email) === e) return contacts[i];
+    }
+    return null;
+  }
+
+  // Attendance Total = explicit override if set, else signups-attended + walk-ins.
+  function resolveAttendanceTotal(signupsAttended, manualCount, override) {
+    if (typeof override === 'number') return override;
+    return (signupsAttended || 0) + (manualCount || 0);
+  }
+
   var api = {
     formatNameSmart: formatNameSmart,
     formatPhone: formatPhone,
@@ -177,7 +220,12 @@
     activeSignupDates: activeSignupDates,
     datesOverlap: datesOverlap,
     findDuplicateGroups: findDuplicateGroups,
-    recommendKeeper: recommendKeeper
+    recommendKeeper: recommendKeeper,
+    esOverrideToPersist: esOverrideToPersist,
+    esResolveOverride: esResolveOverride,
+    normalizeEmail: normalizeEmail,
+    findContactByEmail: findContactByEmail,
+    resolveAttendanceTotal: resolveAttendanceTotal
   };
 
   global.LDAHFormat = api;
