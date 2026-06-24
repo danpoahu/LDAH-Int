@@ -4511,7 +4511,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 <body class="with-stage-banner">
 
   <div id="stageBanner">
-    STAGE · LDAH-Int v139.1.1 — Recording sender: accumulating multi-file list (add several, remove with ×)
+    STAGE · LDAH-Int v140.0.0 — Event Summary: walk-in attendees (auto-logged to Contacts) + editable Attendance Total; override rows start at the auto number
     <a href="../index.html">switch to live</a>
   </div>
 
@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v139.1.1-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v140.0.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -26773,46 +26773,84 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
       : reg.militaryStatus;
     if (milNorm === 'Active Duty') attMilitaryActiveAuto++;
   });
-  // Override-aware display values (number override wins; otherwise auto)
-  var _attNewParentDisp        = (typeof _attSummary.newParentCount === 'number')                ? _attSummary.newParentCount                : attNewParentAuto;
-  var _attEvalDisp             = (typeof _attSummary.evaluationCount === 'number')               ? _attSummary.evaluationCount               : attEvalAuto;
-  var _attParentReturningDisp  = (typeof _attSummary.attendanceParentReturning === 'number')     ? _attSummary.attendanceParentReturning     : attParentReturningAuto;
-  var _attYouthWDDisp          = (typeof _attSummary.attendanceYouthWithDisability === 'number') ? _attSummary.attendanceYouthWithDisability : attYouthWithDisabilityAuto;
-  var _attProfOtherDisp        = (typeof _attSummary.attendanceProfessionalOther === 'number')   ? _attSummary.attendanceProfessionalOther   : attProfessionalOtherAuto;
-  var _attProfOtherSpecifyDisp = (typeof _attSummary.attendanceProfessionalOtherSpecify === 'string') ? _attSummary.attendanceProfessionalOtherSpecify : '';
-  var _attMilitaryActiveDisp   = (typeof _attSummary.attendanceMilitaryActiveDuty === 'number')  ? _attSummary.attendanceMilitaryActiveDuty  : attMilitaryActiveAuto;
-  function _attHint(autoVal, savedVal) {
-    var overridden = (typeof savedVal === 'number') && savedVal !== autoVal;
-    if (overridden) {
-      return '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:#9A3412;">Auto: ' + autoVal + ' (override)</span>';
-    }
-    return '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:var(--text-soft);">Auto: ' + autoVal + '</span>';
+  // Walk-in / manual attendees: working list lives on _cmsEventSummaryData so
+  // add/remove can mutate it without a full modal re-render (which would lose
+  // unsaved edits to presenter/comments/etc.). Fresh from saved each render.
+  _cmsEventSummaryData.manualAttendees = Array.isArray(_attSummary.manualAttendees)
+    ? _attSummary.manualAttendees.map(function(a){ return { name: (a && a.name) || '', email: (a && a.email) || '', contactId: (a && a.contactId) || '', interactionLogged: !!(a && a.interactionLogged) }; })
+    : [];
+  var _manualCount = _cmsEventSummaryData.manualAttendees.length;
+  var attTotalAuto2 = totalAttended + _manualCount; // auto = signups attended + walk-ins
+
+  // Stash autos so the save handler decides override-vs-auto without recomputing.
+  _cmsEventSummaryData.autos = {
+    attTotal: attTotalAuto2, signupsAttended: totalAttended,
+    newParent: attNewParentAuto, parentReturning: attParentReturningAuto,
+    youthWD: attYouthWithDisabilityAuto, profOther: attProfessionalOtherAuto,
+    militaryActive: attMilitaryActiveAuto
+  };
+
+  // Intentional overrides live in attendanceOverrides; a row only starts at a
+  // non-auto value when the staffer deliberately set one. Legacy flat fields
+  // are IGNORED for display, so stale frozen values (the pre-fix bug) revert to
+  // the live auto number. Helpers/tests in formatters.js.
+  var _ovs = _attSummary.attendanceOverrides || {};
+  var _F = (typeof LDAHFormat !== 'undefined') ? LDAHFormat : null;
+  function _esRes(key, autoVal) {
+    if (_F) return _F.esResolveOverride(_ovs[key], autoVal);
+    var v = _ovs[key];
+    return (typeof v === 'number') ? { value: v, overridden: v !== autoVal } : { value: autoVal, overridden: false };
   }
+  // Hint span (id'd so cmsEsResetRow / cmsRecalcAttTotal can rebuild it). The
+  // reset button lives INSIDE the span so rebuilding clears it.
+  function _attHintR(inputId, autoVal, res) {
+    var btn = res.overridden ? ' <button type="button" onclick="cmsEsResetRow(\'' + inputId + '\',' + autoVal + ')" title="Reset to the auto number" style="margin-left:6px;font-size:.68rem;padding:2px 7px;border:1px solid #FBCFE8;background:#fff;border-radius:6px;color:#9A3412;cursor:pointer;">&#8635; auto</button>' : '';
+    return '<span id="esHint_' + inputId + '" style="display:inline-block;margin-left:8px;font-size:.7rem;color:' + (res.overridden ? '#9A3412' : 'var(--text-soft)') + ';">Auto: ' + autoVal + (res.overridden ? ' (override)' : '') + btn + '</span>';
+  }
+  var _attProfOtherSpecifyDisp = (typeof _attSummary.attendanceProfessionalOtherSpecify === 'string') ? _attSummary.attendanceProfessionalOtherSpecify : '';
+  var _rTot = _esRes('attTotal', attTotalAuto2);
+  var _rNP  = _esRes('newParent', attNewParentAuto);
+  var _rPR  = _esRes('parentReturning', attParentReturningAuto);
+  var _rYD  = _esRes('youthWD', attYouthWithDisabilityAuto);
+  var _rPO  = _esRes('profOther', attProfessionalOtherAuto);
+  var _rMA  = _esRes('militaryActive', attMilitaryActiveAuto);
+  var _numStyle = 'width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;';
+
   html += '<div class="es-section-title" style="margin-top:14px;">Attendance Totals <span style="font-size:.74rem;font-weight:500;color:var(--text-soft);">(matches pink sheet)</span></div>';
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.88rem;background:#FFF7FA;border:1px solid #FCE7F3;border-radius:8px;overflow:hidden;">';
-  // Row 1 — Attendance Total (read-only)
+  // Row 1 — Attendance Total (editable; auto = signups attended + walk-ins)
   html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;width:55%;">Attendance Total</td>';
-  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;font-weight:700;color:#0f172a;font-size:1rem;">' + attTotalAuto + '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:var(--text-soft);font-weight:500;">auto</span></td></tr>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttTotal" min="0" value="' + _rTot.value + '" data-auto="' + attTotalAuto2 + '" style="' + _numStyle + '">' + _attHintR('esAttTotal', attTotalAuto2, _rTot) + '</td></tr>';
   // Row 2 — Evaluation Total (read-only)
   html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Evaluation Total</td>';
   html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;font-weight:700;color:#0f172a;font-size:1rem;">' + attEvalAuto + '<span style="display:inline-block;margin-left:8px;font-size:.7rem;color:var(--text-soft);font-weight:500;">auto</span></td></tr>';
   // Row 3 — New Parent Total (auto + override)
   html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">New Parent Total</td>';
-  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esNewParentCount" min="0" value="' + _attNewParentDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attNewParentAuto, _attSummary.newParentCount) + '</td></tr>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esNewParentCount" min="0" value="' + _rNP.value + '" style="' + _numStyle + '">' + _attHintR('esNewParentCount', attNewParentAuto, _rNP) + '</td></tr>';
   // Row 4 — Parent (returning)
   html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Parent (returning)</td>';
-  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttParentReturning" min="0" value="' + _attParentReturningDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attParentReturningAuto, _attSummary.attendanceParentReturning) + '</td></tr>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttParentReturning" min="0" value="' + _rPR.value + '" style="' + _numStyle + '">' + _attHintR('esAttParentReturning', attParentReturningAuto, _rPR) + '</td></tr>';
   // Row 5 — Youth with Disability
   html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Youth with Disability</td>';
-  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttYouthWithDisability" min="0" value="' + _attYouthWDDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attYouthWithDisabilityAuto, _attSummary.attendanceYouthWithDisability) + '</td></tr>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttYouthWithDisability" min="0" value="' + _rYD.value + '" style="' + _numStyle + '">' + _attHintR('esAttYouthWithDisability', attYouthWithDisabilityAuto, _rYD) + '</td></tr>';
   // Row 6 — Professional/Other (specify)
   html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;">Professional/Other <span style="font-weight:400;color:var(--text-soft);font-size:.78rem;">(specify)</span></td>';
   html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="text" id="esAttProfOtherSpecify" placeholder="specify…" value="' + rsEscape(_attProfOtherSpecifyDisp) + '" style="width:160px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;margin-right:6px;">';
-  html += '<input type="number" id="esAttProfOther" min="0" value="' + _attProfOtherDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attProfessionalOtherAuto, _attSummary.attendanceProfessionalOther) + '</td></tr>';
+  html += '<input type="number" id="esAttProfOther" min="0" value="' + _rPO.value + '" style="' + _numStyle + '">' + _attHintR('esAttProfOther', attProfessionalOtherAuto, _rPO) + '</td></tr>';
   // Row 7 — Military Active Duty
   html += '<tr><td style="padding:8px 12px;font-weight:600;color:#475569;">Military Active Duty</td>';
-  html += '<td style="padding:8px 12px;text-align:right;"><input type="number" id="esAttMilitaryActive" min="0" value="' + _attMilitaryActiveDisp + '" style="width:80px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;text-align:right;">' + _attHint(attMilitaryActiveAuto, _attSummary.attendanceMilitaryActiveDuty) + '</td></tr>';
+  html += '<td style="padding:8px 12px;text-align:right;"><input type="number" id="esAttMilitaryActive" min="0" value="' + _rMA.value + '" style="' + _numStyle + '">' + _attHintR('esAttMilitaryActive', attMilitaryActiveAuto, _rMA) + '</td></tr>';
   html += '</table>';
+
+  // ── Walk-in / Manual Attendees ─────────────────────────────────────────
+  html += '<div class="es-section-title" style="margin-top:14px;">Walk-in / Manual Attendees</div>';
+  html += '<div style="font-size:.8rem;color:var(--text-soft);margin-bottom:8px;line-height:1.45;">For attendees who did not sign up (e.g., Parent Talk Cafe). Each one counts toward the Attendance Total. If you enter a name and email, they are added to Contacts on save (or this event is logged on an existing contact).</div>';
+  html += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">';
+  html += '<input type="text" id="esManualName" placeholder="Name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();cmsAddManualAttendee();}" style="flex:1;min-width:140px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;">';
+  html += '<input type="email" id="esManualEmail" placeholder="Email (optional)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();cmsAddManualAttendee();}" style="flex:1;min-width:160px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;">';
+  html += '<button type="button" onclick="cmsAddManualAttendee()" style="padding:6px 16px;border:none;background:#0EA5E9;color:#fff;border-radius:6px;font-size:.88rem;font-weight:600;cursor:pointer;">Add</button>';
+  html += '</div>';
+  html += '<div id="esManualList" style="margin-bottom:16px;">' + cmsManualAttendeeListHtml() + '</div>';
 
   // Source attribution: where did the signups come from?
   var fromAnnouncement = active.filter(function(s) { return s.signupSource === 'announcement-email'; }).length;
@@ -27207,6 +27245,79 @@ window.cmsTogglePresenterOther = function() {
   wrap.style.display = (sel.value === '__other__') ? 'block' : 'none';
 };
 
+// ── Walk-in / manual attendee list (Event Summary) ──────────────────────
+window.cmsManualAttendeeListHtml = function() {
+  var list = (_cmsEventSummaryData && _cmsEventSummaryData.manualAttendees) || [];
+  if (!list.length) return '<div style="font-size:.82rem;color:var(--text-soft);font-style:italic;">No walk-ins added.</div>';
+  var h = '<div style="display:flex;flex-direction:column;gap:6px;">';
+  list.forEach(function(a, i) {
+    var emailTxt = a.email ? rsEscape(a.email) : '<span style="color:#9CA3AF;">(no email)</span>';
+    var badge = a.interactionLogged ? '<span title="Saved to contacts" style="margin-left:6px;font-size:.68rem;color:#166534;">&#10003; contact</span>' : '';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:#fff;border:1px solid #FCE7F3;border-radius:6px;">';
+    h += '<div style="font-size:.86rem;"><strong>' + rsEscape(a.name || '') + '</strong> <span style="color:var(--text-soft);">' + emailTxt + '</span>' + badge + '</div>';
+    h += '<button type="button" onclick="cmsRemoveManualAttendee(' + i + ')" title="Remove" style="border:none;background:transparent;color:#DC2626;font-size:1.1rem;cursor:pointer;line-height:1;">&times;</button>';
+    h += '</div>';
+  });
+  h += '</div>';
+  return h;
+};
+window.cmsRenderManualAttendees = function() {
+  var el = document.getElementById('esManualList');
+  if (el) el.innerHTML = cmsManualAttendeeListHtml();
+  cmsRecalcAttTotal();
+};
+window.cmsAddManualAttendee = function() {
+  var nameEl = document.getElementById('esManualName');
+  var emailEl = document.getElementById('esManualEmail');
+  var name = nameEl ? nameEl.value.trim() : '';
+  var email = emailEl ? emailEl.value.trim() : '';
+  if (!name) {
+    if (typeof _showToast === 'function') _showToast('Enter a name to add a walk-in.', '#DC2626'); else alert('Enter a name.');
+    return;
+  }
+  if (!_cmsEventSummaryData.manualAttendees) _cmsEventSummaryData.manualAttendees = [];
+  _cmsEventSummaryData.manualAttendees.push({ name: name, email: email, contactId: '', interactionLogged: false });
+  if (nameEl) nameEl.value = '';
+  if (emailEl) emailEl.value = '';
+  cmsRenderManualAttendees();
+  if (nameEl) nameEl.focus();
+};
+window.cmsRemoveManualAttendee = function(i) {
+  var list = (_cmsEventSummaryData && _cmsEventSummaryData.manualAttendees) || [];
+  if (i >= 0 && i < list.length) list.splice(i, 1);
+  cmsRenderManualAttendees();
+};
+// Recompute the editable Attendance Total when walk-ins change. If the field
+// still equals the old auto (not overridden), follow the new auto; otherwise
+// leave the staffer's override and just refresh the hint.
+window.cmsRecalcAttTotal = function() {
+  var d = _cmsEventSummaryData; if (!d) return;
+  var signups = (d.autos && typeof d.autos.signupsAttended === 'number') ? d.autos.signupsAttended : 0;
+  var newAuto = signups + ((d.manualAttendees || []).length);
+  var el = document.getElementById('esAttTotal');
+  if (!el) return;
+  var prevAuto = parseInt(el.getAttribute('data-auto'), 10);
+  if (!isNaN(prevAuto) && String(el.value) === String(prevAuto)) el.value = String(newAuto);
+  el.setAttribute('data-auto', String(newAuto));
+  if (d.autos) d.autos.attTotal = newAuto;
+  var overridden = String(el.value) !== String(newAuto);
+  var hintEl = document.getElementById('esHint_esAttTotal');
+  if (hintEl) {
+    hintEl.style.color = overridden ? '#9A3412' : 'var(--text-soft)';
+    hintEl.innerHTML = 'Auto: ' + newAuto + (overridden ? ' (override)' : '')
+      + (overridden ? ' <button type="button" onclick="cmsEsResetRow(\'esAttTotal\',' + newAuto + ')" title="Reset to the auto number" style="margin-left:6px;font-size:.68rem;padding:2px 7px;border:1px solid #FBCFE8;background:#fff;border-radius:6px;color:#9A3412;cursor:pointer;">&#8635; auto</button>' : '');
+  }
+};
+// Reset one override row back to its auto value (clears the override on save).
+window.cmsEsResetRow = function(inputId, autoVal) {
+  var el = document.getElementById(inputId);
+  if (!el) return;
+  el.value = String(autoVal);
+  if (inputId === 'esAttTotal') el.setAttribute('data-auto', String(autoVal));
+  var hintEl = document.getElementById('esHint_' + inputId);
+  if (hintEl) { hintEl.style.color = 'var(--text-soft)'; hintEl.innerHTML = 'Auto: ' + autoVal; }
+};
+
 window.cmsSaveEventSummary = async function() {
   var d = _cmsEventSummaryData;
   var collection = d.collection;
@@ -27214,23 +27325,50 @@ window.cmsSaveEventSummary = async function() {
   var isRecurring = d.isRecurring;
   var sessionDate = d.selectedSessionDate;
 
-  var newParentCount = parseInt(document.getElementById('esNewParentCount').value) || 0;
-  // Evaluation Total is now read-only in the Attendance Totals sub-section;
-  // it always tracks live feedback count. We still persist it for legacy
-  // readers (CSV export, daily report, etc.) that look at summary.evaluationCount.
+  // Attendance Totals rows: only persist an override when it DIFFERS from auto
+  // (otherwise the row keeps tracking the live auto value — fixes the old
+  // "frozen 0" bug). Intentional overrides go in attendanceOverrides; the flat
+  // fields keep being written as the RESOLVED value for legacy readers
+  // (CSV export, daily report). Autos were stashed by the render.
+  var _autos = (d.autos) || {};
+  var _F2 = (typeof LDAHFormat !== 'undefined') ? LDAHFormat : null;
+  var manualAttendees = (d.manualAttendees || []);
+  var _manualCount = manualAttendees.length;
+  var _signupsAttended = (typeof _autos.signupsAttended === 'number') ? _autos.signupsAttended : 0;
+  var _attTotalAutoSave = _signupsAttended + _manualCount;
+  function _ovInt(id, autoVal) {
+    var el = document.getElementById(id);
+    var raw = el ? el.value : '';
+    if (_F2) return _F2.esOverrideToPersist(raw, autoVal);
+    if (raw === '' || raw == null) return null;
+    var n = parseInt(raw, 10);
+    return (isNaN(n) || n === autoVal) ? null : n;
+  }
+  var attendanceOverrides = {};
+  function _resolveRow(id, autoVal, key) {
+    var ov = _ovInt(id, autoVal);
+    if (ov !== null) attendanceOverrides[key] = ov;
+    return (ov !== null) ? ov : autoVal; // resolved flat value for legacy readers
+  }
+  var newParentCount                = _resolveRow('esNewParentCount', (_autos.newParent || 0), 'newParent');
+  var attendanceParentReturning     = _resolveRow('esAttParentReturning', (_autos.parentReturning || 0), 'parentReturning');
+  var attendanceYouthWithDisability = _resolveRow('esAttYouthWithDisability', (_autos.youthWD || 0), 'youthWD');
+  var attendanceProfessionalOther   = _resolveRow('esAttProfOther', (_autos.profOther || 0), 'profOther');
+  var attendanceMilitaryActiveDuty  = _resolveRow('esAttMilitaryActive', (_autos.militaryActive || 0), 'militaryActive');
+  var _attTotalOverride = _ovInt('esAttTotal', _attTotalAutoSave);
+  if (_attTotalOverride !== null) attendanceOverrides.attTotal = _attTotalOverride;
+  var attendanceTotalResolved = _F2
+    ? _F2.resolveAttendanceTotal(_signupsAttended, _manualCount, _attTotalOverride)
+    : (_attTotalOverride !== null ? _attTotalOverride : _attTotalAutoSave);
+
+  // Evaluation Total is read-only; it always tracks live feedback count. Still
+  // persisted for legacy readers (CSV export, daily report) reading evaluationCount.
   var evaluationCount = ((_cmsEventSummaryData && _cmsEventSummaryData.feedbackDocs) ? _cmsEventSummaryData.feedbackDocs.length : 0);
   var tierModel = document.getElementById('esTierModel').value;
   var followUpParents = parseInt(document.getElementById('esFollowUpParents').value) || 0;
   var followUpProfessionals = parseInt(document.getElementById('esFollowUpProfessionals').value) || 0;
-  // New Attendance Totals override fields (auto values used as defaults on
-  // first save; staff can override any row except read-only rows 1+2).
-  var _qInt = function(id) { var el = document.getElementById(id); return el ? (parseInt(el.value) || 0) : 0; };
   var _qStr = function(id) { var el = document.getElementById(id); return el ? String(el.value || '') : ''; };
-  var attendanceParentReturning      = _qInt('esAttParentReturning');
-  var attendanceYouthWithDisability  = _qInt('esAttYouthWithDisability');
-  var attendanceProfessionalOther    = _qInt('esAttProfOther');
   var attendanceProfessionalOtherSpecify = _qStr('esAttProfOtherSpecify');
-  var attendanceMilitaryActiveDuty   = _qInt('esAttMilitaryActive');
 
   // Phase 1 fields
   var _presenterSel = document.getElementById('esPresenter');
@@ -27304,6 +27442,71 @@ window.cmsSaveEventSummary = async function() {
     }
   }
 
+  // ── Walk-in contact integration ───────────────────────────────────────
+  // For walk-ins with name + email: match an existing contact by email
+  // (dedup-safe) and log this event as an interaction; otherwise create the
+  // contact, then log it. Idempotent via per-entry interactionLogged. Runs
+  // before the summary write so contactId/interactionLogged persist with it.
+  // Never blocks the save.
+  var _eventTitle = (_cmsSignupsModalData && _cmsSignupsModalData.eventTitle) || (evDoc && evDoc.title) || 'Event';
+  var _ixDateSuffix = sessionDate ? (' on ' + sessionDate) : '';
+  for (var _mi = 0; _mi < manualAttendees.length; _mi++) {
+    var _a = manualAttendees[_mi];
+    if (!_a || !_a.name || !_a.email || _a.interactionLogged) continue;
+    try {
+      var _cid = _a.contactId || '';
+      if (!_cid) {
+        var _existing = _F2 ? _F2.findContactByEmail((typeof _allContacts !== 'undefined' ? _allContacts : []), _a.email) : null;
+        if (!_existing) {
+          // Cache miss fallback — query Firestore so we don't create a duplicate.
+          try {
+            var _q = await db.collection('contacts').where('email', '==', _a.email).limit(1).get();
+            if (!_q.empty) _existing = Object.assign({ id: _q.docs[0].id }, _q.docs[0].data());
+          } catch (e) { /* non-fatal */ }
+        }
+        if (_existing) {
+          _cid = _existing.id;
+        } else {
+          var _cRef = await db.collection('contacts').add({
+            displayName: _a.name,
+            email: _a.email,
+            type: 'Parent/Guardian',
+            createdBy: (currentUserData && currentUserData.uid) || '',
+            createdByName: (currentUserData && currentUserData.displayName) || '',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            source: 'event-summary-walkin'
+          });
+          _cid = _cRef.id;
+          try { if (typeof _allContacts !== 'undefined' && Array.isArray(_allContacts)) _allContacts.push({ id: _cid, displayName: _a.name, email: _a.email, type: 'Parent/Guardian' }); } catch (e) {}
+        }
+      }
+      await db.collection('interactions').add({
+        channel: 'Event',
+        interactionType: 'Event Attendance',
+        contactId: _cid,
+        contactName: _a.name,
+        contactType: 'Parent/Guardian',
+        summary: 'Attended ' + _eventTitle + _ixDateSuffix,
+        status: 'Closed',
+        notes: 'Walk-in attendee recorded from the Event Summary.',
+        relatedEventId: eventId,
+        sessionDate: sessionDate || '',
+        owner: (currentUserData && currentUserData.displayName) || 'Unknown',
+        ownerUid: (currentUserData && currentUserData.uid) || '',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        source: 'event-summary-walkin'
+      });
+      _a.contactId = _cid;
+      _a.interactionLogged = true;
+    } catch (e) {
+      console.error('Walk-in contact/interaction failed for ' + (_a && _a.email) + ':', e);
+    }
+  }
+  // Strip to plain stored shape (no stray keys) for the summary doc.
+  var _manualToStore = manualAttendees.map(function(a) {
+    return { name: a.name || '', email: a.email || '', contactId: a.contactId || '', interactionLogged: !!a.interactionLogged };
+  });
+
   var summaryData = {
     newParentCount: newParentCount,
     evaluationCount: evaluationCount,
@@ -27324,6 +27527,12 @@ window.cmsSaveEventSummary = async function() {
     attendanceProfessionalOther: attendanceProfessionalOther,
     attendanceProfessionalOtherSpecify: attendanceProfessionalOtherSpecify,
     attendanceMilitaryActiveDuty: attendanceMilitaryActiveDuty,
+    // Intentional overrides only (rows otherwise track live auto). Display reads this.
+    attendanceOverrides: attendanceOverrides,
+    // Walk-ins (counted toward Attendance Total; contacts logged above).
+    manualAttendees: _manualToStore,
+    // Official resolved headcount = signups attended + walk-ins, or the typed override.
+    attendanceTotalResolved: attendanceTotalResolved,
     completedAt: firebase.firestore.FieldValue.serverTimestamp(),
     completedBy: (currentUserData && currentUserData.displayName) || 'Unknown'
   };
@@ -27374,8 +27583,11 @@ window.cmsSaveEventSummary = async function() {
       diffs.push('presenterComments updated');
     }
     var extraDetail = diffs.length ? '; ' + diffs.join('; ') : '';
-    auditLog('Saved event summary', logDetail + ' -- ' + totalAttended + ' attended, ' + newParentCount + ' new parents, ' + tierModel + extraDetail);
+    var _walkinDetail = _manualToStore.length ? ('; ' + _manualToStore.length + ' walk-in(s), total ' + attendanceTotalResolved) : '';
+    auditLog('Saved event summary', logDetail + ' -- ' + totalAttended + ' attended, ' + newParentCount + ' new parents, ' + tierModel + extraDetail + _walkinDetail);
     _showToast('Summary saved.', '#059669');
+    // Refresh walk-in rows so the "✓ contact" badges appear after logging.
+    if (typeof cmsRenderManualAttendees === 'function') cmsRenderManualAttendees();
   } catch (err) {
     _showToast('Error saving summary: ' + err.message, '#DC2626');
   }
