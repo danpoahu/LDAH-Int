@@ -23,8 +23,18 @@ const done = new Set(journal.ops.map(o => o.rowRef));
 
 function saveJournal() { fs.writeFileSync(JOURNAL, JSON.stringify(journal, null, 2)); }
 
+// Hawaii local date (not UTC) so the Past clamp never lands a day in the future.
+const TODAY_ISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Honolulu' });
+
 function oneOffDoc(rec, disposition) {
   const now = new Date();
+  // CMS event lifecycle dates. moveToPastDate <= today files the card under the
+  // "Past Events" section (not Active/Upcoming) and keeps it off the active KPI
+  // and dashboard calendar. removeDate is left UNSET so it stays in "Past" (not
+  // "Expired"). For the rare future-dated historical row, clamp to today so it
+  // still lands in Past. startDate mirrors eventDate for the 3-date model.
+  const evDate = rec.eventDate || TODAY_ISO;
+  const movePast = (evDate <= TODAY_ISO) ? evDate : TODAY_ISO;
   const summary = {
     presenter: '',
     presenterComments:
@@ -51,6 +61,8 @@ function oneOffDoc(rec, disposition) {
     description: rec.title || '',
     location: rec.location || '',
     eventDate: rec.eventDate || '',
+    startDate: evDate,
+    moveToPastDate: movePast,   // <= today -> CMS "Past Events" section
     isOneOff: true,
     archived: false,
     signupDates: [],
