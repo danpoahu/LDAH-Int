@@ -4701,7 +4701,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v143.0.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v144.0.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8175,6 +8175,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       <div class="ct-detail-header">
         <span id="ctDetailTitle">Contact Detail</span>
         <span id="ctDetailFeedbackPill" style="display:none;background:#16A34A;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:10px;cursor:pointer;user-select:none;" onclick="ctOpenFeedback()" title="View this contact's feedback responses">0 Feedback</span>
+        <span id="ctDetailCgPill" style="display:none;background:#0891B2;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;" title="Connect-Gen IEP/Evaluation documents retained for case advocacy">Connect-Gen Docs Retained</span>
         <button class="ct-close" onclick="closeContactDetail()">&times;</button>
       </div>
       <div class="ct-detail-body" id="ctDetailBody">
@@ -15453,7 +15454,7 @@ var _photoPendingByIsland = {};
   //   - Toggle to view the verbatim signed consent text
   //   - Session date + event title
   //   - Child info pulled from signup.registration (when present)
-  window.cmsRenderConnectGenContactBlock = async function(cg) {
+  window.cmsRenderConnectGenContactBlock = async function(cg, contactId) {
     var slot = document.getElementById('ctConnectGenBlock');
     if (!slot) return;
     if (!cg || !cg.eventId || !cg.signupId) {
@@ -15468,7 +15469,29 @@ var _photoPendingByIsland = {};
       var [sigSnap, evSnap] = await Promise.all([sigRef.get(), evRef.get()]);
       var s = sigSnap.exists ? (sigSnap.data() || {}) : null;
       var ev = evSnap.exists ? (evSnap.data() || {}) : null;
+      // v144.0.0 — top-banner pill when CG docs are RETAINED (case advocacy +
+      // files still present). Reassures staff the IEP/Eval weren't auto-destroyed.
+      var cgPill = document.getElementById('ctDetailCgPill');
+      if (cgPill) {
+        var _cgFiles = !!(s && s.connectGenDocuments && (
+          (s.connectGenDocuments.iep && s.connectGenDocuments.iep.storagePath) ||
+          (s.connectGenDocuments.evaluation && s.connectGenDocuments.evaluation.storagePath)));
+        cgPill.style.display = (s && s.connectGenDisposition === 'caseAdvocacy' && _cgFiles) ? '' : 'none';
+      }
       slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, s, ev);
+      // v144.0.0 — if the IEP/Eval were removed before disposition but this
+      // family is in case advocacy, prompt staff to re-collect + re-upload.
+      try {
+        var _destroyed = !!(s && s.connectGenDocumentsDestroyedAt && !s.connectGenDocuments);
+        if (_destroyed && contactId) {
+          var _advSnap = await db.collection('interactions').where('contactId', '==', contactId).get();
+          var _openAdv = _advSnap.docs.some(function(x) { var a = x.data() || {}; return a.interactionType === 'Case Advocacy' && a.status === 'Open'; });
+          if (_openAdv) {
+            var _val = slot.querySelector('.val');
+            if (_val) _val.innerHTML += '<div style="margin-top:10px;padding:10px 12px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;font-size:.84rem;color:#7C2D12;line-height:1.5;"><strong>Documents needed on file.</strong> The IEP and Evaluation were removed before a disposition was set, but this family is in case advocacy &mdash; please re-collect and re-upload the documents this family needs on file.</div>';
+          }
+        }
+      } catch (e) { console.warn('CG re-upload prompt check failed:', e.message); }
     } catch (err) {
       console.warn('cmsRenderConnectGenContactBlock error:', err.message);
       slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, null, null) +
@@ -15591,6 +15614,10 @@ var _photoPendingByIsland = {};
       window._ctFeedbackCache = { contactId: contactId, contactName: c.displayName || '', docs: [] };
       var pillEl = document.getElementById('ctDetailFeedbackPill');
       if (pillEl) pillEl.style.display = 'none';
+      // v144.0.0 — reset the Connect-Gen "Docs Retained" pill; shown async by
+      // cmsRenderConnectGenContactBlock once the signup state is known.
+      var cgPillReset = document.getElementById('ctDetailCgPill');
+      if (cgPillReset) cgPillReset.style.display = 'none';
       db.collection('eventFeedback').where('linkedContactId', '==', contactId).get().then(function(fSnap) {
         var docs = [];
         fSnap.forEach(function(d) { docs.push(Object.assign({ _id: d.id }, d.data() || {})); });
@@ -15800,7 +15827,7 @@ var _photoPendingByIsland = {};
       // pulls the linked signup so we can show the typed signature, child
       // info and session date alongside the consent.
       if (c.connectGenConsent && c.connectGenConsent.signedAt) {
-        cmsRenderConnectGenContactBlock(c.connectGenConsent);
+        cmsRenderConnectGenContactBlock(c.connectGenConsent, contactId);
       }
 
       // Query contactId, clientId, and signups in parallel
@@ -16366,6 +16393,30 @@ var _photoPendingByIsland = {};
   //   sourceId      — the source interaction doc id.
   //   advocateName  — chosen presenter name ('' when toggle off).
   // Returns { interactionId, uid, reassigned } or null when nothing changed.
+  // v144.0.0 — when case advocacy is assigned to a Connect-Gen family whose
+  // documents are still on file, mark the signup disposition caseAdvocacy so the
+  // 24h auto-destruct retains them (the flag the cron checks). Best-effort; never
+  // blocks the advocacy assignment. Server CF re-checks role.
+  async function _retainCgDocsForCaseAdvocacy(contactId) {
+    try {
+      if (!contactId) return;
+      var cdoc = await db.collection('contacts').doc(contactId).get();
+      var cg = cdoc.exists ? (cdoc.data().connectGenConsent || null) : null;
+      if (!cg || !cg.eventId || !cg.signupId) return;
+      var sigRef = db.collection('recurringEvents').doc(cg.eventId).collection('signups').doc(cg.signupId);
+      var sig = await sigRef.get();
+      if (!sig.exists) return;
+      var sd = sig.data() || {};
+      if (sd.connectGenDisposition) return;   // already dispositioned
+      if (!sd.connectGenDocuments) return;    // nothing to retain (destroyed/none)
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/setConnectGenDisposition', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, eventId: cg.eventId, signupId: cg.signupId, collection: 'recurringEvents', disposition: 'caseAdvocacy' })
+      });
+    } catch (e) { console.warn('retain CG docs on advocacy failed:', e.message); }
+  }
+
   window.spawnOrReassignCaseAdvocacy = async function(sourceData, sourceId, advocateName) {
     sourceData = sourceData || {};
 
@@ -16380,6 +16431,10 @@ var _photoPendingByIsland = {};
       _showToast('Attach a contact before turning on case advocacy.', '#D97706');
       return null;
     }
+
+    // v144.0.0 — retain this family's Connect-Gen docs (if any) whenever
+    // advocacy is turned on, before the 24h auto-destruct can fire.
+    await _retainCgDocsForCaseAdvocacy(sourceData.contactId);
 
     var uid = await _resolveStaffUidByName(advocateName);
     var existingId = sourceData.caseAdvocacyInteractionId || '';
