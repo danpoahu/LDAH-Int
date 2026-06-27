@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v142.0.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v143.0.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17204,6 +17204,10 @@ var _photoPendingByIsland = {};
       var role = currentUserData ? currentUserData.role : '';
       var isAdmin = (role === 'superAdmin' || role === 'admin');
       var isOwner = (d.ownerUid && currentUserData && d.ownerUid === currentUserData.uid);
+      // v143.0.0 — superAdmin/admin can edit any interaction directly, no
+      // change-request round-trip. Gated on role; honored only when requested
+      // via the read-only "Edit" button (editOpts.adminEdit).
+      if (editOpts && editOpts.adminEdit && isAdmin) { isEditMode = true; }
       var currentStatus = d.status || 'Open';
       var isLockedReview = (currentStatus === 'Needs admin review' && !isAdmin);
       var canChangeStatus = isAdmin || (isOwner && !isLockedReview) || isEditMode;
@@ -17417,7 +17421,9 @@ var _photoPendingByIsland = {};
         if (appendArea) appendArea.style.display = 'none';
         if (crStaticArea) crStaticArea.style.display = 'none';
       } else {
-        if (actionsArea) actionsArea.innerHTML = '<button onclick="closeIxView()">Close</button>';
+        if (actionsArea) actionsArea.innerHTML =
+          (isAdmin ? '<button onclick="viewInteraction(\'' + docId + '\',{adminEdit:true})" style="padding:8px 16px;border-radius:8px;border:1px solid var(--ocean-deep);background:white;color:var(--ocean-deep);cursor:pointer;font-weight:700;margin-right:8px;">&#9998; Edit</button>' : '') +
+          '<button onclick="closeIxView()">Close</button>';
         if (appendArea) appendArea.style.display = '';
         if (crStaticArea) crStaticArea.style.display = '';
       }
@@ -18154,7 +18160,7 @@ var _photoPendingByIsland = {};
       var now = new Date();
       var stamp = now.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) + ' ' +
         now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-      var auditNote = 'Edited via approved change request';
+      var auditNote = (notifDocId || crDocId) ? 'Edited via approved change request' : 'Edited directly (admin)';
       updateData.notes = existingNotes + '\n---\n[' + stamp + ' — ' + (currentUserData.displayName || '') + ']\n' + auditNote;
       updateData.lastEditedAt = firebase.firestore.FieldValue.serverTimestamp();
       updateData.lastEditedBy = currentUserData.displayName || '';
@@ -18455,6 +18461,29 @@ var _photoPendingByIsland = {};
     if (ov) ov.classList.remove('active');
   };
 
+  // v143.0.0 — restore Change-Request approved/rejected alerts in the bell. The
+  // personal "Your Notifications" category was removed 2026-06-09; these
+  // actionable CR alerts are the ONLY path to the one-time edit unlock, so they
+  // come back as their own scoped section (not the whole personal category).
+  window._fetchMyChangeRequestAlerts = async function() {
+    if (!currentUserData || !currentUserData.uid) return [];
+    try {
+      var snap = await db.collection('notifications').where('recipientUid', '==', currentUserData.uid).get();
+      var out = [];
+      snap.forEach(function(doc) {
+        var d = doc.data() || {};
+        if (d.read === true) return;
+        if (d.type !== 'cr_approved' && d.type !== 'cr_rejected') return;
+        if (d.type === 'cr_approved' && d.editUsed === true) return; // already used
+        out.push(Object.assign({ _id: doc.id }, d));
+      });
+      out.sort(function(a, b) {
+        return ((b.createdAt && b.createdAt.seconds) || 0) - ((a.createdAt && a.createdAt.seconds) || 0);
+      });
+      return out;
+    } catch (e) { console.warn('CR alerts fetch failed:', e.message); return []; }
+  };
+
   window.loadNotifications = async function() {
     var body = document.getElementById('notifListBody');
     if (!body || !currentUserData) return;
@@ -18556,7 +18585,24 @@ var _photoPendingByIsland = {};
     // removed 2026-06-09 per Daniel — the bell shows only follow-ups + Website
     // Alerts now. Assignment notifications no longer linger here when a task is
     // closed via the My Day checkbox.
-    var combined = followUpsHtml + cmsHtml;
+    // v143.0.0 — Change-Request approved/rejected alerts (actionable; tap an
+    // approved one to enter one-time edit mode on the interaction).
+    var crAlertHtml = '';
+    try {
+      var crAlerts = await _fetchMyChangeRequestAlerts();
+      if (crAlerts.length) {
+        var crItems = crAlerts.map(function(n) {
+          var extra = n.type === 'cr_approved' ? ' — tap to make your edit' : '';
+          return '<div class="notif-item" onclick="handleNotifClick(\'' + n._id + '\',\'' + n.type + '\',\'' + (n.interactionId || '') + '\',\'' + (n.changeRequestId || '') + '\')">' +
+            '<div class="notif-title">' + rsEscape(n.title || 'Change Request') + '</div>' +
+            '<div class="notif-msg">' + rsEscape(n.message || '') + extra + '</div>' +
+            '</div>';
+        }).join('');
+        crAlertHtml = '<div class="notif-cms-section-label">Change Requests</div>' + crItems;
+      }
+    } catch (e) { console.warn('CR alert render failed:', e.message); }
+
+    var combined = crAlertHtml + followUpsHtml + cmsHtml;
     if (!combined) {
       body.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:20px;">No notifications yet.</p>';
     } else {
@@ -18588,7 +18634,12 @@ var _photoPendingByIsland = {};
     try {
       // 'Your Notifications' category removed 2026-06-09 — the bell counts only
       // CMS/Website alerts + follow-ups now.
+      // v143.0.0 — count unread Change-Request approved/rejected alerts.
       var personalCount = 0;
+      try {
+        var crA = await _fetchMyChangeRequestAlerts();
+        personalCount = (crA && crA.length) || 0;
+      } catch (e) { personalCount = 0; }
 
       // Add CMS alert counts for eligible roles — filtered by current user's alertSubs
       var cmsCount = 0;
