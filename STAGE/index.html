@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v144.0.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.0.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -24259,9 +24259,9 @@ function cmsCgDocRender() {
       body.innerHTML = '<div class="cms-empty" style="padding:30px;text-align:center;color:#7C2D12;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;">' +
         '<p style="font-size:1rem;font-weight:600;margin:0 0 4px;">Documents have been destroyed.</p>' +
         '<p style="margin:0;font-size:.86rem;color:#9A3412;">Files were permanently deleted from secure storage in line with the consent agreement.</p>' +
-        '</div>';
+        '</div>' + cmsCgDocStaffUploadSection();
     } else {
-      body.innerHTML = '<div class="cms-empty" style="padding:30px;text-align:center;color:#64748B;">No documents uploaded yet.</div>';
+      body.innerHTML = '<div class="cms-empty" style="padding:30px;text-align:center;color:#64748B;">No documents uploaded yet.</div>' + cmsCgDocStaffUploadSection();
     }
     return;
   }
@@ -24270,6 +24270,7 @@ function cmsCgDocRender() {
   html += cmsCgDocRenderPanel('Individualized Education Program (IEP)', 'iep', iep);
   html += cmsCgDocRenderPanel('Evaluation / Assessment', 'evaluation', ev);
   html += '</div>';
+  html += cmsCgDocStaffUploadSection();
   body.innerHTML = html;
 
   // Resolve download URLs via the getConnectGenDocumentDownloadUrl CF.
@@ -24354,6 +24355,208 @@ function cmsCgDocRenderPanel(title, type, rec) {
     '<div id="' + slotId + '" style="margin-bottom:8px;"><div style="padding:18px;text-align:center;color:#94A3B8;font-size:.84rem;">Loading preview...</div></div>' +
     '<a id="' + linkId + '" href="#" target="_blank" rel="noopener" style="display:none;font-size:.84rem;color:#1a3c6e;font-weight:600;text-decoration:underline;">Download original file</a>' +
     '</div>';
+}
+
+/* ── Staff re-upload section (Part 2) ──
+ * Lets admin/superAdmin staff add or replace a family's IEP / Evaluation —
+ * e.g. re-collecting documents after the 24h auto-destruct. Mirrors the
+ * parent client's 3-step upload (request signed URL -> PUT bytes -> confirm),
+ * but calls the staff-authenticated CFs with a fresh idToken. The two CFs are
+ * role-gated server-side; this UI is rendered for every CG signup card so
+ * staff can re-collect even when no documents are currently on file. */
+
+// Same allowlist + cap as the Cloud Functions (CONNECT_GEN_UPLOAD_*).
+var CMS_CG_UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+var CMS_CG_UPLOAD_ALLOWED_EXT = ['.pdf', '.jpg', '.jpeg', '.png', '.heic', '.heif'];
+var CMS_CG_REQUEST_UPLOAD_URL = 'https://us-central1-ldah-932d5.cloudfunctions.net/requestStaffConnectGenUploadUrl';
+var CMS_CG_CONFIRM_UPLOAD_URL = 'https://us-central1-ldah-932d5.cloudfunctions.net/confirmStaffConnectGenUpload';
+
+function cmsCgGetFileExt(name) {
+  var n = String(name || '');
+  var idx = n.lastIndexOf('.');
+  return idx >= 0 ? n.slice(idx).toLowerCase() : '';
+}
+
+// Map a picked File to the canonical mimeType the CF expects. Browsers
+// sometimes leave file.type empty (notably HEIC/HEIF), so fall back to the
+// extension — same logic as the parent connect-gen-upload page.
+function cmsCgResolveMime(file) {
+  var t = (file && file.type ? String(file.type) : '').toLowerCase();
+  if (t === 'application/pdf' || t === 'image/jpeg' || t === 'image/png' ||
+      t === 'image/heic' || t === 'image/heif') {
+    return t;
+  }
+  var ext = cmsCgGetFileExt(file && file.name);
+  if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.heic') return 'image/heic';
+  if (ext === '.heif') return 'image/heif';
+  return '';
+}
+
+// HTML for the "Upload / Re-upload Documents" section appended to the modal
+// body. Lives inside cmsCgDocRender so it survives every re-render.
+function cmsCgDocStaffUploadSection() {
+  return '<div style="margin-top:16px;padding:14px 16px;border:1px solid #BAE6FD;border-radius:10px;background:#F0F9FF;">' +
+    '<div style="font-size:.92rem;font-weight:700;color:#0C4A6E;margin-bottom:4px;">Upload / Re-upload Documents</div>' +
+    '<div style="font-size:.8rem;color:#475569;margin-bottom:12px;line-height:1.5;">For staff use — add or replace this family\'s documents (for example, re-collecting an IEP or Evaluation after the 24-hour auto-destruct). Choose one or both files and click Upload. Replacing a document overwrites the prior copy. PDF, JPG, PNG, or HEIC. Maximum 25 MB each.</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;">' +
+      '<div style="flex:1;min-width:240px;">' +
+        '<label for="cmsCgUploadIep" style="display:block;font-size:.78rem;font-weight:600;color:#0F172A;margin-bottom:3px;">Individualized Education Program (IEP)</label>' +
+        '<input type="file" id="cmsCgUploadIep" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif" style="font-size:.82rem;width:100%;">' +
+      '</div>' +
+      '<div style="flex:1;min-width:240px;">' +
+        '<label for="cmsCgUploadEval" style="display:block;font-size:.78rem;font-weight:600;color:#0F172A;margin-bottom:3px;">Evaluation / Assessment</label>' +
+        '<input type="file" id="cmsCgUploadEval" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif" style="font-size:.82rem;width:100%;">' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
+      '<button class="btn btn-primary" id="cmsCgUploadBtn" style="font-size:.84rem;padding:6px 16px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="cmsCgDocStaffUpload()">Upload</button>' +
+      '<span id="cmsCgUploadStatus" style="font-size:.82rem;color:#475569;"></span>' +
+    '</div>' +
+    '</div>';
+}
+
+// Upload handler: validates each chosen file, then runs the 3-step staff
+// upload flow per file (request signed URL -> PUT raw bytes -> confirm).
+// On success, reloads the signup, re-renders the modal + underlying list,
+// refreshes the contact card if open, and shows a success toast.
+window.cmsCgDocStaffUpload = async function() {
+  var v = _cmsCgDocViewer;
+  if (!v || !v.signupId) { _showToast('No signup is open.', '#DC2626'); return; }
+
+  var iepEl = document.getElementById('cmsCgUploadIep');
+  var evalEl = document.getElementById('cmsCgUploadEval');
+  var statusEl = document.getElementById('cmsCgUploadStatus');
+  var btn = document.getElementById('cmsCgUploadBtn');
+  var iepFile = iepEl && iepEl.files && iepEl.files[0];
+  var evalFile = evalEl && evalEl.files && evalEl.files[0];
+
+  function setStatus(msg, color) {
+    if (statusEl) { statusEl.textContent = msg || ''; statusEl.style.color = color || '#475569'; }
+  }
+
+  if (!iepFile && !evalFile) {
+    setStatus('Choose an IEP or Evaluation file first.', '#DC2626');
+    return;
+  }
+
+  // Build the list of files to upload, validating type + size up front so we
+  // fail before touching the network.
+  var jobs = [];
+  if (iepFile) jobs.push({ type: 'iep', label: 'IEP', file: iepFile });
+  if (evalFile) jobs.push({ type: 'evaluation', label: 'Evaluation', file: evalFile });
+  for (var i = 0; i < jobs.length; i++) {
+    var j = jobs[i];
+    if (CMS_CG_UPLOAD_ALLOWED_EXT.indexOf(cmsCgGetFileExt(j.file.name)) === -1) {
+      setStatus(j.label + ' file type not allowed. Use PDF, JPG, PNG, or HEIC.', '#DC2626');
+      return;
+    }
+    if (j.file.size > CMS_CG_UPLOAD_MAX_BYTES) {
+      setStatus(j.label + ' file is larger than 25 MB. Choose a smaller file.', '#DC2626');
+      return;
+    }
+    j.mimeType = cmsCgResolveMime(j.file);
+    if (!j.mimeType) {
+      setStatus(j.label + ' file type not recognized. Use PDF, JPG, PNG, or HEIC.', '#DC2626');
+      return;
+    }
+  }
+
+  if (btn) btn.disabled = true;
+  try {
+    for (var k = 0; k < jobs.length; k++) {
+      var job = jobs[k];
+      setStatus('Uploading ' + job.label + '...', '#0369A1');
+      await cmsCgDocStaffUploadOne(job.type, job.file, job.mimeType, job.label);
+    }
+    setStatus('', '#475569');
+    _showToast('Documents uploaded.', '#16A34A');
+    // Refresh local view + underlying signups list so the new files appear.
+    await cmsCgDocReloadSignup();
+    cmsCgDocRender();
+    cmsCgDocRefreshSignupListEntry();
+    // Refresh the contact card too, if one is open behind the modal.
+    try {
+      if (window._ctCurrentContactId &&
+          document.getElementById('ctDetailOverlay') &&
+          document.getElementById('ctDetailOverlay').classList.contains('active') &&
+          typeof window.openContactDetail === 'function') {
+        window.openContactDetail(window._ctCurrentContactId);
+      }
+    } catch (_) {}
+  } catch (err) {
+    setStatus('', '#475569');
+    _showToast('Upload failed: ' + ((err && err.message) ? err.message : String(err)), '#DC2626');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+// One document, 3-step staff upload. Mirrors the parent client's PUT exactly:
+// method 'PUT', Content-Type = the file's mimeType, body = the raw File.
+async function cmsCgDocStaffUploadOne(documentType, file, mimeType, label) {
+  var v = _cmsCgDocViewer;
+  var idToken = await firebase.auth().currentUser.getIdToken();
+
+  // Step 1: request a resumable signed upload URL.
+  var reqRes = await fetch(CMS_CG_REQUEST_UPLOAD_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idToken: idToken,
+      eventId: v.eventId,
+      signupId: v.signupId,
+      collection: v.collection,
+      documentType: documentType,
+      mimeType: mimeType,
+      sizeBytes: file.size,
+      originalFilename: file.name
+    })
+  });
+  if (!reqRes.ok) {
+    var rDetail = '';
+    try { var rj = await reqRes.json(); rDetail = rj && rj.error ? rj.error : ''; } catch (_) {}
+    throw new Error(rDetail || ('Could not prepare the ' + label + ' upload (HTTP ' + reqRes.status + ').'));
+  }
+  var reqJson = await reqRes.json();
+  if (!reqJson || !reqJson.uploadUrl || !reqJson.storagePath) {
+    throw new Error('Could not prepare the ' + label + ' upload.');
+  }
+
+  // Step 2: PUT the raw file bytes to the resumable upload URL — identical
+  // mechanism to the parent connect-gen-upload page.
+  var putRes = await fetch(reqJson.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': mimeType },
+    body: file
+  });
+  if (!putRes.ok) {
+    throw new Error('Upload of ' + label + ' failed (' + putRes.status + ').');
+  }
+
+  // Step 3: confirm — records the file on the signup + clears destroy markers.
+  var confRes = await fetch(CMS_CG_CONFIRM_UPLOAD_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idToken: idToken,
+      eventId: v.eventId,
+      signupId: v.signupId,
+      collection: v.collection,
+      documentType: documentType,
+      storagePath: reqJson.storagePath,
+      originalFilename: file.name,
+      sizeBytes: file.size,
+      mimeType: mimeType
+    })
+  });
+  if (!confRes.ok) {
+    var cDetail = '';
+    try { var cj = await confRes.json(); cDetail = cj && cj.error ? cj.error : ''; } catch (_) {}
+    throw new Error(cDetail || ('Could not finalize the ' + label + ' upload (HTTP ' + confRes.status + ').'));
+  }
 }
 
 // Disposition mark — wraps the destructive confirmation around the CF call.
