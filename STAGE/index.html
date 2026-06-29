@@ -8180,7 +8180,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       <div class="ct-detail-header">
         <span id="ctDetailTitle">Contact Detail</span>
         <span id="ctDetailFeedbackPill" style="display:none;background:#16A34A;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:10px;cursor:pointer;user-select:none;" onclick="ctOpenFeedback()" title="View this contact's feedback responses">0 Feedback</span>
-        <span id="ctDetailCgPill" style="display:none;background:#0891B2;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;" title="Connect-Gen IEP/Evaluation documents retained for case advocacy">Connect-Gen Docs Retained</span>
+        <span id="ctDetailCgPill" style="display:none;background:#7C3AED;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;" title="This contact has an open Case Advocacy">Case Advocacy</span>
         <button class="ct-close" onclick="closeContactDetail()">&times;</button>
       </div>
       <div class="ct-detail-body" id="ctDetailBody">
@@ -15474,29 +15474,27 @@ var _photoPendingByIsland = {};
       var [sigSnap, evSnap] = await Promise.all([sigRef.get(), evRef.get()]);
       var s = sigSnap.exists ? (sigSnap.data() || {}) : null;
       var ev = evSnap.exists ? (evSnap.data() || {}) : null;
-      // v144.0.0 — top-banner pill when CG docs are RETAINED (case advocacy +
-      // files still present). Reassures staff the IEP/Eval weren't auto-destroyed.
-      var cgPill = document.getElementById('ctDetailCgPill');
-      if (cgPill) {
-        var _cgFiles = !!(s && s.connectGenDocuments && (
-          (s.connectGenDocuments.iep && s.connectGenDocuments.iep.storagePath) ||
-          (s.connectGenDocuments.evaluation && s.connectGenDocuments.evaluation.storagePath)));
-        cgPill.style.display = (s && s.connectGenDisposition === 'caseAdvocacy' && _cgFiles) ? '' : 'none';
-      }
       slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, s, ev);
-      // v144.0.0 — if the IEP/Eval were removed before disposition but this
-      // family is in case advocacy, prompt staff to re-collect + re-upload.
-      try {
-        var _destroyed = !!(s && s.connectGenDocumentsDestroyedAt && !s.connectGenDocuments);
-        if (_destroyed && contactId) {
+      // v145.0.0 — when this family is in case advocacy, let staff upload /
+      // re-collect documents straight from the contact card (and, if docs were
+      // removed before disposition, show the re-collect prompt). The header
+      // "Case Advocacy" pill is set separately in openContactDetail.
+      if (contactId && cg.eventId && cg.signupId) {
+        try {
           var _advSnap = await db.collection('interactions').where('contactId', '==', contactId).get();
           var _openAdv = _advSnap.docs.some(function(x) { var a = x.data() || {}; return a.interactionType === 'Case Advocacy' && a.status === 'Open'; });
           if (_openAdv) {
             var _val = slot.querySelector('.val');
-            if (_val) _val.innerHTML += '<div style="margin-top:10px;padding:10px 12px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;font-size:.84rem;color:#7C2D12;line-height:1.5;"><strong>Documents needed on file.</strong> The IEP and Evaluation were removed before a disposition was set, but this family is in case advocacy &mdash; please re-collect and re-upload the documents this family needs on file.</div>';
+            var _destroyed = !!(s && s.connectGenDocumentsDestroyedAt && !s.connectGenDocuments);
+            var _extra = '';
+            if (_destroyed) {
+              _extra += '<div style="margin-top:10px;padding:10px 12px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;font-size:.84rem;color:#7C2D12;line-height:1.5;"><strong>Documents needed on file.</strong> The IEP and Evaluation were removed before a disposition was set, but this family is in case advocacy &mdash; please re-collect and re-upload the documents this family needs on file.</div>';
+            }
+            _extra += '<div style="margin-top:10px;"><button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="cmsCgDocOpen(\'recurringEvents\',\'' + rsEscape(cg.eventId) + '\',\'' + rsEscape(cg.signupId) + '\')">Upload / Re-upload Documents</button></div>';
+            if (_val) _val.innerHTML += _extra;
           }
-        }
-      } catch (e) { console.warn('CG re-upload prompt check failed:', e.message); }
+        } catch (e) { console.warn('CG case-advocacy upload affordance failed:', e.message); }
+      }
     } catch (err) {
       console.warn('cmsRenderConnectGenContactBlock error:', err.message);
       slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, null, null) +
@@ -15619,8 +15617,8 @@ var _photoPendingByIsland = {};
       window._ctFeedbackCache = { contactId: contactId, contactName: c.displayName || '', docs: [] };
       var pillEl = document.getElementById('ctDetailFeedbackPill');
       if (pillEl) pillEl.style.display = 'none';
-      // v144.0.0 — reset the Connect-Gen "Docs Retained" pill; shown async by
-      // cmsRenderConnectGenContactBlock once the signup state is known.
+      // v145.0.0 — reset the purple "Case Advocacy" header pill; shown async
+      // below when this contact has an open Case Advocacy interaction.
       var cgPillReset = document.getElementById('ctDetailCgPill');
       if (cgPillReset) cgPillReset.style.display = 'none';
       db.collection('eventFeedback').where('linkedContactId', '==', contactId).get().then(function(fSnap) {
@@ -15633,6 +15631,14 @@ var _photoPendingByIsland = {};
           p.style.display = 'inline-block';
         }
       }).catch(function(err) { console.warn('Contact feedback pill query failed:', err.message); });
+      // v145.0.0 — "Case Advocacy" header pill (like the Feedback pill): shown
+      // when this contact has an OPEN Case Advocacy interaction.
+      db.collection('interactions').where('contactId', '==', contactId).get().then(function(iSnap) {
+        var openAdv = false;
+        iSnap.forEach(function(d) { var x = d.data() || {}; if (x.interactionType === 'Case Advocacy' && x.status === 'Open') openAdv = true; });
+        var cp = document.getElementById('ctDetailCgPill');
+        if (cp && openAdv) { cp.style.display = 'inline-block'; }
+      }).catch(function(err) { console.warn('Contact case-advocacy pill query failed:', err.message); });
 
       var typeCls = c.type === 'Parent/Guardian' ? 'parent' :
                     c.type === 'Professional' ? 'professional' :
