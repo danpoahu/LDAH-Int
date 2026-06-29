@@ -4706,7 +4706,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.0.3-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.0.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -15638,6 +15638,12 @@ var _photoPendingByIsland = {};
         iSnap.forEach(function(d) { var x = d.data() || {}; if (x.interactionType === 'Case Advocacy' && x.status === 'Open') openAdv = true; });
         var cp = document.getElementById('ctDetailCgPill');
         if (cp && openAdv) { cp.style.display = 'inline-block'; }
+        // v146.0.0 — populate the Case Advocacy Documents slot when open.
+        var caSlot = document.getElementById('ctCaDocsBlock');
+        if (caSlot && openAdv) {
+          caSlot.style.display = '';
+          caSlot.innerHTML = _ctCaDocsHtml(c, contactId);
+        }
       }).catch(function(err) { console.warn('Contact case-advocacy pill query failed:', err.message); });
 
       var typeCls = c.type === 'Parent/Guardian' ? 'parent' :
@@ -15812,7 +15818,11 @@ var _photoPendingByIsland = {};
       var timelineLabel = '<div class="ct-detail-section-label">Activity Timeline</div>';
       var timelineHtml = '<div class="ct-ix-timeline" id="ctDetailTimeline"><p style="color:var(--text-soft);font-size:.85rem;">Loading activity…</p></div>';
 
-      var mainHtml = '<div class="ctd2-main">' + childSection + noteSection + connectGenSlot + timelineLabel + timelineHtml + '</div>';
+      // v146.0.0 — Case Advocacy Documents slot. Populated async by the
+      // interactions query below when an open Case Advocacy interaction is found.
+      var caDocsSlot = '<div id="ctCaDocsBlock" style="display:none;"></div>';
+
+      var mainHtml = '<div class="ctd2-main">' + childSection + noteSection + connectGenSlot + caDocsSlot + timelineLabel + timelineHtml + '</div>';
 
       body.innerHTML = '<div class="ctd2">' + railHtml + mainHtml + '</div>';
 
@@ -16102,6 +16112,219 @@ var _photoPendingByIsland = {};
     window._ctShowHiddenSignups = false;
     window._ctRerenderContactId = null;
   };
+
+  // ── v146.0.0: Case Advocacy Documents card ───────────────────────────────
+  // Renders the "Case Advocacy Documents" card HTML from already-fetched
+  // contact data (c.caseAdvocacyAuthorization, c.caseAdvocacyDocuments).
+  // Called synchronously from the interactions async callback so the slot
+  // is populated as soon as we know this contact has an open CA interaction.
+
+  var CA_BASE = 'https://us-central1-ldah-932d5.cloudfunctions.net/';
+  var CA_ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/heic', 'image/heif'];
+  var CA_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+
+  function _ctCaDocsHtml(c, contactId) {
+    var auth = c.caseAdvocacyAuthorization || null;
+    var docs = Array.isArray(c.caseAdvocacyDocuments) ? c.caseAdvocacyDocuments : [];
+    var cid = rsEscape(contactId);
+
+    var html = '<div class="ct-info-card" style="background:#F5F0FF;border:1px solid #C4B5FD;margin:0 0 12px;">';
+    html += '<div class="ct-info-field span2"><label style="color:#5B21B6;font-weight:700;font-size:.95rem;">Case Advocacy Documents</label>';
+
+    if (!auth) {
+      // ── Authorization required ──
+      html += '<div class="val" style="color:#7C3AED;font-size:.84rem;font-weight:600;margin-bottom:8px;">Authorization required before uploading documents.</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">';
+      // Send link button
+      html += '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" ' +
+        'onclick="ctCaSendAuthLink(' + JSON.stringify(cid) + ')">Send authorization to sign</button>';
+      // Upload signed release
+      html += '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:#fff;border:1px solid #C4B5FD;border-radius:6px;padding:6px 14px;font-size:.82rem;font-weight:600;color:#5B21B6;">' +
+        'Upload signed release' +
+        '<input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif" style="display:none;" ' +
+        'onchange="ctCaUploadPaperAuth(' + JSON.stringify(cid) + ',this)">' +
+        '</label>';
+      html += '</div>';
+    } else {
+      // ── Authorized ──
+      var method = rsEscape(auth.method || 'unknown');
+      var recAt = '';
+      if (auth.recordedAt) {
+        try {
+          var _d = auth.recordedAt.toDate ? auth.recordedAt.toDate() : new Date(auth.recordedAt);
+          recAt = _d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch (_) {}
+      }
+      html += '<div class="val" style="color:#16A34A;font-size:.83rem;font-weight:700;margin-bottom:8px;">' +
+        '<span style="display:inline-block;background:#16A34A;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:6px;">Authorized</span>' +
+        method + (recAt ? ' &middot; ' + recAt : '') + '</div>';
+
+      // Upload control
+      html += '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">';
+      html += '<input type="text" id="ctCaDocLabel_' + cid + '" placeholder="Label (e.g. IEP, Evaluation, Other)" ' +
+        'style="flex:1;min-width:160px;max-width:240px;border:1px solid #C4B5FD;border-radius:6px;padding:6px 10px;font-size:.83rem;">';
+      html += '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:#fff;border:1px solid #C4B5FD;border-radius:6px;padding:6px 14px;font-size:.82rem;font-weight:600;color:#5B21B6;">' +
+        'Choose file' +
+        '<input type="file" id="ctCaDocFile_' + cid + '" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif" style="display:none;" onchange="ctCaFileChosen(' + JSON.stringify(cid) + ',this)">' +
+        '</label>';
+      html += '<span id="ctCaDocFileName_' + cid + '" style="font-size:.78rem;color:#64748B;"></span>';
+      html += '<button class="btn btn-primary" id="ctCaUploadBtn_' + cid + '" style="font-size:.82rem;padding:6px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;display:none;" ' +
+        'onclick="ctCaUploadDoc(' + JSON.stringify(cid) + ')">Upload</button>';
+      html += '</div>';
+
+      // Document list
+      if (docs.length) {
+        html += '<div style="margin-top:4px;">';
+        docs.forEach(function(doc) {
+          if (!doc || !doc.docId) return;
+          var did = rsEscape(doc.docId);
+          var dlabel = rsEscape(doc.label || 'Document');
+          var dfname = rsEscape(doc.originalFilename || '');
+          html += '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 0;border-bottom:1px solid #E9D5FF;">' +
+            '<span style="font-weight:600;font-size:.85rem;color:#1E293B;flex:1;min-width:120px;">' + dlabel + '</span>' +
+            (dfname ? '<span style="font-size:.78rem;color:#64748B;">' + dfname + '</span>' : '') +
+            '<button style="font-size:.78rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:4px 10px;cursor:pointer;" ' +
+            'onclick="ctCaViewDoc(' + JSON.stringify(cid) + ',' + JSON.stringify(did) + ')">View</button>' +
+            '<button style="font-size:.78rem;font-weight:600;color:#DC2626;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:4px 10px;cursor:pointer;" ' +
+            'onclick="ctCaRemoveDoc(' + JSON.stringify(cid) + ',' + JSON.stringify(did) + ',' + JSON.stringify(dlabel) + ')">Remove</button>' +
+            '</div>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:.82rem;color:#94A3B8;margin-top:4px;">No documents on file yet.</div>';
+      }
+    }
+
+    html += '</div></div>'; // ct-info-field span2 + ct-info-card
+    return html;
+  }
+
+  // Send e-sign authorization link
+  window.ctCaSendAuthLink = async function(contactId) {
+    try {
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var res = await fetch(CA_BASE + 'sendCaseAdvocacyAuthorizationLink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId })
+      });
+      var j = {};
+      try { j = await res.json(); } catch (_) {}
+      if (!res.ok) { _showToast(j.error || 'Failed to send authorization link (HTTP ' + res.status + ').', '#DC2626'); return; }
+      _showToast('Authorization link sent.', '#16A34A');
+    } catch (e) { _showToast('Error: ' + e.message, '#DC2626'); }
+  };
+
+  // Upload a paper/scanned signed release (3-step: request → PUT → confirmPaper)
+  window.ctCaUploadPaperAuth = async function(contactId, inputEl) {
+    var file = inputEl.files && inputEl.files[0];
+    if (!file) return;
+    var mime = file.type || 'application/octet-stream';
+    if (!CA_ALLOWED_MIME.includes(mime)) { _showToast('File type not allowed. Use PDF, JPG, PNG, or HEIC.', '#DC2626'); inputEl.value = ''; return; }
+    if (file.size > CA_MAX_BYTES) { _showToast('File is too large (max 25 MB).', '#DC2626'); inputEl.value = ''; return; }
+    try {
+      _showToast('Uploading signed release…', '#1a3c6e');
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      // Step 1: request upload URL
+      var reqRes = await fetch(CA_BASE + 'requestCaseAdvocacyUploadUrl', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, label: 'Authorization', documentType: 'authorization', mimeType: mime, sizeBytes: file.size, originalFilename: file.name })
+      });
+      var reqJ = {}; try { reqJ = await reqRes.json(); } catch (_) {}
+      if (!reqRes.ok || !reqJ.uploadUrl || !reqJ.storagePath) { _showToast(reqJ.error || 'Could not prepare upload (HTTP ' + reqRes.status + ').', '#DC2626'); return; }
+      // Step 2: PUT bytes
+      var putRes = await fetch(reqJ.uploadUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: file });
+      if (!putRes.ok) { _showToast('Upload failed (' + putRes.status + ').', '#DC2626'); return; }
+      // Step 3: confirm paper auth (NOT confirmCaseAdvocacyUpload)
+      idToken = await firebase.auth().currentUser.getIdToken();
+      var confRes = await fetch(CA_BASE + 'confirmCaseAdvocacyAuthorizationPaper', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, storagePath: reqJ.storagePath, originalFilename: file.name, sizeBytes: file.size, mimeType: mime })
+      });
+      var confJ = {}; try { confJ = await confRes.json(); } catch (_) {}
+      if (!confRes.ok) { _showToast(confJ.error || 'Could not finalize upload (HTTP ' + confRes.status + ').', '#DC2626'); return; }
+      _showToast('Signed release uploaded.', '#16A34A');
+      if (window._ctCurrentContactId) openContactDetail(window._ctCurrentContactId);
+    } catch (e) { _showToast('Error: ' + e.message, '#DC2626'); }
+  };
+
+  // Show chosen filename + reveal Upload button
+  window.ctCaFileChosen = function(contactId, inputEl) {
+    var file = inputEl.files && inputEl.files[0];
+    var nameEl = document.getElementById('ctCaDocFileName_' + contactId);
+    var btn = document.getElementById('ctCaUploadBtn_' + contactId);
+    if (nameEl) nameEl.textContent = file ? file.name : '';
+    if (btn) btn.style.display = file ? '' : 'none';
+  };
+
+  // Upload a labelled document (3-step: request → PUT → confirm)
+  window.ctCaUploadDoc = async function(contactId) {
+    var labelEl = document.getElementById('ctCaDocLabel_' + contactId);
+    var fileEl  = document.getElementById('ctCaDocFile_' + contactId);
+    var label = labelEl ? labelEl.value.trim() : '';
+    var file  = fileEl && fileEl.files ? fileEl.files[0] : null;
+    if (!label) { _showToast('Please enter a label for the document.', '#DC2626'); return; }
+    if (!file)  { _showToast('Please choose a file.', '#DC2626'); return; }
+    var mime = file.type || 'application/octet-stream';
+    if (!CA_ALLOWED_MIME.includes(mime)) { _showToast('File type not allowed. Use PDF, JPG, PNG, or HEIC.', '#DC2626'); return; }
+    if (file.size > CA_MAX_BYTES) { _showToast('File is too large (max 25 MB).', '#DC2626'); return; }
+    try {
+      var btn = document.getElementById('ctCaUploadBtn_' + contactId);
+      if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      // Step 1: request upload URL
+      var reqRes = await fetch(CA_BASE + 'requestCaseAdvocacyUploadUrl', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, label: label, documentType: 'other', mimeType: mime, sizeBytes: file.size, originalFilename: file.name })
+      });
+      var reqJ = {}; try { reqJ = await reqRes.json(); } catch (_) {}
+      if (!reqRes.ok || !reqJ.uploadUrl || !reqJ.storagePath || !reqJ.docId) { _showToast(reqJ.error || 'Could not prepare upload (HTTP ' + reqRes.status + ').', '#DC2626'); if (btn) { btn.disabled = false; btn.textContent = 'Upload'; } return; }
+      // Step 2: PUT bytes
+      var putRes = await fetch(reqJ.uploadUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: file });
+      if (!putRes.ok) { _showToast('Upload failed (' + putRes.status + ').', '#DC2626'); if (btn) { btn.disabled = false; btn.textContent = 'Upload'; } return; }
+      // Step 3: confirm
+      idToken = await firebase.auth().currentUser.getIdToken();
+      var confRes = await fetch(CA_BASE + 'confirmCaseAdvocacyUpload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, docId: reqJ.docId, label: label, storagePath: reqJ.storagePath, originalFilename: file.name, sizeBytes: file.size, mimeType: mime })
+      });
+      var confJ = {}; try { confJ = await confRes.json(); } catch (_) {}
+      if (!confRes.ok) { _showToast(confJ.error || 'Could not finalize upload (HTTP ' + confRes.status + ').', '#DC2626'); if (btn) { btn.disabled = false; btn.textContent = 'Upload'; } return; }
+      _showToast('"' + label + '" uploaded.', '#16A34A');
+      if (window._ctCurrentContactId) openContactDetail(window._ctCurrentContactId);
+    } catch (e) { _showToast('Error: ' + e.message, '#DC2626'); }
+  };
+
+  // View a document — get a signed download URL and open it
+  window.ctCaViewDoc = async function(contactId, docId) {
+    try {
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var res = await fetch(CA_BASE + 'getCaseAdvocacyDocumentDownloadUrl', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, docId: docId })
+      });
+      var j = {}; try { j = await res.json(); } catch (_) {}
+      if (!res.ok || !j.url) { _showToast(j.error || 'Could not get download URL.', '#DC2626'); return; }
+      window.open(j.url, '_blank');
+    } catch (e) { _showToast('Error: ' + e.message, '#DC2626'); }
+  };
+
+  // Remove a document (with confirmation)
+  window.ctCaRemoveDoc = async function(contactId, docId, label) {
+    if (!confirm('Remove "' + label + '" from this family\'s case advocacy documents?\n\nThis action cannot be undone.')) return;
+    try {
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var res = await fetch(CA_BASE + 'destroyCaseAdvocacyDocuments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, docId: docId, reason: 'removed by staff' })
+      });
+      var j = {}; try { j = await res.json(); } catch (_) {}
+      if (!res.ok) { _showToast(j.error || 'Remove failed (HTTP ' + res.status + ').', '#DC2626'); return; }
+      _showToast('"' + label + '" removed.', '#16A34A');
+      if (window._ctCurrentContactId) openContactDetail(window._ctCurrentContactId);
+    } catch (e) { _showToast('Error: ' + e.message, '#DC2626'); }
+  };
+  // ── end v146.0.0 Case Advocacy Documents ─────────────────────────────────
 
   // v129.0.0 — Toggle handler for the "Show all signups" slide-switch on the
   // contact-detail signup filter bar. Flips the flag and re-opens the same
