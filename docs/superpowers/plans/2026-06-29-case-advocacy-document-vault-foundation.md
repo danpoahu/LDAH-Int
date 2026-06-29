@@ -75,7 +75,7 @@
   - `submitCaseAdvocacyAuthorization` (HTTPS, public POST) ← `{ token, typedName, agree:true }` → records `contacts/{contactId}.caseAdvocacyAuthorization = { method:"esign", signedName, signedAt, signedIp, version, consentText, recordedAt }`; deletes the token.
   - `confirmCaseAdvocacyAuthorizationPaper` (HTTPS, staff) ← `{ idToken, contactId, storagePath, originalFilename, sizeBytes, mimeType }` → records `caseAdvocacyAuthorization = { method:"paper", storagePath, originalFilename, recordedAt, recordedBy }`. (Paper file is uploaded via `requestCaseAdvocacyUploadUrl` with `documentType:"authorization"` → path `caseAdvocacy/{contactId}/authorization-{ts}.{ext}`, then this confirm records it instead of appending to documents.)
 
-- [ ] **Step 1:** Add a module-level constant `CASE_ADVOCACY_AUTH_TEXT` and `CASE_ADVOCACY_AUTH_VERSION`. Use a clearly-marked placeholder release text with a comment `// TODO(LDAH): replace with the LDAH-supplied authorization wording` — this is the one spec open-item; surface it in the handoff so Daniel supplies final copy before go-live. (This is a known content gap, not a code placeholder.)
+- [ ] **Step 1:** **Reuse the Connect-Gen consent wording** (same procedure, per Daniel). Set `CASE_ADVOCACY_AUTH_TEXT = CONSENT_TEXT` and `CASE_ADVOCACY_AUTH_VERSION = CONSENT_TEXT_VERSION` (the existing constants at W2 `functions/index.js:9062` / used at `:9240`, revision `"02/2021; RR"`: *"…I grant my permission for LDAH to receive, view and discuss my child's confidential documents with me… I agree to send LDAH my child's confidential documents as described above."*). The public form (Task 3 Step 6) reuses the same verbatim text block from `connect-gen-consent.html`. NOTE for handoff: that text references "Connect Gen Session (CG)"; reuse verbatim unless Daniel asks to genericize that one phrase.
 - [ ] **Step 2:** Implement `sendCaseAdvocacyAuthorizationLink` (mirror `submitConnectGenConsent`'s token mint + `sendEmailViaResend`): generate a 16-byte hex token, store `caseAdvocacyAuthToken` + 7-day expiry on the contact, email `contact.email` a link `https://www.ldahawaii.org/case-advocacy-authorization.html?token=<token>`. Audit-log.
 - [ ] **Step 3:** Implement `getCaseAdvocacyAuthorization` (mirror `getConnectGenConsent`): look up contact by `caseAdvocacyAuthToken`; 404/410 handling; return `contactName` + `CASE_ADVOCACY_AUTH_TEXT`.
 - [ ] **Step 4:** Implement `submitCaseAdvocacyAuthorization` (mirror `submitConnectGenConsent`): validate typedName (≥3 chars, has space) + `agree===true`; write `caseAdvocacyAuthorization` (method esign) with verbatim text + IP; delete the token. Audit-log.
@@ -142,6 +142,6 @@
 
 **Type consistency:** `caseAdvocacyAuthorization`, `caseAdvocacyDocuments` (array of the documented shape), `docId`, `caseAdvocacyClosedAt`, `caseAdvocacyDocsDestroyedAt/By/Reason`, `caseAdvocacyDocsAlertSentAt`, and the CF names are used consistently across Tasks 2–6.
 
-## Known content input required before go-live
+## Content input — RESOLVED
 
-- LDAH-supplied **authorization/release wording** (Task 3). Until provided, the e-sign form shows placeholder text; the paper path works regardless.
+- **Authorization/release wording = the Connect-Gen consent text** (`CONSENT_TEXT`, rev "02/2021; RR"), reused verbatim per Daniel ("same procedure"). No placeholder remains. Optional: genericize the "Connect Gen Session" phrase if Daniel later requests it.
