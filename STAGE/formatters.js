@@ -246,6 +246,21 @@
     return out;
   }
 
+  // ── Phone search normalization (global search) ──
+  // Strip a value down to its digits so phone matching is format-agnostic
+  // (stored values vary: "(808) 221-8943", "8082218943", "808-221-8943").
+  function phoneDigits(s) { return String(s == null ? '' : s).replace(/\D/g, ''); }
+  // True when the query "looks like" a phone (>= 7 digits) and those digits
+  // appear in one of the record's phone values. Joins with a non-digit
+  // separator so a query can't span two different stored numbers.
+  function gsPhoneMatch(query, phoneValues) {
+    var qd = phoneDigits(query);
+    if (qd.length < 7) return false;
+    var arr = Array.isArray(phoneValues) ? phoneValues : [phoneValues];
+    var blob = arr.map(phoneDigits).filter(Boolean).join(' ');
+    return blob.indexOf(qd) !== -1;
+  }
+
   var api = {
     formatNameSmart: formatNameSmart,
     formatPhone: formatPhone,
@@ -259,7 +274,9 @@
     normalizeEmail: normalizeEmail,
     findContactByEmail: findContactByEmail,
     resolveAttendanceTotal: resolveAttendanceTotal,
-    buildChildren: buildChildren
+    buildChildren: buildChildren,
+    phoneDigits: phoneDigits,
+    gsPhoneMatch: gsPhoneMatch
   };
 
   global.LDAHFormat = api;
