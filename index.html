@@ -4701,7 +4701,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.0.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.0.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16443,25 +16443,66 @@ var _photoPendingByIsland = {};
     await _retainCgDocsForCaseAdvocacy(sourceData.contactId);
 
     var uid = await _resolveStaffUidByName(advocateName);
-    var existingId = sourceData.caseAdvocacyInteractionId || '';
 
-    // Already linked to an advocate task.
-    if (existingId) {
-      // Same advocate → idempotent no-op.
-      if (uid && uid === (sourceData.caseAdvocateUid || '')) {
+    // Per-contact idempotency (v145.0.2). A case-advocacy task is unique per
+    // CONTACT, not per source interaction. The old guard keyed only on the
+    // source interaction's caseAdvocacyInteractionId, so flagging advocacy on a
+    // second interaction for the same family spawned a duplicate "advocating
+    // for X" task (this is how one advocate's My Day filled with 4-5 copies of
+    // the same case). Find any OPEN advocate task already on this contact and
+    // reuse it. Query by contactId only (single field — no composite index),
+    // then filter workflowStep/status in code.
+    var existingTask = null;
+    try {
+      var existSnap = await db.collection('interactions')
+        .where('contactId', '==', sourceData.contactId)
+        .get();
+      var openAdv = [];
+      existSnap.forEach(function(doc) {
+        var dd = doc.data() || {};
+        if (dd.workflowStep === 'caseAdvocacy' && dd.status === 'Open') {
+          openAdv.push({ id: doc.id, data: dd });
+        }
+      });
+      // Earliest-created wins so the canonical task is stable across re-toggles.
+      openAdv.sort(function(a, b) {
+        var ta = (a.data.createdAt && a.data.createdAt.toMillis) ? a.data.createdAt.toMillis() : 0;
+        var tb = (b.data.createdAt && b.data.createdAt.toMillis) ? b.data.createdAt.toMillis() : 0;
+        return ta - tb;
+      });
+      if (openAdv.length) existingTask = openAdv[0];
+    } catch (e) {
+      console.warn('case-advocacy dedup lookup failed:', e && e.message);
+      // Never lose idempotency entirely — fall back to the source-linked id.
+      if (sourceData.caseAdvocacyInteractionId) {
+        existingTask = { id: sourceData.caseAdvocacyInteractionId,
+          data: { ownerUid: sourceData.caseAdvocateUid || '' } };
+      }
+    }
+
+    // Found an open advocate task for this contact → reuse it (reassign if a
+    // different advocate is chosen) and link this source interaction to it.
+    if (existingTask) {
+      var existingId = existingTask.id;
+      var currentOwnerUid = existingTask.data.ownerUid || existingTask.data.caseAdvocateUid || '';
+      // Always (re)link the source interaction to the canonical task so future
+      // re-toggles from this interaction also resolve to the same task.
+      await db.collection('interactions').doc(sourceId).update({
+        caseAdvocacy: true,
+        caseAdvocateName: advocateName,
+        caseAdvocateUid: uid || '',
+        caseAdvocacyInteractionId: existingId
+      });
+      // Same advocate already on the task → idempotent no-op (beyond the relink).
+      if (uid && uid === currentOwnerUid) {
         return { interactionId: existingId, uid: uid, reassigned: false };
       }
-      // Different advocate → reassign the existing task + restamp source + notify.
+      // Different advocate → reassign the existing task + notify.
       await db.collection('interactions').doc(existingId).update({
         owner: advocateName,
         ownerUid: uid || '',
         lastEditedAt: firebase.firestore.FieldValue.serverTimestamp(),
         lastEditedBy: (currentUserData && currentUserData.displayName) || ''
-      });
-      await db.collection('interactions').doc(sourceId).update({
-        caseAdvocacy: true,
-        caseAdvocateName: advocateName,
-        caseAdvocateUid: uid || ''
       });
       if (uid && typeof createNotification === 'function') {
         var rFollow = '';
