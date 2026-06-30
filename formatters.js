@@ -213,6 +213,39 @@
     return (signupsAttended || 0) + (manualCount || 0);
   }
 
+  // ── Children array builder (LDAH-Int contact form) ──
+  // Merge an ordered list of form children over the contact's existing
+  // children[] (matched by index) so addedAt + any non-form fields survive a
+  // round-trip. Drops fully-empty cards. Keeps a stored, more-specific
+  // government age bucket when it canonicalizes to the same dropdown value
+  // (continues the age-range-schema-migration guard). PURE: does not stamp
+  // addedAt — the caller stamps it on any returned child lacking one.
+  var _AR_CANON = { 'Birth-2 yrs':'0-2','Birth-2':'0-2','3-5 yrs':'3-5','6-11 yrs':'6-12','6-11':'6-12','12-14 yrs':'13-17','12-14':'13-17','15-18 yrs':'13-17','15-18':'13-17','Beyond H.S.':'Adult','Beyond HS':'Adult' };
+  function _canonAgeRange(v) { return _AR_CANON[v] || v || ''; }
+  function buildChildren(formChildren, prevChildren) {
+    formChildren = Array.isArray(formChildren) ? formChildren : [];
+    prevChildren = Array.isArray(prevChildren) ? prevChildren : [];
+    var out = [];
+    formChildren.forEach(function (fc, i) {
+      fc = fc || {};
+      var name = String(fc.name || '').trim();
+      var ageRange = fc.ageRange || '';
+      var gender = fc.gender || '';
+      var ethnicity = fc.ethnicity || '';
+      var disab = Array.isArray(fc.disabilityCategories) ? fc.disabilityCategories : [];
+      if (!name && !ageRange && !gender && !ethnicity && !disab.length) return; // empty card → skip
+      var prev = prevChildren[i] || {};
+      // Keep the stored, more-specific age bucket when it maps to the same
+      // dropdown value (e.g. stored "12-14" vs form "13-17").
+      if (prev.ageRange && _canonAgeRange(prev.ageRange) === ageRange) ageRange = prev.ageRange;
+      out.push(Object.assign({}, prev, {
+        name: name, ageRange: ageRange, gender: gender,
+        ethnicity: ethnicity, disabilityCategories: disab
+      }));
+    });
+    return out;
+  }
+
   var api = {
     formatNameSmart: formatNameSmart,
     formatPhone: formatPhone,
@@ -225,7 +258,8 @@
     esResolveOverride: esResolveOverride,
     normalizeEmail: normalizeEmail,
     findContactByEmail: findContactByEmail,
-    resolveAttendanceTotal: resolveAttendanceTotal
+    resolveAttendanceTotal: resolveAttendanceTotal,
+    buildChildren: buildChildren
   };
 
   global.LDAHFormat = api;
