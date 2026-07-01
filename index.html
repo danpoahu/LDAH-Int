@@ -26,7 +26,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-functions-compat.js"></script>
-  <script src="./formatters.js?v=145.1.2"></script>
+  <script src="./formatters.js?v=145.2.0"></script>
   <script>
     // LDAH shared phone helpers — window-scoped so every inline <script> block in this SPA can call them.
     // Display helper is idempotent (safe even if already formatted); non-10-digit values pass through untouched.
@@ -4701,7 +4701,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.1.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.2.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6310,6 +6310,20 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         </div>
 
         <div class="lm-card collapsed">
+          <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed')">Materials</div>
+          <p style="color:var(--text-soft);font-size:.82rem;margin:0 0 8px 0;padding:0 12px;">
+            Documents &amp; supplies handed out at events and during interactions. Retire &amp; re-add rather than renaming mid-year so past distribution counts stay aligned.
+          </p>
+          <div class="lm-card-body">
+            <ul id="lmMaterialsList" class="lm-list"></ul>
+            <div class="lm-add-row">
+              <input id="lmMaterialsNew" placeholder="New material" style="flex:1;" />
+              <button onclick="addLookupItem('materials','lmMaterialsNew')">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="lm-card collapsed">
           <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed')">Sidebar Tips</div>
           <p style="color:var(--text-soft);font-size:.82rem;margin:0 0 8px 0;padding:0 12px;">
             These tips rotate in the sidebar footer to help users navigate the system. Keep them short and helpful.
@@ -7714,6 +7728,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <label style="font-size:.8rem;color:var(--text-soft);">Case advocate</label>
             <select id="intCaseAdvocate"><option value="">— Select advocate —</option></select>
             <div style="font-size:.78rem;color:var(--text-soft);margin-top:6px;">A 3-month follow-up task will be created for the advocate.</div>
+          </div>
+        </div>
+
+        <!-- Materials distributed (v145.2.0) -->
+        <div class="field" style="grid-column: span 2;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;">
+            <input type="checkbox" id="intMaterials" style="width:16px;height:16px;cursor:pointer;accent-color:var(--ocean-deep);" onchange="_toggleMaterialsPicker('int')">
+            Materials distributed
+          </label>
+          <div id="intMaterialsPicker" style="display:none;margin-top:8px;">
+            <div style="font-size:.78rem;color:var(--text-soft);margin-bottom:6px;">How many of each item did you give or send during this interaction?</div>
+            <div id="intMaterialsList"></div>
           </div>
         </div>
       </div>
@@ -13643,7 +13669,7 @@ var _photoPendingByIsland = {};
 
   // ── Lookup Lists (Admin-managed dropdowns) ──
 
-  var _lookupLists = { channels: [], interactionTypes: [], grants: [], tips: [], titles: [], departments: [], resourceTypes: [] };
+  var _lookupLists = { channels: [], interactionTypes: [], grants: [], tips: [], titles: [], departments: [], resourceTypes: [], materials: [] };
 
   async function seedLookupListsIfNeeded() {
     var defaults = {
@@ -13653,6 +13679,7 @@ var _photoPendingByIsland = {};
       titles: ['Program Coordinator', 'Case Manager', 'Director', 'Advocate', 'Specialist', 'Administrative Assistant'],
       departments: ['Education Services', 'Administration', 'Outreach', 'Training', 'Operations'],
       resourceTypes: ['Advocacy & Legal Services', 'Behavioral & Mental Health', 'Therapy & Medical Services', 'Testing & Evaluation', 'Schools & Tutoring', 'Early Childhood & Family Support', 'Independent Living & Disability Services', 'Transition & Vocational/Trades'],
+      materials: ['Agency Brochure', 'Education & Training Brochure', 'What is a Learning Disability Brochure', 'Understanding ADHD Brochure', 'Understanding Dyslexia Brochure', 'Understanding Autism', 'Flyers', 'Newsletters'],
       tips: [
         'Star your favorite contacts in Chat to keep them pinned at the top of the roster.',
         'Use "Add note" to record context & the "why" immediately — notes are searchable and auditable.',
@@ -14740,7 +14767,8 @@ var _photoPendingByIsland = {};
     tips: 'lmTipsList',
     titles: 'lmTitlesList',
     departments: 'lmDepartmentsList',
-    resourceTypes: 'lmResourceTypesList'
+    resourceTypes: 'lmResourceTypesList',
+    materials: 'lmMaterialsList'
   };
 
   function renderLookupList(listKey) {
@@ -14767,6 +14795,7 @@ var _photoPendingByIsland = {};
     renderLookupList('titles');
     renderLookupList('departments');
     renderLookupList('resourceTypes');
+    renderLookupList('materials');
     renderLookupList('tips');
   };
 
@@ -16635,6 +16664,46 @@ var _photoPendingByIsland = {};
   // (Drafts removed in v126.0.0 — every save is final; no _editingDraftId
   //  re-entry path, no editDraft function.)
 
+  // ── Materials distributed (interaction add-on, v145.2.0) ──
+  // Distributed-count only (no "packed"); items come from the admin-managed
+  // list + two free-text "Other" rows. Rendered on demand into #intMaterialsList.
+  window._toggleMaterialsPicker = function(prefix){
+    var cb = document.getElementById(prefix + 'Materials');
+    var picker = document.getElementById(prefix + 'MaterialsPicker');
+    if (!cb || !picker) return;
+    picker.style.display = cb.checked ? 'block' : 'none';
+    if (cb.checked) _renderMaterialsDistribList(prefix + 'MaterialsList');
+  };
+  window._renderMaterialsDistribList = function(containerId){
+    var box = document.getElementById(containerId);
+    if (!box || box.getAttribute('data-rendered') === '1') return; // keep entries on re-toggle
+    var labels = (Array.isArray(_lookupLists.materials) ? _lookupLists.materials : []);
+    var html = '<table class="es-mat-table" style="width:100%;"><thead><tr><th>Material</th><th># distributed</th></tr></thead><tbody>';
+    labels.forEach(function(label){
+      html += '<tr><td>' + rsEscape(label) + '</td><td><input type="number" min="0" class="intMatDistrib" data-label="' + rsEscape(label) + '" value="0" style="width:80px;"></td></tr>';
+    });
+    for (var i = 0; i < 2; i++) {
+      html += '<tr><td><input type="text" class="intMatOtherName" placeholder="Other (type a name)"></td><td><input type="number" min="0" class="intMatOtherCount" value="0" style="width:80px;"></td></tr>';
+    }
+    html += '</tbody></table>';
+    box.innerHTML = html;
+    box.setAttribute('data-rendered', '1');
+  };
+  // Collect the interaction's distribution -> { counts:{slug:n}, other:[{name,count}] }
+  // or null when the section is not enabled. Uses the TDD'd collectDistribution.
+  function _collectInteractionMaterials(){
+    var cb = document.getElementById('intMaterials');
+    if (!cb || !cb.checked) return null;
+    var managed = Array.prototype.slice.call(document.querySelectorAll('#intMaterialsList .intMatDistrib')).map(function(el){
+      return { label: el.getAttribute('data-label'), count: el.value };
+    });
+    var names = document.querySelectorAll('#intMaterialsList .intMatOtherName');
+    var counts = document.querySelectorAll('#intMaterialsList .intMatOtherCount');
+    var other = [];
+    for (var i = 0; i < names.length; i++) { other.push({ name: names[i].value, count: counts[i] ? counts[i].value : 0 }); }
+    return (window.LDAHFormat && LDAHFormat.collectDistribution) ? LDAHFormat.collectDistribution(managed, other) : { counts: {}, other: [] };
+  }
+
   var _savingInteraction = false;
   window.saveInteractionToFirestore = async function saveInteractionToFirestore() {
     var channel = document.getElementById('intChannel').value;
@@ -16712,6 +16781,13 @@ var _photoPendingByIsland = {};
       ownerUid: currentUserData?.uid || '',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
+
+    // Materials distributed (v145.2.0) — additive; only written when logged.
+    var _matDist = _collectInteractionMaterials();
+    if (_matDist) {
+      if (Object.keys(_matDist.counts).length) data.materialsDistributed = _matDist.counts;
+      if (_matDist.other.length) data.materialsOther = _matDist.other;
+    }
 
     try {
       var newIxRef = await db.collection('interactions').add(data);
@@ -16877,6 +16953,13 @@ var _photoPendingByIsland = {};
     if (caPicker) caPicker.style.display = 'none';
     var caSel = document.getElementById('intCaseAdvocate');
     if (caSel) caSel.value = '';
+    // Materials distributed (v145.2.0)
+    var matCb = document.getElementById('intMaterials');
+    if (matCb) matCb.checked = false;
+    var matPicker = document.getElementById('intMaterialsPicker');
+    if (matPicker) matPicker.style.display = 'none';
+    var matList = document.getElementById('intMaterialsList');
+    if (matList) { matList.innerHTML = ''; matList.removeAttribute('data-rendered'); }
   }
 
   // ── Dashboard: Recent Interactions from Firestore ──
@@ -27540,18 +27623,18 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   var _savedIsArchived = !!(_savedPresenter && _presenterPreset.indexOf(_savedPresenter) === -1);
   var _presenterIsOther = false; // saved value never auto-resolves to "Other" in Phase 2
   var _presenterSelectVal = _savedPresenter;
-  var _materialKeys = [
-    { k: 'agencyBrochure', label: 'Agency Brochure' },
-    { k: 'eduTrainingBrochure', label: 'Education & Training Brochure' },
-    { k: 'learningDisabilityBrochure', label: 'What is a Learning Disability Brochure' },
-    { k: 'adhdBrochure', label: 'Understanding ADHD Brochure' },
-    { k: 'dyslexiaBrochure', label: 'Understanding Dyslexia Brochure' },
-    { k: 'autism', label: 'Understanding Autism' },
-    { k: 'flyers', label: 'Flyers' },
-    { k: 'newsletters', label: 'Newsletters' }
-  ];
+  // Materials now come from the admin-managed lookup list (keyed by slug).
+  // Legacy map lets us still read the 3 pre-managed records (camelCase keys)
+  // until the one-off migration rewrites them.
+  var _matLabels = (Array.isArray(_lookupLists.materials) && _lookupLists.materials.length)
+    ? _lookupLists.materials.slice()
+    : ['Agency Brochure', 'Education & Training Brochure', 'What is a Learning Disability Brochure', 'Understanding ADHD Brochure', 'Understanding Dyslexia Brochure', 'Understanding Autism', 'Flyers', 'Newsletters'];
+  var _matSlugFn = (window.LDAHFormat && LDAHFormat.materialSlug) ? LDAHFormat.materialSlug : function(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); };
+  var _matLegacy = { 'Agency Brochure':'agencyBrochure','Education & Training Brochure':'eduTrainingBrochure','What is a Learning Disability Brochure':'learningDisabilityBrochure','Understanding ADHD Brochure':'adhdBrochure','Understanding Dyslexia Brochure':'dyslexiaBrochure','Understanding Autism':'autism','Flyers':'flyers','Newsletters':'newsletters' };
+  var _materialKeys = _matLabels.map(function(label){ return { k: _matSlugFn(label), label: label, legacy: _matLegacy[label] || '' }; });
   var _savedPacked = (summary.materialsPacked && typeof summary.materialsPacked === 'object') ? summary.materialsPacked : {};
   var _savedDiss = (summary.materialsDisseminated && typeof summary.materialsDisseminated === 'object') ? summary.materialsDisseminated : {};
+  var _savedMatOther = Array.isArray(summary.materialsOther) ? summary.materialsOther : [];
   var _savedComments = (typeof summary.presenterComments === 'string') ? summary.presenterComments : '';
 
   html += '<div class="es-section-title">Training Materials &amp; Instructions</div>';
@@ -27582,14 +27665,24 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   html += '<thead><tr><th>Material name</th><th># Packed</th><th># Disseminated</th></tr></thead>';
   html += '<tbody>';
   _materialKeys.forEach(function(m) {
-    var pVal = (typeof _savedPacked[m.k] === 'number') ? _savedPacked[m.k] : 0;
-    var dVal = (typeof _savedDiss[m.k] === 'number') ? _savedDiss[m.k] : 0;
+    var pVal = (typeof _savedPacked[m.k] === 'number') ? _savedPacked[m.k] : ((m.legacy && typeof _savedPacked[m.legacy] === 'number') ? _savedPacked[m.legacy] : 0);
+    var dVal = (typeof _savedDiss[m.k] === 'number') ? _savedDiss[m.k] : ((m.legacy && typeof _savedDiss[m.legacy] === 'number') ? _savedDiss[m.legacy] : 0);
     html += '<tr>';
     html += '<td>' + rsEscape(m.label) + '</td>';
     html += '<td><input type="number" min="0" id="esMatPacked_' + m.k + '" value="' + pVal + '"></td>';
     html += '<td><input type="number" min="0" id="esMatDiss_' + m.k + '" value="' + dVal + '"></td>';
     html += '</tr>';
   });
+  // Two free-text "Other" rows for items not on the managed list (individually
+  // auditable at year-end from the saved materialsOther array).
+  for (var _oi = 0; _oi < 2; _oi++) {
+    var _ov = _savedMatOther[_oi] || {};
+    html += '<tr>';
+    html += '<td><input type="text" id="esMatOtherName_' + _oi + '" placeholder="Other (type a name)" value="' + rsEscape(_ov.name || '') + '"></td>';
+    html += '<td><input type="number" min="0" id="esMatOtherPacked_' + _oi + '" value="' + (typeof _ov.packed === 'number' ? _ov.packed : 0) + '"></td>';
+    html += '<td><input type="number" min="0" id="esMatOtherDiss_' + _oi + '" value="' + (typeof _ov.disseminated === 'number' ? _ov.disseminated : 0) + '"></td>';
+    html += '</tr>';
+  }
   html += '</tbody></table>';
 
   html += '<div class="es-section-title">Presenter Comments / Concerns</div>';
@@ -27811,7 +27904,10 @@ window.cmsSaveEventSummary = async function() {
   } else {
     newPresenter = _presenterSelVal || '';
   }
-  var _matKeys = ['agencyBrochure', 'eduTrainingBrochure', 'learningDisabilityBrochure', 'adhdBrochure', 'dyslexiaBrochure', 'autism', 'flyers', 'newsletters'];
+  // Material keys derive from the admin-managed list (slug-keyed), matching the
+  // ids the renderer produced.
+  var _matSlugFn = (window.LDAHFormat && LDAHFormat.materialSlug) ? LDAHFormat.materialSlug : function(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); };
+  var _matKeys = (Array.isArray(_lookupLists.materials) ? _lookupLists.materials : []).map(_matSlugFn).filter(Boolean);
   var newMaterialsPacked = {};
   var newMaterialsDisseminated = {};
   _matKeys.forEach(function(k) {
@@ -27820,6 +27916,16 @@ window.cmsSaveEventSummary = async function() {
     newMaterialsPacked[k] = pEl ? (parseInt(pEl.value) || 0) : 0;
     newMaterialsDisseminated[k] = dEl ? (parseInt(dEl.value) || 0) : 0;
   });
+  // Two free-text "Other" rows -> array of {name, packed, disseminated}; named rows only.
+  var newMaterialsOther = [];
+  for (var _soi = 0; _soi < 2; _soi++) {
+    var _onEl = document.getElementById('esMatOtherName_' + _soi);
+    var _onName = _onEl ? (_onEl.value || '').trim() : '';
+    if (!_onName) continue;
+    var _opEl = document.getElementById('esMatOtherPacked_' + _soi);
+    var _odEl = document.getElementById('esMatOtherDiss_' + _soi);
+    newMaterialsOther.push({ name: _onName, packed: _opEl ? (parseInt(_opEl.value) || 0) : 0, disseminated: _odEl ? (parseInt(_odEl.value) || 0) : 0 });
+  }
   var _commentsEl = document.getElementById('esPresenterComments');
   var newPresenterComments = _commentsEl ? (_commentsEl.value || '') : '';
 
@@ -27951,6 +28057,7 @@ window.cmsSaveEventSummary = async function() {
     presenterUid: _newPresenterUid,
     materialsPacked: newMaterialsPacked,
     materialsDisseminated: newMaterialsDisseminated,
+    materialsOther: newMaterialsOther,
     presenterComments: newPresenterComments,
     // Pink-sheet Attendance Totals override fields (v122.4.0)
     attendanceParentReturning: attendanceParentReturning,

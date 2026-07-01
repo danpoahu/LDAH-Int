@@ -261,6 +261,37 @@
     return blob.indexOf(qd) !== -1;
   }
 
+  // ── Materials distribution (event summary + interactions) ──
+  // Stable, map-safe key for a material label. Rename-sensitive by design
+  // (retire+add rather than rename mid-year to keep historical counts aligned).
+  function materialSlug(label) {
+    return String(label == null ? '' : label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+  // Normalize a distribution capture: managed rows [{label,count}] -> a
+  // slug-keyed counts map (nonzero only); "Other" rows [{name,count}] -> an
+  // array of named rows only (count coerced to a number, 0 allowed). PURE.
+  function collectDistribution(managed, other) {
+    managed = Array.isArray(managed) ? managed : [];
+    other = Array.isArray(other) ? other : [];
+    var counts = {};
+    managed.forEach(function (m) {
+      var n = parseInt(m && m.count, 10);
+      if (!(n > 0)) return;
+      var slug = materialSlug(m && m.label);
+      if (!slug) return;
+      counts[slug] = n;
+    });
+    var outOther = [];
+    other.forEach(function (o) {
+      var name = String((o && o.name) || '').trim();
+      if (!name) return;
+      var n = parseInt(o && o.count, 10);
+      if (isNaN(n)) n = 0;
+      outOther.push({ name: name, count: n });
+    });
+    return { counts: counts, other: outOther };
+  }
+
   var api = {
     formatNameSmart: formatNameSmart,
     formatPhone: formatPhone,
@@ -276,7 +307,9 @@
     resolveAttendanceTotal: resolveAttendanceTotal,
     buildChildren: buildChildren,
     phoneDigits: phoneDigits,
-    gsPhoneMatch: gsPhoneMatch
+    gsPhoneMatch: gsPhoneMatch,
+    materialSlug: materialSlug,
+    collectDistribution: collectDistribution
   };
 
   global.LDAHFormat = api;
