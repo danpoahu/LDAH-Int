@@ -4714,7 +4714,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.2.4-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.2.5-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -15935,6 +15935,17 @@ var _photoPendingByIsland = {};
       }
 
       railHtml += demoHtml;
+
+      // ── Membership collapsible (donation history) — members only ──
+      if (c.isMember === true || (c.membershipLevel && c.membershipLevel !== '')) {
+        var memDetailId = 'ctMemberHist_' + contactId;
+        railHtml += '<div style="margin-top:8px;">';
+        railHtml += '<div onclick="var el=document.getElementById(\'' + memDetailId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'span\').textContent=el.style.display===\'none\'?\'\\u25B6\':\'\\u25BC\'" style="cursor:pointer;user-select:none;font-size:.88rem;font-weight:600;color:#B45309;">';
+        railHtml += '<span style="font-size:.65rem;">&#9654;</span> Membership</div>';
+        railHtml += '<div id="' + memDetailId + '" style="display:none;margin-top:6px;"><p style="font-size:.8rem;color:#94A3B8;padding:6px 0;">Loading…</p></div>';
+        railHtml += '</div>';
+      }
+
       railHtml += '</div>'; // close .ctd2-rail
 
       // ── Main column ──
@@ -16010,6 +16021,42 @@ var _photoPendingByIsland = {};
       var mainHtml = '<div class="ctd2-main">' + childSection + noteSection + connectGenSlot + caDocsSlot + timelineLabel + timelineHtml + '</div>';
 
       body.innerHTML = '<div class="ctd2">' + railHtml + mainHtml + '</div>';
+
+      // Fill the Membership history collapsible from the members collection.
+      if (c.isMember === true || (c.membershipLevel && c.membershipLevel !== '')) {
+        (function(cid) {
+          var host = document.getElementById('ctMemberHist_' + cid);
+          if (!host) return;
+          db.collection('members').where('linkedContactId', '==', cid).get().then(function(snap) {
+            var recs = [];
+            snap.forEach(function(d) { recs.push(d.data() || {}); });
+            recs.sort(function(a, b) {
+              var ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+              var tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+              return tb - ta;
+            });
+            if (!recs.length) { host.innerHTML = '<p style="font-size:.8rem;color:#94A3B8;padding:6px 0;">No membership records yet.</p>'; return; }
+            var totalPaid = 0;
+            var rowsHtml = recs.map(function(r) {
+              var amt = typeof r.amount === 'number' ? r.amount : (parseInt(r.amount, 10) || 0);
+              if (r.status === 'paid') totalPaid += amt;
+              var ts = r.paidAt || r.createdAt;
+              var dt = (ts && ts.toDate) ? ts.toDate().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+              var isPaid = r.status === 'paid';
+              return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:5px 0;border-bottom:1px solid #F1F5F9;">' +
+                '<div><div style="font-weight:700;font-size:.85rem;">$' + amt + ' <span style="font-weight:500;color:#64748B;font-size:.78rem;">' + rsEscape(r.level || '') + '</span></div>' +
+                '<div style="font-size:.72rem;color:#94A3B8;">' + rsEscape(dt || '—') + '</div></div>' +
+                '<span style="font-size:.7rem;font-weight:700;color:' + (isPaid ? '#16A34A' : '#D97706') + ';">' + (isPaid ? 'Paid' : 'Pending') + '</span>' +
+                '</div>';
+            }).join('');
+            host.innerHTML = rowsHtml +
+              '<div style="display:flex;justify-content:space-between;padding:7px 0 2px;font-weight:800;font-size:.85rem;color:#B45309;"><span>Total paid</span><span>$' + totalPaid + '</span></div>';
+          }).catch(function(err) {
+            host.innerHTML = '<p style="font-size:.8rem;color:#DC2626;padding:6px 0;">Could not load membership history.</p>';
+            console.warn('membership history query:', err.message);
+          });
+        })(contactId);
+      }
 
       // v128.1.0: External Advocate — reverse-direction async fill. Same query
       // pattern as the form's reverse view; clicking a name swaps the modal
