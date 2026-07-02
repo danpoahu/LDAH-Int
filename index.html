@@ -4709,7 +4709,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.2.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.2.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5976,7 +5976,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
         <div class="ct-toolbar">
           <input type="search" id="ctSearch" placeholder="Search contacts by name, type, org…">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="ctMembersOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Members only</label>
           <button class="ct-btn-add" id="ctAddBtn" data-roles="superAdmin,admin" onclick="openContactForm()">+ Add Contact</button>
+          <button class="section-refresh-btn" onclick="exportContactsCSV()" title="Download the contacts currently shown (respects search / A–Z / Members filter)">&#x2913; Export CSV</button>
           <button class="section-refresh-btn" onclick="loadContacts(true)">Refresh</button>
         </div>
 
@@ -15041,9 +15043,11 @@ var _photoPendingByIsland = {};
       renderAzFilter();
 
       var searchVal = (document.getElementById('ctSearch')?.value || '').toLowerCase().trim();
+      var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
       var filtered = _allContacts.filter(function(c) {
         // A–Z letter filter (AND with text search)
         if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
+        if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
         if (searchVal) {
           return (c.displayName || '').toLowerCase().includes(searchVal) ||
                  (c.type || '').toLowerCase().includes(searchVal) ||
@@ -15060,8 +15064,8 @@ var _photoPendingByIsland = {};
         return;
       }
 
-      // Cap the default "All" view (no letter, no search); letter/search sets are small.
-      var capped = (!_ctAzLetter && !searchVal);
+      // Cap the default "All" view (no letter, no search, no members filter); filtered sets are small.
+      var capped = (!_ctAzLetter && !searchVal && !membersOnly);
       var toRender = capped ? filtered.slice(0, _ctRenderLimit) : filtered;
 
       var html = '';
@@ -15112,6 +15116,46 @@ var _photoPendingByIsland = {};
       loadContacts();
     });
   }
+
+  // Export the contacts currently shown (same search / A–Z / Members filter) to CSV.
+  window.exportContactsCSV = function() {
+    var searchVal = (document.getElementById('ctSearch') && document.getElementById('ctSearch').value || '').toLowerCase().trim();
+    var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
+    var rows = (_allContacts || []).filter(function(c) {
+      if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
+      if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
+      if (searchVal) {
+        return (c.displayName || '').toLowerCase().includes(searchVal) ||
+               (c.type || '').toLowerCase().includes(searchVal) ||
+               (c.organization || '').toLowerCase().includes(searchVal) ||
+               (c.location || '').toLowerCase().includes(searchVal) ||
+               (c.grantProgram || '').toLowerCase().includes(searchVal);
+      }
+      return true;
+    });
+    if (!rows.length) { alert('No contacts match the current filter.'); return; }
+    var headers = ['Name', 'Email', 'Phone', 'Type', 'Organization', 'Location', 'Grant/Program', 'Opted In', 'Member', 'Membership Level', 'Membership Status'];
+    var out = [headers];
+    rows.forEach(function(c) {
+      out.push([
+        c.displayName || '', c.email || '', c.phone || '', c.type || '',
+        c.organization || '', c.location || '', c.grantProgram || '',
+        c.marketingOptOut === true ? 'No' : 'Yes',
+        (c.isMember === true || (c.membershipLevel && c.membershipLevel !== '')) ? 'Yes' : 'No',
+        c.membershipLevel || '', c.membershipStatus || ''
+      ].map(function(v) { var s = (v == null ? '' : String(v)).replace(/"/g, '""'); return '"' + s + '"'; }));
+    });
+    var csv = out.map(function(r) { return r.join(','); }).join('\r\n');
+    var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM so Excel shows the ʻokina etc.
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ldah-contacts' + (membersOnly ? '-members' : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   // ── Additional-children repeater (v145.1.0) ──
   // Child 1 stays the fixed ctChild* fields; children 2+ render as cards in
