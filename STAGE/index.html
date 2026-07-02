@@ -4714,7 +4714,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.2.3-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.2.4-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8225,6 +8225,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <span id="ctDetailFeedbackPill" style="display:none;background:#16A34A;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:10px;cursor:pointer;user-select:none;" onclick="ctOpenFeedback()" title="View this contact's feedback responses">0 Feedback</span>
         <span id="ctDetailCgPill" style="display:none;background:#7C3AED;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;" title="This contact has an open Case Advocacy">Case Advocacy</span>
         <span id="ctDetailMemberPill" style="display:none;background:linear-gradient(135deg,#B45309,#F59E0B);color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;box-shadow:0 2px 6px rgba(180,83,9,.3);" title="LDAH member">Member</span>
+        <button id="ctDetailMarkPaidBtn" type="button" style="display:none;background:#16A34A;color:#fff;font-size:.72rem;font-weight:700;border:none;border-radius:999px;padding:5px 12px;margin-left:8px;cursor:pointer;" title="Mark this membership as paid (clears pending)">Mark as Paid</button>
         <button class="ct-close" onclick="closeContactDetail()">&times;</button>
       </div>
       <div class="ct-detail-body" id="ctDetailBody">
@@ -15717,6 +15718,38 @@ var _photoPendingByIsland = {};
     return html;
   }
 
+  // Manually mark a membership PAID (clears the "pending" pill). Updates the
+  // contact + any linked pending records in the members collection. Admin action;
+  // interim until PayPal Smart Buttons/webhook auto-confirm payment.
+  window.markMembershipPaid = async function(contactId) {
+    if (!contactId) return;
+    if (!confirm('Mark this membership as PAID? This clears the "pending" status.')) return;
+    var btn = document.getElementById('ctDetailMarkPaidBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+      await db.collection('contacts').doc(contactId).update({
+        membershipStatus: 'paid',
+        membershipPaidAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      try {
+        var ms = await db.collection('members').where('linkedContactId', '==', contactId).get();
+        var batch = db.batch();
+        ms.forEach(function(d) { if ((d.data() || {}).status === 'pending') batch.update(d.ref, { status: 'paid', paidAt: firebase.firestore.FieldValue.serverTimestamp() }); });
+        await batch.commit();
+      } catch (e) { console.warn('member paid update:', e.message); }
+      var cc = (_allContacts || []).find(function(x) { return x.id === contactId; });
+      if (cc) cc.membershipStatus = 'paid';
+      var pill = document.getElementById('ctDetailMemberPill');
+      if (pill) pill.textContent = 'Member' + ((cc && cc.membershipLevel) ? ' · ' + cc.membershipLevel : '');
+      if (btn) btn.style.display = 'none';
+      if (typeof auditLog === 'function') auditLog('Membership marked paid', contactId);
+      if (typeof _showToast === 'function') _showToast('Membership marked as paid.', '#16A34A');
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Mark as Paid'; }
+      alert('Could not mark paid: ' + e.message);
+    }
+  };
+
   window.openContactDetail = async function(contactId) {
     var overlay = document.getElementById('ctDetailOverlay');
     var body = document.getElementById('ctDetailBody');
@@ -15757,10 +15790,18 @@ var _photoPendingByIsland = {};
       // Membership header pill (gold) — shown synchronously from the contact's
       // own isMember/membershipLevel fields (set by onMembershipCreated CF).
       var memPill = document.getElementById('ctDetailMemberPill');
+      var paidBtn = document.getElementById('ctDetailMarkPaidBtn');
+      if (paidBtn) { paidBtn.style.display = 'none'; paidBtn.onclick = null; paidBtn.disabled = false; paidBtn.textContent = 'Mark as Paid'; }
       if (memPill) {
         if (c.isMember === true || (c.membershipLevel && c.membershipLevel !== '')) {
           memPill.textContent = 'Member' + (c.membershipLevel ? ' · ' + c.membershipLevel : '') + (c.membershipStatus === 'pending' ? ' (pending)' : '');
           memPill.style.display = 'inline-block';
+          // Admin-only "Mark as Paid" button while membership is pending.
+          var _isAdmin = ['superAdmin', 'admin'].indexOf(currentUserData && currentUserData.role) !== -1;
+          if (paidBtn && _isAdmin && c.membershipStatus === 'pending') {
+            paidBtn.style.display = 'inline-block';
+            paidBtn.onclick = function() { markMembershipPaid(contactId); };
+          }
         } else {
           memPill.style.display = 'none';
         }
