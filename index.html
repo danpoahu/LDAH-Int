@@ -4709,7 +4709,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.3.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.4.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -35247,6 +35247,8 @@ window.cmsBuildStaffActivityReport = async function() {
   // reused for all client-side filter changes.
   var _eaCache = {
     built: false,
+    oneOffsLoaded: false,   // lazy-load: One-Off events are deferred until the One-Off/All filter is picked
+    oneOffsLoading: false,
     eventDates: [], // [{ id, eventId, collection, eventTitle, sessionDate, sessionDateLabel, sessionDateIso, sessionDateObj, eventDoc, signups, feedback, summary, isRecurring, isOneTimeMulti, location, presenter, tier, totalAttended, evaluationCount, year, programKey }]
     eventTitlesById: {},
     expanded: {}, // id -> bool (legacy; modal flow no longer uses this for visual expand)
@@ -35448,7 +35450,7 @@ window.cmsBuildStaffActivityReport = async function() {
   // Returns one descriptor per session date (recurring: from cached
   // signups' sessionAttendance keys + signupDates; one-time: per
   // signupDates entry, or one flat entry when no signupDates).
-  async function _enumerateEventDates() {
+  async function _enumerateEventDates(mode) {
     // Pull events + recurring events + signups + feedback in parallel.
     var evSnapProm = db.collection('events').get();
     var recSnapProm = db.collection('recurringEvents').get();
@@ -35459,6 +35461,17 @@ window.cmsBuildStaffActivityReport = async function() {
     var allEvents = [];
     evSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'events', ...d.data() }); });
     recSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'recurringEvents', ...d.data() }); });
+
+    // Lazy-load split (perf): 'initial' (default) skips One-Off events so we
+    // don't fetch a signups sub-collection for the ~130 one-off cards on every
+    // report open; 'oneoffs' loads ONLY those, on demand when the user picks
+    // the One-Off / All filter. Non-One-Off events are unaffected either way.
+    var _mode = mode || 'initial';
+    if (_mode === 'initial') {
+      allEvents = allEvents.filter(function(e) { return !(e._coll === 'events' && e.isOneOff === true); });
+    } else if (_mode === 'oneoffs') {
+      allEvents = allEvents.filter(function(e) { return e._coll === 'events' && e.isOneOff === true; });
+    }
 
     // Group feedback by event id for fast lookup
     var fbByEvent = {};
@@ -35822,7 +35835,12 @@ window.cmsBuildStaffActivityReport = async function() {
         _eaCache.filters.tier    = (document.getElementById('eaFilterTier')    || {}).value || '';
         _eaCache.filters.from    = (document.getElementById('eaFilterFrom')    || {}).value || '';
         _eaCache.filters.to      = (document.getElementById('eaFilterTo')      || {}).value || '';
-        _renderCardList();
+        // Lazy-load One-Off events the first time they're actually requested.
+        if ((_eaCache.filters.program === 'One-Off' || _eaCache.filters.program === '__all__') && !_eaCache.oneOffsLoaded) {
+          _ensureOneOffsLoaded();
+        } else {
+          _renderCardList();
+        }
       });
     });
     // Wire 0-attendance toggle (separate — flag lives outside .filters).
@@ -35832,6 +35850,30 @@ window.cmsBuildStaffActivityReport = async function() {
         _eaCache.showZero = !!zeroEl.checked;
         _renderCardList();
       });
+    }
+  }
+
+  // Lazy-load One-Off events on demand — the first time the user picks the
+  // One-Off / All filter. Fetches only their signups + builds their rows,
+  // appends to the cache, then refreshes. Cached after the first load so later
+  // toggles are instant. Keeps the default Programs & Events view fast.
+  async function _ensureOneOffsLoaded() {
+    if (_eaCache.oneOffsLoaded || _eaCache.oneOffsLoading) { _renderCardList(); return; }
+    _eaCache.oneOffsLoading = true;
+    var host = document.getElementById('eaCardList');
+    if (host) host.innerHTML = '<div style="background:#fff;border-radius:var(--radius);padding:18px;color:var(--text-soft);text-align:center;box-shadow:var(--shadow-soft);grid-column:1/-1;">Loading one-off events…</div>';
+    try {
+      var built = await _enumerateEventDates('oneoffs');
+      _eaCache.eventDates = _eaCache.eventDates.concat(built.rows);
+      Object.keys(built.titles || {}).forEach(function(k) { _eaCache.eventTitlesById[k] = built.titles[k]; });
+      _eaCache.oneOffsLoaded = true;
+      _eaCache.oneOffsLoading = false;
+      _renderFilterBar();  // reads _eaCache.filters, so the current selection persists; adds one-off years
+      _renderCardList();
+    } catch (e) {
+      _eaCache.oneOffsLoading = false;
+      console.error('Load one-off events failed:', e);
+      if (host) host.innerHTML = '<div style="background:#fff;border-radius:var(--radius);padding:18px;color:#DC2626;text-align:center;box-shadow:var(--shadow-soft);grid-column:1/-1;">Could not load one-off events. Please try again.</div>';
     }
   }
 
@@ -36771,6 +36813,7 @@ window.cmsBuildStaffActivityReport = async function() {
         String(_td.getDate()).padStart(2, '0');
       _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '', program: '__programs__', tier: '', from: '', to: _todayIso };
       _eaCache.showZero = false; // v125.0.0 default OFF on every build
+      _eaCache.oneOffsLoaded = false; _eaCache.oneOffsLoading = false; // One-Offs deferred until the user asks
       _renderFilterBar();
       _renderCardList();
       auditLog('Generated Event Attendance Report', built.rows.length + ' event-dates');
