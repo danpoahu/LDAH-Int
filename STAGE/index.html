@@ -3844,11 +3844,14 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 /* ── Dashboard Mini Calendar ── */
 .mini-cal-header { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: .7rem; font-weight: 700; color: var(--text-soft); margin-bottom: 4px; }
 .mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-/* Cap the calendar width so the aspect-ratio:1 cells can't balloon. The right
-   column is a fractional grid track (.58fr); without this bound, swapping the
-   events list below (event <-> "No events") re-runs the fr/aspect-ratio sizing
-   and the cells toggle between a huge and a compact size on every click. */
-#dashMiniCal { max-width: 280px; margin: 0 auto; }
+/* Pin the calendar to a FIXED width so the aspect-ratio:1 cells are fully
+   deterministic. The calendar sits in the .58fr right grid track; that track's
+   width is renegotiated whenever the events list below swaps (event <-> "No
+   events"), so a max-width alone still let the cells oscillate on every click.
+   An explicit width removes that degree of freedom — the calendar is 252px no
+   matter what the column or the events list does. max-width:100% protects
+   unusually narrow screens. */
+#dashMiniCal { width: 252px; max-width: 100%; margin: 0 auto; }
 .mini-cal-day {
   aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   font-size: .78rem; border-radius: var(--radius); cursor: pointer; position: relative; color: var(--text);
@@ -4727,7 +4730,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.5-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.6-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11880,6 +11883,7 @@ var _photoPendingByIsland = {};
           var d = doc.data();
           if (!d.title) return;
           if (doc.id.length > 30) return;
+          var _lblMap = _calEventLabelMap(d);
           var eventDate = d.eventDate ? new Date(d.eventDate + 'T00:00:00') : null;
           var startDate = d.startDate ? new Date(d.startDate + 'T00:00:00') : null;
           var moveToPast = d.moveToPastDate ? new Date(d.moveToPastDate + 'T00:00:00') : null;
@@ -11901,6 +11905,7 @@ var _photoPendingByIsland = {};
             if (_cmsIsSessionCancelled(_evIso, d.location || '', '', _cd)) return;
             merged.push({
               id: doc.id, title: d.title, date: eventDate,
+              sessionLabel: _lblMap[_evIso] || '',
               location: d.location || '', description: d.description || '',
               isRecurring: false
             });
@@ -11911,6 +11916,7 @@ var _photoPendingByIsland = {};
               if (isNaN(dt.getTime())) return;
               merged.push({
                 id: doc.id, title: d.title, date: dt,
+                sessionLabel: _lblMap[k] || '',
                 location: d.location || '', description: d.description || '',
                 isRecurring: false
               });
@@ -11922,6 +11928,7 @@ var _photoPendingByIsland = {};
           var d = doc.data();
           if (d.active === false) return; // skip inactive (needed when using shared cache)
           if (!d.title) return;
+          var _lblMapR = _calEventLabelMap(d);
           var occs = _calGetOccurrences(d.schedules, 90);
           occs.forEach(function(occ) {
             // Skip sessions cancelled in CMS (cancelledDates) — a cancelled
@@ -11930,6 +11937,7 @@ var _photoPendingByIsland = {};
             if (_cmsIsSessionCancelled(occIso, occ.schedule.location || '', occ.schedule.venue || '', d.cancelledDates)) return;
             merged.push({
               id: doc.id, title: d.title, date: occ.date,
+              sessionLabel: _lblMapR[occIso] || '',
               location: occ.schedule.location || '', description: d.description || '',
               isRecurring: true, schedule: occ.schedule
             });
@@ -11975,6 +11983,38 @@ var _photoPendingByIsland = {};
     });
     results.sort(function(a, b) { return a.date - b.date; });
     return results;
+  }
+
+  // Pull the short, per-session title out of a signupDates string. Multi-date
+  // events store labels like "July 8th, 5pm - A-B-C's of Advocacy" — the useful
+  // part is the descriptive clause, not the date/time. Split on " - ", drop the
+  // parts that are pure date or pure time, keep the rest. Returns '' when there
+  // is no descriptive clause (single-topic events keep their full title).
+  function _calShortLabel(s) {
+    if (!s) return '';
+    var parts = String(s).split(/\s+[-–]\s+/);
+    var kept = parts.map(function(p) { return p.trim(); }).filter(function(p) {
+      if (!p) return false;
+      if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(p)) return false; // date
+      if (/^[\d\s:.,–-]*(?:[ap]\.?m\.?)?[\d\s:.,–-]*$/i.test(p)) return false;  // time / numeric
+      return true;
+    });
+    return kept.join(' – ').trim();
+  }
+
+  // Map each session date-key to its short label, using the fact that a doc's
+  // sessions[] and signupDates[] are built in parallel (same order/length).
+  function _calEventLabelMap(d) {
+    var m = {};
+    if (Array.isArray(d.sessions) && Array.isArray(d.signupDates)) {
+      for (var i = 0; i < d.sessions.length; i++) {
+        var ss = d.sessions[i];
+        if (!ss || !ss.dateKey) continue;
+        var lbl = _calShortLabel(d.signupDates[i]);
+        if (lbl) m[ss.dateKey] = lbl;
+      }
+    }
+    return m;
   }
 
   function renderMiniCalendar(year, month) {
@@ -12093,7 +12133,7 @@ var _photoPendingByIsland = {};
       var clickAction = 'cmsViewSignups(\'' + ev.id.replace(/'/g, "\\'") + '\',' + (ev.isRecurring ? 'true' : 'false') + ',\'' + (ev.title || '').replace(/'/g, "\\'") + '\')';
       html += '<div class="dash-event-item" style="cursor:pointer;" onclick="' + clickAction + '" onmouseover="this.style.background=\'rgba(8,145,178,.04)\'" onmouseout="this.style.background=\'transparent\'">' +
         '<div class="dash-event-date-badge"><div class="month">' + monthNames[ev.date.getMonth()] + '</div><div class="day">' + ev.date.getDate() + '</div></div>' +
-        '<div class="dash-event-info"><p class="title">' + ev.title + '</p>' +
+        '<div class="dash-event-info"><p class="title">' + (ev.sessionLabel || ev.title) + '</p>' +
         '<p class="meta">' + ev.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + locText + '</p>' +
         '</div></div>';
     });
