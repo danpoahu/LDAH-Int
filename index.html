@@ -4724,7 +4724,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.4.10</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.5.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7079,6 +7079,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <input type="hidden" id="cmsEventEditIsRecurring">
             <input type="hidden" id="cmsEventImageUrl">
 
+            <!-- Flyer-first intro (new one-time events only) -->
+            <div id="cmsFlyerFirstPanel" style="display:none;text-align:center;padding:6px 4px 2px;">
+              <div style="font-size:1.1rem;font-weight:700;color:var(--primary-blue);margin-bottom:4px;">Start with your flyer</div>
+              <div style="font-size:.9rem;color:var(--text-soft);margin-bottom:16px;">Upload the event flyer and I'll read it and fill in the form for you to review.</div>
+              <div onclick="document.getElementById('cmsFlyerInput').click()" style="cursor:pointer;border:2px dashed var(--primary-blue);border-radius:14px;padding:32px 16px;background:#F0FDFF;">
+                <div style="font-size:2rem;margin-bottom:6px;">📄✨</div>
+                <div style="font-weight:700;color:var(--primary-blue);">Click to upload a flyer</div>
+                <div style="font-size:.8rem;color:var(--text-soft);margin-top:4px;">JPG, PNG, WebP, or PDF · max 6 MB</div>
+              </div>
+              <input type="file" id="cmsFlyerInput" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="cmsExtractFromFlyer(this)">
+              <div id="cmsFlyerStatus" style="margin-top:12px;font-size:.9rem;min-height:20px;color:var(--text-soft);"></div>
+              <button type="button" class="btn btn-ghost" style="margin-top:12px;font-size:.85rem;" onclick="_cmsShowEventForm()">or enter manually →</button>
+            </div>
+
+            <div id="cmsEventFormBody">
             <!-- Common fields: Title & Description -->
             <div class="field" style="grid-column: span 2;">
               <label>Title <span style="color:#DC2626;">*</span> <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The event name displayed on the Events page and in signup forms. Limited to 100 characters so it fits the Events page card.')">i</span></label>
@@ -7210,6 +7225,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   <label for="cmsRecurringShowGroupField" style="margin:0;cursor:pointer;font-weight:500;">Show "Individual or Group?" question in signup form</label>
                 </div>
               </div>
+            </div>
             </div>
 
           </div>
@@ -23123,7 +23139,7 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
   _cmsEventSignupDates = [];
   _cmsEventSignupDatesAutoFromEvent = false;
   _cmsEventCustomQuestions = [];
-  document.getElementById('cmsEventShowGroupField').checked = true;
+  document.getElementById('cmsEventShowGroupField').checked = false;
   document.getElementById('cmsEventInfoOnly').checked = false;
   cmsRenderEventSignupDates();
   cmsRenderEventCustomQuestions();
@@ -23137,6 +23153,10 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
   cmsRenderRecurringScheduleRows();
   cmsRenderRecurringQuestions();
   cmsToggleRecurringScheduleSection();
+
+  // Flyer-first: a NEW one-time event opens straight to the flyer uploader;
+  // edits and programs go straight to the full form.
+  if (!docId && !isRec) { _cmsShowFlyerFirst(); } else { _cmsShowEventForm(); }
 
   if (docId) {
     try {
@@ -23232,6 +23252,187 @@ window.cmsClearEventImage = function() {
   document.getElementById('cmsEventImageInput').value = '';
   document.getElementById('cmsEventImageUpload').innerHTML = '<span class="cms-photo-label">Click to upload image or PDF</span>';
 };
+
+// Convert any uploaded flyer/image to a JPEG so event cards render it uniformly
+// (cards show flyers via <img>; a PDF won't display). PDFs render their first
+// page via pdf.js (lazy-loaded from the same CDN as jspdf); other images
+// re-encode through a canvas. Already-JPEG files pass through untouched. Falls
+// back to the original file on any error so a Save never breaks.
+function _cmsLoadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (window._cmsPdfjsPromise) return window._cmsPdfjsPromise;
+  window._cmsPdfjsPromise = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = function() {
+      try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {}
+      resolve(window.pdfjsLib);
+    };
+    s.onerror = function() { reject(new Error('pdf.js failed to load')); };
+    document.head.appendChild(s);
+  });
+  return window._cmsPdfjsPromise;
+}
+async function _cmsRenderPdfFirstPage(file) {
+  var pdfjsLib = await _cmsLoadPdfJs();
+  var buf = await file.arrayBuffer();
+  var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  var page = await pdf.getPage(1);
+  var vp = page.getViewport({ scale: 2 });
+  var maxDim = 1600;
+  if (Math.max(vp.width, vp.height) > maxDim) {
+    vp = page.getViewport({ scale: 2 * maxDim / Math.max(vp.width, vp.height) });
+  }
+  var c = document.createElement('canvas');
+  c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return c;
+}
+function _cmsImageToCanvas(file) {
+  return new Promise(function(resolve, reject) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width, h = img.height, maxDim = 1600;
+      if (Math.max(w, h) > maxDim) { var s = maxDim / Math.max(w, h); w = Math.round(w * s); h = Math.round(h * s); }
+      var c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(img.src);
+      resolve(c);
+    };
+    img.onerror = function() { reject(new Error('image decode failed')); };
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function _cmsFlyerToJpeg(file) {
+  try {
+    if (!file || !file.type) return file;
+    if (file.type === 'image/jpeg') return file;
+    var isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+    var canvas = isPdf ? await _cmsRenderPdfFirstPage(file) : await _cmsImageToCanvas(file);
+    var blob = await new Promise(function(res) { canvas.toBlob(res, 'image/jpeg', 0.9); });
+    if (!blob) return file;
+    var base = (file.name || 'flyer').replace(/\.[^.]+$/, '');
+    return new File([blob], base + '.jpg', { type: 'image/jpeg' });
+  } catch (e) { console.warn('_cmsFlyerToJpeg failed, using original:', e && e.message); return file; }
+}
+
+window.cmsExtractFromFlyer = async function(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  if (file.size > 6 * 1024 * 1024) { alert('Please use a flyer under 6 MB.'); input.value=''; return; }
+  var status = document.getElementById('cmsFlyerStatus');
+  if (status) status.innerHTML = '<span style="color:var(--primary-blue);font-weight:700;">Reading your flyer… (about 5–8 seconds)</span>';
+  try {
+    var b64 = await new Promise(function(res, rej){
+      var r = new FileReader();
+      r.onload = function(){ res(String(r.result).split(',')[1]); };
+      r.onerror = rej; r.readAsDataURL(file);
+    });
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/extractEventFromFlyer', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ fileBase64: b64, mediaType: file.type })
+    });
+    var data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Extraction failed');
+    _cmsApplyFlyerExtraction(data.event);
+    // Reuse the same flyer as the event's display image, so the Image/Flyer field
+    // is populated here (not left empty) and the file uploads on Save like a
+    // normal image pick. Non-fatal if the browser lacks DataTransfer.
+    try {
+      var imgInput = document.getElementById('cmsEventImageInput');
+      if (imgInput && window.DataTransfer) {
+        var jpg = await _cmsFlyerToJpeg(file); // convert now so the preview shows the flyer image
+        var dt = new DataTransfer();
+        dt.items.add(jpg);
+        imgInput.files = dt.files;
+        if (typeof cmsPreviewEventImage === 'function') cmsPreviewEventImage(imgInput);
+      }
+    } catch (imgErr) { /* non-fatal — flyer can be uploaded manually as the image */ }
+    _cmsShowEventForm();
+    if (typeof _showToast === 'function') _showToast('Filled in from your flyer — please verify everything.', '#0891B2');
+  } catch (e) {
+    if (status) status.innerHTML = '<span style="color:#B45309;">Couldn\'t read that flyer automatically. Try another file, or click &ldquo;or enter manually&rdquo; below.</span>';
+  } finally { input.value=''; }
+};
+
+// Flyer-first mode: swap between the flyer uploader and the full event form.
+function _cmsShowFlyerFirst() {
+  var p = document.getElementById('cmsFlyerFirstPanel');
+  var b = document.getElementById('cmsEventFormBody');
+  var s = document.getElementById('cmsEventSaveBtn');
+  var st = document.getElementById('cmsFlyerStatus');
+  if (st) st.textContent = '';
+  if (p) p.style.display = 'block';
+  if (b) b.style.display = 'none';
+  if (s) s.style.display = 'none';
+}
+function _cmsShowEventForm() {
+  var p = document.getElementById('cmsFlyerFirstPanel');
+  var b = document.getElementById('cmsEventFormBody');
+  var s = document.getElementById('cmsEventSaveBtn');
+  if (p) p.style.display = 'none';
+  if (b) b.style.display = '';
+  if (s) s.style.display = '';
+}
+window._cmsShowFlyerFirst = _cmsShowFlyerFirst;
+window._cmsShowEventForm = _cmsShowEventForm;
+
+function _cmsSetField(id, val, highlight) {
+  var el = document.getElementById(id);
+  if (!el || !val) return;
+  el.value = val;
+  if (highlight) { el.style.boxShadow = 'inset 0 0 0 2px #67E8F9'; setTimeout(function(){ el.style.boxShadow=''; }, 6000); }
+}
+
+function _cmsYmd(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+// Ensure the title names the month of the events, e.g. "Learning Labs: X" +
+// "August" -> "Learning Labs August: X". Inserts the month before the first
+// colon; appends it if there is no colon; leaves it alone if already present.
+function _cmsTitleWithMonth(title, monthName) {
+  if (!title || !monthName) return title || '';
+  if (new RegExp('\\b' + monthName + '\\b', 'i').test(title)) return title;
+  var i = title.indexOf(':');
+  if (i !== -1) return title.slice(0, i) + ' ' + monthName + title.slice(i);
+  return title + ' — ' + monthName;
+}
+
+function _cmsApplyFlyerExtraction(ev) {
+  var _sess = (ev.sessions || []).map(function(s){ return _rsParseSessionDate(s.date); }).filter(Boolean);
+  var _monthName = _sess.length ? _sess.reduce(function(a, b){ return b < a ? b : a; }).toLocaleDateString('en-US', { month: 'long' }) : '';
+  _cmsSetField('cmsEventTitle', _cmsTitleWithMonth(ev.title, _monthName), true);
+  _cmsSetField('cmsEventDescription', ev.description, true);
+  if (ev.modality !== 'virtual') _cmsSetField('cmsEventLocation', ev.location, true);
+  else _cmsSetField('cmsEventLocation', 'Zoom', true);
+  if (Array.isArray(ev.sessions) && ev.sessions[0]) {
+    var d0 = _rsParseSessionDate(ev.sessions[0].date);
+    if (d0) _cmsSetField('cmsEventDate', d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0'), true);
+    if (ev.timeStart) _cmsSetField('cmsEventTime', ev.timeStart, true);
+  }
+  var dates = Array.isArray(ev.signupDates) && ev.signupDates.length ? ev.signupDates
+            : (ev.sessions || []).map(function(s){ return (s.date||'') + (s.time?(', '+s.time):'') + (s.topic?(' - '+s.topic):''); });
+  _cmsEventSignupDates = dates.map(function(s){ return _cmsForceYearOnSignupDate(s).value; });
+  _cmsSignupDateYearAddedIdx = -1;
+  cmsRenderEventSignupDates();
+
+  // Lifecycle dates from the LAST session:
+  //   Start Showing = today · Move to Past = last session + 1 day ·
+  //   Remove Date  = last day of the month AFTER the last session's month.
+  if (_sess.length) {
+    var _last = _sess.reduce(function(a, b){ return b > a ? b : a; });
+    var _today = new Date(); _today.setHours(0,0,0,0);
+    var _movePast = new Date(_last.getFullYear(), _last.getMonth(), _last.getDate() + 1);
+    var _remove = new Date(_last.getFullYear(), _last.getMonth() + 2, 0);
+    _cmsSetField('cmsEventStartDate', _cmsYmd(_today), true);
+    _cmsSetField('cmsEventMoveToPastDate', _cmsYmd(_movePast), true);
+    _cmsSetField('cmsEventRemoveDate', _cmsYmd(_remove), true);
+  }
+}
 
 /* ── One-Time Event: auto-fill Signup Date from Event Date + Time ── */
 function _cmsBuildAutoSignupDate(dateStr, timeStr) {
@@ -23684,6 +23885,7 @@ window.cmsSaveEvent = async function() {
     var fileInput = document.getElementById('cmsEventImageInput');
     if (fileInput.files && fileInput.files[0]) {
       var file = fileInput.files[0];
+      file = await _cmsFlyerToJpeg(file); // any flyer/image (incl. PDF) -> JPG so cards render it
       file = await autoCropImage(file);
       _showToast('Uploading image...', '#0891B2');
       var storagePath = 'event-images/' + Date.now() + '_' + file.name;
