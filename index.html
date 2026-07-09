@@ -4724,7 +4724,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.4.8</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.4.9</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27071,9 +27071,9 @@ window.cmsCreateSendRecapTasks = async function(eventId, eventTitle, updates) {
     for (var i = 0; i < sessionKeys.length; i++) {
       var key = sessionKeys[i];
       var isSingle = (key === '_single');
-      var ss = (!isSingle && ev.sessionSummaries && ev.sessionSummaries[key]) ? ev.sessionSummaries[key] : null;
-      var presUid = (ss && ss.presenterUid) || (ev.summary && ev.summary.presenterUid) || '';
-      var presName = (ss && ss.presenter) || (ev.summary && ev.summary.presenter) || '';
+      var ss = _rsResolveSessionPresenter(ev, key, isSingle);
+      var presUid = (ss && ss.presenterUid) || '';
+      var presName = (ss && ss.presenter) || '';
 
       // Two pure-reminder tasks per session; staff close them manually.
       // (The recording-sender auto-close at cmsRecordingSend is intentionally NOT extended to these steps.)
@@ -33032,6 +33032,31 @@ function _rsParseSessionDate(raw) {
 }
 function _rsSameDay(a, b) { return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
 function _rsAddDays(d, n) { var c = new Date(d.getTime()); c.setDate(c.getDate() + n); return c; }
+// Normalize any session string to a YYYY-MM-DD date key (or '' if unparseable).
+function _rsDateKey(raw) {
+  var d = _rsParseSessionDate(raw);
+  return d ? (d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0')) : '';
+}
+// Resolve a session's presenter ({presenter, presenterUid}) robustly. The
+// sessionSummaries map is keyed by a formatted string ("July 8, 2026 - 5:00
+// PM") while our session key is the signupDate label ("July 8th, 5pm - ..."),
+// so an exact-key lookup misses and callers fall back to La'a. Try the exact
+// key first, then match by session DATE, then the single-session summary.
+function _rsResolveSessionPresenter(ev, key, isSingle) {
+  if (isSingle) return (ev && ev.summary) || {};
+  var ss = (ev && ev.sessionSummaries) || {};
+  if (ss[key] && ss[key].presenterUid) return ss[key];
+  var want = _rsDateKey(key);
+  if (want) {
+    var hit = null;
+    Object.keys(ss).forEach(function(sk) {
+      if (hit) return;
+      if (_rsDateKey(sk) === want && ss[sk] && ss[sk].presenterUid) hit = ss[sk];
+    });
+    if (hit) return hit;
+  }
+  return (ev && ev.summary) || {};
+}
 // Extract unique session Date objects for a signup. Reads both
 // selectedDates (Learning Labs) and selectedSessions (Connect-Gen
 // pipe format). Returns [] if neither produces a parseable date.
