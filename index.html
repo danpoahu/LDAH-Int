@@ -4724,7 +4724,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.4.9</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.4.10</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22418,6 +22418,7 @@ var _cmsCacheTTL = 60000; // 60s cache — navigating back won't re-fetch
 var _cmsSignupsModalData = { eventId: null, isRecurring: false, eventTitle: '', signups: [] };
 var _cmsEventSignupDates = [];
 var _cmsEventSignupDatesAutoFromEvent = false; // true = last entry was auto-filled from eventDate+time
+var _cmsSignupDateYearAddedIdx = -1; // index of the row whose year was just auto-added (for a brief highlight)
 var _cmsEventCustomQuestions = [];
 var _cmsRecurringSchedules = [];
 var _cmsRecurringQuestions = [];
@@ -23261,13 +23262,48 @@ window._cmsMaybeAutoFillSignupDate = function() {
 };
 
 /* ── One-Time Event: Signup Dates helpers ── */
+// Force every signup date to carry a 4-digit year at the moment it's entered,
+// so a session date can never be stored year-less again (which broke the
+// date parsers → future sessions leaking into attendance, reminders not firing,
+// tasks mis-routed). The year is inferred from the event's own date field
+// (nearest-occurrence), so "July 8 - Reading - 3pm" becomes "July 8, 2026 - ...".
+var _CMS_MONTHS = { jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,sept:8,september:8,oct:9,october:9,nov:10,november:10,dec:11,december:11 };
+function _cmsMonthIndex(n) { return (n && _CMS_MONTHS[String(n).toLowerCase()] !== undefined) ? _CMS_MONTHS[String(n).toLowerCase()] : -1; }
+function _cmsForceYearOnSignupDate(raw) {
+  var s = String(raw || '').trim();
+  if (!s) return { value: s, added: false };
+  if (/\b(20\d{2})\b/.test(s)) return { value: s, added: false };           // already has a year
+  var m = s.match(/([A-Za-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?/);            // find "Month Day[ordinal]"
+  if (!m) return { value: s, added: false };                                // no recognizable date — leave as typed
+  var mo = _cmsMonthIndex(m[1]);
+  if (mo < 0) return { value: s, added: false };
+  var evVal = (document.getElementById('cmsEventDate') || {}).value || '';
+  var anchor = /^\d{4}-\d{2}-\d{2}$/.test(evVal) ? new Date(evVal + 'T00:00:00') : new Date();
+  var day = parseInt(m[2], 10);
+  var year = anchor.getFullYear();
+  var cand = new Date(year, mo, day);
+  var anchorMid = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  var diff = (cand - anchorMid) / 86400000;
+  if (diff < -182) year += 1;                 // nearest occurrence to the event date
+  else if (diff > 182) year -= 1;
+  var end = m.index + m[0].length;
+  return { value: s.slice(0, end) + ', ' + year + s.slice(end), added: true, year: year };
+}
+
 window.cmsAddEventSignupDate = function() {
   var input = document.getElementById('cmsNewSignupDate');
-  if (input.value.trim()) {
-    _cmsEventSignupDates.push(input.value.trim());
-    _cmsEventSignupDatesAutoFromEvent = false; // user took control — stop auto-filling
-    input.value = '';
-    cmsRenderEventSignupDates();
+  var val = (input.value || '').trim();
+  if (!val) return;
+  var res = _cmsForceYearOnSignupDate(val);
+  _cmsEventSignupDates.push(res.value);
+  _cmsEventSignupDatesAutoFromEvent = false; // user took control — stop auto-filling
+  input.value = '';
+  _cmsSignupDateYearAddedIdx = res.added ? (_cmsEventSignupDates.length - 1) : -1;
+  cmsRenderEventSignupDates();
+  if (res.added) {
+    if (typeof _showToast === 'function') _showToast('Added the year for you → ' + res.value, '#0891B2');
+    var _hlIdx = _cmsSignupDateYearAddedIdx;
+    setTimeout(function() { if (_cmsSignupDateYearAddedIdx === _hlIdx) { _cmsSignupDateYearAddedIdx = -1; cmsRenderEventSignupDates(); } }, 4500);
   }
 };
 
@@ -23281,8 +23317,12 @@ function cmsRenderEventSignupDates() {
   var list = document.getElementById('cmsSignupDatesList');
   if (!list) return;
   list.innerHTML = _cmsEventSignupDates.map(function(d, i) {
-    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem;background:#f3f4f6;border-radius:6px;">' +
-      '<span>' + rsEscape(d) + '</span>' +
+    var hl = (i === _cmsSignupDateYearAddedIdx);
+    var bg = hl ? '#ECFEFF' : '#f3f4f6';
+    var brd = hl ? 'box-shadow:inset 0 0 0 1px #67E8F9;' : '';
+    var tag = hl ? ' <span style="font-size:.68rem;color:#0E7490;font-weight:700;">· year added</span>' : '';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem;background:' + bg + ';border-radius:6px;' + brd + '">' +
+      '<span>' + rsEscape(d) + tag + '</span>' +
       '<button type="button" class="btn btn-ghost" style="padding:2px 8px;font-size:.75rem;color:#DC2626;" onclick="cmsRemoveEventSignupDate(' + i + ')">Remove</button>' +
       '</div>';
   }).join('');
