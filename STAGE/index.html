@@ -4729,7 +4729,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.11-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.12-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7084,6 +7084,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <input type="hidden" id="cmsEventEditIsRecurring">
             <input type="hidden" id="cmsEventImageUrl">
 
+            <!-- Flyer-first intro (new one-time events only) -->
+            <div id="cmsFlyerFirstPanel" style="display:none;text-align:center;padding:6px 4px 2px;">
+              <div style="font-size:1.1rem;font-weight:700;color:var(--primary-blue);margin-bottom:4px;">Start with your flyer</div>
+              <div style="font-size:.9rem;color:var(--text-soft);margin-bottom:16px;">Upload the event flyer and I'll read it and fill in the form for you to review.</div>
+              <div onclick="document.getElementById('cmsFlyerInput').click()" style="cursor:pointer;border:2px dashed var(--primary-blue);border-radius:14px;padding:32px 16px;background:#F0FDFF;">
+                <div style="font-size:2rem;margin-bottom:6px;">📄✨</div>
+                <div style="font-weight:700;color:var(--primary-blue);">Click to upload a flyer</div>
+                <div style="font-size:.8rem;color:var(--text-soft);margin-top:4px;">JPG, PNG, WebP, or PDF · max 6 MB</div>
+              </div>
+              <input type="file" id="cmsFlyerInput" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="cmsExtractFromFlyer(this)">
+              <div id="cmsFlyerStatus" style="margin-top:12px;font-size:.9rem;min-height:20px;color:var(--text-soft);"></div>
+              <button type="button" class="btn btn-ghost" style="margin-top:12px;font-size:.85rem;" onclick="_cmsShowEventForm()">or enter manually →</button>
+            </div>
+
+            <div id="cmsEventFormBody">
             <!-- Common fields: Title & Description -->
             <div class="field" style="grid-column: span 2;">
               <label>Title <span style="color:#DC2626;">*</span> <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The event name displayed on the Events page and in signup forms. Limited to 100 characters so it fits the Events page card.')">i</span></label>
@@ -7153,13 +7168,6 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 </div>
               </div>
 
-              <div class="field" style="margin-top:1rem;">
-                <button type="button" class="btn btn-primary" style="width:100%;padding:10px;font-size:.9rem;"
-                  onclick="document.getElementById('cmsFlyerInput').click()">✨ Start from a flyer — read &amp; auto-fill</button>
-                <input type="file" id="cmsFlyerInput" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="cmsExtractFromFlyer(this)">
-                <div id="cmsFlyerStatus" style="margin-top:6px;font-size:.82rem;color:var(--text-soft);"></div>
-              </div>
-
               <!-- Signup Date/Time Options -->
               <div class="field" style="margin-top:1rem;">
                 <label>Signup Date/Time Options <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'<b>Signup Options:</b> Add date/time choices that appear on the signup form. Participants select which date works for them.<br><br>1. Type a date/time option<br>2. Click Add Date<br>3. Add as many as needed')">i</span></label>
@@ -7222,6 +7230,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   <label for="cmsRecurringShowGroupField" style="margin:0;cursor:pointer;font-weight:500;">Show "Individual or Group?" question in signup form</label>
                 </div>
               </div>
+            </div>
             </div>
 
           </div>
@@ -23385,6 +23394,10 @@ window.cmsOpenEventModal = async function(docId, isRecurring) {
   cmsRenderRecurringQuestions();
   cmsToggleRecurringScheduleSection();
 
+  // Flyer-first: a NEW one-time event opens straight to the flyer uploader;
+  // edits and programs go straight to the full form.
+  if (!docId && !isRec) { _cmsShowFlyerFirst(); } else { _cmsShowEventForm(); }
+
   if (docId) {
     try {
       var collection = isRec ? 'recurringEvents' : 'events';
@@ -23485,7 +23498,7 @@ window.cmsExtractFromFlyer = async function(input) {
   var file = input.files[0];
   if (file.size > 6 * 1024 * 1024) { alert('Please use a flyer under 6 MB.'); input.value=''; return; }
   var status = document.getElementById('cmsFlyerStatus');
-  status.textContent = 'Reading your flyer…';
+  if (status) status.innerHTML = '<span style="color:var(--primary-blue);font-weight:700;">Reading your flyer… (about 5–8 seconds)</span>';
   try {
     var b64 = await new Promise(function(res, rej){
       var r = new FileReader();
@@ -23499,11 +23512,34 @@ window.cmsExtractFromFlyer = async function(input) {
     var data = await resp.json();
     if (!data.ok) throw new Error(data.error || 'Extraction failed');
     _cmsApplyFlyerExtraction(data.event);
-    status.innerHTML = '<span style="color:#0E7490;font-weight:700;">Filled in from your flyer — please verify everything below.</span>';
+    _cmsShowEventForm();
+    if (typeof _showToast === 'function') _showToast('Filled in from your flyer — please verify everything.', '#0891B2');
   } catch (e) {
-    status.innerHTML = '<span style="color:#B45309;">Couldn\'t read the flyer automatically — please fill the form in manually.</span>';
+    if (status) status.innerHTML = '<span style="color:#B45309;">Couldn\'t read that flyer automatically. Try another file, or click &ldquo;or enter manually&rdquo; below.</span>';
   } finally { input.value=''; }
 };
+
+// Flyer-first mode: swap between the flyer uploader and the full event form.
+function _cmsShowFlyerFirst() {
+  var p = document.getElementById('cmsFlyerFirstPanel');
+  var b = document.getElementById('cmsEventFormBody');
+  var s = document.getElementById('cmsEventSaveBtn');
+  var st = document.getElementById('cmsFlyerStatus');
+  if (st) st.textContent = '';
+  if (p) p.style.display = 'block';
+  if (b) b.style.display = 'none';
+  if (s) s.style.display = 'none';
+}
+function _cmsShowEventForm() {
+  var p = document.getElementById('cmsFlyerFirstPanel');
+  var b = document.getElementById('cmsEventFormBody');
+  var s = document.getElementById('cmsEventSaveBtn');
+  if (p) p.style.display = 'none';
+  if (b) b.style.display = '';
+  if (s) s.style.display = '';
+}
+window._cmsShowFlyerFirst = _cmsShowFlyerFirst;
+window._cmsShowEventForm = _cmsShowEventForm;
 
 function _cmsSetField(id, val, highlight) {
   var el = document.getElementById(id);
