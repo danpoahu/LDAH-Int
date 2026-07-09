@@ -4729,7 +4729,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.15-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.16-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23493,6 +23493,74 @@ window.cmsClearEventImage = function() {
   document.getElementById('cmsEventImageUpload').innerHTML = '<span class="cms-photo-label">Click to upload image or PDF</span>';
 };
 
+// Convert any uploaded flyer/image to a JPEG so event cards render it uniformly
+// (cards show flyers via <img>; a PDF won't display). PDFs render their first
+// page via pdf.js (lazy-loaded from the same CDN as jspdf); other images
+// re-encode through a canvas. Already-JPEG files pass through untouched. Falls
+// back to the original file on any error so a Save never breaks.
+function _cmsLoadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (window._cmsPdfjsPromise) return window._cmsPdfjsPromise;
+  window._cmsPdfjsPromise = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = function() {
+      try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {}
+      resolve(window.pdfjsLib);
+    };
+    s.onerror = function() { reject(new Error('pdf.js failed to load')); };
+    document.head.appendChild(s);
+  });
+  return window._cmsPdfjsPromise;
+}
+async function _cmsRenderPdfFirstPage(file) {
+  var pdfjsLib = await _cmsLoadPdfJs();
+  var buf = await file.arrayBuffer();
+  var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  var page = await pdf.getPage(1);
+  var vp = page.getViewport({ scale: 2 });
+  var maxDim = 1600;
+  if (Math.max(vp.width, vp.height) > maxDim) {
+    vp = page.getViewport({ scale: 2 * maxDim / Math.max(vp.width, vp.height) });
+  }
+  var c = document.createElement('canvas');
+  c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return c;
+}
+function _cmsImageToCanvas(file) {
+  return new Promise(function(resolve, reject) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width, h = img.height, maxDim = 1600;
+      if (Math.max(w, h) > maxDim) { var s = maxDim / Math.max(w, h); w = Math.round(w * s); h = Math.round(h * s); }
+      var c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(img.src);
+      resolve(c);
+    };
+    img.onerror = function() { reject(new Error('image decode failed')); };
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function _cmsFlyerToJpeg(file) {
+  try {
+    if (!file || !file.type) return file;
+    if (file.type === 'image/jpeg') return file;
+    var isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+    var canvas = isPdf ? await _cmsRenderPdfFirstPage(file) : await _cmsImageToCanvas(file);
+    var blob = await new Promise(function(res) { canvas.toBlob(res, 'image/jpeg', 0.9); });
+    if (!blob) return file;
+    var base = (file.name || 'flyer').replace(/\.[^.]+$/, '');
+    return new File([blob], base + '.jpg', { type: 'image/jpeg' });
+  } catch (e) { console.warn('_cmsFlyerToJpeg failed, using original:', e && e.message); return file; }
+}
+
 window.cmsExtractFromFlyer = async function(input) {
   if (!input.files || !input.files[0]) return;
   var file = input.files[0];
@@ -23518,8 +23586,9 @@ window.cmsExtractFromFlyer = async function(input) {
     try {
       var imgInput = document.getElementById('cmsEventImageInput');
       if (imgInput && window.DataTransfer) {
+        var jpg = await _cmsFlyerToJpeg(file); // convert now so the preview shows the flyer image
         var dt = new DataTransfer();
-        dt.items.add(file);
+        dt.items.add(jpg);
         imgInput.files = dt.files;
         if (typeof cmsPreviewEventImage === 'function') cmsPreviewEventImage(imgInput);
       }
@@ -24056,6 +24125,7 @@ window.cmsSaveEvent = async function() {
     var fileInput = document.getElementById('cmsEventImageInput');
     if (fileInput.files && fileInput.files[0]) {
       var file = fileInput.files[0];
+      file = await _cmsFlyerToJpeg(file); // any flyer/image (incl. PDF) -> JPG so cards render it
       file = await autoCropImage(file);
       _showToast('Uploading image...', '#0891B2');
       var storagePath = 'event-images/' + Date.now() + '_' + file.name;
