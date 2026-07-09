@@ -4729,7 +4729,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.10-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.11-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7151,6 +7151,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   <label>Remove Date <span style="color:#DC2626;">*</span></label>
                   <input type="date" id="cmsEventRemoveDate">
                 </div>
+              </div>
+
+              <div class="field" style="margin-top:1rem;">
+                <button type="button" class="btn btn-primary" style="width:100%;padding:10px;font-size:.9rem;"
+                  onclick="document.getElementById('cmsFlyerInput').click()">✨ Start from a flyer — read &amp; auto-fill</button>
+                <input type="file" id="cmsFlyerInput" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="cmsExtractFromFlyer(this)">
+                <div id="cmsFlyerStatus" style="margin-top:6px;font-size:.82rem;color:var(--text-soft);"></div>
               </div>
 
               <!-- Signup Date/Time Options -->
@@ -23472,6 +23479,55 @@ window.cmsClearEventImage = function() {
   document.getElementById('cmsEventImageInput').value = '';
   document.getElementById('cmsEventImageUpload').innerHTML = '<span class="cms-photo-label">Click to upload image or PDF</span>';
 };
+
+window.cmsExtractFromFlyer = async function(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  if (file.size > 6 * 1024 * 1024) { alert('Please use a flyer under 6 MB.'); input.value=''; return; }
+  var status = document.getElementById('cmsFlyerStatus');
+  status.textContent = 'Reading your flyer…';
+  try {
+    var b64 = await new Promise(function(res, rej){
+      var r = new FileReader();
+      r.onload = function(){ res(String(r.result).split(',')[1]); };
+      r.onerror = rej; r.readAsDataURL(file);
+    });
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/extractEventFromFlyer', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ fileBase64: b64, mediaType: file.type })
+    });
+    var data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Extraction failed');
+    _cmsApplyFlyerExtraction(data.event);
+    status.innerHTML = '<span style="color:#0E7490;font-weight:700;">Filled in from your flyer — please verify everything below.</span>';
+  } catch (e) {
+    status.innerHTML = '<span style="color:#B45309;">Couldn\'t read the flyer automatically — please fill the form in manually.</span>';
+  } finally { input.value=''; }
+};
+
+function _cmsSetField(id, val, highlight) {
+  var el = document.getElementById(id);
+  if (!el || !val) return;
+  el.value = val;
+  if (highlight) { el.style.boxShadow = 'inset 0 0 0 2px #67E8F9'; setTimeout(function(){ el.style.boxShadow=''; }, 6000); }
+}
+
+function _cmsApplyFlyerExtraction(ev) {
+  _cmsSetField('cmsEventTitle', ev.title, true);
+  _cmsSetField('cmsEventDescription', ev.description, true);
+  if (ev.modality !== 'virtual') _cmsSetField('cmsEventLocation', ev.location, true);
+  else _cmsSetField('cmsEventLocation', 'Zoom', true);
+  if (Array.isArray(ev.sessions) && ev.sessions[0]) {
+    var d0 = _rsParseSessionDate(ev.sessions[0].date);
+    if (d0) _cmsSetField('cmsEventDate', d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0'), true);
+    if (ev.timeStart) _cmsSetField('cmsEventTime', ev.timeStart, true);
+  }
+  var dates = Array.isArray(ev.signupDates) && ev.signupDates.length ? ev.signupDates
+            : (ev.sessions || []).map(function(s){ return (s.date||'') + (s.time?(', '+s.time):'') + (s.topic?(' - '+s.topic):''); });
+  _cmsEventSignupDates = dates.map(function(s){ return _cmsForceYearOnSignupDate(s).value; });
+  _cmsSignupDateYearAddedIdx = -1;
+  cmsRenderEventSignupDates();
+}
 
 /* ── One-Time Event: auto-fill Signup Date from Event Date + Time ── */
 function _cmsBuildAutoSignupDate(dateStr, timeStr) {
