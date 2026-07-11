@@ -4729,7 +4729,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.21-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.22-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -35941,6 +35941,45 @@ window.cmsBuildStaffActivityReport = async function() {
     { k: 'newsletters',                 label: 'Newsletters' },
   ];
 
+  // Slugify a material label the same way the Event Summary editor does, so the
+  // report reads numbers saved under the new slug keys (agency_brochure, …) with
+  // a legacy camelCase fallback (agencyBrochure) for pre-migration records.
+  function _eaMatSlug(s){
+    return (window.LDAHFormat && LDAHFormat.materialSlug)
+      ? LDAHFormat.materialSlug(s)
+      : String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  }
+  // Unified materials rows for the report: the predefined managed list (read by
+  // slug, legacy camelCase fallback), then any OTHER saved managed-material keys
+  // (admin-added — de-slugified label), then free-text "Other" custom rows
+  // (summary.materialsOther, e.g. a typed-in material). Previously the report
+  // rendered only the predefined list keyed by legacy camelCase, so both
+  // slug-keyed predefined numbers AND all custom "Other" materials were dropped.
+  function _eaMaterialRows(summary){
+    var packed=(summary && typeof summary.materialsPacked==='object' && summary.materialsPacked)?summary.materialsPacked:{};
+    var diss=(summary && typeof summary.materialsDisseminated==='object' && summary.materialsDisseminated)?summary.materialsDisseminated:{};
+    var rows=[], used={};
+    _eaMaterialsList.forEach(function(m){
+      var slug=_eaMatSlug(m.label);
+      var p=(typeof packed[slug]==='number')?packed[slug]:((typeof packed[m.k]==='number')?packed[m.k]:0);
+      var d=(typeof diss[slug]==='number')?diss[slug]:((typeof diss[m.k]==='number')?diss[m.k]:0);
+      used[slug]=1; used[m.k]=1;
+      rows.push({label:m.label,packed:p,diss:d});
+    });
+    Object.keys(diss).concat(Object.keys(packed)).forEach(function(k){
+      if(used[k])return; used[k]=1;
+      var p=(typeof packed[k]==='number')?packed[k]:0;
+      var d=(typeof diss[k]==='number')?diss[k]:0;
+      if(!p&&!d)return;
+      rows.push({label:String(k).replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();}),packed:p,diss:d});
+    });
+    (Array.isArray(summary && summary.materialsOther)?summary.materialsOther:[]).forEach(function(o){
+      if(!o||!o.name)return;
+      rows.push({label:o.name,packed:(typeof o.packed==='number'?o.packed:0),diss:(typeof o.disseminated==='number'?o.disseminated:0)});
+    });
+    return rows;
+  }
+
   // 8-bucket primary ethnicity list (pink form).
   var _eaEthnicityBuckets = [
     'African American',
@@ -36764,16 +36803,12 @@ window.cmsBuildStaffActivityReport = async function() {
 
     // 10. Training Materials
     html += _section('Training Materials & Instructions');
-    var packed = (summary.materialsPacked && typeof summary.materialsPacked === 'object') ? summary.materialsPacked : {};
-    var diss = (summary.materialsDisseminated && typeof summary.materialsDisseminated === 'object') ? summary.materialsDisseminated : {};
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.86rem;">';
     html += '<thead><tr style="background:#F8FAFC;"><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #E2E8F0;">Material</th><th style="text-align:right;padding:6px 8px;border-bottom:1px solid #E2E8F0;"># Packed</th><th style="text-align:right;padding:6px 8px;border-bottom:1px solid #E2E8F0;"># Disseminated</th></tr></thead><tbody>';
-    _eaMaterialsList.forEach(function(m) {
-      var p = (typeof packed[m.k] === 'number') ? packed[m.k] : 0;
-      var d = (typeof diss[m.k] === 'number') ? diss[m.k] : 0;
+    _eaMaterialRows(summary).forEach(function(m) {
       html += '<tr><td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;">' + _esc(m.label) + '</td>';
-      html += '<td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:600;">' + p + '</td>';
-      html += '<td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:600;">' + d + '</td></tr>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:600;">' + m.packed + '</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:600;">' + m.diss + '</td></tr>';
     });
     html += '</tbody></table>';
 
@@ -37392,10 +37427,8 @@ window.cmsBuildStaffActivityReport = async function() {
     p2R += '<div class="ea-print-section">Training Materials &amp; Instructions</div>';
     p2R += '<table class="ea-print-table">';
     p2R += '<thead><tr><th>Material</th><th class="num">Packed</th><th class="num">Disseminated</th></tr></thead><tbody>';
-    _eaMaterialsList.forEach(function(m) {
-      var p = (typeof packed[m.k] === 'number') ? packed[m.k] : 0;
-      var d = (typeof diss[m.k] === 'number') ? diss[m.k] : 0;
-      p2R += '<tr><td>' + _esc(m.label) + '</td><td class="num">' + p + '</td><td class="num">' + d + '</td></tr>';
+    _eaMaterialRows(summary).forEach(function(m) {
+      p2R += '<tr><td>' + _esc(m.label) + '</td><td class="num">' + m.packed + '</td><td class="num">' + m.diss + '</td></tr>';
     });
     p2R += '</tbody></table>';
 
