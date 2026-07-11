@@ -4729,7 +4729,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.22-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.23-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13809,7 +13809,7 @@ var _photoPendingByIsland = {};
       titles: ['Program Coordinator', 'Case Manager', 'Director', 'Advocate', 'Specialist', 'Administrative Assistant'],
       departments: ['Education Services', 'Administration', 'Outreach', 'Training', 'Operations'],
       resourceTypes: ['Advocacy & Legal Services', 'Behavioral & Mental Health', 'Therapy & Medical Services', 'Testing & Evaluation', 'Schools & Tutoring', 'Early Childhood & Family Support', 'Independent Living & Disability Services', 'Transition & Vocational/Trades'],
-      materials: ['Agency Brochure', 'Education & Training Brochure', 'What is a Learning Disability Brochure', 'Understanding ADHD Brochure', 'Understanding Dyslexia Brochure', 'Understanding Autism', 'Flyers', 'Newsletters'],
+      materials: ['Agency Brochure', 'Education & Training Brochure', 'What is a Learning Disability Brochure', 'Understanding ADHD Brochure', 'Understanding Dyslexia Brochure', 'Understanding Autism', 'Flyers', 'Tips and Tools', 'Connect Gen'],
       tips: [
         'Star your favorite contacts in Chat to keep them pinned at the top of the roster.',
         'Use "Add note" to record context & the "why" immediately — notes are searchable and auditable.',
@@ -16059,6 +16059,16 @@ var _photoPendingByIsland = {};
         railHtml += '</div>';
       }
 
+      // Materials received collapsible — hidden until the async rollup (below)
+      // finds materials for this contact (v146). Connect Gen / Learning Labs /
+      // red no-show lines, plus any interaction-logged materials.
+      var matDetailId = 'ctMaterialsDist_' + contactId;
+      railHtml += '<div id="ctMaterialsWrap_' + contactId + '" style="display:none;margin-top:8px;">';
+      railHtml += '<div onclick="var el=document.getElementById(\'' + matDetailId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'span\').textContent=el.style.display===\'none\'?\'\\u25B6\':\'\\u25BC\'" style="cursor:pointer;user-select:none;font-size:.88rem;font-weight:600;color:#0d9488;">';
+      railHtml += '<span style="font-size:.65rem;">&#9654;</span> Materials received</div>';
+      railHtml += '<div id="' + matDetailId + '" style="display:none;margin-top:6px;"></div>';
+      railHtml += '</div>';
+
       railHtml += '</div>'; // close .ctd2-rail
 
       // ── Main column ──
@@ -16227,6 +16237,81 @@ var _photoPendingByIsland = {};
         results.push(sData);
         window._ctContactSignups.push(sData);
       });
+
+      // ── Materials received rollup (contact card, v146) ──
+      // Live-computed each open. Sources: (a) materials logged on this contact's
+      // interactions; (b) event attendance — Connect Gen attendees → "Connect Gen
+      // docs"; Learning Labs attendees → "Learning Labs (n)" where n = total
+      // disseminated ÷ that summary's attendee headcount; Learning Labs no-shows
+      // who were actually sent the recording+slides recap → red "Learning Labs
+      // (2)". Fills #ctMaterialsDist_<id> and reveals the rail collapsible only
+      // when there is something to show.
+      (function(cid) {
+        var _CG_ID = 'CmkPXEpPwfAQ5sR377K2';
+        function _deslug(s) { return String(s || '').replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }); }
+        function _fmtD(ts) { var d = ts && ts.toDate ? ts.toDate() : null; return d ? d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''; }
+        function _sessions(s) {
+          var out = [];
+          if (s.sessionAttendance && typeof s.sessionAttendance === 'object') {
+            Object.keys(s.sessionAttendance).forEach(function(k) { var r = s.sessionAttendance[k] || {}; if (r.status) out.push({ key: k, status: r.status }); });
+          }
+          if (!out.length && s.attendanceStatus) out.push({ key: '', status: s.attendanceStatus });
+          return out;
+        }
+        function _summaryFor(ev, key) { if (key && ev.sessionSummaries && ev.sessionSummaries[key]) return ev.sessionSummaries[key] || {}; return ev.summary || {}; }
+        function _llPerPerson(sm) {
+          var diss = sm.materialsDisseminated || {}, total = 0;
+          Object.keys(diss).forEach(function(k) { if (typeof diss[k] === 'number') total += diss[k]; });
+          (Array.isArray(sm.materialsOther) ? sm.materialsOther : []).forEach(function(o) { if (o && typeof o.disseminated === 'number') total += o.disseminated; });
+          var att = (typeof sm.attendanceTotalResolved === 'number' && sm.attendanceTotalResolved > 0) ? sm.attendanceTotalResolved : 0;
+          if (!total || !att) return null;
+          return Math.round(total / att);
+        }
+        var lines = [];
+        // (a) interaction-logged materials
+        results.forEach(function(e) {
+          if (e._entryType !== 'interaction') return;
+          var md = e.materialsDistributed || {}, mo = Array.isArray(e.materialsOther) ? e.materialsOther : [], when = _fmtD(e.createdAt);
+          Object.keys(md).forEach(function(sl) { var n = md[sl]; if (!n) return; lines.push({ label: _deslug(sl) + ' (' + n + ')', sub: when ? ('Logged ' + when) : 'Logged' }); });
+          mo.forEach(function(o) { if (o && o.name && o.count) lines.push({ label: o.name + ' (' + o.count + ')', sub: when ? ('Logged ' + when) : 'Logged' }); });
+        });
+        // (b) event-derived — fetch each distinct linked event once
+        var signups = window._ctContactSignups || [], evKeys = {};
+        signups.forEach(function(s) { if (!s._refPath) return; var p = s._refPath.split('/'); if (p.length >= 2) evKeys[p[0] + '/' + p[1]] = { coll: p[0], id: p[1] }; });
+        var evList = Object.keys(evKeys);
+        Promise.all(evList.map(function(k) {
+          return db.collection(evKeys[k].coll).doc(evKeys[k].id).get().then(function(d) { return { k: k, ev: d.exists ? d.data() : null }; }).catch(function() { return { k: k, ev: null }; });
+        })).then(function(arr) {
+          var evMap = {}; arr.forEach(function(x) { evMap[x.k] = x.ev; });
+          signups.forEach(function(s) {
+            if (!s._refPath) return;
+            var p = s._refPath.split('/'), ev = evMap[p[0] + '/' + p[1]]; if (!ev) return;
+            var title = ev.title || s.eventTitle || s.programTitle || 'Event';
+            var isCG = (p[1] === _CG_ID) || /connect[\s\-]?gen/i.test(title);
+            var isLL = /learning\s*lab/i.test(title);
+            if (!isCG && !isLL) return;
+            _sessions(s).forEach(function(se) {
+              var sm = _summaryFor(ev, se.key);
+              if (se.status === 'attended') {
+                if (isCG) lines.push({ label: 'Connect Gen docs', sub: title });
+                else { var n = _llPerPerson(sm); if (n) lines.push({ label: 'Learning Labs (' + n + ')', sub: title }); } // only when docs were actually disseminated
+              } else if (se.status === 'no-show' && isLL) {
+                var rec = s.recordingEmailSent && s.recordingEmailSent[se.key];
+                if (rec && rec.noShow) lines.push({ label: 'Learning Labs (2)', noShow: true, sub: title + ' — no-show' });
+              }
+            });
+          });
+          var host = document.getElementById('ctMaterialsDist_' + cid), wrap = document.getElementById('ctMaterialsWrap_' + cid);
+          if (!host || !wrap || !lines.length) return; // nothing to show → stays hidden
+          host.innerHTML = lines.map(function(l) {
+            var color = l.noShow ? '#b91c1c' : '#0f172a', bg = l.noShow ? 'background:#fef2f2;border:1px solid #fecaca;border-radius:6px;' : '';
+            return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:5px 7px;border-bottom:1px solid #F1F5F9;' + bg + '">' +
+              '<div style="font-weight:700;font-size:.85rem;color:' + color + ';">' + rsEscape(l.label) + '</div>' +
+              '<div style="font-size:.72rem;color:#94A3B8;">' + rsEscape(l.sub || '') + '</div></div>';
+          }).join('');
+          wrap.style.display = 'block';
+        }).catch(function(err) { console.warn('materials rollup:', err && err.message); });
+      })(contactId);
 
       // Unified sort — newest first. Use createdAt for interactions, timestamp for signups.
       function _getEntryTime(entry) {
@@ -17176,7 +17261,7 @@ var _photoPendingByIsland = {};
     labels.forEach(function(label){
       html += '<tr><td>' + rsEscape(label) + '</td><td><input type="number" min="0" class="intMatDistrib" data-label="' + rsEscape(label) + '" value="0" style="width:80px;"></td></tr>';
     });
-    for (var i = 0; i < 2; i++) {
+    for (var i = 0; i < 1; i++) { // one free-text "Other" row (v146: was 2)
       html += '<tr><td><input type="text" class="intMatOtherName" placeholder="Other (type a name)"></td><td><input type="number" min="0" class="intMatOtherCount" value="0" style="width:80px;"></td></tr>';
     }
     html += '</tbody></table>';
@@ -28440,18 +28525,24 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   html += '<table class="es-mat-table">';
   html += '<thead><tr><th>Material name</th><th># Packed</th><th># Disseminated</th></tr></thead>';
   html += '<tbody>';
+  // Connect Gen auto-fill (editable prefill): on a Connect Gen summary the
+  // "Connect Gen" material defaults to 12 × attendees (attended + walk-ins) when
+  // nothing has been entered yet. Staff can still override before saving.
+  var _cgIsConnectGen = (typeof cmsIsConnectGenContext === 'function') && cmsIsConnectGenContext();
+  var _cgAttendees = (_cmsEventSummaryData.autos && typeof _cmsEventSummaryData.autos.attTotal === 'number') ? _cmsEventSummaryData.autos.attTotal : 0;
   _materialKeys.forEach(function(m) {
     var pVal = (typeof _savedPacked[m.k] === 'number') ? _savedPacked[m.k] : ((m.legacy && typeof _savedPacked[m.legacy] === 'number') ? _savedPacked[m.legacy] : 0);
     var dVal = (typeof _savedDiss[m.k] === 'number') ? _savedDiss[m.k] : ((m.legacy && typeof _savedDiss[m.legacy] === 'number') ? _savedDiss[m.legacy] : 0);
+    if (_cgIsConnectGen && m.k === 'connect_gen' && !dVal && _cgAttendees > 0) dVal = 12 * _cgAttendees;
     html += '<tr>';
     html += '<td>' + rsEscape(m.label) + '</td>';
     html += '<td><input type="number" min="0" id="esMatPacked_' + m.k + '" value="' + pVal + '"></td>';
     html += '<td><input type="number" min="0" id="esMatDiss_' + m.k + '" value="' + dVal + '"></td>';
     html += '</tr>';
   });
-  // Two free-text "Other" rows for items not on the managed list (individually
-  // auditable at year-end from the saved materialsOther array).
-  for (var _oi = 0; _oi < 2; _oi++) {
+  // One free-text "Other" row for items not on the managed list (individually
+  // auditable at year-end from the saved materialsOther array). (v146: was 2.)
+  for (var _oi = 0; _oi < 1; _oi++) {
     var _ov = _savedMatOther[_oi] || {};
     html += '<tr>';
     html += '<td><input type="text" id="esMatOtherName_' + _oi + '" placeholder="Other (type a name)" value="' + rsEscape(_ov.name || '') + '"></td>';
@@ -28692,9 +28783,9 @@ window.cmsSaveEventSummary = async function() {
     newMaterialsPacked[k] = pEl ? (parseInt(pEl.value) || 0) : 0;
     newMaterialsDisseminated[k] = dEl ? (parseInt(dEl.value) || 0) : 0;
   });
-  // Two free-text "Other" rows -> array of {name, packed, disseminated}; named rows only.
+  // One free-text "Other" row -> array of {name, packed, disseminated}; named rows only. (v146: was 2.)
   var newMaterialsOther = [];
-  for (var _soi = 0; _soi < 2; _soi++) {
+  for (var _soi = 0; _soi < 1; _soi++) {
     var _onEl = document.getElementById('esMatOtherName_' + _soi);
     var _onName = _onEl ? (_onEl.value || '').trim() : '';
     if (!_onName) continue;
@@ -35929,7 +36020,10 @@ window.cmsBuildStaffActivityReport = async function() {
     'Deaf/Blindness',
   ];
 
-  // 8-item materials list — must match Phase 1 keys/labels.
+  // Managed materials scaffold. Legacy camelCase keys for the pre-migration 7;
+  // slug keys for newer managed items. _eaMaterialRows also surfaces any other
+  // saved keys + materialsOther, so this list only governs column order/labels.
+  // (v146: dropped Newsletters, added Tips and Tools + Connect Gen.)
   var _eaMaterialsList = [
     { k: 'agencyBrochure',              label: 'Agency Brochure' },
     { k: 'eduTrainingBrochure',         label: 'Education & Training Brochure' },
@@ -35938,7 +36032,8 @@ window.cmsBuildStaffActivityReport = async function() {
     { k: 'dyslexiaBrochure',            label: 'Understanding Dyslexia Brochure' },
     { k: 'autism',                      label: 'Understanding Autism' },
     { k: 'flyers',                      label: 'Flyers' },
-    { k: 'newsletters',                 label: 'Newsletters' },
+    { k: 'tips_and_tools',              label: 'Tips and Tools' },
+    { k: 'connect_gen',                 label: 'Connect Gen' },
   ];
 
   // Slugify a material label the same way the Event Summary editor does, so the
