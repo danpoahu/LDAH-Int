@@ -4724,7 +4724,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.5.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.5.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -28641,6 +28641,15 @@ window.cmsSaveEventSummary = async function() {
       _cmsEventSummaryData.eventDoc.summary = summaryData;
     }
 
+    // Propagate this edit (materials distribution, attendance overrides, etc.)
+    // into an already-built Event Attendance report — it caches rows at build
+    // time and otherwise keeps showing pre-edit numbers until a full rebuild.
+    // typeof guard = no-op when the EA report was never opened (separate block).
+    if (typeof window.cmsEARefreshRowByEvent === 'function') {
+      try { await window.cmsEARefreshRowByEvent(collection, eventId, sessionDate || null); }
+      catch (_e) { console.warn('EA refresh after summary save:', _e && _e.message); }
+    }
+
     var logDetail = (_cmsSignupsModalData.eventTitle || 'Event') + (sessionDate ? ' [' + sessionDate + ']' : '');
     var diffs = [];
     var oldSummary = summary || {};
@@ -36864,8 +36873,14 @@ window.cmsBuildStaffActivityReport = async function() {
       if (!doc.exists) return;
       var ev = { _id: row.eventId, _coll: row.collection, ...doc.data() };
       var summary = {};
-      if (row.isPerSession && row.sessionDate && ev.sessionSummaries && ev.sessionSummaries[row.sessionDate]) {
-        summary = ev.sessionSummaries[row.sessionDate] || {};
+      if (row.isPerSession && ev.sessionSummaries) {
+        // Try every key that refers to this session (canonical + legacy
+        // aliases), mirroring _buildRow — so an edit saved under any key
+        // format still lands on re-read (recurring-event key drift).
+        var _rk = row.sessionDateKeys || (row.sessionDate ? [row.sessionDate] : []);
+        for (var _i = 0; _i < _rk.length; _i++) {
+          if (ev.sessionSummaries[_rk[_i]]) { summary = ev.sessionSummaries[_rk[_i]] || {}; break; }
+        }
       } else if (!row.isPerSession && ev.summary) {
         summary = ev.summary || {};
       }
@@ -36877,6 +36892,31 @@ window.cmsBuildStaffActivityReport = async function() {
       // signups). The saved summary fields are deliberately ignored.
     } catch (e) { /* non-fatal */ }
   }
+
+  // Propagate an Event Summary edit into an already-built EA report WITHOUT a
+  // full rebuild. Called by cmsSaveEventSummary (which lives in a separate
+  // <script> block, so it reaches this IIFE-private logic only via window).
+  // Re-reads the affected row(s) from Firestore, re-renders the card list, and
+  // refreshes the open detail modal in place. No-op if the report was never
+  // built — so materials-distribution / attendance edits show up immediately
+  // instead of showing stale cached numbers until a manual rebuild.
+  window.cmsEARefreshRowByEvent = async function(collection, eventId, sessionDate) {
+    if (!_eaCache.built || !Array.isArray(_eaCache.eventDates)) return;
+    var matches = _eaCache.eventDates.filter(function(r) {
+      if (r.collection !== collection || r.eventId !== eventId) return false;
+      if (!sessionDate) return true; // flat / single-summary event
+      var keys = r.sessionDateKeys || (r.sessionDate ? [r.sessionDate] : []);
+      return keys.indexOf(sessionDate) !== -1;
+    });
+    if (!matches.length) return;
+    for (var i = 0; i < matches.length; i++) { await _refreshRow(matches[i].id); }
+    if (typeof _renderCardList === 'function') _renderCardList();
+    if (_eaModalCurrentId) {
+      var openRow = _eaCache.eventDates.find(function(x) { return x.id === _eaModalCurrentId; });
+      var b = document.getElementById('eaModalBody');
+      if (openRow && b) b.innerHTML = _renderExpandedBody(openRow);
+    }
+  };
 
   window.cmsEAClearFilters = function() {
     var _td = new Date();
