@@ -4729,7 +4729,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.19-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.20-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5273,15 +5273,19 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               setText('myDayGreeting','Aloha'+(first?' '+first:''));
               loading('myDayTodos');loading('myDayUpdates');
 
-              // The logged-in user's interactions. Open ones bucket by
-              // followUpDate; closed ones render as done rows so completed
-              // work stays visible. Interactions with no followUpDate still
-              // show (as 'open') rather than being dropped.
-              try{
+              // The logged-in user's OPEN interactions — LIVE (v145.5.4).
+              // onSnapshot so the list updates in real time as tasks are
+              // created, closed, or reassigned (was a one-time .get() that only
+              // refreshed at login). Scoped to status=='Open' (covered by the
+              // existing ownerUid+status+followUpDate composite index) so chat/
+              // closed writes don't churn it. Detach-before-reattach so the
+              // "Viewing as" switch re-subscribes to the selected staffer's uid.
+              // The Done stat is set separately below via a count() aggregation.
+              if(window._myDayTasksUnsub){try{window._myDayTasksUnsub();}catch(_){}window._myDayTasksUnsub=null;}
+              window._renderMyDayTasks=function(snap){
                 var tk=todayKey(),wk=addDays(tk,7),hz=addDays(tk,14);
-                var snap=u.uid?await db.collection('interactions').where('ownerUid','==',u.uid).get():null;
                 var overdue=0,today=0,week=0,done=0,list=[];
-                if(snap)snap.forEach(function(doc){
+                snap.forEach(function(doc){
                   var d=doc.data();d._id=doc.id;
                   if(d.channel==='Internal Chat')return;
                   var fu=d.followUpDate||'';
@@ -5300,7 +5304,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   else{list.push({d:d,bucket:'open',sort:fu||'~'});}
                 });
                 setText('myDayOverdueN',overdue);setText('myDayTodayN',today);
-                setText('myDayWeekN',week);setText('myDayDoneN',done);
+                setText('myDayWeekN',week);
                 var due=overdue+today;
                 setText('myDayHeroSub',due>0?(due+' thing'+(due===1?'':'s')+' need'+(due===1?'s':'')+' you today'):'You’re all caught up — nice.');
                 var ord={overdue:0,today:1,week:2,open:3,done:4};
@@ -5363,10 +5367,26 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   }
                 }
                 setText('myDayTodoCount',Math.min(list.length,15));
-              }catch(e){
+              };
+              if(u.uid){
+                window._myDayTasksUnsub=db.collection('interactions')
+                  .where('ownerUid','==',u.uid).where('status','==','Open')
+                  .onSnapshot(function(snap){try{window._renderMyDayTasks(snap);}catch(_e){console.warn('loadMyDay render:',_e&&_e.message);}},
+                    function(e){
+                      ['myDayOverdueN','myDayTodayN','myDayWeekN'].forEach(function(id){setText(id,'—');});
+                      empty('myDayTodos','Could not load your tasks.');
+                      console.warn('loadMyDay tasks listener:',e&&e.message);
+                    });
+                // Done stat: total closed interactions for this owner. Cheap
+                // count() aggregation (1 read) instead of scanning all closed
+                // history; refreshes when My Day (re)loads (login / Viewing-as).
+                try{
+                  var _dc=await db.collection('interactions').where('ownerUid','==',u.uid).where('status','==','Closed').count().get();
+                  setText('myDayDoneN',_dc.data().count);
+                }catch(e){setText('myDayDoneN','—');console.warn('loadMyDay done count:',e&&e.message);}
+              }else{
+                empty('myDayTodos','No interactions assigned to you yet.');
                 ['myDayOverdueN','myDayTodayN','myDayWeekN','myDayDoneN'].forEach(function(id){setText(id,'—');});
-                empty('myDayTodos','Could not load your tasks.');
-                console.warn('loadMyDay tasks:',e&&e.message);
               }
 
               // Updates feed — recent interactions across the org.
@@ -11451,6 +11471,7 @@ var _photoPendingByIsland = {};
       // Clean up listeners on sign-out
       if (_userRolesUnsubscribe) { _userRolesUnsubscribe(); _userRolesUnsubscribe = null; }
       if (window._recentSignupsUnsub) { try{window._recentSignupsUnsub();}catch(_){} window._recentSignupsUnsub = null; }
+      if (window._myDayTasksUnsub) { try{window._myDayTasksUnsub();}catch(_){} window._myDayTasksUnsub = null; }
       showLogin();
     }
   });
