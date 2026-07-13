@@ -4729,7 +4729,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.23-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.24-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10599,6 +10599,32 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       var todayISO = hNow.getFullYear() + '-' + String(hNow.getMonth()+1).padStart(2,'0') + '-' + String(hNow.getDate()).padStart(2,'0');
       var cutoff = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 24*60*60*1000));
 
+      // Resolve a free-text signupDates entry ("July 8th, 5pm - A-B-C's of Advocacy")
+      // to a YYYY-MM-DD key so past sessions can be dropped. Mirrors
+      // parseEventDateKey() in the daily-report Cloud Function. Returns '' when the
+      // string can't be read — callers KEEP those rather than silently hide a session.
+      var MONTH_NUM = { january:1, february:2, march:3, april:4, may:5, june:6, july:7,
+                        august:8, september:9, october:10, november:11, december:12 };
+      function sigDateKey(raw) {
+        if (!raw || typeof raw !== 'string') return '';
+        var withYear = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})/);
+        if (withYear && MONTH_NUM[withYear[1].toLowerCase()]) {
+          return withYear[3] + '-' + String(MONTH_NUM[withYear[1].toLowerCase()]).padStart(2,'0') +
+                 '-' + String(parseInt(withYear[2],10)).padStart(2,'0');
+        }
+        // Year-less "Month Day[ordinal]" — assume the nearest occurrence to today.
+        var noYear = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+        if (noYear && MONTH_NUM[noYear[1].toLowerCase()]) {
+          var mo = MONTH_NUM[noYear[1].toLowerCase()], day = parseInt(noYear[2],10);
+          var year = hNow.getFullYear();
+          var diffDays = (Date.UTC(year, mo-1, day) - Date.UTC(year, hNow.getMonth(), hNow.getDate())) / 86400000;
+          if (diffDays < -182) year += 1;
+          else if (diffDays > 182) year -= 1;
+          return year + '-' + String(mo).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+        }
+        return '';
+      }
+
       // Helper: format Firestore timestamp
       function fmtTs(ts) {
         if (!ts) return '';
@@ -10632,14 +10658,30 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
         // Multi-date one-time event (Learning Labs): one card per signupDates entry
         if (sigDatesArr.length > 1) {
-          var matchedSet = {};
-          sigDatesArr.forEach(function(dateStr) {
+          // Drop sessions that already happened (today inclusive). Unreadable date
+          // strings are kept rather than silently hidden.
+          var futureSigDates = sigDatesArr.filter(function(dateStr) {
+            var key = sigDateKey(dateStr);
+            return key ? key >= todayISO : true;
+          });
+          // Every session is done — drop the event rather than emit an orphan card
+          // that would surface all of its signups.
+          if (futureSigDates.length === 0) continue;
+
+          futureSigDates.forEach(function(dateStr) {
             var dateSignups = signups.filter(function(su) { return (su.selectedDates || []).indexOf(dateStr) !== -1; });
             if (dateSignups.length === 0) return;
-            dateSignups.forEach(function(su) { matchedSet[su.id] = true; });
             allSessions.push({ title: (d.title||'Untitled') + ' -- ' + dateStr, date: '', time: '', location: d.location||'', signups: dateSignups, type:'event', id: doc.id });
           });
-          var orphaned = signups.filter(function(su) { return !matchedSet[su.id] && su.status !== 'cancelled' && su.archived !== true; });
+          // Orphan check runs against the FULL date list, so a signup whose only
+          // session is in the past isn't resurrected as "Unmatched".
+          var matchedAny = {};
+          sigDatesArr.forEach(function(dateStr) {
+            signups.forEach(function(su) {
+              if ((su.selectedDates || []).indexOf(dateStr) !== -1) matchedAny[su.id] = true;
+            });
+          });
+          var orphaned = signups.filter(function(su) { return !matchedAny[su.id] && su.status !== 'cancelled' && su.archived !== true; });
           if (orphaned.length > 0) {
             allSessions.push({ title: (d.title||'Untitled') + ' -- Unmatched signups', date: '', time: '', location: d.location||'', signups: orphaned, type:'event', id: doc.id });
           }
