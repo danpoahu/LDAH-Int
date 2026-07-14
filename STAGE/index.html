@@ -5043,7 +5043,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.36-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.37-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5927,7 +5927,36 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-weight:700;font-size:.92rem;">Membership Reports</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Member summary &amp; totals, CSV export, quick-pay pending memberships, and PayPal reconciliation.</div>
             </div>
+
+            <!-- v146.4.37 — who has taken a child's confidential documents off the
+                 platform. Bordered red: this is the one report about data leaving. -->
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #DC2626;" onclick="cmsBuildDocDownloadReport()">
+              <div style="font-size:1.4rem;margin-bottom:6px;">🔐</div>
+              <div style="font-weight:700;font-size:.92rem;">Documents Downloaded</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Every confidential document taken off the system &mdash; who, which family, which file, when. CSV export.</div>
+            </div>
           </div>
+        </div>
+
+        <!-- Documents Downloaded report (in-grid; toggled from the Reports card) -->
+        <div id="docDownloadReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseDocDownloadReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#DC2626;margin:0;">Documents Downloaded</h2>
+            <span id="ddGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <label style="font-size:.84rem;color:var(--text-soft);">From
+              <input type="date" id="ddFrom" onchange="cmsRenderDocDownloadReport()" style="margin-left:6px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.86rem;">
+            </label>
+            <label style="font-size:.84rem;color:var(--text-soft);">To
+              <input type="date" id="ddTo" onchange="cmsRenderDocDownloadReport()" style="margin-left:6px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.86rem;">
+            </label>
+            <input type="search" id="ddSearch" placeholder="Filter by staff, family or file…" oninput="cmsRenderDocDownloadReport()" style="flex:1;min-width:200px;max-width:340px;padding:7px 12px;border:1px solid #CBD5E1;border-radius:8px;font-size:.88rem;">
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsExportDocDownloadCsv()">&#x2913; Export CSV</button>
+          </div>
+          <div id="ddSummary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
+          <div id="ddBody"><div class="cms-empty"><p>Loading…</p></div></div>
         </div>
 
         <!-- Membership Report (in-grid; toggled from Reports card) -->
@@ -25745,11 +25774,83 @@ function _cmsCgAuditSubject(filename) {
          (v.signupId ? ' — signup ' + v.signupId : '');
 }
 
-// Downloading a child's document off the platform is a heavier act than reading
-// it on screen, so it gets its own audit line (v146.4.36).
-window.cmsCgLogDownload = function(filename) {
-  try { auditLog('Connect-Gen document downloaded', _cmsCgAuditSubject(filename)); } catch (_) {}
+// ── Download tracking (v146.4.37) ──────────────────────────────────────────
+// Taking a child's document OFF the platform is the act that actually matters,
+// so it is recorded two ways:
+//
+//   1. ONE aggregated auditLog entry per review session — "Rosie Rowe downloaded
+//      3 documents for Daniel R. Pellegrini". Created on the first download and
+//      updated in place as more are taken, so the audit trail stays readable
+//      instead of one line per file.
+//   2. A row per file in `documentDownloads`, which backs the Documents
+//      Downloaded report. Its own collection so the report can sort by date
+//      without a composite index on auditLog.
+//
+// Honest limitation: this is client-side. A signed URL that staff copied out of
+// the page could be fetched without passing through here. It records what staff
+// do in the dashboard, which is what Rosie needs to track — not a tamper-proof
+// gate.
+// The auditLog rules allow CREATE only, never update — correctly, since an audit
+// entry that can be rewritten isn't an audit entry. So the session's downloads
+// are accumulated here and written as ONE entry when the vault closes, rather
+// than amending a row in place.
+var _cmsCgDlSession = { signupId: '', family: '', files: [] };
+
+window.cmsCgLogDownload = async function(filename) {
+  var v = _cmsCgDocViewer || {};
+  var s = v.signup || {};
+  var family = s.name || s.firstName || '(unknown family)';
+  var who = (window.currentUserData && window.currentUserData.email) || 'unknown';
+  var role = (window.currentUserData && window.currentUserData.role) || 'unknown';
+
+  // A different family → flush the previous session before starting a new one,
+  // so counts never bleed across families.
+  if (_cmsCgDlSession.signupId && _cmsCgDlSession.signupId !== v.signupId) {
+    await cmsCgFlushDownloadAudit();
+  }
+  _cmsCgDlSession.signupId = v.signupId || '';
+  _cmsCgDlSession.family = family;
+  _cmsCgDlSession.files.push(filename || '(unnamed)');
+
+  // Per-file row for Rosie's report — written immediately, so a download is
+  // recorded even if the browser is closed before the audit entry is flushed.
+  try {
+    await firebase.firestore().collection('documentDownloads').add({
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      filename: filename || '(unnamed)',
+      family: family,
+      signupId: v.signupId || '',
+      eventId: v.eventId || '',
+      collection: v.collection || '',
+      downloadedBy: who,
+      downloadedByRole: role,
+      program: 'Connect-Gen',
+    });
+  } catch (err) {
+    console.error('documentDownloads write failed:', err);
+  }
 };
+
+// One audit entry per review session: who, how many, which family, when.
+window.cmsCgFlushDownloadAudit = async function() {
+  var sess = _cmsCgDlSession;
+  if (!sess.files.length) { _cmsCgDlSession = { signupId: '', family: '', files: [] }; return; }
+  var n = sess.files.length;
+  var who = (window.currentUserData && window.currentUserData.email) || 'unknown';
+  try {
+    await auditLog('Connect-Gen documents downloaded',
+      who + ' downloaded ' + n + (n === 1 ? ' document' : ' documents') +
+      ' for ' + sess.family + ' — ' + sess.files.join(', '));
+  } catch (err) {
+    console.error('Download audit flush failed:', err);
+  }
+  _cmsCgDlSession = { signupId: '', family: '', files: [] };
+};
+
+// Catch the staff member who downloads and then closes the tab outright.
+window.addEventListener('beforeunload', function() {
+  if (_cmsCgDlSession.files.length) cmsCgFlushDownloadAudit();
+});
 
 // ── Document lightbox (v146.4.33) ──────────────────────────────────────────
 // Staff had to download a child's IEP just to read it. Clicking a preview now
@@ -25762,15 +25863,10 @@ window.cmsCgLightboxOpen = function(url, mimeType, filename) {
   var dl = document.getElementById('cmsCgLightboxDl');
   if (!box || !stage) return;
 
-  // Audit the READ (v146.4.36). Opening the vault already logs "documents
-  // viewed", and the CF logs a signed-URL issuance per thumbnail — but neither
-  // says anyone actually read a given file. Opening a document full-screen is a
-  // deliberate act, so it is the honest signal of "this person reviewed this
-  // child's document", and that is what the trail needs to show.
-  try {
-    auditLog('Connect-Gen document read', _cmsCgAuditSubject(filename));
-  } catch (_) {}
-
+  // Deliberately NOT audited per document (v146.4.37). Opening the vault already
+  // writes one "Connect-Gen documents viewed" entry, which is the record of who
+  // reviewed this family's file and when. Logging every document read as well
+  // just buries that one useful line.
   title.textContent = filename || 'Document';
   dl.href = url;
   dl.onclick = function() { cmsCgLogDownload(filename); };
@@ -25920,6 +26016,9 @@ window.cmsCgDocOpen = async function(collection, eventId, signupId) {
 };
 
 window.cmsCgDocClose = function() {
+  // Write the session's single "documents downloaded" audit entry before the
+  // family context is torn down.
+  try { cmsCgFlushDownloadAudit(); } catch (_) {}
   var ov = document.getElementById('cmsCgDocOverlay');
   if (ov) ov.classList.remove('active');
   _cmsCgDocViewer = { collection: '', eventId: '', signupId: '', signup: null };
@@ -39219,6 +39318,121 @@ window.cmsBuildStaffActivityReport = async function() {
     _isDestroyCharts();
     shownCharts.forEach(_isMakeChart);
   }
+
+  // ══ Documents Downloaded report (v146.4.37) ═════════════════════════
+  // So Rosie can see every confidential document that has left the platform:
+  // who took it, which family it belongs to, which file, and when. Reads the
+  // `documentDownloads` collection (one row per file) written by
+  // cmsCgLogDownload(). Its own collection, so this sorts by date without
+  // needing a composite index on auditLog.
+  var _ddRows = [];
+
+  window.cmsCloseDocDownloadReport = function() {
+    var el = document.getElementById('docDownloadReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'none';
+    if (rg) rg.style.display = 'block';
+  };
+
+  window.cmsBuildDocDownloadReport = async function() {
+    var el = document.getElementById('docDownloadReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'block';
+    if (rg) rg.style.display = 'none';
+    var body = document.getElementById('ddBody');
+    body.innerHTML = '<div class="cms-empty"><p>Loading…</p></div>';
+    try {
+      var snap = await db.collection('documentDownloads').orderBy('timestamp', 'desc').limit(1000).get();
+      _ddRows = [];
+      snap.forEach(function(d) { _ddRows.push(Object.assign({ id: d.id }, d.data())); });
+      document.getElementById('ddGeneratedAt').textContent =
+        'Generated ' + new Date().toLocaleString() + ' · ' + _ddRows.length + ' record(s)';
+      cmsRenderDocDownloadReport();
+    } catch (err) {
+      body.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+    }
+  };
+
+  function _ddFiltered() {
+    var q = ((document.getElementById('ddSearch') || {}).value || '').toLowerCase().trim();
+    var from = ((document.getElementById('ddFrom') || {}).value || '');
+    var to = ((document.getElementById('ddTo') || {}).value || '');
+    return _ddRows.filter(function(r) {
+      var d = r.timestamp && r.timestamp.toDate ? r.timestamp.toDate() : null;
+      var iso = d ? (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')) : '';
+      if (from && iso && iso < from) return false;
+      if (to && iso && iso > to) return false;
+      if (!q) return true;
+      return [r.downloadedBy, r.family, r.filename, r.program].some(function(v) {
+        return v && String(v).toLowerCase().indexOf(q) !== -1;
+      });
+    });
+  }
+
+  window.cmsRenderDocDownloadReport = function() {
+    var rows = _ddFiltered();
+    var body = document.getElementById('ddBody');
+    var sum = document.getElementById('ddSummary');
+
+    // Summary: how many files, by how many staff, across how many families.
+    var staff = {}, fams = {};
+    rows.forEach(function(r) {
+      if (r.downloadedBy) staff[r.downloadedBy] = (staff[r.downloadedBy] || 0) + 1;
+      if (r.family) fams[r.family] = true;
+    });
+    function tile(n, label, colour) {
+      return '<div style="flex:1;min-width:150px;background:#fff;border:1px solid #E2E8F0;border-left:4px solid ' + colour +
+        ';border-radius:10px;padding:12px 14px;"><div style="font-family:\'Outfit\',sans-serif;font-weight:800;font-size:1.5rem;color:' + colour + ';">' +
+        n + '</div><div style="font-size:.78rem;color:var(--text-soft);">' + label + '</div></div>';
+    }
+    sum.innerHTML = tile(rows.length, 'Documents taken off the system', '#DC2626') +
+                    tile(Object.keys(staff).length, 'Staff who downloaded', '#D97706') +
+                    tile(Object.keys(fams).length, 'Families affected', '#0891B2');
+
+    if (!rows.length) {
+      body.innerHTML = '<div class="cms-empty"><p>No documents have been downloaded in this range.</p></div>';
+      return;
+    }
+
+    var h = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #E2E8F0;border-radius:10px;overflow:hidden;font-size:.86rem;">' +
+      '<thead><tr style="background:#FEF2F2;">' +
+      ['When', 'Who downloaded', 'Role', 'Family', 'File', 'Program'].map(function(th) {
+        return '<th style="padding:8px 10px;text-align:left;font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#991B1B;">' + th + '</th>';
+      }).join('') + '</tr></thead><tbody>';
+
+    rows.forEach(function(r) {
+      var d = r.timestamp && r.timestamp.toDate ? r.timestamp.toDate() : null;
+      h += '<tr style="border-top:1px solid #F1F5F9;">' +
+        '<td style="padding:8px 10px;white-space:nowrap;">' + rsEscape(d ? d.toLocaleString() : '—') + '</td>' +
+        '<td style="padding:8px 10px;font-weight:600;">' + rsEscape(r.downloadedBy || '—') + '</td>' +
+        '<td style="padding:8px 10px;color:var(--text-soft);">' + rsEscape(r.downloadedByRole || '—') + '</td>' +
+        '<td style="padding:8px 10px;">' + rsEscape(r.family || '—') + '</td>' +
+        '<td style="padding:8px 10px;color:var(--text-soft);">' + rsEscape(r.filename || '—') + '</td>' +
+        '<td style="padding:8px 10px;color:var(--text-soft);">' + rsEscape(r.program || '—') + '</td>' +
+        '</tr>';
+    });
+    body.innerHTML = h + '</tbody></table></div>';
+  };
+
+  window.cmsExportDocDownloadCsv = function() {
+    var rows = _ddFiltered();
+    if (!rows.length) { alert('Nothing to export in this range.'); return; }
+    var out = [['When', 'Who downloaded', 'Role', 'Family', 'File', 'Program']];
+    rows.forEach(function(r) {
+      var d = r.timestamp && r.timestamp.toDate ? r.timestamp.toDate() : null;
+      out.push([d ? d.toLocaleString() : '', r.downloadedBy || '', r.downloadedByRole || '',
+                r.family || '', r.filename || '', r.program || '']);
+    });
+    var csv = out.map(function(row) {
+      return row.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+    }).join('\n');
+    var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ldah-documents-downloaded-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  };
 
   // ══ Membership Reports ══════════════════════════════════════════════
   var _mrMembers = [];
