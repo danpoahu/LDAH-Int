@@ -3155,7 +3155,9 @@
   margin-bottom: 18px;
 }
 .ct-toolbar input[type="search"] {
-  flex: 1; min-width: 180px; padding: 9px 14px; border-radius: 10px;
+  /* Capped so the Members-only + Advocacy-only checkboxes sit on the same row
+     instead of wrapping (v146.4.26). */
+  flex: 1; min-width: 180px; max-width: 560px; padding: 9px 14px; border-radius: 10px;
   border: 1px solid rgba(8,145,178,.18); background: var(--sand-light);
   font-size: .9rem; color: var(--text-dark);
 }
@@ -4729,7 +4731,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.25-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.26-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6033,8 +6035,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <div class="ct-toolbar">
           <input type="search" id="ctSearch" placeholder="Search contacts by name, type, org…">
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="ctMembersOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Members only</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;" title="Contacts with an open Case Advocacy interaction"><input type="checkbox" id="ctAdvocacyOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Advocacy only</label>
           <button class="ct-btn-add" id="ctAddBtn" data-roles="superAdmin,admin" onclick="openContactForm()">+ Add Contact</button>
-          <button class="section-refresh-btn" onclick="exportContactsCSV()" title="Download the contacts currently shown (respects search / A–Z / Members filter)">&#x2913; Export CSV</button>
+          <button class="section-refresh-btn" onclick="exportContactsCSV()" title="Download the contacts currently shown (respects search / A–Z / Members / Advocacy filter)">&#x2913; Export CSV</button>
           <button class="section-refresh-btn" onclick="loadContacts(true)">Refresh</button>
         </div>
 
@@ -13789,6 +13792,35 @@ var _photoPendingByIsland = {};
   let _ctAzLetter = '';
   let _ctRenderLimit = 50;
   function _ctBucket(name){ var c=(name||'').trim().charAt(0).toUpperCase(); return (c>='A'&&c<='Z')?c:'#'; }
+
+  // ── "Advocacy only" filter support (v146.4.26) ──────────────────────────────
+  // Unlike "Members only", advocacy is NOT a field on the contact doc — a contact
+  // is "in advocacy" when it has an OPEN interaction of type 'Case Advocacy'
+  // (the same rule that drives the purple pill on the contact card). So we resolve
+  // it with one equality-only query over interactions and cache the contactIds.
+  // Cleared by loadContacts(true) / refresh so it can't go stale after an advocacy
+  // is opened or closed.
+  let _ctAdvocacyIds = null;   // Set<contactId>, or null when not yet loaded
+  async function _getAdvocacyContactIds() {
+    if (_ctAdvocacyIds) return _ctAdvocacyIds;
+    var ids = new Set();
+    try {
+      var snap = await db.collection('interactions')
+        .where('interactionType', '==', 'Case Advocacy')
+        .where('status', '==', 'Open')
+        .get();
+      snap.forEach(function(doc) {
+        var cid = (doc.data() || {}).contactId;
+        if (cid) ids.add(cid);
+      });
+    } catch (e) {
+      console.warn('advocacy-only lookup failed:', e.message);
+      _showToast('Could not load the advocacy filter — showing all contacts.', '#D97706');
+      return null;   // null => caller skips the filter rather than showing an empty list
+    }
+    _ctAdvocacyIds = ids;
+    return _ctAdvocacyIds;
+  }
   function renderAzFilter(){
     var wrap = document.getElementById('ctAz');
     if (!wrap) return;
@@ -15181,6 +15213,7 @@ var _photoPendingByIsland = {};
     var moreWrap = document.getElementById('ctShowMoreWrap');
 
     try {
+      if (forceRefresh) _ctAdvocacyIds = null;   // re-resolve who's in advocacy
       if (forceRefresh || !_allContacts.length) {
         if (moreWrap) moreWrap.innerHTML = '';
         list.innerHTML = '<div class="ct-empty">Loading contacts...</div>';
@@ -15205,10 +15238,18 @@ var _photoPendingByIsland = {};
 
       var searchVal = (document.getElementById('ctSearch')?.value || '').toLowerCase().trim();
       var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
+      var advocacyOnly = !!(document.getElementById('ctAdvocacyOnly') && document.getElementById('ctAdvocacyOnly').checked);
+
+      // Resolve the advocacy contactIds before filtering (one cached query).
+      // A null set means the lookup failed — skip the filter rather than render
+      // an empty roster that would read as "no one is in advocacy".
+      var advIds = advocacyOnly ? await _getAdvocacyContactIds() : null;
+
       var filtered = _allContacts.filter(function(c) {
         // A–Z letter filter (AND with text search)
         if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
         if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
+        if (advocacyOnly && advIds && !advIds.has(c.id)) return false;
         if (searchVal) {
           return (c.displayName || '').toLowerCase().includes(searchVal) ||
                  (c.type || '').toLowerCase().includes(searchVal) ||
@@ -15226,7 +15267,7 @@ var _photoPendingByIsland = {};
       }
 
       // Cap the default "All" view (no letter, no search); letter/search sets are small.
-      var capped = (!_ctAzLetter && !searchVal && !membersOnly);
+      var capped = (!_ctAzLetter && !searchVal && !membersOnly && !advocacyOnly);
       var toRender = capped ? filtered.slice(0, _ctRenderLimit) : filtered;
 
       var html = '';
@@ -15278,13 +15319,17 @@ var _photoPendingByIsland = {};
     });
   }
 
-  // Export the contacts currently shown (same search / A–Z / Members filter) to CSV.
-  window.exportContactsCSV = function() {
+  // Export the contacts currently shown (same search / A–Z / Members / Advocacy
+  // filter) to CSV. Async because the advocacy filter resolves from interactions.
+  window.exportContactsCSV = async function() {
     var searchVal = (document.getElementById('ctSearch') && document.getElementById('ctSearch').value || '').toLowerCase().trim();
     var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
+    var advocacyOnly = !!(document.getElementById('ctAdvocacyOnly') && document.getElementById('ctAdvocacyOnly').checked);
+    var advIds = advocacyOnly ? await _getAdvocacyContactIds() : null;
     var rows = (_allContacts || []).filter(function(c) {
       if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
       if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
+      if (advocacyOnly && advIds && !advIds.has(c.id)) return false;
       if (searchVal) {
         return (c.displayName || '').toLowerCase().includes(searchVal) ||
                (c.type || '').toLowerCase().includes(searchVal) ||
@@ -15311,7 +15356,7 @@ var _photoPendingByIsland = {};
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'ldah-contacts' + (membersOnly ? '-members' : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.download = 'ldah-contacts' + (membersOnly ? '-members' : '') + (advocacyOnly ? '-advocacy' : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
