@@ -3155,7 +3155,9 @@
   margin-bottom: 18px;
 }
 .ct-toolbar input[type="search"] {
-  flex: 1; min-width: 180px; padding: 9px 14px; border-radius: 10px;
+  /* Capped so the Members-only + Advocacy-only checkboxes sit on the same row
+     instead of wrapping (v145.6.0). */
+  flex: 1; min-width: 180px; max-width: 560px; padding: 9px 14px; border-radius: 10px;
   border: 1px solid rgba(8,145,178,.18); background: var(--sand-light);
   font-size: .9rem; color: var(--text-dark);
 }
@@ -4724,7 +4726,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.5.7</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.6.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6028,8 +6030,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <div class="ct-toolbar">
           <input type="search" id="ctSearch" placeholder="Search contacts by name, type, org…">
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="ctMembersOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Members only</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;" title="Contacts with an open Case Advocacy interaction"><input type="checkbox" id="ctAdvocacyOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Advocacy only</label>
           <button class="ct-btn-add" id="ctAddBtn" data-roles="superAdmin,admin" onclick="openContactForm()">+ Add Contact</button>
-          <button class="section-refresh-btn" onclick="exportContactsCSV()" title="Download the contacts currently shown (respects search / A–Z / Members filter)">&#x2913; Export CSV</button>
+          <button class="section-refresh-btn" onclick="exportContactsCSV()" title="Download the contacts currently shown (respects search / A–Z / Members / Advocacy filter)">&#x2913; Export CSV</button>
           <button class="section-refresh-btn" onclick="loadContacts(true)">Refresh</button>
         </div>
 
@@ -10594,6 +10597,32 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       var todayISO = hNow.getFullYear() + '-' + String(hNow.getMonth()+1).padStart(2,'0') + '-' + String(hNow.getDate()).padStart(2,'0');
       var cutoff = firebase.firestore.Timestamp.fromDate(new Date(now.getTime() - 24*60*60*1000));
 
+      // Resolve a free-text signupDates entry ("July 8th, 5pm - A-B-C's of Advocacy")
+      // to a YYYY-MM-DD key so past sessions can be dropped. Mirrors
+      // parseEventDateKey() in the daily-report Cloud Function. Returns '' when the
+      // string can't be read — callers KEEP those rather than silently hide a session.
+      var MONTH_NUM = { january:1, february:2, march:3, april:4, may:5, june:6, july:7,
+                        august:8, september:9, october:10, november:11, december:12 };
+      function sigDateKey(raw) {
+        if (!raw || typeof raw !== 'string') return '';
+        var withYear = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})/);
+        if (withYear && MONTH_NUM[withYear[1].toLowerCase()]) {
+          return withYear[3] + '-' + String(MONTH_NUM[withYear[1].toLowerCase()]).padStart(2,'0') +
+                 '-' + String(parseInt(withYear[2],10)).padStart(2,'0');
+        }
+        // Year-less "Month Day[ordinal]" — assume the nearest occurrence to today.
+        var noYear = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+        if (noYear && MONTH_NUM[noYear[1].toLowerCase()]) {
+          var mo = MONTH_NUM[noYear[1].toLowerCase()], day = parseInt(noYear[2],10);
+          var year = hNow.getFullYear();
+          var diffDays = (Date.UTC(year, mo-1, day) - Date.UTC(year, hNow.getMonth(), hNow.getDate())) / 86400000;
+          if (diffDays < -182) year += 1;
+          else if (diffDays > 182) year -= 1;
+          return year + '-' + String(mo).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+        }
+        return '';
+      }
+
       // Helper: format Firestore timestamp
       function fmtTs(ts) {
         if (!ts) return '';
@@ -10627,14 +10656,30 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
         // Multi-date one-time event (Learning Labs): one card per signupDates entry
         if (sigDatesArr.length > 1) {
-          var matchedSet = {};
-          sigDatesArr.forEach(function(dateStr) {
+          // Drop sessions that already happened (today inclusive). Unreadable date
+          // strings are kept rather than silently hidden.
+          var futureSigDates = sigDatesArr.filter(function(dateStr) {
+            var key = sigDateKey(dateStr);
+            return key ? key >= todayISO : true;
+          });
+          // Every session is done — drop the event rather than emit an orphan card
+          // that would surface all of its signups.
+          if (futureSigDates.length === 0) continue;
+
+          futureSigDates.forEach(function(dateStr) {
             var dateSignups = signups.filter(function(su) { return (su.selectedDates || []).indexOf(dateStr) !== -1; });
             if (dateSignups.length === 0) return;
-            dateSignups.forEach(function(su) { matchedSet[su.id] = true; });
             allSessions.push({ title: (d.title||'Untitled') + ' -- ' + dateStr, date: '', time: '', location: d.location||'', signups: dateSignups, type:'event', id: doc.id });
           });
-          var orphaned = signups.filter(function(su) { return !matchedSet[su.id] && su.status !== 'cancelled' && su.archived !== true; });
+          // Orphan check runs against the FULL date list, so a signup whose only
+          // session is in the past isn't resurrected as "Unmatched".
+          var matchedAny = {};
+          sigDatesArr.forEach(function(dateStr) {
+            signups.forEach(function(su) {
+              if ((su.selectedDates || []).indexOf(dateStr) !== -1) matchedAny[su.id] = true;
+            });
+          });
+          var orphaned = signups.filter(function(su) { return !matchedAny[su.id] && su.status !== 'cancelled' && su.archived !== true; });
           if (orphaned.length > 0) {
             allSessions.push({ title: (d.title||'Untitled') + ' -- Unmatched signups', date: '', time: '', location: d.location||'', signups: orphaned, type:'event', id: doc.id });
           }
@@ -13742,6 +13787,35 @@ var _photoPendingByIsland = {};
   let _ctAzLetter = '';
   let _ctRenderLimit = 50;
   function _ctBucket(name){ var c=(name||'').trim().charAt(0).toUpperCase(); return (c>='A'&&c<='Z')?c:'#'; }
+
+  // ── "Advocacy only" filter support (v145.6.0) ───────────────────────────────
+  // Unlike "Members only", advocacy is NOT a field on the contact doc — a contact
+  // is "in advocacy" when it has an OPEN interaction of type 'Case Advocacy'
+  // (the same rule that drives the purple pill on the contact card). So we resolve
+  // it with one equality-only query over interactions and cache the contactIds.
+  // Cleared by loadContacts(true) / refresh so it can't go stale after an advocacy
+  // is opened or closed.
+  let _ctAdvocacyIds = null;   // Set<contactId>, or null when not yet loaded
+  async function _getAdvocacyContactIds() {
+    if (_ctAdvocacyIds) return _ctAdvocacyIds;
+    var ids = new Set();
+    try {
+      var snap = await db.collection('interactions')
+        .where('interactionType', '==', 'Case Advocacy')
+        .where('status', '==', 'Open')
+        .get();
+      snap.forEach(function(doc) {
+        var cid = (doc.data() || {}).contactId;
+        if (cid) ids.add(cid);
+      });
+    } catch (e) {
+      console.warn('advocacy-only lookup failed:', e.message);
+      _showToast('Could not load the advocacy filter — showing all contacts.', '#D97706');
+      return null;   // null => caller skips the filter rather than showing an empty list
+    }
+    _ctAdvocacyIds = ids;
+    return _ctAdvocacyIds;
+  }
   function renderAzFilter(){
     var wrap = document.getElementById('ctAz');
     if (!wrap) return;
@@ -15134,6 +15208,7 @@ var _photoPendingByIsland = {};
     var moreWrap = document.getElementById('ctShowMoreWrap');
 
     try {
+      if (forceRefresh) _ctAdvocacyIds = null;   // re-resolve who's in advocacy
       if (forceRefresh || !_allContacts.length) {
         if (moreWrap) moreWrap.innerHTML = '';
         list.innerHTML = '<div class="ct-empty">Loading contacts...</div>';
@@ -15158,10 +15233,18 @@ var _photoPendingByIsland = {};
 
       var searchVal = (document.getElementById('ctSearch')?.value || '').toLowerCase().trim();
       var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
+      var advocacyOnly = !!(document.getElementById('ctAdvocacyOnly') && document.getElementById('ctAdvocacyOnly').checked);
+
+      // Resolve the advocacy contactIds before filtering (one cached query).
+      // A null set means the lookup failed — skip the filter rather than render
+      // an empty roster that would read as "no one is in advocacy".
+      var advIds = advocacyOnly ? await _getAdvocacyContactIds() : null;
+
       var filtered = _allContacts.filter(function(c) {
         // A–Z letter filter (AND with text search)
         if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
         if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
+        if (advocacyOnly && advIds && !advIds.has(c.id)) return false;
         if (searchVal) {
           return (c.displayName || '').toLowerCase().includes(searchVal) ||
                  (c.type || '').toLowerCase().includes(searchVal) ||
@@ -15179,7 +15262,7 @@ var _photoPendingByIsland = {};
       }
 
       // Cap the default "All" view (no letter, no search, no members filter); filtered sets are small.
-      var capped = (!_ctAzLetter && !searchVal && !membersOnly);
+      var capped = (!_ctAzLetter && !searchVal && !membersOnly && !advocacyOnly);
       var toRender = capped ? filtered.slice(0, _ctRenderLimit) : filtered;
 
       var html = '';
@@ -15231,13 +15314,17 @@ var _photoPendingByIsland = {};
     });
   }
 
-  // Export the contacts currently shown (same search / A–Z / Members filter) to CSV.
-  window.exportContactsCSV = function() {
+  // Export the contacts currently shown (same search / A–Z / Members / Advocacy
+  // filter) to CSV. Async because the advocacy filter resolves from interactions.
+  window.exportContactsCSV = async function() {
     var searchVal = (document.getElementById('ctSearch') && document.getElementById('ctSearch').value || '').toLowerCase().trim();
     var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
+    var advocacyOnly = !!(document.getElementById('ctAdvocacyOnly') && document.getElementById('ctAdvocacyOnly').checked);
+    var advIds = advocacyOnly ? await _getAdvocacyContactIds() : null;
     var rows = (_allContacts || []).filter(function(c) {
       if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
       if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
+      if (advocacyOnly && advIds && !advIds.has(c.id)) return false;
       if (searchVal) {
         return (c.displayName || '').toLowerCase().includes(searchVal) ||
                (c.type || '').toLowerCase().includes(searchVal) ||
@@ -15264,7 +15351,7 @@ var _photoPendingByIsland = {};
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'ldah-contacts' + (membersOnly ? '-members' : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.download = 'ldah-contacts' + (membersOnly ? '-members' : '') + (advocacyOnly ? '-advocacy' : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -17818,9 +17905,7 @@ var _photoPendingByIsland = {};
           '<div class="ct-info-field"><label>Status</label><div class="val">' +
             (isEditMode
               ? '<select id="ixStatusSelect" class="ix-edit-input">' + optHtml + '</select>'
-              : '<div class="ix-status-changer"><select id="ixStatusSelect">' + optHtml + '</select>' +
-                '<button class="ix-status-save" onclick="changeInteractionStatus()">Save</button>' +
-                '<span id="ixStatusMsg"></span></div>') +
+              : '<div class="ix-status-changer"><select id="ixStatusSelect" data-current-status="' + rsEscape(currentStatus) + '">' + optHtml + '</select></div>') +
           '</div></div>';
       } else {
         statusFieldHtml =
@@ -17835,7 +17920,7 @@ var _photoPendingByIsland = {};
         var currentUid  = d.assignedPresenterUid  || '';
         presenterFieldHtml =
           '<div class="ct-info-field"><label>Presenter <span style="color:#dc2626;font-weight:600;">(required to Close)</span></label><div class="val">' +
-            '<select id="ixPresenterSelect" class="ix-edit-input" style="min-width:240px;">' +
+            '<select id="ixPresenterSelect" class="ix-edit-input" style="min-width:240px;" data-current-uid="' + rsEscape(currentUid) + '">' +
               '<option value="">— Select presenter —</option>' +
             '</select>' +
             (currentName ? ' <span style="font-size:.78rem;color:var(--text-soft);">Saved: ' + rsEscape(currentName) + '</span>' : '') +
@@ -17874,8 +17959,6 @@ var _photoPendingByIsland = {};
               '<select id="ixOwnerSelect" data-current-uid="' + rsEscape(d.ownerUid || '') + '">' +
                 '<option value="">Loading…</option>' +
               '</select>' +
-              '<button class="ix-status-save" onclick="changeInteractionOwner()">Save</button>' +
-              '<span id="ixOwnerMsg"></span>' +
             '</div>' +
           '</div></div>';
       } else {
@@ -17907,7 +17990,7 @@ var _photoPendingByIsland = {};
             '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>' +
             '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val"><input type="date" id="editFollowUp" class="ix-edit-input" value="' + rsEscape(d.followUpDate || '') + '"></div></div>' +
             // Case advocacy is now handled by the always-available inline control in
-            // the read-only view modal (applyCaseAdvocacyInline), not edit mode. (v134.0.0)
+            // the read-only view modal (saveInteractionDetail), not edit mode. (v134.0.0)
           '</div>';
 
         contactSection =
@@ -17928,19 +18011,17 @@ var _photoPendingByIsland = {};
         // Mirrors the inline status/owner changers: checkbox + advocate <select> +
         // Save button + msg span. Pre-reflects current caseAdvocacy/advocateName.
         // Only meaningful for OPEN interactions tied to a contact; the apply handler
-        // (applyCaseAdvocacyInline) guards on contactId with a heads-up toast.
+        // (saveInteractionDetail) guards on contactId with a heads-up toast.
         var caAdvIsOn = (d.caseAdvocacy === true);
         var caseAdvocacyFieldHtml =
           '<div class="ct-info-field" style="grid-column:span 2;"><label>Case advocacy</label><div class="val">' +
             '<div class="ix-status-changer" style="flex-wrap:wrap;">' +
               '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;font-size:.85rem;color:var(--text-dark);">' +
-                '<input type="checkbox" id="ixCaseAdvocacy" style="width:16px;height:16px;cursor:pointer;accent-color:var(--ocean-deep);"' +
+                '<input type="checkbox" id="ixCaseAdvocacy" data-current-on="' + (caAdvIsOn ? '1' : '0') + '" style="width:16px;height:16px;cursor:pointer;accent-color:var(--ocean-deep);"' +
                   (caAdvIsOn ? ' checked' : '') + ' onchange="_toggleCaseAdvocacyPicker(\'ix\')"> On</label>' +
               '<div id="ixCaseAdvocacyPicker" style="display:' + (caAdvIsOn ? 'inline-flex' : 'none') + ';align-items:center;gap:8px;">' +
                 '<select id="ixCaseAdvocate" data-current-name="' + rsEscape(d.caseAdvocateName || '') + '"><option value="">— Select advocate —</option></select>' +
               '</div>' +
-              '<button class="ix-status-save" onclick="applyCaseAdvocacyInline()">Save</button>' +
-              '<span id="ixCaseAdvocacyMsg"></span>' +
             '</div>' +
             '<div style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">Turning this on creates a 3-month follow-up task for the advocate. Requires an attached contact.</div>' +
           '</div></div>';
@@ -17954,6 +18035,15 @@ var _photoPendingByIsland = {};
             ownerFieldHtml +
             '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>' +
             caseAdvocacyFieldHtml +
+            // One Save for the whole card (v145.6.0). Replaces the three separate
+            // per-field Save buttons; saveInteractionDetail() validates everything
+            // first and writes nothing unless it all passes.
+            (canChangeStatus
+              ? '<div class="ct-info-field" style="grid-column:span 2;"><div class="val" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;border-top:1px solid rgba(0,0,0,.06);padding-top:10px;margin-top:2px;">' +
+                  '<span id="ixDetailSaveMsg" style="font-size:.8rem;"></span>' +
+                  '<button class="ix-status-save" id="ixDetailSaveBtn" onclick="saveInteractionDetail()" style="padding:8px 18px;font-size:.85rem;">Save</button>' +
+                '</div></div>'
+              : '') +
           '</div>';
 
         var contactDisplayName = d.contactName || d.clientName || '—';
@@ -18226,19 +18316,17 @@ var _photoPendingByIsland = {};
     sel.innerHTML = html;
   };
 
-  window.changeInteractionOwner = async function() {
-    var sel = document.getElementById('ixOwnerSelect');
-    var msg = document.getElementById('ixOwnerMsg');
-    if (!sel || !_ixViewDocId) return;
-    var newUid = sel.value;
+  // Owner reassignment — write + side effects only. UI feedback, dirty-checking
+  // and list refreshes belong to the caller (saveInteractionDetail). Throws on
+  // failure so the orchestrator can report it. (v145.6.0)
+  window._applyOwnerChange = async function(newUid) {
+    if (!_ixViewDocId) return;
     var newName = '';
     if (newUid) {
       var picked = (_assignableOwnersCache || []).find(function(o) { return o.uid === newUid; });
       if (picked) newName = picked.displayName;
     }
-    var btn = sel.nextElementSibling;
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-    try {
+    {
       // Capture the prior owner before reassigning so we can clear their stale
       // assignment notification — they no longer own this interaction. (2026-06-05)
       var priorIxSnap = await db.collection('interactions').doc(_ixViewDocId).get();
@@ -18295,17 +18383,6 @@ var _photoPendingByIsland = {};
           });
         } catch (e) { console.warn('createNotification on owner change failed:', e.message); }
       }
-
-      if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
-      setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
-      _dashKpiCache = null;
-      if (typeof loadInteractions === 'function') loadInteractions();
-      if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
-    } catch (err) {
-      if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Error: ' + err.message; }
-      console.error('Owner update error:', err);
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
     }
   };
 
@@ -18327,115 +18404,138 @@ var _photoPendingByIsland = {};
     } catch (e) { console.warn('clear assignment notifs on close failed:', e.message); }
   };
 
-  window.changeInteractionStatus = async function() {
-    var sel = document.getElementById('ixStatusSelect');
-    var msg = document.getElementById('ixStatusMsg');
-    if (!sel || !_ixViewDocId) return;
+  // Status (+ presenter) write. The presenter-before-close gate is enforced by the
+  // caller (saveInteractionDetail) BEFORE anything is written, so a rejected close
+  // can't leave a half-applied card. Throws on failure. (v145.6.0)
+  window._applyStatusChange = async function(newStatus, presenterUid, presenterName) {
+    if (!_ixViewDocId) return;
 
-    var newStatus = sel.value;
-    var btn = sel.nextElementSibling;
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-
-    // Workflow gate + presenter persistence (assignPresenter step)
-    var presenterSel = document.getElementById('ixPresenterSelect');
     var updates = {
       status: newStatus,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    if (presenterSel) {
-      if (newStatus === 'Closed' && !presenterSel.value) {
-        if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Select a presenter before closing.'; }
-        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-        return;
-      }
-      if (presenterSel.value) {
-        var opt = presenterSel.options[presenterSel.selectedIndex];
-        updates.assignedPresenterUid  = presenterSel.value;
-        updates.assignedPresenterName = (opt && opt.dataset && opt.dataset.name) || opt.textContent || '';
-      }
+    if (presenterUid) {
+      updates.assignedPresenterUid  = presenterUid;
+      updates.assignedPresenterName = presenterName || '';
     }
 
-    try {
-      await db.collection('interactions').doc(_ixViewDocId).update(updates);
+    await db.collection('interactions').doc(_ixViewDocId).update(updates);
 
-      // Closing the task → clear its assignment notifications from the bell.
-      if (newStatus === 'Closed') { await window._clearAssignmentNotifs(_ixViewDocId); }
-
-      if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
-      setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
-
-      // Refresh lists & KPIs (clear cache so fresh data is fetched)
-      _dashKpiCache = null;
-      if (typeof loadInteractions === 'function') loadInteractions();
-      if (typeof updateDashKPIs === 'function') updateDashKPIs();
-      if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
-
-    } catch (err) {
-      if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Error: ' + err.message; }
-      console.error('Status update error:', err);
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-    }
+    // Closing the task → clear its assignment notifications from the bell.
+    if (newStatus === 'Closed') { await window._clearAssignmentNotifs(_ixViewDocId); }
   };
 
-  // Inline case-advocacy apply (v134.0.0) — read-only view modal, no edit-unlock.
-  // Mirrors changeInteractionStatus/Owner: operates on the currently-viewed
-  // interaction (_ixViewDocId), re-fetches fresh data, calls the shared
-  // spawnOrReassignCaseAdvocacy, then toasts + refreshes lists like the others.
-  window.applyCaseAdvocacyInline = async function() {
-    var cb  = document.getElementById('ixCaseAdvocacy');
-    var sel = document.getElementById('ixCaseAdvocate');
-    var msg = document.getElementById('ixCaseAdvocacyMsg');
-    if (!cb || !_ixViewDocId) return;
+  // Case-advocacy write (v134.0.0; refactored v145.6.0). Spawns/reassigns the
+  // advocate's 3-month follow-up task. Its guards (contact attached, advocate
+  // chosen) are pre-checked by saveInteractionDetail so nothing is written when
+  // they fail. `data` is the freshly-fetched interaction doc. Throws on failure.
+  window._applyCaseAdvocacy = async function(data, advocateName) {
+    if (!_ixViewDocId) return;
+    await spawnOrReassignCaseAdvocacy(data, _ixViewDocId, advocateName);
+    _showToast(advocateName ? 'Case advocacy on — advocate task created/updated.' : 'Case advocacy turned off.', '#0891B2');
+  };
 
-    var btn = cb.closest('.ix-status-changer');
-    btn = btn ? btn.querySelector('.ix-status-save') : null;
+  // ── One Save for the whole Interaction Detail card (v145.6.0) ──────────────
+  // Replaces the three per-field Save buttons (status / owner / case advocacy).
+  // Only fields the user actually touched are written, so untouched controls
+  // can't spawn spurious audit entries, bell notifications or advocate tasks.
+  // Everything is validated BEFORE the first write: if any check fails we write
+  // nothing at all, rather than leaving the record half-applied.
+  window.saveInteractionDetail = async function() {
+    if (!_ixViewDocId) return;
+
+    var statusSel = document.getElementById('ixStatusSelect');
+    var presSel   = document.getElementById('ixPresenterSelect');
+    var ownerSel  = document.getElementById('ixOwnerSelect');
+    var advCb     = document.getElementById('ixCaseAdvocacy');
+    var advSel    = document.getElementById('ixCaseAdvocate');
+    var btn       = document.getElementById('ixDetailSaveBtn');
+    var msg       = document.getElementById('ixDetailSaveMsg');
+
+    var fail = function(text) {
+      if (msg) { msg.className = 'ix-status-locked'; msg.textContent = text; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    };
+
+    // ── What actually changed? ──
+    var newStatus    = statusSel ? statusSel.value : '';
+    var statusDirty  = !!statusSel && newStatus !== (statusSel.getAttribute('data-current-status') || '');
+
+    var presUid      = presSel ? presSel.value : '';
+    var presDirty    = !!presSel && presUid !== (presSel.getAttribute('data-current-uid') || '');
+
+    var ownerUid     = ownerSel ? ownerSel.value : '';
+    var ownerDirty   = !!ownerSel && ownerUid !== (ownerSel.getAttribute('data-current-uid') || '');
+
+    var advWantOn    = !!(advCb && advCb.checked);
+    var advWasOn     = !!(advCb && advCb.getAttribute('data-current-on') === '1');
+    var advName      = advWantOn ? ((advSel && advSel.value) || '') : '';
+    var advWasName   = (advSel && advSel.getAttribute('data-current-name')) || '';
+    var advDirty     = !!advCb && (advWantOn !== advWasOn || (advWantOn && advName !== advWasName));
+
+    if (!statusDirty && !presDirty && !ownerDirty && !advDirty) {
+      if (msg) { msg.className = ''; msg.textContent = 'No changes.'; }
+      setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
+      return;
+    }
+
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (msg) { msg.className = ''; msg.textContent = ''; }
 
     try {
-      // Re-fetch fresh doc so contactId + existing advocacy stamps are current
-      // (same id the status/owner inline savers operate on).
+      // Fresh doc — advocacy needs current contactId, and it's what gets handed
+      // to spawnOrReassignCaseAdvocacy.
       var snap = await db.collection('interactions').doc(_ixViewDocId).get();
-      if (!snap.exists) {
-        if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Interaction not found.'; }
+      if (!snap.exists) { fail('Interaction not found.'); return; }
+      var data = snap.data() || {};
+
+      // ── Validate everything up front — no partial writes ──
+      // Presenter is required to close, whether the close is happening now or the
+      // card was already Closed and the presenter is being cleared.
+      if (presSel && newStatus === 'Closed' && !presUid) {
+        fail('Select a presenter before closing.');
         return;
       }
-      var data = snap.data();
-
-      // Guard: turning advocacy ON requires an attached contact.
-      var wantOn = cb.checked;
-      if (wantOn && !data.contactId) {
-        _showToast('Attach a contact before turning on case advocacy.', '#D97706');
-        if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Needs a contact.'; }
-        return;
+      if (advDirty && advWantOn) {
+        if (!data.contactId) {
+          _showToast('Attach a contact before turning on case advocacy.', '#D97706');
+          fail('Case advocacy needs a contact.');
+          return;
+        }
+        if (!advName) { fail('Select an advocate.'); return; }
       }
 
-      var advocateName = wantOn ? ((sel && sel.value) || '') : '';
-      if (wantOn && !advocateName) {
-        if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Select an advocate.'; }
-        return;
+      // ── Apply only what changed ──
+      if (ownerDirty) await window._applyOwnerChange(ownerUid);
+
+      if (statusDirty || presDirty) {
+        var presName = '';
+        if (presUid && presSel) {
+          var opt = presSel.options[presSel.selectedIndex];
+          presName = (opt && opt.dataset && opt.dataset.name) || (opt && opt.textContent) || '';
+        }
+        await window._applyStatusChange(newStatus, presUid, presName);
       }
 
-      await spawnOrReassignCaseAdvocacy(data, _ixViewDocId, advocateName);
+      if (advDirty) await window._applyCaseAdvocacy(data, advName);
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
-      _showToast(wantOn ? 'Case advocacy on — advocate task created/updated.' : 'Case advocacy turned off.', '#0891B2');
-      setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
 
-      // Refresh lists & KPIs (mirror the status/owner changers).
+      // Refresh lists & KPIs once, rather than once per field.
       _dashKpiCache = null;
       if (typeof loadInteractions === 'function') loadInteractions();
       if (typeof updateDashKPIs === 'function') updateDashKPIs();
       if (typeof loadDashRecentInteractions === 'function') loadDashRecentInteractions();
 
-      // Re-render the modal so it reflects the new caseAdvocacy state.
-      if (typeof viewInteraction === 'function') viewInteraction(_ixViewDocId);
+      // Re-render so the card reflects what was just saved (and the data-current-*
+      // baselines reset, so a second Save correctly reports "No changes").
+      setTimeout(function() {
+        if (typeof viewInteraction === 'function') viewInteraction(_ixViewDocId);
+      }, 700);
 
     } catch (err) {
-      if (msg) { msg.className = 'ix-status-locked'; msg.textContent = 'Error: ' + err.message; }
-      console.error('Inline case advocacy error:', err);
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      console.error('saveInteractionDetail error:', err);
+      fail('Error: ' + err.message);
     }
   };
 
@@ -18768,7 +18868,7 @@ var _photoPendingByIsland = {};
       await db.collection('interactions').doc(docId).update(updateData);
 
       // 1b. Case advocacy is handled by the always-available inline control in the
-      //     read-only view modal (applyCaseAdvocacyInline) — no edit-mode toggle. (v134.0.0)
+      //     read-only view modal (saveInteractionDetail) — no edit-mode toggle. (v134.0.0)
 
       // 2. Mark notification edit as used
       if (notifDocId) {
