@@ -5043,7 +5043,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.39-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.40-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16345,12 +16345,16 @@ var _photoPendingByIsland = {};
         var _wsDone = !!_ws.completedAt;
         var _wsLabel = _wsDone ? ('Parent Worksheet (' + _wsN + ')')
                                : (_wsN ? 'Parent Worksheet (draft)' : 'Parent Worksheet — not started');
+        // Readiness pill next to the worksheet button — same at-a-glance signal
+        // as the signup card. ev carries zoomMode; assume CG too since we only
+        // get here from a linked Connect-Gen signup.
+        var _cgPill = _cgReadinessPillHtml(s, ev, { assumeConnectGen: true });
         if (_wsVal) {
-          _wsVal.innerHTML += '<div style="margin-top:10px;">' +
+          _wsVal.innerHTML += '<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
             '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:' +
               (_wsDone ? '#0891B2' : '#94A3B8') + ';color:#fff;border:none;font-weight:600;" ' +
               'onclick="cmsCgWsOpen(' + _jsArg('recurringEvents') + ',' + _jsArg(cg.eventId) + ',' + _jsArg(cg.signupId) + ')">' +
-              rsEscape(_wsLabel) + '</button></div>';
+              rsEscape(_wsLabel) + '</button>' + _cgPill + '</div>';
         }
       }
 
@@ -26125,6 +26129,107 @@ window._cgDocList = function(connectGenDocuments, type) {
   return v.storagePath ? [v] : [];
 };
 
+// ── "Is this family ready?" — client mirror (v146.4.40) ─────────────────────
+// MIRRORS _cgRequirements() / _cgIsMondayVirtual() / _isWorksheetComplete() in
+// the Cloud Functions (search "THE single definition"). The functions own the
+// rules; this exists only so staff can SEE readiness without a round trip. If
+// the server rules change, change these too — two copies that disagree would
+// have the dashboard and the family's email telling different stories.
+//
+//   Monday virtual : consent + documents + worksheet
+//   In person      : worksheet only (they bring the IEP; they sign nothing)
+//
+// opts.assumeConnectGen lets a caller that already knows it is in a Connect-Gen
+// context (cmsIsConnectGenContext) get an answer even if the event doc has not
+// loaded / carries no zoomMode.
+window._cgSignupReadiness = function(signup, event, opts) {
+  var o = opts || {};
+  var isCg = !!(event && event.zoomMode === 'program') || !!o.assumeConnectGen;
+  if (!isCg || !signup) {
+    return { isConnectGen: false, mondayVirtual: false, required: [], done: [], outstanding: [], ready: true,
+             hasConsent: false, hasDocs: false, hasWorksheet: false };
+  }
+
+  var mondayVirtual = _cgIsMondayVirtualClient(signup, event);
+
+  var required = ['worksheet'];                       // every family
+  if (mondayVirtual) required.unshift('consent', 'documents');
+
+  var hasConsent = !!signup.consentSignedAt;
+  var hasDocs = _cgDocList(signup.connectGenDocuments, 'iep').length > 0
+             && _cgDocList(signup.connectGenDocuments, 'evaluation').length > 0;
+  var ws = signup.parentWorksheet || {};
+  var hasWorksheet = _cgWorksheetCompleteClient(ws.concerns);
+
+  var state = { consent: hasConsent, documents: hasDocs, worksheet: hasWorksheet };
+  var done = required.filter(function(r) { return state[r]; });
+  var outstanding = required.filter(function(r) { return !state[r]; });
+
+  return {
+    isConnectGen: true,
+    mondayVirtual: mondayVirtual,
+    required: required,
+    done: done,
+    outstanding: outstanding,
+    ready: outstanding.length === 0,
+    hasConsent: hasConsent,
+    hasDocs: hasDocs,
+    hasWorksheet: hasWorksheet,
+  };
+};
+
+// Complete = at least one concern with ALL five fields filled in. "n/a" is a
+// real answer — a parent who does not know what assessment is needed is exactly
+// who the session is for — so any non-blank string counts. Mirrors
+// _isWorksheetComplete() / CONNECT_GEN_WORKSHEET_FIELDS in the functions.
+function _cgWorksheetCompleteClient(concerns) {
+  var list = Array.isArray(concerns) ? concerns : [];
+  var fields = ['a', 'b', 'c', 'd', 'e'];
+  return list.some(function(c) {
+    return fields.every(function(f) { return !!(c && String(c[f] || '').trim()); });
+  });
+}
+
+// Monday + virtual? Consent and upload apply only to those. Mirrors
+// _cgIsMondayVirtual() server-side, which reads the FIRST session of the
+// signup — so we do the same rather than scanning every selected date.
+// cmsIsDateVirtual() returns null when it cannot tell; only an explicit true
+// counts (an unknown location must not invent a consent requirement).
+function _cgIsMondayVirtualClient(signup, event) {
+  try {
+    var keys = [];
+    if (Array.isArray(signup.selectedSessions) && signup.selectedSessions.length) keys = signup.selectedSessions;
+    else if (Array.isArray(signup.selectedDates) && signup.selectedDates.length) keys = signup.selectedDates;
+    var key = String(keys[0] || '');
+    var dm = key.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!dm) return false;
+    // Day-of-week from Y-M-D components (calendar day; HST has no DST, so this
+    // is tz-agnostic). new Date("YYYY-MM-DD") would be UTC midnight = 2pm the
+    // previous day in Honolulu.
+    var dow = new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3])).getUTCDay();
+    if (dow !== 1) return false;                        // 1 = Monday
+    return cmsIsDateVirtual(event, key) === true;
+  } catch (e) {
+    console.warn('_cgIsMondayVirtualClient failed:', e.message);
+    return false;
+  }
+}
+
+// The pill staff scan for: green "Ready", or amber "Waiting on: documents,
+// worksheet". Returns '' for anything that is not a Connect-Gen signup.
+window._cgReadinessPillHtml = function(signup, event, opts) {
+  var r = _cgSignupReadiness(signup, event, opts);
+  if (!r.isConnectGen) return '';
+  var base = 'display:inline-block;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;';
+  if (r.ready) {
+    return '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet — everything that applies to this family is done.">Ready</span>';
+  }
+  var labels = { consent: 'consent', documents: 'documents', worksheet: 'worksheet' };
+  var parts = r.outstanding.map(function(k) { return labels[k] || k; });
+  return '<span style="' + base + 'background:#D97706;color:#fff;" title="This family is not ready for their session yet.">Waiting on: ' +
+    rsEscape(parts.join(', ')) + '</span>';
+};
+
 // Button row injected at the top of each Connect-Gen family card. Renders
 // nothing for non-Connect-Gen events. Disposition + destruction state drive
 // the visible label.
@@ -26145,6 +26250,11 @@ function cmsCgWorksheetBtn(s, collection, eventId) {
 
 function cmsCgDocsButtonRow(s, collection, eventId) {
   if (!cmsIsConnectGenContext()) return '';
+  // Readiness pill — same in every branch below, so build it once. We know we
+  // are in a Connect-Gen context (the guard above), so assume it even if the
+  // event doc has not loaded / carries no zoomMode.
+  var _cgEv = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
+  var _cgPill = _cgReadinessPillHtml(s, _cgEv, { assumeConnectGen: true });
   var docs = (s && s.connectGenDocuments && typeof s.connectGenDocuments === 'object') ? s.connectGenDocuments : null;
   // Count every file, not one per type — a family may send 7 IEP pages.
   var iepList = _cgDocList(docs, 'iep');
@@ -26163,7 +26273,7 @@ function cmsCgDocsButtonRow(s, collection, eventId) {
     return '<div style="padding:8px 14px;background:#F8FAFC;border-top:1px solid #E2E8F0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
       '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
       '<span style="font-size:.78rem;color:#64748B;">Destroyed &mdash; ' + rsEscape(dispLabel) + '</span>' +
-      cmsCgWorksheetBtn(s, collection, eventId) +
+      cmsCgWorksheetBtn(s, collection, eventId) + _cgPill +
       '</div>';
   }
   // No docs uploaded yet — surface neutral muted note so staff know to
@@ -26178,7 +26288,7 @@ function cmsCgDocsButtonRow(s, collection, eventId) {
       '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
       '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + zeroLabel + '</button>' +
       (_wasDestroyed ? '<span style="font-size:.74rem;color:#7C2D12;font-style:italic;">Previously removed</span>' : '<span style="font-size:.74rem;color:#94A3B8;font-style:italic;">None on file yet</span>') +
-      cmsCgWorksheetBtn(s, collection, eventId) +
+      cmsCgWorksheetBtn(s, collection, eventId) + _cgPill +
       '</div>';
   }
   // Docs present — primary review button.
@@ -26192,7 +26302,7 @@ function cmsCgDocsButtonRow(s, collection, eventId) {
     '<span style="font-size:.78rem;font-weight:700;color:#0C4A6E;">Connect-Gen Documents</span>' +
     '<button class="btn btn-primary" style="font-size:.82rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + rsEscape(label) + '</button>' +
     (disposition ? '<span style="font-size:.74rem;color:#475569;font-style:italic;">Marked: ' + rsEscape(disposition === 'noSupport' ? 'No Additional Support' : 'Case Advocacy') + '</span>' : '') +
-    cmsCgWorksheetBtn(s, collection, eventId) +
+    cmsCgWorksheetBtn(s, collection, eventId) + _cgPill +
     '</div>';
 }
 
