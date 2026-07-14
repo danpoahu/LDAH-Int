@@ -5043,7 +5043,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.35-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.36-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25734,6 +25734,23 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
 // Connect-Gen recurring event ID — single canonical program in Firestore.
 var CONNECT_GEN_EVENT_ID = 'CmkPXEpPwfAQ5sR377K2';
 
+// Names the family + file in an audit entry, so the trail reads as
+// "Leilani Kailiawa read Daniel R. Pellegrini — iep-page-3.jpg" rather than an
+// opaque storage path. Falls back gracefully if the viewer context is gone.
+function _cmsCgAuditSubject(filename) {
+  var v = _cmsCgDocViewer || {};
+  var s = v.signup || {};
+  var who = s.name || s.firstName || '(unknown family)';
+  return who + ' — ' + (filename || '(unnamed file)') +
+         (v.signupId ? ' — signup ' + v.signupId : '');
+}
+
+// Downloading a child's document off the platform is a heavier act than reading
+// it on screen, so it gets its own audit line (v146.4.36).
+window.cmsCgLogDownload = function(filename) {
+  try { auditLog('Connect-Gen document downloaded', _cmsCgAuditSubject(filename)); } catch (_) {}
+};
+
 // ── Document lightbox (v146.4.33) ──────────────────────────────────────────
 // Staff had to download a child's IEP just to read it. Clicking a preview now
 // opens it full-screen. Reuses the already-signed URL the thumbnail is showing,
@@ -25745,8 +25762,18 @@ window.cmsCgLightboxOpen = function(url, mimeType, filename) {
   var dl = document.getElementById('cmsCgLightboxDl');
   if (!box || !stage) return;
 
+  // Audit the READ (v146.4.36). Opening the vault already logs "documents
+  // viewed", and the CF logs a signed-URL issuance per thumbnail — but neither
+  // says anyone actually read a given file. Opening a document full-screen is a
+  // deliberate act, so it is the honest signal of "this person reviewed this
+  // child's document", and that is what the trail needs to show.
+  try {
+    auditLog('Connect-Gen document read', _cmsCgAuditSubject(filename));
+  } catch (_) {}
+
   title.textContent = filename || 'Document';
   dl.href = url;
+  dl.onclick = function() { cmsCgLogDownload(filename); };
 
   var mt = String(mimeType || '').toLowerCase();
   if (mt === 'application/pdf') {
@@ -26086,7 +26113,7 @@ function cmsCgDocRenderPanel(title, type, recs) {
         (uploadedAt ? '<span style="margin-left:8px;color:#94A3B8;">Uploaded ' + rsEscape(uploadedAt) + '</span>' : '') +
       '</div>' +
       '<div id="' + slotId + '" style="margin-bottom:8px;"><div style="padding:18px;text-align:center;color:#94A3B8;font-size:.84rem;">Loading preview...</div></div>' +
-      '<a id="' + linkId + '" href="#" target="_blank" rel="noopener" style="display:none;font-size:.84rem;color:#1a3c6e;font-weight:600;text-decoration:underline;">Download original file</a>' +
+      '<a id="' + linkId + '" href="#" target="_blank" rel="noopener" onclick="cmsCgLogDownload(' + _jsArg(rec.originalFilename || type) + ')" style="display:none;font-size:.84rem;color:#1a3c6e;font-weight:600;text-decoration:underline;">Download original file</a>' +
       '</div>';
   });
 
