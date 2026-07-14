@@ -3793,6 +3793,52 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
   border-radius: 0 0 8px 8px;
 }
 
+/* ── Connect-Gen document lightbox (v146.4.33) ───────────────────────────────
+   Staff were having to download a child's IEP just to read it. Click any preview
+   to open it full-screen instead. */
+.cg-lightbox {
+  display: none;
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(15,23,42,.88);
+  flex-direction: column;
+}
+.cg-lightbox.open { display: flex; }
+.cg-lightbox-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  background: #0F172A; color: #fff;
+  font-family: 'Outfit', sans-serif; font-size: .9rem; font-weight: 600;
+  flex: none;
+}
+.cg-lightbox-btn {
+  font-family: 'Outfit', sans-serif; font-weight: 700; font-size: .82rem;
+  padding: 6px 14px; border-radius: 7px; cursor: pointer;
+  background: rgba(255,255,255,.14); color: #fff;
+  border: 1px solid rgba(255,255,255,.22); text-decoration: none;
+  display: inline-flex; align-items: center;
+}
+.cg-lightbox-btn:hover { background: rgba(255,255,255,.24); }
+.cg-lightbox-stage {
+  flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; overflow: auto;
+}
+.cg-lightbox-stage iframe { width: 100%; height: 100%; border: none; background: #fff; border-radius: 6px; }
+.cg-lightbox-stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; background: #fff; }
+
+/* The preview thumbnails inside the vault now advertise that they open. */
+.cg-preview-open {
+  position: relative; cursor: zoom-in;
+  border: 1px solid #CBD5E1; border-radius: 6px; overflow: hidden;
+}
+.cg-preview-open:hover { border-color: var(--ocean-deep); box-shadow: 0 0 0 3px rgba(8,145,178,.14); }
+.cg-preview-open .cg-preview-hint {
+  position: absolute; right: 8px; bottom: 8px;
+  background: rgba(15,23,42,.82); color: #fff;
+  font-family: 'Outfit', sans-serif; font-size: .72rem; font-weight: 700;
+  padding: 4px 10px; border-radius: 999px; pointer-events: none;
+}
+
 /* ── List Management (.lm-) ─────────── */
 
 /* v146.4.29 — grouped by purpose (same section language as Training Videos),
@@ -4992,7 +5038,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.32-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.33-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7590,7 +7636,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         </div>
         <div class="modal-body" style="display:block; padding: 0;">
           <div id="cmsCgDocSubheader" style="padding:8px 18px;background:#F0F9FF;border-bottom:1px solid #BAE6FD;font-size:.86rem;color:#0C4A6E;"></div>
-          <div id="cmsCgDocBody" style="padding:14px 18px;">
+          <!-- Scrolls (v146.4.33): a family can now send up to 14 documents, so the
+               panels no longer fit the viewport. Header, subheader and the destroy /
+               disposition controls stay put; only the documents scroll. -->
+          <div id="cmsCgDocBody" style="padding:14px 18px;max-height:calc(100vh - 260px);overflow-y:auto;">
             <div class="cms-empty"><p>Loading documents...</p></div>
           </div>
         </div>
@@ -7604,6 +7653,20 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Full-screen document viewer (v146.4.33). Click any preview to read it at
+         a usable size instead of downloading it. Sits above the doc-vault modal;
+         Esc or a click on the backdrop closes it. -->
+    <div id="cmsCgLightbox" class="cg-lightbox" onclick="if(event.target===this)cmsCgLightboxClose()">
+      <div class="cg-lightbox-bar">
+        <span id="cmsCgLightboxTitle"></span>
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+          <a id="cmsCgLightboxDl" href="#" target="_blank" rel="noopener" class="cg-lightbox-btn">Download</a>
+          <button type="button" class="cg-lightbox-btn" onclick="cmsCgLightboxClose()">Close &times;</button>
+        </span>
+      </div>
+      <div class="cg-lightbox-stage" id="cmsCgLightboxStage"></div>
     </div>
 
     <!-- Future Dates Modal (recurring programs only) — pre-cancel sessions weeks/months in advance for vacations, holidays, etc. -->
@@ -25659,6 +25722,49 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
 // Connect-Gen recurring event ID — single canonical program in Firestore.
 var CONNECT_GEN_EVENT_ID = 'CmkPXEpPwfAQ5sR377K2';
 
+// ── Document lightbox (v146.4.33) ──────────────────────────────────────────
+// Staff had to download a child's IEP just to read it. Clicking a preview now
+// opens it full-screen. Reuses the already-signed URL the thumbnail is showing,
+// so no extra CF call and no extra audit entry for the same view.
+window.cmsCgLightboxOpen = function(url, mimeType, filename) {
+  var box = document.getElementById('cmsCgLightbox');
+  var stage = document.getElementById('cmsCgLightboxStage');
+  var title = document.getElementById('cmsCgLightboxTitle');
+  var dl = document.getElementById('cmsCgLightboxDl');
+  if (!box || !stage) return;
+
+  title.textContent = filename || 'Document';
+  dl.href = url;
+
+  var mt = String(mimeType || '').toLowerCase();
+  if (mt === 'application/pdf') {
+    stage.innerHTML = '<iframe src="' + rsEscape(url) + '" title="' + rsEscape(filename || 'Document') + '"></iframe>';
+  } else if (mt.indexOf('image/') === 0) {
+    stage.innerHTML = '<img src="' + rsEscape(url) + '" alt="' + rsEscape(filename || 'Document') + '">';
+  } else {
+    stage.innerHTML = '<div style="color:#fff;font-size:.9rem;">This file type can\'t be previewed. Use Download.</div>';
+  }
+  box.classList.add('open');
+};
+
+window.cmsCgLightboxClose = function() {
+  var box = document.getElementById('cmsCgLightbox');
+  var stage = document.getElementById('cmsCgLightboxStage');
+  if (!box) return;
+  box.classList.remove('open');
+  // Drop the iframe/img so the signed URL isn't left loaded in the background.
+  if (stage) stage.innerHTML = '';
+};
+
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  var box = document.getElementById('cmsCgLightbox');
+  if (box && box.classList.contains('open')) {
+    e.stopPropagation();   // don't also close the doc-vault modal behind it
+    cmsCgLightboxClose();
+  }
+}, true);
+
 // Robust context check: open signups modal is for Connect-Gen if (a) recurring
 // event id matches the known Connect-Gen program, or (b) the modal title
 // contains "Connect-Gen". Either marker is sufficient — staff can rename the
@@ -25879,15 +25985,24 @@ function cmsCgDocRender() {
       if (link) { link.href = url; link.style.display = 'inline-block'; }
       if (!slot) return;
       var mt = String(rec.mimeType || '').toLowerCase();
+      var fname = rec.originalFilename || type;
+      // Previews are now compact thumbnails — with up to 14 documents, a column
+      // of 600px-tall frames was unreadable. Click one to open it full-screen.
       if (mt === 'application/pdf') {
-        slot.innerHTML = '<iframe src="' + url + '" style="width:100%;height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;" title="' + rsEscape(type) + ' PDF"></iframe>';
+        slot.innerHTML = '<div class="cg-preview-open" onclick="cmsCgLightboxOpen(' + _attrJsArg(url) + ',' + _attrJsArg(mt) + ',' + _attrJsArg(fname) + ')">' +
+          '<iframe src="' + url + '#toolbar=0&navpanes=0" scrolling="no" style="width:100%;height:260px;border:none;background:#fff;pointer-events:none;" title="' + rsEscape(fname) + '"></iframe>' +
+          '<span class="cg-preview-hint">Click to read</span>' +
+          '</div>';
       } else if (mt.indexOf('image/') === 0) {
         // HEIC/HEIF: most desktop browsers do NOT render these natively.
         // Show the <img> anyway (Safari on Mac can; falls back gracefully
         // via the alt and the always-visible Download link if it can't).
         var isHeic = (mt === 'image/heic' || mt === 'image/heif');
         var note = isHeic ? '<div style="font-size:.74rem;color:#92400E;background:#FFFBEB;padding:6px 10px;border:1px solid #FCD34D;border-radius:6px;margin-bottom:6px;">HEIC files may not preview in all browsers. Use the Download link if the image area is blank.</div>' : '';
-        slot.innerHTML = note + '<img src="' + url + '" alt="' + rsEscape(rec.originalFilename || type) + '" style="max-width:100%;max-height:600px;border:1px solid #CBD5E1;border-radius:6px;background:#F8FAFC;display:block;">';
+        slot.innerHTML = note + '<div class="cg-preview-open" onclick="cmsCgLightboxOpen(' + _attrJsArg(url) + ',' + _attrJsArg(mt) + ',' + _attrJsArg(fname) + ')">' +
+          '<img src="' + url + '" alt="' + rsEscape(fname) + '" style="width:100%;max-height:260px;object-fit:cover;object-position:top;background:#F8FAFC;display:block;">' +
+          '<span class="cg-preview-hint">Click to enlarge</span>' +
+          '</div>';
       } else {
         slot.innerHTML = '<div style="padding:18px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;color:#64748B;font-size:.86rem;">Preview not available for this file type. Use the Download link below.</div>';
       }
