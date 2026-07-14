@@ -4992,7 +4992,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.31-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.32-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25682,15 +25682,31 @@ function cmsCgFmtBytes(n) {
   return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
 }
 
+// connectGenDocuments.{iep|evaluation} used to hold ONE record; families can now
+// send up to 7 of each (2026-07-14). Signups from before that change still carry
+// the single-object shape, so every reader normalises through here rather than
+// migrating children's confidential records in place. Mirrors _cgDocList() in
+// the Cloud Functions — keep the two in step.
+window._cgDocList = function(connectGenDocuments, type) {
+  var docs = (connectGenDocuments && typeof connectGenDocuments === 'object') ? connectGenDocuments : {};
+  var v = docs[type];
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(function(r) { return r && r.storagePath; });
+  return v.storagePath ? [v] : [];
+};
+
 // Button row injected at the top of each Connect-Gen family card. Renders
 // nothing for non-Connect-Gen events. Disposition + destruction state drive
 // the visible label.
 function cmsCgDocsButtonRow(s, collection, eventId) {
   if (!cmsIsConnectGenContext()) return '';
   var docs = (s && s.connectGenDocuments && typeof s.connectGenDocuments === 'object') ? s.connectGenDocuments : null;
-  var hasIep = !!(docs && docs.iep && docs.iep.storagePath);
-  var hasEval = !!(docs && docs.evaluation && docs.evaluation.storagePath);
-  var count = (hasIep ? 1 : 0) + (hasEval ? 1 : 0);
+  // Count every file, not one per type — a family may send 7 IEP pages.
+  var iepList = _cgDocList(docs, 'iep');
+  var evalList = _cgDocList(docs, 'evaluation');
+  var hasIep = iepList.length > 0;
+  var hasEval = evalList.length > 0;
+  var count = iepList.length + evalList.length;
   var disposition = s.connectGenDisposition || '';
   var destroyedAt = s.connectGenDocumentsDestroyedAt;
   // If documents have been destroyed (either via No-Support disposition or
@@ -25801,9 +25817,8 @@ function cmsCgDocRender() {
     statusEl.innerHTML = '<span style="color:#64748B;">No disposition marked yet.</span>';
   }
   // Disable disposition buttons + destroy when there are no files left.
-  var hasFiles = !!(s.connectGenDocuments &&
-    ((s.connectGenDocuments.iep && s.connectGenDocuments.iep.storagePath) ||
-     (s.connectGenDocuments.evaluation && s.connectGenDocuments.evaluation.storagePath)));
+  var hasFiles = (_cgDocList(s.connectGenDocuments, 'iep').length +
+                  _cgDocList(s.connectGenDocuments, 'evaluation').length) > 0;
   document.getElementById('cmsCgDocDestroyBtn').disabled = !hasFiles;
   document.getElementById('cmsCgDocDestroyBtn').style.opacity = hasFiles ? '1' : '0.45';
   document.getElementById('cmsCgDocDestroyBtn').style.cursor = hasFiles ? 'pointer' : 'not-allowed';
@@ -25821,8 +25836,10 @@ function cmsCgDocRender() {
   // ── Body: two side-by-side panels (stack on narrow). ──
   var body = document.getElementById('cmsCgDocBody');
   var docs = s.connectGenDocuments || {};
-  var iep = docs.iep || null;
-  var ev = docs.evaluation || null;
+  var iepList = _cgDocList(docs, 'iep');
+  var evalList = _cgDocList(docs, 'evaluation');
+  var iep = iepList.length ? iepList[0] : null;
+  var ev = evalList.length ? evalList[0] : null;
   if (!iep && !ev) {
     if (destroyedAt) {
       body.innerHTML = '<div class="cms-empty" style="padding:30px;text-align:center;color:#7C2D12;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;">' +
@@ -25836,8 +25853,8 @@ function cmsCgDocRender() {
   }
 
   var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;">';
-  html += cmsCgDocRenderPanel('Individualized Education Program (IEP)', 'iep', iep);
-  html += cmsCgDocRenderPanel('Evaluation / Assessment', 'evaluation', ev);
+  html += cmsCgDocRenderPanel('Individualized Education Program (IEP)', 'iep', iepList);
+  html += cmsCgDocRenderPanel('Evaluation / Assessment', 'evaluation', evalList);
   html += '</div>';
   html += cmsCgDocStaffUploadSection();
   body.innerHTML = html;
@@ -25850,11 +25867,13 @@ function cmsCgDocRender() {
   // panel via the existing red error UI.
   var _v = _cmsCgDocViewer;
   ['iep', 'evaluation'].forEach(function(type) {
-    var rec = docs[type];
-    if (!rec || !rec.storagePath) return;
-    var slotId = 'cmsCgDocPreview_' + type;
-    var linkId = 'cmsCgDocDl_' + type;
-    _cmsCgGetDocUrl(_v.eventId, _v.signupId, type).then(function(url) {
+    // One signed URL per file. The CF audit-logs each issuance, so a family with
+    // 7 pages produces 7 audit rows — which is correct: each view of a child's
+    // document is a separate access worth recording.
+    _cgDocList(docs, type).forEach(function(rec, i) {
+    var slotId = 'cmsCgDocPreview_' + type + '_' + i;
+    var linkId = 'cmsCgDocDl_' + type + '_' + i;
+    _cmsCgGetDocUrl(_v.eventId, _v.signupId, type, i).then(function(url) {
       var slot = document.getElementById(slotId);
       var link = document.getElementById(linkId);
       if (link) { link.href = url; link.style.display = 'inline-block'; }
@@ -25876,6 +25895,7 @@ function cmsCgDocRender() {
       var slot = document.getElementById(slotId);
       if (slot) slot.innerHTML = '<div style="padding:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:6px;color:#B91C1C;font-size:.84rem;">Unable to load file: ' + rsEscape(err && err.message ? err.message : String(err)) + '</div>';
     });
+    });
   });
 }
 
@@ -25884,14 +25904,16 @@ function cmsCgDocRender() {
 // route through getConnectGenDocumentDownloadUrl (audit-logged, 10-min
 // expiry). Throws on non-2xx — callers render the error in the red
 // "Unable to load file" panel.
-async function _cmsCgGetDocUrl(eventId, signupId, documentType) {
+async function _cmsCgGetDocUrl(eventId, signupId, documentType, docIndex) {
   var user = firebase.auth().currentUser;
   if (!user) throw new Error('Not signed in.');
   var idToken = await user.getIdToken();
   var res = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/getConnectGenDocumentDownloadUrl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken: idToken, eventId: eventId, signupId: signupId, documentType: documentType })
+    // docIndex picks which of the (up to 7) files of this type to sign; the CF
+    // defaults it to 0, so older callers keep working.
+    body: JSON.stringify({ idToken: idToken, eventId: eventId, signupId: signupId, documentType: documentType, docIndex: docIndex || 0 })
   });
   if (!res.ok) {
     var detail = '';
@@ -25902,28 +25924,46 @@ async function _cmsCgGetDocUrl(eventId, signupId, documentType) {
   return data.url;
 }
 
-function cmsCgDocRenderPanel(title, type, rec) {
-  var slotId = 'cmsCgDocPreview_' + type;
-  var linkId = 'cmsCgDocDl_' + type;
-  if (!rec || !rec.storagePath) {
+// Renders ALL files of a type (up to 7), each with its own preview and download
+// link. Takes a list; a lone legacy record is normalised to a 1-item list by the
+// caller via _cgDocList, so nothing here needs to know about the old shape.
+function cmsCgDocRenderPanel(title, type, recs) {
+  recs = Array.isArray(recs) ? recs : (recs ? [recs] : []);
+  if (!recs.length) {
     return '<div style="padding:14px;border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFC;">' +
       '<div style="font-size:.86rem;font-weight:700;color:#0F172A;margin-bottom:4px;">' + rsEscape(title) + '</div>' +
       '<div style="font-size:.82rem;color:#94A3B8;">Not uploaded.</div>' +
       '</div>';
   }
-  var size = cmsCgFmtBytes(rec.sizeBytes);
-  var meta = (rec.originalFilename ? rec.originalFilename : '(unnamed)') + (size ? ', ' + size : '');
-  var uploadedAt = '';
-  if (rec.uploadedAt && rec.uploadedAt.toDate) uploadedAt = rec.uploadedAt.toDate().toLocaleString();
-  else if (rec.uploadedAt && rec.uploadedAt.seconds) uploadedAt = new Date(rec.uploadedAt.seconds * 1000).toLocaleString();
-  return '<div style="padding:14px;border:1px solid #BAE6FD;border-radius:10px;background:#fff;">' +
-    '<div style="font-size:.92rem;font-weight:700;color:#0C4A6E;margin-bottom:4px;">' + rsEscape(title) + '</div>' +
-    '<div style="font-size:.8rem;color:#475569;margin-bottom:8px;">' + rsEscape(meta) +
-      (uploadedAt ? '<span style="margin-left:8px;color:#94A3B8;">Uploaded ' + rsEscape(uploadedAt) + '</span>' : '') +
-    '</div>' +
-    '<div id="' + slotId + '" style="margin-bottom:8px;"><div style="padding:18px;text-align:center;color:#94A3B8;font-size:.84rem;">Loading preview...</div></div>' +
-    '<a id="' + linkId + '" href="#" target="_blank" rel="noopener" style="display:none;font-size:.84rem;color:#1a3c6e;font-weight:600;text-decoration:underline;">Download original file</a>' +
+
+  var out = '<div style="padding:14px;border:1px solid #BAE6FD;border-radius:10px;background:#fff;">' +
+    '<div style="font-size:.92rem;font-weight:700;color:#0C4A6E;margin-bottom:2px;">' + rsEscape(title) +
+      '<span style="margin-left:8px;font-weight:800;font-size:.72rem;color:#0369A1;background:#E0F2FE;padding:2px 8px;border-radius:999px;">' +
+        recs.length + (recs.length === 1 ? ' file' : ' files') +
+      '</span>' +
     '</div>';
+
+  recs.forEach(function(rec, i) {
+    var slotId = 'cmsCgDocPreview_' + type + '_' + i;
+    var linkId = 'cmsCgDocDl_' + type + '_' + i;
+    var size = cmsCgFmtBytes(rec.sizeBytes);
+    var meta = (rec.originalFilename ? rec.originalFilename : '(unnamed)') + (size ? ', ' + size : '');
+    var uploadedAt = '';
+    if (rec.uploadedAt && rec.uploadedAt.toDate) uploadedAt = rec.uploadedAt.toDate().toLocaleString();
+    else if (rec.uploadedAt && rec.uploadedAt.seconds) uploadedAt = new Date(rec.uploadedAt.seconds * 1000).toLocaleString();
+
+    out += '<div style="margin-top:' + (i === 0 ? '10' : '16') + 'px;padding-top:' + (i === 0 ? '0' : '14') +
+             'px;' + (i === 0 ? '' : 'border-top:1px solid #E0F2FE;') + '">' +
+      '<div style="font-size:.8rem;color:#475569;margin-bottom:8px;">' +
+        '<span style="font-weight:700;color:#0369A1;">' + (i + 1) + '.</span> ' + rsEscape(meta) +
+        (uploadedAt ? '<span style="margin-left:8px;color:#94A3B8;">Uploaded ' + rsEscape(uploadedAt) + '</span>' : '') +
+      '</div>' +
+      '<div id="' + slotId + '" style="margin-bottom:8px;"><div style="padding:18px;text-align:center;color:#94A3B8;font-size:.84rem;">Loading preview...</div></div>' +
+      '<a id="' + linkId + '" href="#" target="_blank" rel="noopener" style="display:none;font-size:.84rem;color:#1a3c6e;font-weight:600;text-decoration:underline;">Download original file</a>' +
+      '</div>';
+  });
+
+  return out + '</div>';
 }
 
 /* ── Staff re-upload section (Part 2) ──
@@ -25935,7 +25975,7 @@ function cmsCgDocRenderPanel(title, type, rec) {
  * staff can re-collect even when no documents are currently on file. */
 
 // Same allowlist + cap as the Cloud Functions (CONNECT_GEN_UPLOAD_*).
-var CMS_CG_UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+var CMS_CG_UPLOAD_MAX_BYTES = 50 * 1024 * 1024; // 50 MB (raised 2026-07-14, matches CONNECT_GEN_UPLOAD_MAX_BYTES)
 var CMS_CG_UPLOAD_ALLOWED_EXT = ['.pdf', '.jpg', '.jpeg', '.png', '.heic', '.heif'];
 var CMS_CG_REQUEST_UPLOAD_URL = 'https://us-central1-ldah-932d5.cloudfunctions.net/requestStaffConnectGenUploadUrl';
 var CMS_CG_CONFIRM_UPLOAD_URL = 'https://us-central1-ldah-932d5.cloudfunctions.net/confirmStaffConnectGenUpload';
@@ -30210,8 +30250,10 @@ function cmsCgConfirmBlockedKey(event, signup, sessionDateKey) {
   if (!event || !signup) return '';
   if (event.zoomMode !== 'program') return '';
   var docs = signup.connectGenDocuments || {};
-  var docsPresent = !!(docs.iep && docs.iep.storagePath
-                    && docs.evaluation && docs.evaluation.storagePath);
+  // "Documents received" = at least one of each type. A family sending 7 IEP
+  // pages is no less complete than one sending a single combined PDF.
+  var docsPresent = _cgDocList(docs, 'iep').length > 0
+                 && _cgDocList(docs, 'evaluation').length > 0;
   if (docsPresent) return '';
   var keys = [];
   if (sessionDateKey) {
