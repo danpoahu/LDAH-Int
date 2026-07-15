@@ -5038,7 +5038,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.12.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.12.2</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14414,6 +14414,12 @@ var _photoPendingByIsland = {};
         }).catch(function(e) { console.warn('Could not update interactionTypes lookup:', e.message); });
       }
 
+      // "Screening" interaction type (in-memory). Selecting it on a new
+      // interaction fires the SRP screening-consent email to the client. 2026-07-15.
+      if (Array.isArray(_lookupLists.interactionTypes) && !_lookupLists.interactionTypes.includes('Screening')) {
+        _lookupLists.interactionTypes.push('Screening');
+      }
+
       populateChannelDropdown();
       populateTypeDropdown();
       populateGrantDatalist();
@@ -16752,6 +16758,33 @@ var _photoPendingByIsland = {};
       railHtml += '<div id="' + matDetailId + '" style="display:none;margin-top:6px;"></div>';
       railHtml += '</div>';
 
+      // ── Screening Consent (SRP) — 2026-07-15 ──
+      // Sits by Membership + Materials. Shows "requested" once a Screening
+      // interaction fires the email, then flips to "received ✓" with the child +
+      // insurance details once the parent submits the consent form.
+      if (c.srpScreeningConsent || c.srpConsentRequestedAt) {
+        var _srp = c.srpScreeningConsent;
+        if (_srp) {
+          var _srpWhen = _srp.signedAt && _srp.signedAt.toDate ? _srp.signedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+          var _srpDetailId = 'ctSrpConsent_' + contactId;
+          var _srpChild = (_srp.child && (_srp.child.firstName || _srp.child.lastName)) ? rsEscape(((_srp.child.firstName || '') + ' ' + (_srp.child.lastName || '')).trim()) : '';
+          railHtml += '<div style="margin-top:8px;">';
+          railHtml += '<div onclick="var el=document.getElementById(\'' + _srpDetailId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'span\').textContent=el.style.display===\'none\'?\'\\u25B6\':\'\\u25BC\'" style="cursor:pointer;user-select:none;font-size:.88rem;font-weight:600;color:#059669;">';
+          railHtml += '<span style="font-size:.65rem;">&#9654;</span> Screening consent ✓</div>';
+          railHtml += '<div id="' + _srpDetailId + '" style="display:none;margin-top:6px;font-size:.8rem;color:#475569;line-height:1.5;">';
+          railHtml += '<div><strong>Received:</strong> ' + rsEscape(_srpWhen || '—') + '</div>';
+          railHtml += '<div><strong>Signed by:</strong> ' + rsEscape(_srp.signedName || '—') + '</div>';
+          if (_srpChild) railHtml += '<div><strong>Child:</strong> ' + _srpChild + '</div>';
+          if (_srp.child && _srp.child.insurance) railHtml += '<div><strong>Insurance:</strong> ' + rsEscape(_srp.child.insurance) + '</div>';
+          railHtml += '</div></div>';
+        } else {
+          var _srpReqWhen = c.srpConsentRequestedAt && c.srpConsentRequestedAt.toDate ? c.srpConsentRequestedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+          railHtml += '<div style="margin-top:8px;font-size:.85rem;font-weight:600;color:#D97706;">';
+          railHtml += '⏳ Screening consent requested' + (_srpReqWhen ? ' · ' + rsEscape(_srpReqWhen) : '');
+          railHtml += '<div style="font-weight:400;font-size:.78rem;color:#94A3B8;">awaiting parent</div></div>';
+        }
+      }
+
       railHtml += '</div>'; // close .ctd2-rail
 
       // ── Main column ──
@@ -17845,6 +17878,51 @@ var _photoPendingByIsland = {};
         }
       } catch (caErr) {
         console.error('Case advocacy (new interaction) failed:', caErr);
+      }
+
+      // "Screening" type → email the client the SRP consent form + stamp the
+      // contact so its detail shows "consent requested". Additive + guarded;
+      // never blocks the interaction save. Sender CF requires staff auth. 2026-07-15.
+      try {
+        if (intType === 'Screening' && contactId) {
+          var _sc = (_allContacts || []).find(function(x) { return x.id === contactId; }) || {};
+          var _scEmail = (_sc.email || '').trim();
+          if (!_scEmail) {
+            _showToast('Interaction saved. No email on this contact, so no screening consent request was sent.', '#D97706');
+          } else {
+            var _scIdToken = '';
+            try { _scIdToken = await firebase.auth().currentUser.getIdToken(); } catch (_) {}
+            var _scResp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendSrpConsentToken', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: _scEmail,
+                parentFirstName: _sc.firstName || '',
+                parentLastName: _sc.lastName || '',
+                contactId: contactId,
+                idToken: _scIdToken,
+                createdVia: 'int-screening-interaction'
+              })
+            });
+            if (_scResp.ok) {
+              await db.collection('contacts').doc(contactId).update({
+                srpConsentStatus: 'requested',
+                srpConsentRequestedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                srpConsentRequestedBy: (currentUserData && currentUserData.displayName) || ''
+              });
+              var _scc = (_allContacts || []).find(function(x) { return x.id === contactId; });
+              if (_scc) { _scc.srpConsentStatus = 'requested'; }
+              _showToast('Screening consent request emailed to ' + _scEmail + '.', '#16A34A');
+            } else {
+              var _scErr = '';
+              try { var _scj = await _scResp.json(); _scErr = _scj && _scj.error ? _scj.error : ''; } catch (_) {}
+              _showToast('Interaction saved, but the consent email was not sent' + (_scErr ? ' (' + _scErr + ')' : '') + '.', '#D97706');
+            }
+          }
+        }
+      } catch (scErr) {
+        console.error('Screening consent send failed:', scErr);
+        _showToast('Interaction saved, but the screening consent email failed to send.', '#D97706');
       }
 
       window.closeModal();
