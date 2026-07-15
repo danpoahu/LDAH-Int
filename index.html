@@ -5038,7 +5038,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.11.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.12.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7679,6 +7679,35 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="btn btn-primary" id="cmsCgDocNoSupportBtn" style="font-size:.84rem;padding:6px 14px;background:#DC2626;color:#fff;border:1px solid #B91C1C;" onclick="cmsCgDocMarkConfirm('noSupport')">Mark: No Additional Support</button>
             <button class="btn btn-primary" id="cmsCgDocCaseAdvBtn" style="font-size:.84rem;padding:6px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;" onclick="cmsCgDocMarkConfirm('caseAdvocacy')">Mark: Case Advocacy</button>
             <button class="btn btn-ghost" onclick="cmsCgDocClose()">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Parent Report Worksheet (v146.4.39). Opened from the Connect-Gen signup
+         card and the contact card. Staff may edit ANY field — in practice D and E,
+         which the advocate fills in after speaking with the family. -->
+    <!-- z-index 10150 (v146.4.41): the worksheet opens FROM the signups modal
+         and the contact card (.overlay 9999, contact detail 10100), so at the
+         default .overlay layer it rendered behind them. Same fix as the document
+         lightbox; below confirm dialogs (11000) and toasts (99999). -->
+    <div class="overlay" id="cmsCgWsOverlay" style="z-index:10150;">
+      <div class="modal" style="max-width:900px;">
+        <div class="modal-header">
+          <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="cmsCgWsTitle">Parent Report Worksheet</div></div>
+          <button class="close" type="button" onclick="cmsCgWsClose()">&times;</button>
+        </div>
+        <div class="modal-body" style="display:block;padding:0;">
+          <div id="cmsCgWsSubheader" style="padding:8px 18px;background:#F0F9FF;border-bottom:1px solid #BAE6FD;font-size:.86rem;color:#0C4A6E;"></div>
+          <div id="cmsCgWsBody" style="padding:14px 18px;max-height:calc(100vh - 260px);overflow-y:auto;">
+            <div class="cms-empty"><p>Loading&hellip;</p></div>
+          </div>
+        </div>
+        <div class="modal-actions" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <span id="cmsCgWsStatus" style="font-size:.82rem;color:var(--text-soft);"></span>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-ghost" onclick="cmsCgWsClose()">Close</button>
+            <button class="btn btn-primary" id="cmsCgWsSaveBtn" style="background:#059669;" onclick="cmsCgWsSave()">Save Worksheet</button>
           </div>
         </div>
       </div>
@@ -16355,6 +16384,30 @@ var _photoPendingByIsland = {};
       var s = sigSnap.exists ? (sigSnap.data() || {}) : null;
       var ev = evSnap.exists ? (evSnap.data() || {}) : null;
       slot.querySelector('.val').innerHTML = cmsConnectGenSummaryHtml(cg, s, ev);
+
+      // Parent Report Worksheet, straight from the contact card (v146.4.39).
+      // The advocate works from the contact card, not the signup sheet, so the
+      // worksheet has to be reachable from here or it will not get used.
+      if (s && cg.eventId && cg.signupId) {
+        var _wsVal = slot.querySelector('.val');
+        var _ws = s.parentWorksheet || {};
+        var _wsN = Array.isArray(_ws.concerns) ? _ws.concerns.length : 0;
+        var _wsDone = !!_ws.completedAt;
+        var _wsLabel = _wsDone ? ('Parent Worksheet (' + _wsN + ')')
+                               : (_wsN ? 'Parent Worksheet (draft)' : 'Parent Worksheet — not started');
+        // Readiness pill next to the worksheet button — same at-a-glance signal
+        // as the signup card. ev carries zoomMode; assume CG too since we only
+        // get here from a linked Connect-Gen signup.
+        var _cgPill = _cgReadinessPillHtml(s, ev, { assumeConnectGen: true });
+        if (_wsVal) {
+          _wsVal.innerHTML += '<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+            '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:' +
+              (_wsDone ? '#0891B2' : '#94A3B8') + ';color:#fff;border:none;font-weight:600;" ' +
+              'onclick="cmsCgWsOpen(' + _jsArg('recurringEvents') + ',' + _jsArg(cg.eventId) + ',' + _jsArg(cg.signupId) + ')">' +
+              rsEscape(_wsLabel) + '</button>' + _cgPill + '</div>';
+        }
+      }
+
       // v145.0.0 — when this family is in case advocacy, let staff upload /
       // re-collect documents straight from the contact card (and, if docs were
       // removed before disposition, show the re-collect prompt). The header
@@ -25574,6 +25627,147 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
 // Connect-Gen recurring event ID — single canonical program in Firestore.
 var CONNECT_GEN_EVENT_ID = 'CmkPXEpPwfAQ5sR377K2';
 
+// ══ Parent Report Worksheet — staff view + edit (v146.4.39) ═════════════════
+// The five columns of the paper form. D and E are, in practice, the advocate's:
+// a parent who does not know what assessment their child needs writes "n/a",
+// and staff fill it in after the session. But staff may edit any field.
+var CMS_CG_WS_QUESTIONS = [
+  { key: 'a', label: 'Concern',                       hint: 'What worries the family' },
+  { key: 'b', label: 'Evidence of the problem',       hint: 'Report cards, teacher comments, what they see at home' },
+  { key: 'c', label: 'Factors that relate',           hint: 'Health, eyesight, hearing, attention, changes at home' },
+  { key: 'd', label: 'Test / assessment needed',      hint: 'Usually filled in by staff' },
+  { key: 'e', label: 'Interventions or services',     hint: 'Usually filled in by staff' },
+];
+
+var _cmsCgWs = { collection: '', eventId: '', signupId: '', signup: null, concerns: [] };
+
+window.cmsCgWsOpen = async function(collection, eventId, signupId) {
+  _cmsCgWs = { collection: collection, eventId: eventId, signupId: signupId, signup: null, concerns: [] };
+  document.getElementById('cmsCgWsOverlay').classList.add('active');
+  document.getElementById('cmsCgWsSubheader').textContent = 'Loading…';
+  document.getElementById('cmsCgWsBody').innerHTML = '<div class="cms-empty"><p>Loading…</p></div>';
+  document.getElementById('cmsCgWsStatus').textContent = '';
+  try {
+    var snap = await db.collection(collection).doc(eventId).collection('signups').doc(signupId).get();
+    if (!snap.exists) throw new Error('Signup not found.');
+    var s = Object.assign({ id: snap.id }, snap.data());
+    _cmsCgWs.signup = s;
+    var ws = s.parentWorksheet || {};
+    _cmsCgWs.concerns = Array.isArray(ws.concerns) && ws.concerns.length
+      ? JSON.parse(JSON.stringify(ws.concerns))
+      : [{ a: '', b: '', c: '', d: '', e: '' }];
+
+    document.getElementById('cmsCgWsTitle').textContent =
+      'Parent Report Worksheet — ' + (s.name || s.firstName || 'Family');
+
+    var bits = [];
+    if (ws.completedAt) {
+      var d = ws.completedAt.toDate ? ws.completedAt.toDate() : new Date(ws.completedAt.seconds * 1000);
+      bits.push('Submitted by the family on ' + d.toLocaleString());
+    } else {
+      bits.push('Not yet submitted by the family');
+    }
+    if (ws.lastEditedBy && ws.lastEditedBy !== 'parent') {
+      var e = ws.lastEditedAt && ws.lastEditedAt.toDate ? ws.lastEditedAt.toDate() : null;
+      bits.push('Last edited by ' + rsEscape(ws.lastEditedBy) + (e ? ' on ' + e.toLocaleString() : ''));
+    }
+    document.getElementById('cmsCgWsSubheader').innerHTML = bits.join(' &nbsp;·&nbsp; ');
+
+    cmsCgWsRender();
+    auditLog('Connect-Gen worksheet viewed', 'Client: ' + (s.name || 'unknown'));
+  } catch (err) {
+    document.getElementById('cmsCgWsBody').innerHTML =
+      '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+function cmsCgWsRender() {
+  var body = document.getElementById('cmsCgWsBody');
+  var h = '';
+  _cmsCgWs.concerns.forEach(function(c, i) {
+    h += '<div style="border:1px solid #BAE6FD;border-radius:10px;padding:12px 14px;margin-bottom:12px;background:#fff;">' +
+         '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
+           '<span style="font-family:\'Outfit\',sans-serif;font-weight:700;color:#0C4A6E;">Concern ' + (i + 1) + '</span>' +
+           (_cmsCgWs.concerns.length > 1
+             ? '<button type="button" style="margin-left:auto;font-size:.76rem;font-weight:600;color:#DC2626;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:3px 10px;cursor:pointer;" onclick="cmsCgWsRemove(' + i + ')">Remove</button>'
+             : '') +
+         '</div>';
+    CMS_CG_WS_QUESTIONS.forEach(function(q) {
+      var staffCol = (q.key === 'd' || q.key === 'e');
+      h += '<div style="margin-bottom:8px;">' +
+        '<label style="display:block;font-size:.78rem;font-weight:700;color:' + (staffCol ? '#0369A1' : '#334155') + ';margin-bottom:2px;">' +
+          rsEscape(q.label) +
+          (staffCol ? '<span style="margin-left:6px;font-weight:600;font-size:.7rem;color:#0891B2;background:#E0F2FE;padding:1px 6px;border-radius:999px;">staff</span>' : '') +
+        '</label>' +
+        '<div style="font-size:.74rem;color:#94A3B8;margin-bottom:3px;">' + rsEscape(q.hint) + '</div>' +
+        '<textarea data-i="' + i + '" data-k="' + q.key + '" rows="2" maxlength="1500" oninput="cmsCgWsEdit(this)" ' +
+          'style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #CBD5E1;border-radius:8px;font-family:inherit;font-size:.88rem;resize:vertical;">' +
+          rsEscape(c[q.key] || '') + '</textarea>' +
+        '</div>';
+    });
+    h += '</div>';
+  });
+  h += '<button type="button" class="btn btn-ghost" style="width:100%;border:1.5px dashed var(--ocean-deep);color:var(--ocean-deep);font-weight:600;" onclick="cmsCgWsAdd()">+ Add another concern</button>';
+  body.innerHTML = h;
+}
+
+window.cmsCgWsEdit = function(el) {
+  var i = parseInt(el.getAttribute('data-i'), 10);
+  var k = el.getAttribute('data-k');
+  if (_cmsCgWs.concerns[i]) _cmsCgWs.concerns[i][k] = el.value;
+};
+
+window.cmsCgWsAdd = function() {
+  if (_cmsCgWs.concerns.length >= 20) { _showToast('Maximum of 20 concerns.', '#D97706'); return; }
+  _cmsCgWs.concerns.push({ a: '', b: '', c: '', d: '', e: '' });
+  cmsCgWsRender();
+};
+
+window.cmsCgWsRemove = function(i) {
+  _cmsCgWs.concerns.splice(i, 1);
+  if (!_cmsCgWs.concerns.length) _cmsCgWs.concerns = [{ a: '', b: '', c: '', d: '', e: '' }];
+  cmsCgWsRender();
+};
+
+window.cmsCgWsClose = function() {
+  document.getElementById('cmsCgWsOverlay').classList.remove('active');
+  _cmsCgWs = { collection: '', eventId: '', signupId: '', signup: null, concerns: [] };
+};
+
+window.cmsCgWsSave = async function() {
+  var btn = document.getElementById('cmsCgWsSaveBtn');
+  var status = document.getElementById('cmsCgWsStatus');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    var user = firebase.auth().currentUser;
+    if (!user) throw new Error('Not signed in.');
+    var idToken = await user.getIdToken();
+    var res = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/staffSaveConnectGenWorksheet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idToken: idToken,
+        eventId: _cmsCgWs.eventId,
+        signupId: _cmsCgWs.signupId,
+        collection: _cmsCgWs.collection,
+        concerns: _cmsCgWs.concerns,
+      }),
+    });
+    var j = await res.json().catch(function() { return {}; });
+    if (!res.ok) throw new Error(j.error || 'Save failed.');
+
+    status.style.color = '#059669';
+    status.textContent = j.changed ? ('Saved — ' + j.changed + ' field(s) changed.') : 'Saved — no changes.';
+    _showToast('Worksheet saved.', '#059669');
+    if (typeof loadInteractions === 'function') loadInteractions();
+  } catch (err) {
+    status.style.color = '#DC2626';
+    status.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Worksheet';
+  }
+};
+
 // Robust context check: open signups modal is for Connect-Gen if (a) recurring
 // event id matches the known Connect-Gen program, or (b) the modal title
 // contains "Connect-Gen". Either marker is sufficient — staff can rename the
@@ -25610,12 +25804,121 @@ window._cgDocList = function(connectGenDocuments, type) {
   return v.storagePath ? [v] : [];
 };
 
+window._cgSignupReadiness = function(signup, event, opts) {
+  var o = opts || {};
+  var isCg = !!(event && event.zoomMode === 'program') || !!o.assumeConnectGen;
+  if (!isCg || !signup) {
+    return { isConnectGen: false, mondayVirtual: false, required: [], done: [], outstanding: [], ready: true,
+             hasConsent: false, hasDocs: false, hasWorksheet: false };
+  }
+
+  var mondayVirtual = _cgIsMondayVirtualClient(signup, event);
+
+  var required = ['worksheet'];                       // every family
+  if (mondayVirtual) required.unshift('consent', 'documents');
+
+  var hasConsent = !!signup.consentSignedAt;
+  var hasDocs = _cgDocList(signup.connectGenDocuments, 'iep').length > 0
+             && _cgDocList(signup.connectGenDocuments, 'evaluation').length > 0;
+  var ws = signup.parentWorksheet || {};
+  var hasWorksheet = _cgWorksheetCompleteClient(ws.concerns);
+
+  var state = { consent: hasConsent, documents: hasDocs, worksheet: hasWorksheet };
+  var done = required.filter(function(r) { return state[r]; });
+  var outstanding = required.filter(function(r) { return !state[r]; });
+
+  return {
+    isConnectGen: true,
+    mondayVirtual: mondayVirtual,
+    required: required,
+    done: done,
+    outstanding: outstanding,
+    ready: outstanding.length === 0,
+    hasConsent: hasConsent,
+    hasDocs: hasDocs,
+    hasWorksheet: hasWorksheet,
+  };
+};
+
+// Complete = at least one concern with ALL five fields filled in. "n/a" is a
+// real answer — a parent who does not know what assessment is needed is exactly
+// who the session is for — so any non-blank string counts. Mirrors
+// _isWorksheetComplete() / CONNECT_GEN_WORKSHEET_FIELDS in the functions.
+function _cgWorksheetCompleteClient(concerns) {
+  var list = Array.isArray(concerns) ? concerns : [];
+  var fields = ['a', 'b', 'c', 'd', 'e'];
+  return list.some(function(c) {
+    return fields.every(function(f) { return !!(c && String(c[f] || '').trim()); });
+  });
+}
+
+// Monday + virtual? Consent and upload apply only to those. Mirrors
+// _cgIsMondayVirtual() server-side, which reads the FIRST session of the
+// signup — so we do the same rather than scanning every selected date.
+// cmsIsDateVirtual() returns null when it cannot tell; only an explicit true
+// counts (an unknown location must not invent a consent requirement).
+function _cgIsMondayVirtualClient(signup, event) {
+  try {
+    var keys = [];
+    if (Array.isArray(signup.selectedSessions) && signup.selectedSessions.length) keys = signup.selectedSessions;
+    else if (Array.isArray(signup.selectedDates) && signup.selectedDates.length) keys = signup.selectedDates;
+    var key = String(keys[0] || '');
+    var dm = key.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!dm) return false;
+    // Day-of-week from Y-M-D components (calendar day; HST has no DST, so this
+    // is tz-agnostic). new Date("YYYY-MM-DD") would be UTC midnight = 2pm the
+    // previous day in Honolulu.
+    var dow = new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3])).getUTCDay();
+    if (dow !== 1) return false;                        // 1 = Monday
+    return cmsIsDateVirtual(event, key) === true;
+  } catch (e) {
+    console.warn('_cgIsMondayVirtualClient failed:', e.message);
+    return false;
+  }
+}
+
+// The pill staff scan for: green "Ready", or amber "Waiting on: documents,
+// worksheet". Returns '' for anything that is not a Connect-Gen signup.
+window._cgReadinessPillHtml = function(signup, event, opts) {
+  var r = _cgSignupReadiness(signup, event, opts);
+  if (!r.isConnectGen) return '';
+  var base = 'display:inline-block;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;';
+  if (r.ready) {
+    return '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet — everything that applies to this family is done.">Ready</span>';
+  }
+  var labels = { consent: 'consent', documents: 'documents', worksheet: 'worksheet' };
+  var parts = r.outstanding.map(function(k) { return labels[k] || k; });
+  return '<span style="' + base + 'background:#D97706;color:#fff;" title="This family is not ready for their session yet.">Waiting on: ' +
+    rsEscape(parts.join(', ')) + '</span>';
+};
+
+
 
 // Button row injected at the top of each Connect-Gen family card. Renders
 // nothing for non-Connect-Gen events. Disposition + destruction state drive
 // the visible label.
+// ── Parent Report Worksheet button (v146.4.39) ──────────────────────────────
+// Shown on every Connect-Gen signup card, next to the documents button. The
+// worksheet is required of ALL families (including in-person, who upload no
+// documents at all), so it must not hide behind the documents row's branches.
+function cmsCgWorksheetBtn(s, collection, eventId) {
+  var ws = (s && s.parentWorksheet) || {};
+  var n = Array.isArray(ws.concerns) ? ws.concerns.length : 0;
+  var done = !!ws.completedAt;
+  var label = done ? ('Worksheet (' + n + ')') : (n ? 'Worksheet (draft)' : 'Worksheet — not started');
+  var bg = done ? '#0891B2' : '#94A3B8';
+  return '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:' + bg +
+    ';color:#fff;border:none;font-weight:600;" onclick="event.stopPropagation();cmsCgWsOpen(' +
+    _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ')">' + rsEscape(label) + '</button>';
+}
+
 function cmsCgDocsButtonRow(s, collection, eventId) {
   if (!cmsIsConnectGenContext()) return '';
+  // Readiness pill — same in every branch below, so build it once. We know we
+  // are in a Connect-Gen context (the guard above), so assume it even if the
+  // event doc has not loaded / carries no zoomMode.
+  var _cgEv = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
+  var _cgPill = _cgReadinessPillHtml(s, _cgEv, { assumeConnectGen: true });
   var docs = (s && s.connectGenDocuments && typeof s.connectGenDocuments === 'object') ? s.connectGenDocuments : null;
   // Count every file, not one per type — a family may send 7 IEP pages.
   var iepList = _cgDocList(docs, 'iep');
@@ -25634,6 +25937,7 @@ function cmsCgDocsButtonRow(s, collection, eventId) {
     return '<div style="padding:8px 14px;background:#F8FAFC;border-top:1px solid #E2E8F0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
       '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
       '<span style="font-size:.78rem;color:#64748B;">Destroyed &mdash; ' + rsEscape(dispLabel) + '</span>' +
+      cmsCgWorksheetBtn(s, collection, eventId) + _cgPill +
       '</div>';
   }
   // No docs uploaded yet — surface neutral muted note so staff know to
@@ -25648,6 +25952,7 @@ function cmsCgDocsButtonRow(s, collection, eventId) {
       '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
       '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + zeroLabel + '</button>' +
       (_wasDestroyed ? '<span style="font-size:.74rem;color:#7C2D12;font-style:italic;">Previously removed</span>' : '<span style="font-size:.74rem;color:#94A3B8;font-style:italic;">None on file yet</span>') +
+      cmsCgWorksheetBtn(s, collection, eventId) + _cgPill +
       '</div>';
   }
   // Docs present — primary review button.
@@ -25661,6 +25966,7 @@ function cmsCgDocsButtonRow(s, collection, eventId) {
     '<span style="font-size:.78rem;font-weight:700;color:#0C4A6E;">Connect-Gen Documents</span>' +
     '<button class="btn btn-primary" style="font-size:.82rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + rsEscape(label) + '</button>' +
     (disposition ? '<span style="font-size:.74rem;color:#475569;font-style:italic;">Marked: ' + rsEscape(disposition === 'noSupport' ? 'No Additional Support' : 'Case Advocacy') + '</span>' : '') +
+    cmsCgWorksheetBtn(s, collection, eventId) + _cgPill +
     '</div>';
 }
 
