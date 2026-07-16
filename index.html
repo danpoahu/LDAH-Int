@@ -5038,7 +5038,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.12.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.12.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16790,6 +16790,17 @@ var _photoPendingByIsland = {};
           if (_h.glasses) _hl.push('Wears glasses: ' + _h.glasses);
           if (_h.annualPhysical) _hl.push('Annual physical: ' + _h.annualPhysical);
           if (_hl.length) { railHtml += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #A7F3D0;">'; _hl.forEach(function(_x) { railHtml += '<div>' + rsEscape(_x) + '</div>'; }); railHtml += '</div>'; }
+          var _res = _srp.results;
+          if (_res) {
+            var _resLine = function(_lbl, _o) { return (_o && _o.result) ? '<div><strong>' + _lbl + ':</strong> ' + rsEscape(_o.result) + (_o.notes ? ' — ' + rsEscape(_o.notes) : '') + '</div>' : ''; };
+            railHtml += '<div style="margin-top:10px;padding-top:8px;border-top:2px solid #A7F3D0;"><div style="font-weight:700;color:#166534;margin-bottom:4px;">Screening Results</div>';
+            railHtml += _resLine('Vision', _res.vision) + _resLine('Hearing', _res.hearing);
+            if (_res.referral && _res.referral.made) railHtml += '<div><strong>Referral:</strong> ' + rsEscape(_res.referral.to || 'made') + (_res.referral.reason ? ' — ' + rsEscape(_res.referral.reason) : '') + '</div>';
+            var _resWhen = _res.screenedAt && _res.screenedAt.toDate ? _res.screenedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : rsEscape(String(_res.screenedAt || ''));
+            if (_resWhen || _res.screenedBy) railHtml += '<div style="font-size:.75rem;color:#94A3B8;margin-top:2px;">Screened ' + _resWhen + (_res.screenedBy ? ' by ' + rsEscape(_res.screenedBy) : '') + '</div>';
+            railHtml += '<div style="font-size:.75rem;color:#94A3B8;">Results ' + (_res.resultsSentAt ? 'emailed to family' : 'not yet sent') + '</div></div>';
+          }
+          railHtml += '<div style="margin-top:10px;"><button onclick="event.stopPropagation(); openScreeningResults(\'' + contactId + '\')" style="font-size:.8rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 12px;cursor:pointer;">' + (_res ? 'Edit / send results' : 'Enter results') + '</button></div>';
           railHtml += '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed #A7F3D0;font-size:.78rem;color:#64748B;">Electronically signed by <span style="font-family:\'Great Vibes\',cursive,serif;font-size:1.3rem;color:#0c2547;line-height:1;display:inline-block;vertical-align:middle;">' + rsEscape(_srp.signedName || '') + '</span> on <strong>' + rsEscape(_srpWhen || '—') + '</strong>';
           if (_srp.signedIp) railHtml += '<br>IP: ' + rsEscape(_srp.signedIp);
           if (_srp.source) railHtml += '<br>Source: ' + rsEscape(_srp.source === 'outreach-kiosk' ? 'In-person kiosk' : _srp.source);
@@ -40818,6 +40829,115 @@ window.cmsBuildStaffActivityReport = async function() {
     </div>
   </div>
 </div>
+
+<script>
+/* Screening Results entry modal (2026-07-15) — opened from the contact-card
+   screening chevron. Saves Vision/Hearing/referral to
+   contacts/{id}.srpScreeningConsent.results and can email the family a secure
+   results link (sendScreeningResults CF). */
+(function(){
+  function _db(){ return (typeof db !== 'undefined' && db) ? db : firebase.firestore(); }
+  function _esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function _rv(name){ var el=document.querySelector('input[name="'+name+'"]:checked'); return el?el.value:''; }
+
+  function _buildOverlay(){
+    var ov = document.createElement('div');
+    ov.id = 'srResultsOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:99999;padding:16px;';
+    ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.3);">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0;">' +
+      '<h3 id="srResultsTitle" style="font-size:1.1rem;color:#0891B2;margin:0;">Screening Results</h3>' +
+      '<button onclick="closeScreeningResults()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;line-height:1;">&times;</button></div>' +
+      '<div id="srResultsBody" style="padding:20px;"></div></div>';
+    ov.addEventListener('click', function(e){ if (e.target === ov) closeScreeningResults(); });
+    var st = document.createElement('style'); st.textContent = '#srResultsOverlay.active{display:flex !important;}'; document.head.appendChild(st);
+    return ov;
+  }
+
+  function _radioRow(name, val){
+    function opt(v){ return '<label style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;cursor:pointer;font-size:.92rem;"><input type="radio" name="'+name+'" value="'+v+'"'+(val===v?' checked':'')+'> '+v+'</label>'; }
+    return opt('Pass') + opt('Refer') + opt('Not done');
+  }
+
+  window.openScreeningResults = async function(contactId){
+    if (!contactId) return;
+    var ov = document.getElementById('srResultsOverlay');
+    if (!ov){ ov = _buildOverlay(); document.body.appendChild(ov); }
+    document.getElementById('srResultsBody').innerHTML = '<p style="text-align:center;color:#64748b;padding:20px;">Loading…</p>';
+    ov.classList.add('active');
+    try {
+      var snap = await _db().collection('contacts').doc(contactId).get();
+      var c = snap.exists ? (snap.data()||{}) : {};
+      var consent = c.srpScreeningConsent || {};
+      _renderForm(contactId, consent.child || {}, consent.results || {}, c);
+    } catch(e){ document.getElementById('srResultsBody').innerHTML = '<p style="color:#dc2626;padding:20px;">Error: ' + _esc(e.message) + '</p>'; }
+  };
+
+  window.closeScreeningResults = function(){ var ov = document.getElementById('srResultsOverlay'); if (ov) ov.classList.remove('active'); };
+
+  function _renderForm(contactId, child, r, c){
+    var childName = ((child.firstName||'')+' '+(child.lastName||'')).replace(/\s+/g,' ').trim() || 'this child';
+    document.getElementById('srResultsTitle').textContent = 'Screening Results — ' + childName;
+    var vision = r.vision||{}, hearing = r.hearing||{}, ref = r.referral||{};
+    var by = r.screenedBy || (typeof currentUserData !== 'undefined' && currentUserData ? currentUserData.displayName : '') || '';
+    var when = '';
+    if (r.screenedAt){ if (r.screenedAt.toDate){ var d=r.screenedAt.toDate(); when = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); } else if (typeof r.screenedAt==='string'){ when = r.screenedAt.slice(0,10); } }
+    if (!when){ var t=new Date(); when = t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
+    var lbl = 'font-weight:600;font-size:.9rem;color:#334155;display:block;margin:14px 0 5px;';
+    var inp = 'width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:.95rem;font-family:inherit;box-sizing:border-box;';
+    var noEmail = !(c.email && c.email.indexOf('@')>-1);
+    var h = '';
+    h += '<label style="'+lbl+'">Vision</label>' + _radioRow('srVision', vision.result);
+    h += '<input id="srVisionNotes" placeholder="Vision notes (optional)" value="'+_esc(vision.notes||'')+'" style="'+inp+'margin-top:6px;">';
+    h += '<label style="'+lbl+'">Hearing</label>' + _radioRow('srHearing', hearing.result);
+    h += '<input id="srHearingNotes" placeholder="Hearing notes (optional)" value="'+_esc(hearing.notes||'')+'" style="'+inp+'margin-top:6px;">';
+    h += '<label style="'+lbl+'margin-top:16px;"><input type="checkbox" id="srReferMade"'+(ref.made?' checked':'')+'> Refer to a licensed provider</label>';
+    h += '<div id="srReferFields" style="'+(ref.made?'':'display:none;')+'">';
+    h += '<input id="srReferTo" placeholder="Refer to (provider)" value="'+_esc(ref.to||'')+'" style="'+inp+'margin-top:6px;">';
+    h += '<input id="srReferReason" placeholder="Reason / notes" value="'+_esc(ref.reason||'')+'" style="'+inp+'margin-top:6px;">';
+    h += '</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+    h += '<div><label style="'+lbl+'">Date screened</label><input type="date" id="srDate" value="'+when+'" style="'+inp+'"></div>';
+    h += '<div><label style="'+lbl+'">Screened by</label><input id="srBy" value="'+_esc(by)+'" style="'+inp+'"></div>';
+    h += '</div>';
+    h += '<div id="srMsg" style="font-size:.85rem;margin-top:12px;min-height:18px;"></div>';
+    h += '<div style="display:flex;gap:10px;margin-top:6px;">';
+    h += '<button onclick="_srSave(\''+contactId+'\', false)" style="flex:1;padding:10px;border:2px solid #0891B2;background:#fff;color:#0891B2;border-radius:8px;font-weight:600;cursor:pointer;">Save results</button>';
+    h += '<button onclick="_srSave(\''+contactId+'\', true)"'+(noEmail?' disabled title="No email on this contact"':'')+' style="flex:1.4;padding:10px;border:none;background:'+(noEmail?'#94a3b8':'#0891B2')+';color:#fff;border-radius:8px;font-weight:600;cursor:'+(noEmail?'not-allowed':'pointer')+';">Save &amp; email family</button>';
+    h += '</div>';
+    if (noEmail) h += '<div style="font-size:.78rem;color:#B45309;margin-top:6px;">This contact has no email — add one to send results.</div>';
+    document.getElementById('srResultsBody').innerHTML = h;
+    var cb = document.getElementById('srReferMade');
+    cb.addEventListener('change', function(){ document.getElementById('srReferFields').style.display = cb.checked?'block':'none'; });
+  }
+
+  window._srSave = async function(contactId, sendEmail){
+    var msg = document.getElementById('srMsg');
+    msg.style.color='#64748b'; msg.textContent = sendEmail ? 'Saving & emailing…' : 'Saving…';
+    var results = {
+      vision: { result: _rv('srVision'), notes: (document.getElementById('srVisionNotes').value||'').trim() },
+      hearing: { result: _rv('srHearing'), notes: (document.getElementById('srHearingNotes').value||'').trim() },
+      referral: { made: document.getElementById('srReferMade').checked, to: (document.getElementById('srReferTo').value||'').trim(), reason: (document.getElementById('srReferReason').value||'').trim() },
+      screenedAt: document.getElementById('srDate').value || '',
+      screenedBy: (document.getElementById('srBy').value||'').trim()
+    };
+    try {
+      await _db().collection('contacts').doc(contactId).update({ 'srpScreeningConsent.results': results });
+      if (sendEmail){
+        var idToken = '';
+        try { idToken = await firebase.auth().currentUser.getIdToken(); } catch(_){}
+        var res = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendScreeningResults', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ idToken: idToken, contactId: contactId }) });
+        if (!res.ok){ var d=''; try{var j=await res.json(); d=j&&j.error?' ('+j.error+')':'';}catch(e){} msg.style.color='#dc2626'; msg.textContent='Saved, but the email did not send'+d+'.'; return; }
+        msg.style.color='#16a34a'; msg.textContent='Saved and emailed to the family. ✓';
+      } else {
+        msg.style.color='#16a34a'; msg.textContent='Results saved. ✓';
+      }
+      if (typeof _showToast==='function') _showToast('Screening results saved.', '#16A34A');
+      setTimeout(function(){ closeScreeningResults(); if (typeof openContactDetail==='function') openContactDetail(contactId); }, 1000);
+    } catch(e){ msg.style.color='#dc2626'; msg.textContent='Error: '+_esc(e.message); }
+  };
+})();
+</script>
 
 </body>
 </html>
