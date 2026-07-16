@@ -5043,7 +5043,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.50-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.51-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5882,6 +5882,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <p style="color:var(--text-soft);margin:4px 0 0;">Generate and export organizational reports.</p>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #0891B2;" onclick="cmsBuildScreeningsReport()">
+              <div style="font-size:1.4rem;margin-bottom:6px;">🩺</div>
+              <div style="font-weight:700;font-size:.92rem;">Screenings</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who signed up (filter by Today), add Vision/Hearing results per child, and track consent &amp; results status.</div>
+            </div>
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildInteractionsSummaryReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📊</div>
               <div style="font-weight:700;font-size:.92rem;">Interactions Summary</div>
@@ -40971,8 +40976,9 @@ window.cmsBuildStaffActivityReport = async function() {
     return opt('Pass') + opt('Refer') + opt('Not done');
   }
 
-  window.openScreeningResults = async function(contactId, screeningId){
+  window.openScreeningResults = async function(contactId, screeningId, ctx){
     if (!contactId) return;
+    window._srCtx = ctx || '';
     var ov = document.getElementById('srResultsOverlay');
     if (!ov){ ov = _buildOverlay(); document.body.appendChild(ov); }
     document.getElementById('srResultsBody').innerHTML = '<p style="text-align:center;color:#64748b;padding:20px;">Loading…</p>';
@@ -41062,8 +41068,80 @@ window.cmsBuildStaffActivityReport = async function() {
         msg.style.color='#16a34a'; msg.textContent='Results saved. ✓';
       }
       if (typeof _showToast==='function') _showToast('Screening results saved.', '#16A34A');
-      setTimeout(function(){ closeScreeningResults(); if (typeof openContactDetail==='function') openContactDetail(contactId); }, 1000);
+      setTimeout(function(){ closeScreeningResults(); if (window._srCtx==='report' && typeof window._srRenderReport==='function'){ window._srRenderReport(); } else if (typeof openContactDetail==='function'){ openContactDetail(contactId); } }, 1000);
     } catch(e){ msg.style.color='#dc2626'; msg.textContent='Error: '+_esc(e.message); }
+  };
+
+  // ── Screenings Report (2026-07-16) — opened from the Reports section ──
+  var _srReportRows = [];
+  function _srReportOverlay(){
+    var ov = document.createElement('div');
+    ov.id = 'srReportOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:flex-start;justify-content:center;z-index:99998;padding:24px 16px;overflow:auto;';
+    ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:860px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3);">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0;">'+
+        '<h3 style="font-size:1.15rem;color:#0891B2;margin:0;">Screenings Report</h3>'+
+        '<button onclick="document.getElementById(\'srReportOverlay\').classList.remove(\'active\')" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;line-height:1;">&times;</button></div>'+
+      '<div style="padding:12px 20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #f1f5f9;">'+
+        '<button id="srFilterToday" onclick="_srSetFilter(\'today\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid #0891B2;background:#0891B2;color:#fff;font-weight:600;cursor:pointer;font-size:.85rem;">Today</button>'+
+        '<button id="srFilterAll" onclick="_srSetFilter(\'all\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid #cbd5e1;background:#fff;color:#475569;font-weight:600;cursor:pointer;font-size:.85rem;">All</button>'+
+        '<span id="srReportCount" style="color:#64748b;font-size:.85rem;margin-left:6px;"></span>'+
+        '<div style="margin-left:auto;display:flex;gap:8px;">'+
+          '<button onclick="_srRenderReport()" style="padding:6px 12px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;color:#475569;font-weight:600;cursor:pointer;font-size:.82rem;">Refresh</button>'+
+          '<button onclick="_srExportReport()" style="padding:6px 12px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;color:#475569;font-weight:600;cursor:pointer;font-size:.82rem;">Export CSV</button>'+
+        '</div>'+
+      '</div>'+
+      '<div id="srReportBody" style="padding:16px 20px;"></div></div>';
+    ov.addEventListener('click', function(e){ if (e.target===ov) ov.classList.remove('active'); });
+    var st=document.createElement('style'); st.textContent='#srReportOverlay.active{display:flex !important;}'; document.head.appendChild(st);
+    return ov;
+  }
+  window._srSetFilter = function(f){
+    window._srReportFilter = f;
+    var t=document.getElementById('srFilterToday'), a=document.getElementById('srFilterAll');
+    var on='padding:6px 14px;border-radius:20px;border:1.5px solid #0891B2;background:#0891B2;color:#fff;font-weight:600;cursor:pointer;font-size:.85rem;';
+    var off='padding:6px 14px;border-radius:20px;border:1.5px solid #cbd5e1;background:#fff;color:#475569;font-weight:600;cursor:pointer;font-size:.85rem;';
+    if(t) t.style.cssText=(f==='today')?on:off; if(a) a.style.cssText=(f==='all')?on:off;
+    _srRenderReport();
+  };
+  window.cmsBuildScreeningsReport = async function(){
+    var ov = document.getElementById('srReportOverlay');
+    if (!ov){ ov = _srReportOverlay(); document.body.appendChild(ov); }
+    if (!window._srReportFilter) window._srReportFilter = 'today';
+    ov.classList.add('active');
+    _srRenderReport();
+  };
+  window._srRenderReport = async function(){
+    var body = document.getElementById('srReportBody'); if (!body) return;
+    body.innerHTML = '<p style="text-align:center;color:#64748b;padding:24px;">Loading…</p>';
+    var rows = [];
+    try {
+      var snap = await _db().collection('contacts').get();
+      snap.forEach(function(doc){ var c = doc.data()||{}; var list = Array.isArray(c.screenings)?c.screenings:[];
+        list.forEach(function(s){ if(!s) return; rows.push({ contactId: doc.id, screeningId: s.id||'', childName: ((((s.child&&s.child.firstName)||'')+' '+((s.child&&s.child.lastName)||'')).trim()), parentName: c.displayName||((((c.firstName||'')+' '+(c.lastName||'')).trim())), email: c.email||'', signedAt: s.signedAt, hasResults: !!s.results, resultsSent: !!(s.results&&s.results.resultsSentAt) }); });
+      });
+    } catch(e){ body.innerHTML = '<p style="color:#dc2626;padding:16px;">Error loading: '+_esc(e.message)+'</p>'; return; }
+    var f = window._srReportFilter, now = new Date();
+    function isToday(ts){ if(!ts||!ts.toDate) return false; var d=ts.toDate(); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()&&d.getDate()===now.getDate(); }
+    var filtered = (f==='today') ? rows.filter(function(r){ return isToday(r.signedAt); }) : rows;
+    filtered.sort(function(a,b){ return ((b.signedAt&&b.signedAt.toMillis)?b.signedAt.toMillis():0) - ((a.signedAt&&a.signedAt.toMillis)?a.signedAt.toMillis():0); });
+    _srReportRows = filtered;
+    var cnt=document.getElementById('srReportCount'); if(cnt) cnt.textContent = filtered.length+(filtered.length===1?' screening':' screenings')+(f==='today'?' today':'');
+    if (!filtered.length){ body.innerHTML = '<p style="text-align:center;color:#94a3b8;padding:24px;">No screenings'+(f==='today'?' today yet':'')+'.</p>'; return; }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:.86rem;"><thead><tr style="text-align:left;color:#64748b;font-size:.72rem;text-transform:uppercase;">'+
+      '<th style="padding:6px 8px;border-bottom:2px solid #e2e8f0;">Child</th><th style="padding:6px 8px;border-bottom:2px solid #e2e8f0;">Parent</th><th style="padding:6px 8px;border-bottom:2px solid #e2e8f0;">Signed</th><th style="padding:6px 8px;border-bottom:2px solid #e2e8f0;">Consent</th><th style="padding:6px 8px;border-bottom:2px solid #e2e8f0;">Results</th><th style="padding:6px 8px;border-bottom:2px solid #e2e8f0;"></th></tr></thead><tbody>';
+    filtered.forEach(function(r){
+      var when = (r.signedAt&&r.signedAt.toDate)?r.signedAt.toDate().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
+      var resB = r.hasResults ? '<span style="color:#16a34a;font-weight:600;">✓ Done'+(r.resultsSent?' · sent':'')+'</span>' : '<span style="color:#B45309;font-weight:600;">Pending</span>';
+      h += '<tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:8px;font-weight:600;">'+_esc(r.childName||'—')+'</td><td style="padding:8px;color:#475569;">'+_esc(r.parentName||'—')+'</td><td style="padding:8px;color:#64748b;white-space:nowrap;">'+_esc(when)+'</td><td style="padding:8px;"><span style="color:#16a34a;font-weight:700;">&#10003;</span></td><td style="padding:8px;">'+resB+'</td><td style="padding:8px;text-align:right;"><button onclick="openScreeningResults(\''+r.contactId+'\',\''+r.screeningId+'\',\'report\')" style="font-size:.8rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 12px;cursor:pointer;white-space:nowrap;">'+(r.hasResults?'Edit results':'Add results')+'</button></td></tr>';
+    });
+    body.innerHTML = h + '</tbody></table>';
+  };
+  window._srExportReport = function(){
+    var rows = _srReportRows||[];
+    var csv = 'Child,Parent,Email,Signed,Consent,Results,ResultsSent\n';
+    rows.forEach(function(r){ var when=(r.signedAt&&r.signedAt.toDate)?r.signedAt.toDate().toISOString():''; csv += [r.childName,r.parentName,r.email,when,'Yes',r.hasResults?'Yes':'No',r.resultsSent?'Yes':'No'].map(function(x){return '"'+String(x==null?'':x).replace(/"/g,'""')+'"';}).join(',')+'\n'; });
+    var blob = new Blob([csv],{type:'text/csv'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='screenings-report.csv'; a.click();
   };
 })();
 </script>
