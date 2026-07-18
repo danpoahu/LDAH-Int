@@ -5044,7 +5044,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.54-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.4.55-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -41467,7 +41467,7 @@ window.cmsBuildStaffActivityReport = async function() {
     ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:860px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3);">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e2e8f0;">'+
         '<h3 style="font-size:1.15rem;color:#0891B2;margin:0;">Screenings Report</h3>'+
-        '<button onclick="document.getElementById(\'srReportOverlay\').classList.remove(\'active\')" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;line-height:1;">&times;</button></div>'+
+        '<button onclick="_srClose()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;line-height:1;">&times;</button></div>'+
       '<div style="padding:12px 20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #f1f5f9;">'+
         '<button id="srFilterToday" onclick="_srSetFilter(\'today\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid #0891B2;background:#0891B2;color:#fff;font-weight:600;cursor:pointer;font-size:.85rem;">Today</button>'+
         '<button id="srFilterAll" onclick="_srSetFilter(\'all\')" style="padding:6px 14px;border-radius:20px;border:1.5px solid #cbd5e1;background:#fff;color:#475569;font-weight:600;cursor:pointer;font-size:.85rem;">All</button>'+
@@ -41478,7 +41478,7 @@ window.cmsBuildStaffActivityReport = async function() {
         '</div>'+
       '</div>'+
       '<div id="srReportBody" style="padding:16px 20px;"></div></div>';
-    ov.addEventListener('click', function(e){ if (e.target===ov) ov.classList.remove('active'); });
+    ov.addEventListener('click', function(e){ if (e.target===ov) _srClose(); });
     var st=document.createElement('style'); st.textContent='#srReportOverlay.active{display:flex !important;}'; document.head.appendChild(st);
     return ov;
   }
@@ -41490,23 +41490,35 @@ window.cmsBuildStaffActivityReport = async function() {
     if(t) t.style.cssText=(f==='today')?on:off; if(a) a.style.cssText=(f==='all')?on:off;
     _srRenderReport();
   };
-  window.cmsBuildScreeningsReport = async function(){
+  // Live listener state: keep the report fresh while it's open (e.g. if
+  // Chassidy is entering results elsewhere at the same time).
+  var _srUnsub = null;
+  var _srAllRows = [];
+  function _srBuildRows(snap){
+    var rows = [];
+    snap.forEach(function(doc){ var c = doc.data()||{}; var list = Array.isArray(c.screenings)?c.screenings:[];
+      list.forEach(function(s){ if(!s) return; rows.push({ contactId: doc.id, screeningId: s.id||'', childName: ((((s.child&&s.child.firstName)||'')+' '+((s.child&&s.child.lastName)||'')).trim()), parentName: c.displayName||((((c.firstName||'')+' '+(c.lastName||'')).trim())), email: c.email||'', signedAt: s.signedAt, hasResults: !!s.results, resultsSent: !!(s.results&&s.results.resultsSentAt) }); });
+    });
+    _srAllRows = rows;
+  }
+  window._srClose = function(){
+    var ov = document.getElementById('srReportOverlay'); if (ov) ov.classList.remove('active');
+    if (_srUnsub){ try { _srUnsub(); } catch(e){} _srUnsub = null; }
+  };
+  window.cmsBuildScreeningsReport = function(){
     var ov = document.getElementById('srReportOverlay');
     if (!ov){ ov = _srReportOverlay(); document.body.appendChild(ov); }
     if (!window._srReportFilter) window._srReportFilter = 'today';
     ov.classList.add('active');
-    _srRenderReport();
+    var body = document.getElementById('srReportBody'); if (body) body.innerHTML = '<p style="text-align:center;color:#64748b;padding:24px;">Loading…</p>';
+    if (_srUnsub){ try { _srUnsub(); } catch(e){} _srUnsub = null; }
+    _srUnsub = _db().collection('contacts').onSnapshot(function(snap){
+      _srBuildRows(snap); _srRenderReport();
+    }, function(err){ var b=document.getElementById('srReportBody'); if(b) b.innerHTML = '<p style="color:#dc2626;padding:16px;">Error loading: '+_esc(err.message)+'</p>'; });
   };
-  window._srRenderReport = async function(){
+  window._srRenderReport = function(){
     var body = document.getElementById('srReportBody'); if (!body) return;
-    body.innerHTML = '<p style="text-align:center;color:#64748b;padding:24px;">Loading…</p>';
-    var rows = [];
-    try {
-      var snap = await _db().collection('contacts').get();
-      snap.forEach(function(doc){ var c = doc.data()||{}; var list = Array.isArray(c.screenings)?c.screenings:[];
-        list.forEach(function(s){ if(!s) return; rows.push({ contactId: doc.id, screeningId: s.id||'', childName: ((((s.child&&s.child.firstName)||'')+' '+((s.child&&s.child.lastName)||'')).trim()), parentName: c.displayName||((((c.firstName||'')+' '+(c.lastName||'')).trim())), email: c.email||'', signedAt: s.signedAt, hasResults: !!s.results, resultsSent: !!(s.results&&s.results.resultsSentAt) }); });
-      });
-    } catch(e){ body.innerHTML = '<p style="color:#dc2626;padding:16px;">Error loading: '+_esc(e.message)+'</p>'; return; }
+    var rows = _srAllRows || [];
     var f = window._srReportFilter, now = new Date();
     function isToday(ts){ if(!ts||!ts.toDate) return false; var d=ts.toDate(); return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()&&d.getDate()===now.getDate(); }
     var filtered = (f==='today') ? rows.filter(function(r){ return isToday(r.signedAt); }) : rows;
