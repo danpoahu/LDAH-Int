@@ -5040,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.13.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.13.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16645,6 +16645,55 @@ var _photoPendingByIsland = {};
     }
   };
 
+  // ── Emails chevron: a contact's system-generated emails, lazy-loaded on expand ──
+  window.ctToggleEmails = async function() {
+    var box = document.getElementById('ctEmailsBody'), chev = document.getElementById('ctEmailsChevron');
+    if (!box) return;
+    var open = box.style.display === 'none';
+    box.style.display = open ? 'block' : 'none';
+    if (chev) chev.style.transform = open ? 'rotate(90deg)' : '';
+    if (open && window._ctEmailsCtx && !window._ctEmailsCtx.loaded) {
+      window._ctEmailsCtx.loaded = true;
+      await ctLoadEmails();
+    }
+  };
+  window.ctLoadEmails = async function() {
+    var ctx = window._ctEmailsCtx, box = document.getElementById('ctEmailsBody');
+    if (!ctx || !box) return;
+    if (!ctx.emails.length) { box.innerHTML = '<div style="color:#94A3B8;font-size:.85rem;">No email on file for this contact.</div>'; return; }
+    box.innerHTML = '<div style="color:#64748B;font-size:.85rem;">Loading\u2026</div>';
+    try {
+      var snap = await db.collection('emailLog').where('to', 'in', ctx.emails).orderBy('sentAt', 'desc').limit(50).get();
+      var rows = []; snap.forEach(function(d){ rows.push(Object.assign({ _id: d.id }, d.data())); });
+      ctx.docs = rows;
+      if (!rows.length) { box.innerHTML = '<div style="color:#94A3B8;font-size:.85rem;">No system emails found for ' + rsEscape(ctx.emails.join(', ')) + '.</div>'; return; }
+      box.innerHTML = rows.map(function(r, i){
+        var dt = (r.sentAt && r.sentAt.toDate) ? r.sentAt.toDate() : null;
+        var when = dt ? dt.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+        var chip = r.success ? '<span style="color:#16A34A;font-size:.72rem;font-weight:700;white-space:nowrap;">Sent</span>' : '<span style="color:#DC2626;font-size:.72rem;font-weight:700;white-space:nowrap;">Failed</span>';
+        return '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#fff;">' +
+            '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;">' +
+              '<span style="font-weight:600;font-size:.9rem;color:#0891B2;cursor:pointer;" onclick="ctViewEmail(' + i + ')">' + rsEscape(r.subject || '(no subject)') + '</span>' + chip +
+            '</div>' +
+            '<div style="font-size:.75rem;color:#64748B;margin-top:2px;">' + rsEscape(when) + (r.type ? ' \u00b7 ' + rsEscape(r.type) : '') + '</div>' +
+            '<div id="ctEmailPrev' + i + '" style="display:none;margin-top:8px;"></div>' +
+          '</div>';
+      }).join('');
+    } catch (e) {
+      box.innerHTML = '<div style="color:#DC2626;font-size:.85rem;">Could not load emails: ' + rsEscape(e.message) + '</div>';
+    }
+  };
+  window.ctViewEmail = function(i) {
+    var ctx = window._ctEmailsCtx, r = ctx && ctx.docs && ctx.docs[i], prev = document.getElementById('ctEmailPrev' + i);
+    if (!r || !prev) return;
+    if (prev.style.display === 'block') { prev.style.display = 'none'; prev.innerHTML = ''; return; }
+    prev.style.display = 'block';
+    var f = document.createElement('iframe');
+    f.setAttribute('sandbox', '');
+    f.style.cssText = 'width:100%;height:340px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;';
+    prev.innerHTML = ''; prev.appendChild(f);
+    f.srcdoc = r.html || '<p style="font-family:sans-serif;color:#64748B;padding:12px;">No content stored for this email.</p>';
+  };
   window.openContactDetail = async function(contactId) {
     var overlay = document.getElementById('ctDetailOverlay');
     var body = document.getElementById('ctDetailBody');
@@ -16973,6 +17022,19 @@ var _photoPendingByIsland = {};
       var mainHtml = '<div class="ctd2-main">' + childSection + noteSection + connectGenSlot + timelineLabel + timelineHtml + '</div>';
 
       body.innerHTML = '<div class="ctd2">' + railHtml + mainHtml + '</div>';
+
+      // Emails chevron — collapsible; lazy-loads this contact's system emails.
+      var _ctRaw = (c.email || '').split(/[;,]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      var _ctSet = {}; _ctRaw.forEach(function(e){ _ctSet[e] = 1; _ctSet[e.toLowerCase()] = 1; });
+      window._ctEmailsCtx = { contactId: contactId, emails: Object.keys(_ctSet).slice(0, 10), loaded: false, docs: [] };
+      body.insertAdjacentHTML('beforeend',
+        '<div style="margin:14px 20px 10px;border-top:1px solid #e2e8f0;padding-top:12px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;color:#0891B2;user-select:none;" onclick="ctToggleEmails()">' +
+            '<span id="ctEmailsChevron" style="display:inline-block;transition:transform .15s;">&#9656;</span>' +
+            '<span>Emails</span><span style="font-weight:400;color:#64748B;font-size:.82rem;">system-generated</span>' +
+          '</div>' +
+          '<div id="ctEmailsBody" style="display:none;margin-top:10px;"></div>' +
+        '</div>');
 
       // Fill the Membership history collapsible from the members collection.
       if (c.isMember === true || (c.membershipLevel && c.membershipLevel !== '')) {
