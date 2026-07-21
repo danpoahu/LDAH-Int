@@ -5040,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.13.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.13.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5578,6 +5578,59 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               }
             };
 
+            // Cancel & archive pending — one-click task from the cancelPendingSignups
+            // cron. Re-queries pending signups fresh at click time (list may have
+            // shifted since the task was created), confirms via showConfirmModal,
+            // then cancels+archives each signup, recomputes the event's denormalized
+            // counts, closes the task, and reloads My Day.
+            window.myDayCancelPending = async function(id) {
+              var d = (window._myDayDocs||{})[id];
+              if (!d || !d.workflowEventId) { _showToast('Task data missing — refresh and retry.', '#DC2626'); return; }
+              var coll = d.workflowEventCollection || 'events';
+              var eventId = d.workflowEventId;
+              var title = d.workflowEventTitle || 'this event';
+              // Re-query current pending signups (fresh at click time)
+              var snap;
+              try { snap = await db.collection(coll).doc(eventId).collection('signups').get(); }
+              catch(e){ _showToast('Could not load signups: ' + e.message, '#DC2626'); return; }
+              var pending = [];
+              snap.forEach(function(s){ var v = s.data(); if ((!v.status || v.status==='pending' || v.status==='new') && v.archived!==true) pending.push({ ref: s.ref, name: v.name || v.displayName || v.email || '(no name)' }); });
+              if (!pending.length) {
+                // nothing left — just close the task
+                await db.collection('interactions').doc(id).update({ status:'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                if (window._clearAssignmentNotifs) await window._clearAssignmentNotifs(id);
+                _showToast('No pending signups remain — task closed.', '#16A34A');
+                if (window.loadMyDay) window.loadMyDay();
+                return;
+              }
+              var listHtml = '<ul style="margin:8px 0 0;padding-left:18px;">' + pending.map(function(p){ return '<li>'+esc(p.name)+'</li>'; }).join('') + '</ul>';
+              showConfirmModal({
+                title: 'Cancel & archive ' + pending.length + ' pending signup' + (pending.length===1?'':'s') + '?',
+                subtitle: title,
+                body: 'These will be cancelled and archived, and each person will get a "your session was cancelled — sign up again" email with a button straight to this event:' + listHtml,
+                confirmLabel: 'Cancel & archive',
+                confirmStyle: 'danger',
+                onConfirm: async function() {
+                  var email = (window.currentUserData && window.currentUserData.email) || 'staff';
+                  var ts = firebase.firestore.FieldValue.serverTimestamp();
+                  for (var i=0;i<pending.length;i++) {
+                    await pending[i].ref.update({ status:'cancelled', archived:true, cancelledAt: ts, cancelledBy: email, archivedAt: ts, archivedBy: email });
+                  }
+                  // recompute denormalized counts on the parent event
+                  try {
+                    var allSnap = await db.collection(coll).doc(eventId).collection('signups').get();
+                    var pc=0, sc=0; allSnap.forEach(function(doc){ var v=doc.data(); if(v.archived===true) return; sc++; if(!v.status||v.status==='pending'||v.status==='new') pc++; });
+                    await db.collection(coll).doc(eventId).update({ pendingCount: pc, signupCount: sc });
+                  } catch(_) {}
+                  await db.collection('interactions').doc(id).update({ status:'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                  if (window._clearAssignmentNotifs) await window._clearAssignmentNotifs(id);
+                  auditLog('Cancelled & archived pending signups', title + ' — ' + pending.length + ' signup(s)');
+                  _showToast('Cancelled & archived ' + pending.length + ' — emails on the way.', '#16A34A');
+                  if (window.loadMyDay) window.loadMyDay();
+                }
+              });
+            };
+
             window.loadMyDay = async function(){
               var u=window._myDayViewAs||window.currentUserData||{};
               var first=String(u.displayName||u.email||'').split(/[ @]/)[0]||'';
@@ -5668,6 +5721,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoVerify(\''+d._id+'\')">Review / Revert &rarr;</button>';
                         else if(d.workflowStep==='photoReleaseStall')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoStall(\''+d._id+'\')">Resolve Stalled Release &rarr;</button>';
+                        else if(d.workflowEventId&&d.workflowStep==='cancelPendingSignups')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayCancelPending(\''+d._id+'\')">Cancel &amp; archive pending &rarr;</button>';
                       }
                       return '<div class="'+m.cls+'" onclick="viewInteraction(\''+d._id+'\')">'
                         +'<div class="check" onclick="event.stopPropagation();myDayToggleDone(this,\''+d._id+'\')"></div>'
