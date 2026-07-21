@@ -4922,6 +4922,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="auditlog" data-roles="superAdmin,admin">Audit Log</a>
             <a href="javascript:void(0)" data-section="emaillog" data-roles="superAdmin,admin">Email Log</a>
             <a href="javascript:void(0)" data-section="reminderschedule" data-roles="superAdmin,admin">Reminder Schedule</a>
+            <a href="javascript:void(0)" data-section="cmsRecordingArchive" data-roles="superAdmin,admin">Recordings Archive</a>
+            <a href="javascript:void(0)" data-section="cmsZoomRecordings" data-roles="superAdmin,admin">Zoom Recordings</a>
           </div>
         </div>
         <div class="nav-group collapsed" id="navGroupWebsite" data-roles="superAdmin,admin,webAdmin,appAdmin,partner,dailyUser,dataUser">
@@ -4931,8 +4933,6 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="cmsTeamBoard" data-roles="superAdmin,admin,webAdmin,appAdmin">Team &amp; Board</a>
             <a href="javascript:void(0)" data-section="cmsGalleries" data-roles="superAdmin,admin,webAdmin,appAdmin">Galleries</a>
             <a href="javascript:void(0)" data-section="cmsResources" data-roles="superAdmin,admin,webAdmin,appAdmin">Resources <span class="cms-badge-count" id="resBadge" style="display:none;">0</span></a>
-            <a href="javascript:void(0)" data-section="cmsRecordingArchive" data-roles="superAdmin,admin">Recordings Archive</a>
-            <a href="javascript:void(0)" data-section="cmsZoomRecordings" data-roles="superAdmin,admin">Zoom Recordings</a>
             <a href="javascript:void(0)" data-section="cmsFaqs" data-roles="superAdmin,admin,webAdmin,appAdmin">FAQs</a>
             <a href="javascript:void(0)" data-section="cmsEvents" data-roles="superAdmin,admin,webAdmin,appAdmin">Events &amp; Programs</a>
             <a href="javascript:void(0)" data-section="cmsVolunteers" data-roles="superAdmin,admin,webAdmin,appAdmin">Volunteers</a>
@@ -5046,7 +5046,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.6.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.7.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7349,6 +7349,30 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
       <div class="cms-cards" id="cmsRecordingArchiveCards">
         <div class="cms-empty"><p>Loading recordings...</p></div>
+      </div>
+
+      <!-- Recording Edit Modal -->
+      <div class="overlay" id="cmsRecEditOverlay">
+        <div class="modal">
+          <div class="modal-header">
+            <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div>Edit Recording</div></div>
+            <button class="close" type="button" onclick="cmsCloseRecEditModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="cmsRecEditId">
+            <div class="field" style="grid-column: span 2;"><label>Title <span style="color:#DC2626;">*</span></label><input id="cmsRecEditTitle" placeholder="Recording title"></div>
+            <div class="field" style="grid-column: span 2;"><label>Description</label><textarea id="cmsRecEditDesc" placeholder="Description..." rows="3"></textarea></div>
+            <div class="field" style="grid-column: span 2;">
+              <label>Replace/attach slides (PDF, optional)</label>
+              <div id="cmsRecEditSlidesNow" style="font-size:.85rem;color:#475569;margin-bottom:4px;">Current: no slides</div>
+              <input type="file" id="cmsRecEditSlides" accept="application/pdf,.pdf">
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="cmsCloseRecEditModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="cmsSaveRecEdit()">Save</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -22764,6 +22788,7 @@ function cmsRenderRecordingArchive(items) {
       '<div class="cms-card-subtitle">' + rsEscape(r.eventDate || '') + '</div>';
     if (r.description) html += '<div class="cms-card-bio">' + rsEscape(r.description) + '</div>';
     html += '<div class="cms-card-buttons">' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenRecEditModal(' + _jsArg(r.id) + ')">Edit</button>' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(' + _jsArg(r.recordingUrl) + ',\'_blank\')">Watch</button>' +
       slidesHtml;
     if (isArchived) {
@@ -22805,6 +22830,59 @@ window.cmsRestoreRecording = async function(docId, title) {
     await cmsLoadRecordingArchive();
     _showToast('Restored to member archive.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+// Edit modal: fix a recording's title/description (Zoom-imported recordings
+// arrive with just the raw Zoom topic and no description) and optionally
+// replace/attach the slide PDF.
+window.cmsOpenRecEditModal = function(docId) {
+  var r = (_cmsRecArchive || []).find(function(x) { return x.id === docId; });
+  var apply = function(rec) {
+    document.getElementById('cmsRecEditId').value = docId;
+    document.getElementById('cmsRecEditTitle').value = rec.eventTitle || '';
+    document.getElementById('cmsRecEditDesc').value = rec.description || '';
+    document.getElementById('cmsRecEditSlides').value = '';
+    document.getElementById('cmsRecEditSlidesNow').textContent = rec.slidesUrl ? 'Current: slides attached' : 'Current: no slides';
+    document.getElementById('cmsRecEditOverlay').classList.add('active');
+    setTimeout(function() { document.getElementById('cmsRecEditTitle').focus(); }, 50);
+  };
+  if (r) apply(r);
+  else db.collection('eventRecordings').doc(docId).get().then(function(d) { apply(Object.assign({ id: docId }, d.data() || {})); });
+};
+
+window.cmsCloseRecEditModal = function() {
+  document.getElementById('cmsRecEditOverlay').classList.remove('active');
+};
+
+window.cmsSaveRecEdit = async function() {
+  var docId = document.getElementById('cmsRecEditId').value;
+  var title = (document.getElementById('cmsRecEditTitle').value || '').trim();
+  var desc = (document.getElementById('cmsRecEditDesc').value || '').trim();
+  if (!title) { _showToast('Title is required.', '#DC2626'); return; }
+  var update = { eventTitle: title, description: desc };
+  var fileInput = document.getElementById('cmsRecEditSlides');
+  var file = fileInput && fileInput.files && fileInput.files[0];
+  try {
+    if (file) {
+      var safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      var path = 'recordingsArchive/' + docId + '/' + Date.now() + '_' + safe;
+      var ref = firebase.storage().ref(path);
+      await ref.put(file, { contentType: 'application/pdf' });
+      update.slidesUrl = await ref.getDownloadURL();
+      // best-effort: delete the previously-stored slide file if it was in Storage
+      var prev = (_cmsRecArchive || []).find(function(x) { return x.id === docId; });
+      var oldPath = prev && prev.slidesStoragePath;
+      update.slidesStoragePath = path;
+      if (oldPath && oldPath !== path) { try { await firebase.storage().ref(oldPath).delete(); } catch (e) {} }
+    }
+    await db.collection('eventRecordings').doc(docId).update(update);
+    auditLog('Edited member archive recording', title);
+    cmsCloseRecEditModal();
+    cmsLoadRecordingArchive();
+    _showToast('Recording updated.', '#16A34A');
+  } catch (e) {
+    _showToast('Save failed: ' + e.message, '#DC2626');
+  }
 };
 
 /* ── CMS: Zoom Recordings (staff view of Zoom cloud recordings, publish → member archive) ── */
