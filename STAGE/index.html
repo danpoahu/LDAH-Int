@@ -4931,7 +4931,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="cmsTeamBoard" data-roles="superAdmin,admin,webAdmin,appAdmin">Team &amp; Board</a>
             <a href="javascript:void(0)" data-section="cmsGalleries" data-roles="superAdmin,admin,webAdmin,appAdmin">Galleries</a>
             <a href="javascript:void(0)" data-section="cmsResources" data-roles="superAdmin,admin,webAdmin,appAdmin">Resources <span class="cms-badge-count" id="resBadge" style="display:none;">0</span></a>
-            <a href="javascript:void(0)" data-section="cmsRecordingArchive" data-roles="superAdmin,admin,webAdmin">Recordings Archive</a>
+            <a href="javascript:void(0)" data-section="cmsRecordingArchive" data-roles="superAdmin,admin">Recordings Archive</a>
             <a href="javascript:void(0)" data-section="cmsFaqs" data-roles="superAdmin,admin,webAdmin,appAdmin">FAQs</a>
             <a href="javascript:void(0)" data-section="cmsEvents" data-roles="superAdmin,admin,webAdmin,appAdmin">Events &amp; Programs</a>
             <a href="javascript:void(0)" data-section="cmsVolunteers" data-roles="superAdmin,admin,webAdmin,appAdmin">Volunteers</a>
@@ -5045,7 +5045,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.5.1-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.5.2-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22737,7 +22737,7 @@ function cmsRenderRecordingArchive(items) {
   items.forEach(function(r) {
     var isArchived = r.archived === true;
     var slidesHtml = r.slidesUrl
-      ? '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.slidesUrl) + '\',\'_blank\')">Slides</button>'
+      ? '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(' + _jsArg(r.slidesUrl) + ',\'_blank\')">Slides</button>'
       : '';
     html += '<div class="cms-card" data-id="' + rsEscape(r.id) + '"' + (isArchived ? ' style="opacity:0.5;"' : '') + '>' +
       (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;">Archived</span>' : '') +
@@ -22745,12 +22745,12 @@ function cmsRenderRecordingArchive(items) {
       '<div class="cms-card-subtitle">' + rsEscape(r.eventDate || '') + '</div>';
     if (r.description) html += '<div class="cms-card-bio">' + rsEscape(r.description) + '</div>';
     html += '<div class="cms-card-buttons">' +
-      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.recordingUrl) + '\',\'_blank\')">Watch</button>' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(' + _jsArg(r.recordingUrl) + ',\'_blank\')">Watch</button>' +
       slidesHtml;
     if (isArchived) {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreRecording(\'' + rsEscape(r.id) + '\',\'' + rsEscape(r.eventTitle || '') + '\')">Restore</button>';
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreRecording(' + _jsArg(r.id) + ',' + _jsArg(r.eventTitle || '') + ')">Restore</button>';
     } else {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveRecording(\'' + rsEscape(r.id) + '\',\'' + rsEscape(r.eventTitle || '') + '\')">Remove</button>';
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveRecording(' + _jsArg(r.id) + ',' + _jsArg(r.eventTitle || '') + ')">Remove</button>';
     }
     html += '</div></div>';
   });
@@ -31020,15 +31020,24 @@ window.cmsRecordingSend = async function() {
       try {
         var _slidesUrl = '', _slidesPath = '';
         var _slideFiles = (_archiveSlideFiles || []).filter(function(f){
-          return f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+          return f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)
+            || f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name));
         });
         if (_slideFiles.length) {
-          var _sf = _slideFiles[0];
-          var _safe = _sf.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-          _slidesPath = 'recordingsArchive/' + ctx.eventId + '/' + ctx.sessionKey + '/' + Date.now() + '_' + _safe;
-          var _sref = firebase.storage().ref(_slidesPath);
-          await _sref.put(_sf, { contentType: 'application/pdf' });
-          _slidesUrl = await _sref.getDownloadURL();
+          // Slide upload is non-fatal: if it fails, still publish the record
+          // (with no slides) rather than losing the whole recording.
+          try {
+            var _sf = _slideFiles[0];
+            var _isJpg = _sf.type === 'image/jpeg' || /\.jpe?g$/i.test(_sf.name);
+            var _safe = _sf.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            _slidesPath = 'recordingsArchive/' + ctx.eventId + '/' + ctx.sessionKey + '/' + Date.now() + '_' + _safe;
+            var _sref = firebase.storage().ref(_slidesPath);
+            await _sref.put(_sf, { contentType: _isJpg ? 'image/jpeg' : 'application/pdf' });
+            _slidesUrl = await _sref.getDownloadURL();
+          } catch (_se) {
+            console.warn('archive slide upload failed (record still published):', _se.message);
+            _slidesUrl = ''; _slidesPath = '';
+          }
         }
         var _evDate = ctx.sessionDate || (new Date().toISOString().slice(0,10));
         var _exp = new Date(_evDate + 'T00:00:00');
