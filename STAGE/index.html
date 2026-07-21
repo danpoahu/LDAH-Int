@@ -4932,6 +4932,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="cmsGalleries" data-roles="superAdmin,admin,webAdmin,appAdmin">Galleries</a>
             <a href="javascript:void(0)" data-section="cmsResources" data-roles="superAdmin,admin,webAdmin,appAdmin">Resources <span class="cms-badge-count" id="resBadge" style="display:none;">0</span></a>
             <a href="javascript:void(0)" data-section="cmsRecordingArchive" data-roles="superAdmin,admin">Recordings Archive</a>
+            <a href="javascript:void(0)" data-section="cmsZoomRecordings" data-roles="superAdmin,admin">Zoom Recordings</a>
             <a href="javascript:void(0)" data-section="cmsFaqs" data-roles="superAdmin,admin,webAdmin,appAdmin">FAQs</a>
             <a href="javascript:void(0)" data-section="cmsEvents" data-roles="superAdmin,admin,webAdmin,appAdmin">Events &amp; Programs</a>
             <a href="javascript:void(0)" data-section="cmsVolunteers" data-roles="superAdmin,admin,webAdmin,appAdmin">Volunteers</a>
@@ -5045,7 +5046,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.5.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.6.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7348,6 +7349,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
       <div class="cms-cards" id="cmsRecordingArchiveCards">
         <div class="cms-empty"><p>Loading recordings...</p></div>
+      </div>
+    </section>
+
+    <!-- ── CMS: Zoom Recordings ── -->
+    <section id="cmsZoomRecordingsSection" style="display:none;">
+      <div class="cms-sticky-header">
+      <h2>Zoom Recordings <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Recent Zoom cloud recordings from LDAH&#39;s account. Click Publish to copy one into the member Past Event Recordings &amp; Slides archive (video goes to the LDAH Google Drive). Already-archived recordings are marked.')">i</span></h2>
+      </div>
+
+      <div class="cms-toolbar">
+        <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsLoadZoomRecordings()">Refresh</button>
+      </div>
+
+      <div class="cms-cards" id="cmsZoomRecordingsCards">
+        <div class="cms-empty"><p>Loading...</p></div>
       </div>
     </section>
 
@@ -12401,6 +12417,9 @@ var _photoPendingByIsland = {};
       } else if (section === 'cmsRecordingArchive') {
         _showFullWidth(document.getElementById('cmsRecordingArchiveSection'), cmsLoadRecordingArchive);
         cmsShowAiHelper('Recordings Archive');
+      } else if (section === 'cmsZoomRecordings') {
+        _showFullWidth(document.getElementById('cmsZoomRecordingsSection'), cmsLoadZoomRecordings);
+        cmsShowAiHelper('Zoom Recordings');
       } else if (section === 'cmsFaqs') {
         _showFullWidth(document.getElementById('cmsFaqsSection'), cmsLoadFaqs);
         cmsShowAiHelper('FAQs');
@@ -22786,6 +22805,49 @@ window.cmsRestoreRecording = async function(docId, title) {
     await cmsLoadRecordingArchive();
     _showToast('Restored to member archive.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+/* ── CMS: Zoom Recordings (staff view of Zoom cloud recordings, publish → member archive) ── */
+window.cmsLoadZoomRecordings = async function() {
+  var container = document.getElementById('cmsZoomRecordingsCards');
+  container.innerHTML = '<div class="cms-empty"><p>Loading Zoom recordings...</p></div>';
+  try {
+    var res = await firebase.functions().httpsCallable('listZoomRecordings')();
+    cmsRenderZoomRecordings((res.data && res.data.recordings) || []);
+  } catch (err) {
+    container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+function cmsRenderZoomRecordings(items) {
+  var container = document.getElementById('cmsZoomRecordingsCards');
+  if (!items.length) { container.innerHTML = '<div class="cms-empty"><p>No Zoom cloud recordings found in the last 120 days.</p></div>'; return; }
+  var html = '';
+  items.forEach(function(r) {
+    var meta = rsEscape(r.eventDate || '') + ' &middot; ' + rsEscape(String(r.durationMin || 0)) + ' min &middot; ' + rsEscape(String(r.sizeMb || 0)) + ' MB &middot; ' + rsEscape(r.recordingType || '');
+    var action = r.alreadyPublished
+      ? '<span style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:.72rem;font-weight:700;border-radius:12px;padding:3px 10px;">In member archive</span>'
+      : '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#0891B2;" onclick="event.stopPropagation();cmsPublishZoomRecording(' + _jsArg(r.uuid) + ',' + _jsArg(r.topic || '') + ')">Publish to member archive</button>';
+    html += '<div class="cms-card">' +
+      '<div class="cms-card-title">' + rsEscape(r.topic || 'Zoom recording') + '</div>' +
+      '<div class="cms-card-subtitle">' + meta + '</div>' +
+      '<div class="cms-card-buttons" style="margin-top:8px;">' + action + '</div>' +
+    '</div>';
+  });
+  container.innerHTML = html;
+}
+
+window.cmsPublishZoomRecording = async function(uuid, topic) {
+  if (!confirm('Publish "' + topic + '" to the member archive?\n\nThe video will be copied to Google Drive — this can take a minute or two for a large recording. Keep this tab open.')) return;
+  _showToast('Publishing to member archive... (large videos take a minute or two)', '#0891B2');
+  try {
+    var res = await firebase.functions().httpsCallable('publishZoomRecordingToArchive', { timeout: 540000 })({ uuid: uuid });
+    if (res.data && res.data.alreadyPublished) _showToast('That recording is already in the member archive.', '#D97706');
+    else _showToast('Published. Google Drive may take a few minutes to make it playable.', '#16A34A');
+    cmsLoadZoomRecordings();
+  } catch (err) {
+    _showToast('Publish failed: ' + (err.message || 'unknown error'), '#DC2626');
+  }
 };
 
 window.cmsOpenResourceModal = async function(docId) {
