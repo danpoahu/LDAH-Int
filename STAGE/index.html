@@ -5046,7 +5046,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.7.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.8.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -30875,16 +30875,8 @@ window.cmsOpenRecordingModal = async function() {
   h += '<div id="cmsRecPdfInfo" style="margin-top:4px;font-size:.78rem;color:#64748B;"></div>';
   h += '</div>';
 
-  h += '<div style="margin-bottom:14px;">';
-  h += '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;color:#334155;cursor:pointer;">';
-  h += '<input type="checkbox" id="cmsRecPublishArchive" onchange="cmsRecToggleArchive()">';
-  h += '<span style="font-weight:600;">Publish to member archive <span style="color:#94A3B8;font-weight:400;">(Past Event Recordings &amp; Slides)</span></span>';
-  h += '</label>';
-  h += '<div id="cmsRecArchiveFields" style="display:none;margin-top:8px;padding:10px 12px;border:1px solid #CBD5E1;border-radius:8px;background:#F8FAFC;">';
-  h += '<label style="font-weight:600;font-size:.85rem;color:#334155;display:block;margin-bottom:4px;">Google Drive video link <span style="color:#94A3B8;font-weight:400;">(required)</span></label>';
-  h += '<input type="url" id="cmsRecArchiveDriveUrl" placeholder="https://drive.google.com/file/d/.../view" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;">';
-  h += '<div style="margin-top:4px;font-size:.78rem;color:#64748B;">Drop the MP4 in this year\'s Drive folder and paste its share link. Slides are archived automatically.</div>';
-  h += '</div>';
+  h += '<div style="margin-bottom:14px;padding:8px 12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;font-size:.8rem;color:#166534;">';
+  h += 'This session will be added to the member archive automatically after sending — the Zoom cloud recording is matched by date and the slides above are included. (Edit later under Admin → Recordings Archive.)';
   h += '</div>';
 
   // Attendee subject + body (editable). Hidden when there are no attendees,
@@ -31005,14 +30997,6 @@ window.cmsRecRemoveFile = function(i) {
   if (i >= 0 && i < _cmsRecFiles.length) { _cmsRecFiles.splice(i, 1); cmsRecRenderFileList(); }
 };
 
-// inline onchange="cmsRecToggleArchive()" on #cmsRecPublishArchive requires window scope
-// (script-block-local vars/functions are invisible to inline attribute handlers).
-window.cmsRecToggleArchive = function() {
-  var on = document.getElementById('cmsRecPublishArchive');
-  var box = document.getElementById('cmsRecArchiveFields');
-  if (box) box.style.display = (on && on.checked) ? 'block' : 'none';
-};
-
 window.cmsRecordingSend = async function() {
   var ctx = _cmsRecordingUpload;
   if (!ctx) { _showToast('Session expired -- please reopen the modal.', '#DC2626'); return; }
@@ -31058,20 +31042,9 @@ window.cmsRecordingSend = async function() {
     _showToast('Recording URL must start with https://', '#DC2626'); return;
   }
 
-  var _pubArchive = document.getElementById('cmsRecPublishArchive');
-  var _archiveDriveUrl = '';
-  // Capture the accumulated File objects into a distinct reference now, before
-  // any post-send clearing of window._cmsRecFiles, so the archive publish block
-  // below (which runs after the success path resets the accumulator) can still
-  // read the slide Files. selFiles already points at the same array/null.
+  // Capture the accumulated slide File objects before the post-send clear of
+  // window._cmsRecFiles, so the auto-archive block below can still upload them.
   var _archiveSlideFiles = selFiles || [];
-  if (_pubArchive && _pubArchive.checked) {
-    _archiveDriveUrl = (document.getElementById('cmsRecArchiveDriveUrl').value || '').trim();
-    if (!_archiveDriveUrl) {
-      _showToast('Add the Google Drive video link to publish to the member archive.', '#DC2626');
-      return;
-    }
-  }
 
   // v138.x: if this session was already sent, require a deliberate Resend
   // confirmation and pass force=true so the CF bypasses its per-recipient skip.
@@ -31156,53 +31129,45 @@ window.cmsRecordingSend = async function() {
     var summary = parts.length ? parts.join(' + ') : (sent + ' recipient' + (sent === 1 ? '' : 's'));
     auditLog('Sent recording & slides', ctx.eventTitle + ' (' + ctx.sessionKey + ') -- ' + summary + (result.failed ? ', ' + result.failed + ' failed' : ''));
 
-    if (_pubArchive && _pubArchive.checked) {
-      try {
-        var _slidesUrl = '', _slidesPath = '';
-        var _slideFiles = (_archiveSlideFiles || []).filter(function(f){
-          return f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)
-            || f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name));
-        });
-        if (_slideFiles.length) {
-          // Slide upload is non-fatal: if it fails, still publish the record
-          // (with no slides) rather than losing the whole recording.
-          try {
-            var _sf = _slideFiles[0];
-            var _isJpg = _sf.type === 'image/jpeg' || /\.jpe?g$/i.test(_sf.name);
-            var _safe = _sf.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-            _slidesPath = 'recordingsArchive/' + ctx.eventId + '/' + ctx.sessionKey + '/' + Date.now() + '_' + _safe;
-            var _sref = firebase.storage().ref(_slidesPath);
-            await _sref.put(_sf, { contentType: _isJpg ? 'image/jpeg' : 'application/pdf' });
-            _slidesUrl = await _sref.getDownloadURL();
-          } catch (_se) {
-            console.warn('archive slide upload failed (record still published):', _se.message);
-            _slidesUrl = ''; _slidesPath = '';
-          }
+    // Auto-queue this session for the member archive. We upload the slide PDF to
+    // a permanent path here (the File objects are in hand); the background
+    // onRecordingPublishJob Cloud Function then matches + pulls the Zoom cloud
+    // video by date and writes the eventRecordings doc. Idempotent server-side by
+    // eventId+sessionKey, so resends never duplicate. Hidden from staff.
+    try {
+      var _slidesUrl = '', _slidesPath = '';
+      var _slideFiles = (_archiveSlideFiles || []).filter(function(f){
+        return f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)
+          || f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name));
+      });
+      if (_slideFiles.length) {
+        try {
+          var _sf = _slideFiles[0];
+          var _isJpg = _sf.type === 'image/jpeg' || /\.jpe?g$/i.test(_sf.name);
+          var _safe = _sf.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          _slidesPath = 'recordingsArchive/' + ctx.eventId + '/' + ctx.sessionKey + '/' + Date.now() + '_' + _safe;
+          var _sref = firebase.storage().ref(_slidesPath);
+          await _sref.put(_sf, { contentType: _isJpg ? 'image/jpeg' : 'application/pdf' });
+          _slidesUrl = await _sref.getDownloadURL();
+        } catch (_se) {
+          console.warn('archive slide upload failed (video still queued):', _se.message);
+          _slidesUrl = ''; _slidesPath = '';
         }
-        var _evDate = ctx.sessionDate || (new Date().toISOString().slice(0,10));
-        var _exp = new Date(_evDate + 'T00:00:00');
-        _exp.setFullYear(_exp.getFullYear() + 1);
-        await db.collection('eventRecordings').add({
-          eventTitle: ctx.eventTitle || '',
-          eventDate: _evDate,
-          recordingUrl: _archiveDriveUrl,
-          slidesUrl: _slidesUrl,
-          slidesStoragePath: _slidesPath,
-          expiresAt: firebase.firestore.Timestamp.fromDate(_exp),
-          eventId: ctx.eventId || '',
-          sessionKey: ctx.sessionKey || '_single',
-          description: '',
-          active: true,
-          archived: false,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          publishedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: (window.currentUserData && window.currentUserData.email) || 'unknown'
-        });
-        auditLog('Published to member archive', (ctx.eventTitle || '') + ' (' + ctx.sessionKey + ')');
-      } catch (e) {
-        console.error('archive publish failed:', e);
-        _showToast('Recording sent, but archive publish failed: ' + e.message, '#D97706');
       }
+      await db.collection('recordingPublishJobs').add({
+        eventId: ctx.eventId || '',
+        sessionKey: ctx.sessionKey || '_single',
+        sessionDate: ctx.sessionDate || '',
+        eventTitle: ctx.eventTitle || '',
+        slidesUrl: _slidesUrl,
+        slidesStoragePath: _slidesPath,
+        status: 'pending',
+        requestedBy: (window.currentUserData && window.currentUserData.email) || 'unknown',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      auditLog('Queued recording for member archive', (ctx.eventTitle || '') + ' (' + ctx.sessionKey + ')');
+    } catch (e) {
+      console.error('archive queue failed:', e);
     }
 
     var msg = 'Sent to ' + summary + '.';
