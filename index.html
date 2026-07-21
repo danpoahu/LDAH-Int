@@ -5038,7 +5038,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.12.14</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.12.15</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -36821,9 +36821,10 @@ window.cmsBuildFeedbackReport = async function() {
 };
 
 // ── Staff Activity Report (Main → Reports) ────────────────────────
-// Live build of follow-up interactions grouped by staff member, then by
-// family. Includes an inline update timeline derived from createdAt +
-// auditLog entries (reassignments, etc.). Default range: last 30 days.
+// Per staff member: open & flagged follow-ups (any date) pinned on top,
+// then every interaction they logged in the past 7 days (newest first).
+// Excludes self + IT/system accounts. Inline update timeline from createdAt
+// + auditLog entries (reassignments, etc.).
 window.cmsBuildStaffActivityReport = async function() {
   _showToast('Building staff activity report...', '#0891B2');
   try {
@@ -36857,10 +36858,15 @@ window.cmsBuildStaffActivityReport = async function() {
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
 
-    // ── Date range: last 30 days ──
+    // ── Owners to exclude (self + IT/system accounts). Normalized, case-insensitive. ──
+    var EXCLUDED_OWNERS = ['daniel pellegrini', 'wbestp it', 'it_help'];
+    function normOwner(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+    function isExcludedOwner(name) { return EXCLUDED_OWNERS.indexOf(normOwner(name)) !== -1; }
+
+    // ── Date window: rolling last 7 days (HST) ──
     var now = new Date();
     var rangeStart = new Date(now);
-    rangeStart.setDate(rangeStart.getDate() - 30);
+    rangeStart.setDate(rangeStart.getDate() - 7);
     rangeStart.setHours(0, 0, 0, 0);
     var todayStr = (function() {
       var y = now.getFullYear(), m = String(now.getMonth()+1).padStart(2,'0'), d = String(now.getDate()).padStart(2,'0');
@@ -36869,51 +36875,59 @@ window.cmsBuildStaffActivityReport = async function() {
     var rangeStartLabel = rangeStart.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     var todayLabel = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-    // ── Pull follow-up interactions in range ──
-    var ixSnap = await db.collection('interactions')
-      .where('interactionType', '==', 'Follow-up')
-      .get();
+    // ── Fetch A: everything logged this week (all interaction types) ──
+    //    Fetch B: open + flagged items (any date) so they can pin on top.
+    var seen = {};
     var interactions = [];
-    ixSnap.forEach(function(doc) {
-      var data = doc.data() || {};
-      var when = tsToDate(data.createdAt);
-      if (when && when < rangeStart) return;
-      interactions.push(Object.assign({ _id: doc.id }, data));
-    });
+    function addDoc(doc) {
+      if (seen[doc.id]) return;
+      seen[doc.id] = true;
+      interactions.push(Object.assign({ _id: doc.id }, doc.data() || {}));
+    }
+    var weekSnap = await db.collection('interactions')
+      .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(rangeStart))
+      .get();
+    weekSnap.forEach(addDoc);
+    try {
+      var openSnap = await db.collection('interactions')
+        .where('status', 'in', ['Open', 'Needs admin review'])
+        .get();
+      openSnap.forEach(function(doc) {
+        var d = doc.data() || {};
+        // Only pin open items that carry a due date (flagged); undated open items
+        // that aren't from this week aren't surfaced.
+        if (d.followUpDate) addDoc(doc);
+      });
+    } catch (e) { console.warn('open interactions fetch failed:', e.message); }
 
-    // ── Group: ownerUid -> contactId -> [interactions] ──
+    function isOpen(ix) { return ix.status !== 'Closed'; }
+    function isPinned(ix) { return isOpen(ix) && !!ix.followUpDate; }
+    function isOverdue(ix) { return !!ix.followUpDate && ix.followUpDate < todayStr; }
+
+    // ── Group by owner: { ownerName, pinned[], week[] } ──
     var byOwner = {};
     interactions.forEach(function(ix) {
+      if (isExcludedOwner(ix.owner)) return;
       var oid = ix.ownerUid || '__unassigned__';
-      var cid = ix.contactId || ('__nameOnly__' + (ix.contactName || 'Unknown'));
       if (!byOwner[oid]) {
         byOwner[oid] = {
           ownerName: oid === '__unassigned__' ? 'Unassigned' : (ix.owner || 'Unknown owner'),
-          contacts: {},
-          totalIx: 0,
+          pinned: [],
+          week: [],
         };
       }
-      // Update ownerName if a later interaction has a non-empty value
       if (oid !== '__unassigned__' && ix.owner && byOwner[oid].ownerName === 'Unknown owner') {
         byOwner[oid].ownerName = ix.owner;
       }
-      if (!byOwner[oid].contacts[cid]) {
-        byOwner[oid].contacts[cid] = {
-          contactId: ix.contactId || '',
-          contactName: ix.contactName || 'Unknown',
-          interactions: [],
-        };
-      }
-      byOwner[oid].contacts[cid].interactions.push(ix);
-      byOwner[oid].totalIx++;
+      if (isPinned(ix)) byOwner[oid].pinned.push(ix);
+      else byOwner[oid].week.push(ix);
     });
 
     // ── Pull contact docs for child info (one round-trip per unique id) ──
     var contactIds = [];
-    Object.keys(byOwner).forEach(function(oid) {
-      Object.values(byOwner[oid].contacts).forEach(function(c) {
-        if (c.contactId && contactIds.indexOf(c.contactId) === -1) contactIds.push(c.contactId);
-      });
+    interactions.forEach(function(ix) {
+      if (isExcludedOwner(ix.owner)) return;
+      if (ix.contactId && contactIds.indexOf(ix.contactId) === -1) contactIds.push(ix.contactId);
     });
     var contactCache = {};
     for (var i = 0; i < contactIds.length; i++) {
@@ -36923,10 +36937,11 @@ window.cmsBuildStaffActivityReport = async function() {
       } catch (e) { contactCache[contactIds[i]] = {}; }
     }
 
-    // ── Pull auditLog reassignments in range ──
+    // ── Pull auditLog reassignments (last 60 days, to cover older pinned items) ──
     var auditByIxId = {};
     try {
-      var auditCutoff = firebase.firestore.Timestamp.fromDate(rangeStart);
+      var auditFloor = new Date(now); auditFloor.setDate(auditFloor.getDate() - 60);
+      var auditCutoff = firebase.firestore.Timestamp.fromDate(auditFloor);
       var auditSnap = await db.collection('auditLog')
         .where('timestamp', '>=', auditCutoff)
         .where('action', '==', 'Reassigned interaction')
@@ -36950,7 +36965,6 @@ window.cmsBuildStaffActivityReport = async function() {
     // ── Build update timeline per interaction (created + audit + last update) ──
     function buildTimeline(ix) {
       var rows = [];
-      // Created
       var creator = ix.owner && ix.ownerUid
         ? ix.owner
         : (ix.source === 'event-feedback-auto' ? 'System (auto)' : 'System');
@@ -36961,21 +36975,17 @@ window.cmsBuildStaffActivityReport = async function() {
           ? 'created interaction from feedback survey'
           : 'created interaction',
       });
-      // Audit log entries
       (auditByIxId[ix._id] || []).forEach(function(a) {
         rows.push({ when: tsToDate(a.when), who: a.who, text: a.text });
       });
-      // Last status / note update — use updatedAt if it's after createdAt
       var ua = tsToDate(ix.updatedAt);
       var ca = tsToDate(ix.createdAt);
       if (ua && ca && (ua.getTime() - ca.getTime()) > 1000) {
-        // Only add if no existing audit entry covers this same minute
         var dupe = rows.some(function(r) { return r.when && Math.abs(r.when.getTime() - ua.getTime()) < 60000; });
         if (!dupe) {
           rows.push({ when: ua, who: ix.owner || 'Staff', text: 'updated interaction (status: ' + esc(ix.status || 'Open') + ')' });
         }
       }
-      // Sort chronologically
       rows.sort(function(a, b) {
         if (!a.when) return 1; if (!b.when) return -1;
         return a.when.getTime() - b.when.getTime();
@@ -36983,7 +36993,7 @@ window.cmsBuildStaffActivityReport = async function() {
       return rows;
     }
 
-    // ── Build HTML ──
+    // ── HTML helpers ──
     function statusClass(s) {
       if (s === 'Closed') return 'st-closed';
       if (s === 'Needs admin review') return 'st-review';
@@ -36995,7 +37005,7 @@ window.cmsBuildStaffActivityReport = async function() {
       var lbl = (fud < todayStr) ? ('Overdue ' + fmtDateOnly(fud)) : ('Due ' + fmtDateOnly(fud));
       return '<span class="' + cls + '">' + esc(lbl) + '</span>';
     }
-    function childLine(contactId) {
+    function childText(contactId) {
       var c = contactCache[contactId] || {};
       if (!c.children || !c.children.length) return '';
       var bits = c.children.map(function(ch) {
@@ -37004,78 +37014,114 @@ window.cmsBuildStaffActivityReport = async function() {
         return ar ? (name + ' (' + ar + ')') : name;
       }).filter(Boolean);
       if (!bits.length) return '';
-      return '<div class="fam-child">Child' + (bits.length > 1 ? 'ren' : '') + ': ' + esc(bits.join(', ')) + '</div>';
+      return 'Child' + (bits.length > 1 ? 'ren' : '') + ': ' + bits.join(', ');
+    }
+    // Renders one interaction card, family/child shown inline (no family grouping).
+    function renderIx(ix) {
+      var timeline = buildTimeline(ix);
+      var tlHtml = '';
+      timeline.forEach(function(r) {
+        tlHtml += '<li><time>' + esc(fmtTime(r.when)) + '</time><span class="who">' + esc(r.who) + '</span> ' + r.text + '</li>';
+      });
+      var ct = childText(ix.contactId);
+      return '<div class="ix' + (isPinned(ix) ? ' pinned' : '') + '">' +
+        '<div class="ix-fam">' +
+          '<span class="ix-fam-name">' + esc(ix.contactName || 'Unknown') + '</span>' +
+          (ct ? '<span class="ix-child">' + esc(ct) + '</span>' : '') +
+        '</div>' +
+        '<div class="ix-head">' +
+          '<span class="ix-status ' + statusClass(ix.status) + '">' + esc(ix.status || 'Open') + '</span>' +
+          '<span class="ix-channel">' + esc((ix.channel || '') + ' · ' + (ix.interactionType || 'Interaction')) + '</span>' +
+          '<span class="ix-logged">Logged ' + esc(fmtTime(ix.createdAt)) + '</span>' +
+          followUpChip(ix.followUpDate) +
+        '</div>' +
+        '<div class="ix-summary">' + esc(ix.summary || '(no summary)') + '</div>' +
+        (ix.notes ? '<div class="ix-notes">' + esc(ix.notes) + '</div>' : '') +
+        '<ul class="updates">' + tlHtml + '</ul>' +
+      '</div>';
     }
 
-    // Sort: Unassigned first, then by total interactions desc
-    var ownerKeys = Object.keys(byOwner).sort(function(a, b) {
-      if (a === '__unassigned__') return -1;
-      if (b === '__unassigned__') return 1;
-      return byOwner[b].totalIx - byOwner[a].totalIx;
+    // ── Sort within each owner ──
+    var ownerKeys = Object.keys(byOwner);
+    ownerKeys.forEach(function(oid) {
+      var o = byOwner[oid];
+      // Pinned: overdue first, then soonest due date first
+      o.pinned.sort(function(a, b) {
+        var ao = isOverdue(a) ? 0 : 1, bo = isOverdue(b) ? 0 : 1;
+        if (ao !== bo) return ao - bo;
+        return String(a.followUpDate || '').localeCompare(String(b.followUpDate || ''));
+      });
+      // Week: newest → oldest by createdAt
+      o.week.sort(function(a, b) {
+        var ad = tsToDate(a.createdAt), bd = tsToDate(b.createdAt);
+        return (bd ? bd.getTime() : 0) - (ad ? ad.getTime() : 0);
+      });
+      o._overdue = o.pinned.filter(isOverdue).length;
+      o._total = o.pinned.length + o.week.length;
     });
 
-    var totalIx = interactions.length;
-    var openCount = interactions.filter(function(i) { return i.status !== 'Closed'; }).length;
-    var closedCount = interactions.filter(function(i) { return i.status === 'Closed'; }).length;
-    var staffCount = ownerKeys.filter(function(k) { return k !== '__unassigned__'; }).length;
-    var unassignedCount = byOwner['__unassigned__'] ? byOwner['__unassigned__'].totalIx : 0;
+    // Owner order: unassigned last; staff with overdue first, then by volume desc, then name
+    ownerKeys.sort(function(a, b) {
+      if (a === '__unassigned__') return 1;
+      if (b === '__unassigned__') return -1;
+      var oa = byOwner[a], ob = byOwner[b];
+      if ((ob._overdue > 0) !== (oa._overdue > 0)) return (ob._overdue > 0 ? 1 : 0) - (oa._overdue > 0 ? 1 : 0);
+      if (ob._total !== oa._total) return ob._total - oa._total;
+      return oa.ownerName.localeCompare(ob.ownerName);
+    });
 
+    // ── Totals ──
+    var weekCount = 0, openFlaggedCount = 0, overdueCount = 0;
+    var staffCount = 0, unassignedCount = 0;
+    ownerKeys.forEach(function(oid) {
+      var o = byOwner[oid];
+      openFlaggedCount += o.pinned.length;
+      overdueCount += o._overdue;
+      if (oid === '__unassigned__') { unassignedCount = o._total; }
+      else { staffCount++; weekCount += o.week.length; }
+    });
+
+    // ── Build owner sections ──
     var employeesHtml = '';
     ownerKeys.forEach(function(oid) {
       var owner = byOwner[oid];
       var isUnass = (oid === '__unassigned__');
-      var contactKeys = Object.keys(owner.contacts).sort(function(a, b) {
-        return owner.contacts[a].contactName.localeCompare(owner.contacts[b].contactName);
-      });
-      var familyHtml = '';
-      contactKeys.forEach(function(cid) {
-        var fam = owner.contacts[cid];
-        var ixHtml = '';
-        fam.interactions.sort(function(a, b) {
-          var ad = tsToDate(a.createdAt), bd = tsToDate(b.createdAt);
-          return (bd ? bd.getTime() : 0) - (ad ? ad.getTime() : 0);
-        });
-        fam.interactions.forEach(function(ix) {
-          var timeline = buildTimeline(ix);
-          var tlHtml = '';
-          timeline.forEach(function(r) {
-            tlHtml += '<li><time>' + esc(fmtTime(r.when)) + '</time><span class="who">' + esc(r.who) + '</span> ' + r.text + '</li>';
-          });
-          ixHtml +=
-            '<div class="ix">' +
-              '<div class="ix-head">' +
-                '<span class="ix-status ' + statusClass(ix.status) + '">' + esc(ix.status || 'Open') + '</span>' +
-                '<span class="ix-channel">' + esc((ix.channel || '') + ' · ' + (ix.interactionType || 'Follow-up')) + '</span>' +
-                followUpChip(ix.followUpDate) +
-              '</div>' +
-              '<div class="ix-summary">' + esc(ix.summary || '(no summary)') + '</div>' +
-              (ix.notes ? '<div class="ix-notes">' + esc(ix.notes) + '</div>' : '') +
-              '<ul class="updates">' + tlHtml + '</ul>' +
-            '</div>';
-        });
-        var avatarStyle = isUnass ? ' style="background:#94A3B8;"' : '';
-        familyHtml +=
-          '<div class="family">' +
-            '<div class="fam-head">' +
-              '<div class="fam-avatar"' + avatarStyle + '>' + esc(initials(fam.contactName)) + '</div>' +
-              '<div>' +
-                '<div class="fam-name">' + esc(fam.contactName) + '</div>' +
-                childLine(fam.contactId) +
-                '<div class="fam-count">' + fam.interactions.length + ' interaction' + (fam.interactions.length !== 1 ? 's' : '') + '</div>' +
-              '</div>' +
-            '</div>' +
-            ixHtml +
-          '</div>';
-      });
+
+      var pinnedHtml = '';
+      if (owner.pinned.length) {
+        pinnedHtml =
+          '<div class="block-label pinned-label">Open &amp; flagged' +
+            (owner._overdue > 0 ? ' <span class="ov-count">' + owner._overdue + ' overdue</span>' : '') +
+          '</div>' +
+          owner.pinned.map(renderIx).join('');
+      }
+
+      var weekHtml = '';
+      if (owner.week.length) {
+        weekHtml =
+          '<div class="block-label">Logged in the past 7 days</div>' +
+          owner.week.map(renderIx).join('');
+      } else if (owner.pinned.length) {
+        weekHtml = '<div class="block-label">Logged in the past 7 days</div>' +
+          '<div class="none-note">No new interactions logged this week.</div>';
+      }
+
+      var pillBits = [];
+      pillBits.push(owner.week.length + ' this week');
+      if (owner.pinned.length) pillBits.push(owner.pinned.length + ' open');
+      if (owner._overdue > 0) pillBits.push(owner._overdue + ' overdue');
+
       var unassClass = isUnass ? ' unassigned' : '';
       employeesHtml +=
         '<section class="employee' + unassClass + '">' +
           '<div class="emp-head">' +
-            '<h2>' + esc(owner.ownerName) + '</h2>' +
-            '<span class="pill">' + owner.totalIx + ' follow-up' + (owner.totalIx !== 1 ? 's' : '') +
-              ' · ' + contactKeys.length + ' famil' + (contactKeys.length === 1 ? 'y' : 'ies') + '</span>' +
+            '<div class="emp-name-wrap">' +
+              '<div class="emp-avatar"' + (isUnass ? ' style="background:#94A3B8;"' : '') + '>' + esc(initials(owner.ownerName)) + '</div>' +
+              '<h2>' + esc(owner.ownerName) + '</h2>' +
+            '</div>' +
+            '<span class="pill">' + esc(pillBits.join(' · ')) + '</span>' +
           '</div>' +
-          familyHtml +
+          '<div class="emp-body">' + pinnedHtml + weekHtml + '</div>' +
         '</section>';
     });
 
@@ -37083,7 +37129,7 @@ window.cmsBuildStaffActivityReport = async function() {
       ? '<div class="unassigned-callout">' +
           '<div class="icon-circle">!</div>' +
           '<div>' +
-            '<div class="heading">' + unassignedCount + ' follow-up' + (unassignedCount !== 1 ? 's' : '') + ' need' + (unassignedCount === 1 ? 's' : '') + ' an owner</div>' +
+            '<div class="heading">' + unassignedCount + ' interaction' + (unassignedCount !== 1 ? 's' : '') + ' need' + (unassignedCount === 1 ? 's' : '') + ' an owner</div>' +
             '<div class="sub">No one has claimed these — assign in LDAH-Int → Interactions</div>' +
           '</div>' +
         '</div>'
@@ -37108,29 +37154,36 @@ window.cmsBuildStaffActivityReport = async function() {
       '.summary-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:22px; }' +
       '.stat { background:#fff; border-radius:12px; padding:14px 16px; box-shadow:0 1px 3px rgba(15,23,42,.06); border:1px solid #E2E8F0; }' +
       '.stat .num { font-size:1.7rem; font-weight:800; color:#1a3c6e; line-height:1; }' +
+      '.stat.warn .num { color:#b91c1c; }' +
       '.stat .lbl { font-size:.76rem; color:#64748B; font-weight:600; letter-spacing:.04em; text-transform:uppercase; margin-top:5px; }' +
       '.employee { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(15,23,42,.06); border:1px solid #E2E8F0; margin-bottom:18px; overflow:hidden; }' +
       '.employee.unassigned { border:2px solid #f59e0b; }' +
       '.employee.unassigned .emp-head { background:#fffbeb; }' +
       '.employee.unassigned .emp-head h2 { color:#92400e; }' +
       '.employee.unassigned .emp-head .pill { background:#f59e0b; color:#fff; }' +
-      '.emp-head { padding:16px 22px; background:#F8FAFC; border-bottom:1px solid #E2E8F0; display:flex; justify-content:space-between; align-items:center; }' +
+      '.emp-head { padding:16px 22px; background:#F8FAFC; border-bottom:1px solid #E2E8F0; display:flex; justify-content:space-between; align-items:center; gap:12px; }' +
+      '.emp-name-wrap { display:flex; align-items:center; gap:12px; min-width:0; }' +
+      '.emp-avatar { width:34px; height:34px; border-radius:50%; background:#1a3c6e; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; flex-shrink:0; }' +
       '.emp-head h2 { margin:0; font-size:1.15rem; color:#1a3c6e; font-weight:800; }' +
-      '.emp-head .pill { background:#E0F2FE; color:#075985; padding:3px 11px; border-radius:999px; font-size:.76rem; font-weight:700; }' +
-      '.family { padding:14px 22px 18px; border-bottom:1px solid #F1F5F9; }' +
-      '.family:last-child { border-bottom:none; }' +
-      '.fam-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }' +
-      '.fam-avatar { width:30px; height:30px; border-radius:50%; background:#1a3c6e; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.82rem; flex-shrink:0; }' +
-      '.fam-name { font-weight:800; font-size:1rem; color:#0F172A; }' +
-      '.fam-child { font-size:.78rem; color:#1a3c6e; font-weight:600; }' +
-      '.fam-count { font-size:.76rem; color:#64748B; }' +
-      '.ix { margin-left:40px; padding:12px 14px; background:#FAFCFE; border-radius:10px; border:1px solid #E2E8F0; margin-top:8px; }' +
+      '.emp-head .pill { background:#E0F2FE; color:#075985; padding:3px 11px; border-radius:999px; font-size:.76rem; font-weight:700; white-space:nowrap; }' +
+      '.emp-body { padding:14px 22px 20px; }' +
+      '.block-label { font-size:.72rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#64748B; margin:14px 0 8px; }' +
+      '.block-label:first-child { margin-top:2px; }' +
+      '.pinned-label { color:#92400e; }' +
+      '.ov-count { color:#fff; background:#dc2626; padding:1px 8px; border-radius:999px; font-size:.68rem; margin-left:6px; letter-spacing:.02em; }' +
+      '.none-note { font-size:.82rem; color:#94A3B8; font-style:italic; padding:2px 2px 6px; }' +
+      '.ix { padding:12px 14px; background:#FAFCFE; border-radius:10px; border:1px solid #E2E8F0; margin-top:8px; }' +
+      '.ix.pinned { background:#FFFBEB; border-color:#FCD34D; }' +
+      '.ix-fam { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }' +
+      '.ix-fam-name { font-weight:800; font-size:.98rem; color:#0F172A; }' +
+      '.ix-child { font-size:.76rem; color:#1a3c6e; font-weight:600; }' +
       '.ix-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }' +
       '.ix-status { padding:2px 10px; border-radius:999px; font-size:.72rem; font-weight:700; letter-spacing:.03em; }' +
       '.st-open { background:#FEF3C7; color:#92400E; }' +
       '.st-closed { background:#D1FAE5; color:#065F46; }' +
       '.st-review { background:#FEE2E2; color:#991B1B; }' +
       '.ix-channel { font-size:.72rem; color:#64748B; font-weight:600; }' +
+      '.ix-logged { font-size:.72rem; color:#94A3B8; font-weight:600; }' +
       '.ix-fudate { margin-left:auto; font-size:.72rem; color:#475569; background:#F1F5F9; padding:2px 9px; border-radius:6px; }' +
       '.ix-fudate.overdue { background:#FEE2E2; color:#991B1B; font-weight:700; }' +
       '.ix-summary { font-weight:600; font-size:.92rem; color:#0F172A; margin-bottom:4px; }' +
@@ -37146,30 +37199,30 @@ window.cmsBuildStaffActivityReport = async function() {
     var html =
       '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width,initial-scale=1.0">' +
-      '<title>Staff Activity — Follow-Up Interactions</title><style>' + styles + '</style></head><body><div class="wrap">' +
+      '<title>Staff Activity — Interactions</title><style>' + styles + '</style></head><body><div class="wrap">' +
       '<header>' +
         '<div class="logo"><img src="https://www.ldahawaii.org/logo_blue.png" alt="LDAH"></div>' +
         '<div class="text">' +
-          '<h1>Staff Activity — Follow-Up Interactions</h1>' +
-          '<div class="sub">Grouped by staff member, then by family. Each interaction shows its full update history.</div>' +
+          '<h1>Staff Activity — Interactions</h1>' +
+          '<div class="sub">Per staff member: open &amp; flagged follow-ups pinned on top, then everything logged in the past 7 days (newest first).</div>' +
           '<div class="meta">' +
-            '<span><b>Range:</b> ' + esc(rangeStartLabel) + ' – ' + esc(todayLabel) + '</span>' +
-            '<span><b>Filter:</b> interactionType = Follow-up</span>' +
+            '<span><b>This week:</b> ' + esc(rangeStartLabel) + ' – ' + esc(todayLabel) + '</span>' +
+            '<span><b>Excludes:</b> Daniel Pellegrini, WBestP IT, IT_Help</span>' +
             '<span><b>Generated:</b> ' + esc(fmtTime({ toDate: function() { return now; } })) + ' HST</span>' +
           '</div>' +
         '</div>' +
       '</header>' +
       calloutHtml +
       '<div class="summary-strip">' +
-        '<div class="stat"><div class="num">' + totalIx + '</div><div class="lbl">Follow-ups</div></div>' +
-        '<div class="stat"><div class="num">' + openCount + '</div><div class="lbl">Open</div></div>' +
-        '<div class="stat"><div class="num">' + closedCount + '</div><div class="lbl">Closed</div></div>' +
-        '<div class="stat"><div class="num">' + staffCount + '</div><div class="lbl">Staff active</div></div>' +
+        '<div class="stat"><div class="num">' + weekCount + '</div><div class="lbl">Logged (7d)</div></div>' +
+        '<div class="stat"><div class="num">' + openFlaggedCount + '</div><div class="lbl">Open flagged</div></div>' +
+        '<div class="stat' + (overdueCount > 0 ? ' warn' : '') + '"><div class="num">' + overdueCount + '</div><div class="lbl">Overdue</div></div>' +
+        '<div class="stat"><div class="num">' + staffCount + '</div><div class="lbl">Staff</div></div>' +
       '</div>' +
-      (totalIx === 0
-        ? '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:30px;text-align:center;color:#64748B;font-style:italic;">No follow-up interactions in the last 30 days.</div>'
+      (ownerKeys.length === 0
+        ? '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:30px;text-align:center;color:#64748B;font-style:italic;">No staff interactions in the past 7 days, and no open flagged follow-ups.</div>'
         : employeesHtml) +
-      '<footer>Generated live from Firestore on ' + esc(now.toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' })) + ' HST. Last 30 days.</footer>' +
+      '<footer>Generated live from Firestore on ' + esc(now.toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' })) + ' HST. Past 7 days, plus all open flagged follow-ups.</footer>' +
       '</div></body></html>';
 
     var win = window.open('', '_blank');
@@ -37179,7 +37232,7 @@ window.cmsBuildStaffActivityReport = async function() {
     }
     win.document.write(html);
     win.document.close();
-    auditLog('Generated Staff Activity Report', totalIx + ' follow-ups across ' + staffCount + ' staff (' + unassignedCount + ' unassigned)');
+    auditLog('Generated Staff Activity Report', weekCount + ' logged (7d), ' + openFlaggedCount + ' open flagged across ' + staffCount + ' staff (' + overdueCount + ' overdue)');
     _showToast('Staff activity report opened in a new tab.', '#16A34A');
   } catch (err) {
     console.error('cmsBuildStaffActivityReport error:', err);
