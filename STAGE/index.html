@@ -4931,6 +4931,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="cmsTeamBoard" data-roles="superAdmin,admin,webAdmin,appAdmin">Team &amp; Board</a>
             <a href="javascript:void(0)" data-section="cmsGalleries" data-roles="superAdmin,admin,webAdmin,appAdmin">Galleries</a>
             <a href="javascript:void(0)" data-section="cmsResources" data-roles="superAdmin,admin,webAdmin,appAdmin">Resources <span class="cms-badge-count" id="resBadge" style="display:none;">0</span></a>
+            <a href="javascript:void(0)" data-section="cmsRecordingArchive" data-roles="superAdmin,admin,webAdmin">Recordings Archive</a>
             <a href="javascript:void(0)" data-section="cmsFaqs" data-roles="superAdmin,admin,webAdmin,appAdmin">FAQs</a>
             <a href="javascript:void(0)" data-section="cmsEvents" data-roles="superAdmin,admin,webAdmin,appAdmin">Events &amp; Programs</a>
             <a href="javascript:void(0)" data-section="cmsVolunteers" data-roles="superAdmin,admin,webAdmin,appAdmin">Volunteers</a>
@@ -5044,7 +5045,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.5.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.5.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7331,6 +7332,22 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="btn btn-primary" id="cmsResourceSaveBtn" onclick="cmsSaveResource()">Save</button>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ── CMS: Recordings Archive ── -->
+    <section id="cmsRecordingArchiveSection" style="display:none;">
+      <div class="cms-sticky-header">
+      <h2>Recordings Archive <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Past Event Recordings &amp; Slides shown to active members in the Member Portal (rolling 12 months).<br><br><b>Remove</b> hides a recording from members immediately (can be restored). <b>Restore</b> makes it visible to members again.')">i</span></h2>
+      </div>
+
+      <div class="cms-toolbar">
+        <input type="text" id="cmsRecArchSearch" placeholder="Search title..." oninput="cmsFilterRecordingArchive(this.value)" style="flex:1;max-width:340px;padding:8px 12px;border:1px solid #CBD5E1;border-radius:6px;font-size:.93rem;">
+        <button class="btn btn-ghost" id="cmsArchiveToggle_recordingArchive" style="font-size:.82rem;" onclick="cmsToggleArchived('recordingArchive')">Show Archived</button>
+      </div>
+
+      <div class="cms-cards" id="cmsRecordingArchiveCards">
+        <div class="cms-empty"><p>Loading recordings...</p></div>
       </div>
     </section>
 
@@ -12381,6 +12398,9 @@ var _photoPendingByIsland = {};
         _showFullWidth(document.getElementById('cmsResourcesSection'), cmsLoadResources);
         if (typeof cmsLoadResourceApplications === 'function') cmsLoadResourceApplications();
         cmsShowAiHelper('Resources');
+      } else if (section === 'cmsRecordingArchive') {
+        _showFullWidth(document.getElementById('cmsRecordingArchiveSection'), cmsLoadRecordingArchive);
+        cmsShowAiHelper('Recordings Archive');
       } else if (section === 'cmsFaqs') {
         _showFullWidth(document.getElementById('cmsFaqsSection'), cmsLoadFaqs);
         cmsShowAiHelper('FAQs');
@@ -21859,6 +21879,7 @@ function cmsToggleArchived(section) {
     case 'volunteers': cmsLoadVolunteers(); break;
     case 'videos': cmsLoadVideos(); break;
     case 'memberResources': cmsLoadMemberResources(); break;
+    case 'recordingArchive': cmsLoadRecordingArchive(); break;
   }
 }
 window.cmsToggleArchived = cmsToggleArchived;
@@ -22685,6 +22706,86 @@ window.cmsFilterResources = function() {
     });
   });
   cmsRenderResources(filtered);
+};
+
+/* ── CMS: Recordings Archive (staff view of member-facing eventRecordings) ── */
+var _cmsRecArchive = [];
+window.cmsLoadRecordingArchive = async function() {
+  var container = document.getElementById('cmsRecordingArchiveCards');
+  if (!container.children.length || container.innerHTML.indexOf('Loading') !== -1)
+    container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
+  try {
+    var snap = await db.collection('eventRecordings').orderBy('eventDate', 'desc').get();
+    _cmsRecArchive = [];
+    snap.forEach(function(doc) {
+      var d = doc.data();
+      if (d.archived !== true || _cmsShowArchived['recordingArchive']) _cmsRecArchive.push({ id: doc.id, ...d });
+    });
+    cmsRenderRecordingArchive(_cmsRecArchive);
+  } catch (err) {
+    container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+function cmsRenderRecordingArchive(items) {
+  var container = document.getElementById('cmsRecordingArchiveCards');
+  if (!items.length) {
+    container.innerHTML = '<div class="cms-empty"><p>No recordings published yet.</p></div>';
+    return;
+  }
+  var html = '';
+  items.forEach(function(r) {
+    var isArchived = r.archived === true;
+    var slidesHtml = r.slidesUrl
+      ? '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.slidesUrl) + '\',\'_blank\')">Slides</button>'
+      : '';
+    html += '<div class="cms-card" data-id="' + rsEscape(r.id) + '"' + (isArchived ? ' style="opacity:0.5;"' : '') + '>' +
+      (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;">Archived</span>' : '') +
+      '<div class="cms-card-title">' + rsEscape(r.eventTitle || 'Untitled') + '</div>' +
+      '<div class="cms-card-subtitle">' + rsEscape(r.eventDate || '') + '</div>';
+    if (r.description) html += '<div class="cms-card-bio">' + rsEscape(r.description) + '</div>';
+    html += '<div class="cms-card-buttons">' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(\'' + rsEscape(r.recordingUrl) + '\',\'_blank\')">Watch</button>' +
+      slidesHtml;
+    if (isArchived) {
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreRecording(\'' + rsEscape(r.id) + '\',\'' + rsEscape(r.eventTitle || '') + '\')">Restore</button>';
+    } else {
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveRecording(\'' + rsEscape(r.id) + '\',\'' + rsEscape(r.eventTitle || '') + '\')">Remove</button>';
+    }
+    html += '</div></div>';
+  });
+  container.innerHTML = html;
+}
+
+window.cmsFilterRecordingArchive = function(q) {
+  q = (q || '').toLowerCase().trim();
+  if (!q) { cmsRenderRecordingArchive(_cmsRecArchive); return; }
+  var filtered = _cmsRecArchive.filter(function(r) {
+    return (r.eventTitle || '').toLowerCase().indexOf(q) !== -1;
+  });
+  cmsRenderRecordingArchive(filtered);
+};
+
+// Remove sets active:false (the member callable requires active==true to
+// surface a recording) AND archived:true (matches the CMS archive convention
+// so it's excluded from the default staff list too). Restore reverses both.
+window.cmsArchiveRecording = async function(docId, title) {
+  if (!confirm('Remove "' + title + '" from the member archive? Members will stop seeing it immediately. This can be undone with Restore.')) return;
+  try {
+    await db.collection('eventRecordings').doc(docId).update({ archived: true, active: false });
+    auditLog('Removed recording from member archive', title);
+    await cmsLoadRecordingArchive();
+    _showToast('Removed from member archive.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+window.cmsRestoreRecording = async function(docId, title) {
+  try {
+    await db.collection('eventRecordings').doc(docId).update({ archived: false, active: true });
+    auditLog('Restored recording to member archive', title);
+    await cmsLoadRecordingArchive();
+    _showToast('Restored to member archive.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
 window.cmsOpenResourceModal = async function(docId) {
