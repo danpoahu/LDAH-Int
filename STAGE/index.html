@@ -5046,7 +5046,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.9.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.10.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7418,9 +7418,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div class="field" style="grid-column: span 2;"><label>Title <span style="color:#DC2626;">*</span></label><input id="cmsRecEditTitle" placeholder="Recording title"></div>
             <div class="field" style="grid-column: span 2;"><label>Description</label><textarea id="cmsRecEditDesc" placeholder="Description..." rows="3"></textarea></div>
             <div class="field" style="grid-column: span 2;">
-              <label>Replace/attach slides (PDF, optional)</label>
-              <div id="cmsRecEditSlidesNow" style="font-size:.85rem;color:#475569;margin-bottom:4px;">Current: no slides</div>
-              <input type="file" id="cmsRecEditSlides" accept="application/pdf,.pdf">
+              <label>Cover flyer / image <span style="font-weight:400;color:#94a3b8;">(shown in the member library)</span></label>
+              <div id="cmsRecEditFlyerPreview" style="margin-bottom:6px;"></div>
+              <input type="file" id="cmsRecEditFlyer" accept="image/*,application/pdf" onchange="cmsRecEditFlyerPicked(this)">
+              <div style="font-size:.75rem;color:#94a3b8;margin-top:3px;">JPG or PNG. A PDF or HEIC flyer is converted to JPG automatically. Leave empty to keep the current image.</div>
+            </div>
+            <div class="field" style="grid-column: span 2;">
+              <label>Files <span style="font-weight:400;color:#94a3b8;">(slides, handouts &mdash; you can attach more than one)</span></label>
+              <div id="cmsRecEditFilesList" style="margin-bottom:6px;"></div>
+              <input type="file" id="cmsRecEditFiles" multiple accept=".pdf,image/*,.doc,.docx,.ppt,.pptx" onchange="cmsRecEditFilesPicked(this)">
+              <div style="font-size:.75rem;color:#94a3b8;margin-top:3px;">PDF, images, or Word/PowerPoint. Pick several at once, or add more one at a time.</div>
             </div>
           </div>
           <div class="modal-actions">
@@ -22952,17 +22959,113 @@ window.cmsRestoreRecording = async function(docId, title) {
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
-// Edit modal: fix a recording's title/description (Zoom-imported recordings
-// arrive with just the raw Zoom topic and no description) and optionally
-// replace/attach the slide PDF.
+// Edit modal for a member-archive recording: title/description, a cover flyer
+// image (the only flyer source for manual entries not linked to an event), and
+// one or more attached files (slides/handouts). Working state lives in
+// _cmsRecEdit so the modal can preview/add/remove before a single Save.
+var _cmsRecEdit = null;
+
+function _cmsRecFileKind(type, name) {
+  var t = String(type || '').toLowerCase(), n = String(name || '').toLowerCase();
+  if (t.indexOf('image/') === 0 || /\.(jpe?g|png|webp|gif|heic)$/.test(n)) return 'image';
+  if (t === 'application/pdf' || /\.pdf$/.test(n)) return 'pdf';
+  if (/word|officedocument\.word|\.docx?$/.test(t + ' ' + n)) return 'doc';
+  if (/presentation|powerpoint|\.pptx?$/.test(t + ' ' + n)) return 'ppt';
+  return 'file';
+}
+function _cmsRecFileThumb(kind, url) {
+  if (kind === 'image' && url) return '<img src="' + rsEscape(url) + '" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #E2E8F0;">';
+  var label = kind === 'pdf' ? 'PDF' : kind === 'doc' ? 'DOC' : kind === 'ppt' ? 'PPT' : (kind === 'image' ? 'IMG' : 'FILE');
+  var color = kind === 'pdf' ? '#DC2626' : kind === 'ppt' ? '#EA580C' : kind === 'doc' ? '#2563EB' : '#64748b';
+  return '<span style="display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:6px;border:1px solid #E2E8F0;background:#F8FAFC;font-size:.62rem;font-weight:800;color:' + color + ';flex:0 0 auto;">' + label + '</span>';
+}
+function cmsRecEditRenderFlyer() {
+  var host = document.getElementById('cmsRecEditFlyerPreview'); if (!host || !_cmsRecEdit) return;
+  var e = _cmsRecEdit, html;
+  if (e.flyerFile) {
+    html = '<div style="display:flex;align-items:center;gap:8px;">' +
+      '<img src="' + URL.createObjectURL(e.flyerFile) + '" alt="" style="width:64px;height:84px;object-fit:cover;border-radius:8px;border:1px solid #E2E8F0;">' +
+      '<span style="font-size:.8rem;color:#16A34A;font-weight:600;">New image ready to save</span>' +
+      '<button type="button" class="btn btn-ghost" style="font-size:.72rem;padding:3px 9px;color:#DC2626;" onclick="cmsRecEditClearFlyerPick()">Undo</button>' +
+      '</div>';
+  } else if (e.flyerUrl && !e.flyerRemoved) {
+    html = '<div style="display:flex;align-items:center;gap:8px;">' +
+      '<img src="' + rsEscape(e.flyerUrl) + '" alt="" style="width:64px;height:84px;object-fit:cover;border-radius:8px;border:1px solid #E2E8F0;">' +
+      '<span style="font-size:.8rem;color:#475569;">Current cover image</span>' +
+      '<button type="button" class="btn btn-ghost" style="font-size:.72rem;padding:3px 9px;color:#DC2626;" onclick="cmsRecEditRemoveFlyer()">Remove</button>' +
+      '</div>';
+  } else if (e.flyerRemoved) {
+    html = '<div style="font-size:.8rem;color:#94a3b8;">Cover image will be removed on save.</div>';
+  } else {
+    html = '<div style="font-size:.8rem;color:#94a3b8;">No cover image' + (e._hasEvent ? ' (the member library will use the linked event flyer).' : ' yet.') + '</div>';
+  }
+  host.innerHTML = html;
+}
+function cmsRecEditRenderFiles() {
+  var host = document.getElementById('cmsRecEditFilesList'); if (!host || !_cmsRecEdit) return;
+  var e = _cmsRecEdit, rows = [];
+  e.files.forEach(function(f, i) {
+    var kind = _cmsRecFileKind(f.type, f.name);
+    rows.push('<div style="display:flex;align-items:center;gap:10px;padding:6px;border:1px solid #EEF2F5;border-radius:8px;margin-bottom:6px;">' +
+      _cmsRecFileThumb(kind, f.url) +
+      '<span style="flex:1;min-width:0;font-size:.82rem;color:#334;word-break:break-all;">' + rsEscape(f.name || 'File') + '</span>' +
+      '<button type="button" class="btn btn-ghost" style="font-size:.72rem;padding:3px 9px;color:#DC2626;flex:0 0 auto;" onclick="cmsRecEditRemoveFile(' + i + ')">Remove</button>' +
+      '</div>');
+  });
+  e.newFiles.forEach(function(f, i) {
+    var kind = _cmsRecFileKind(f.type, f.name);
+    rows.push('<div style="display:flex;align-items:center;gap:10px;padding:6px;border:1px dashed #16A34A;border-radius:8px;margin-bottom:6px;background:#F0FDF4;">' +
+      _cmsRecFileThumb(kind, kind === 'image' ? URL.createObjectURL(f) : '') +
+      '<span style="flex:1;min-width:0;font-size:.82rem;color:#334;word-break:break-all;">' + rsEscape(f.name || 'File') + ' <span style="color:#16A34A;font-weight:600;">(new)</span></span>' +
+      '<button type="button" class="btn btn-ghost" style="font-size:.72rem;padding:3px 9px;color:#DC2626;flex:0 0 auto;" onclick="cmsRecEditRemoveNewFile(' + i + ')">Undo</button>' +
+      '</div>');
+  });
+  host.innerHTML = rows.length ? rows.join('') : '<div style="font-size:.8rem;color:#94a3b8;">No files attached.</div>';
+}
+window.cmsRecEditFlyerPicked = function(input) {
+  var f = input && input.files && input.files[0]; if (!f) return;
+  _cmsRecEdit.flyerFile = f; _cmsRecEdit.flyerRemoved = false; input.value = '';
+  cmsRecEditRenderFlyer();
+};
+window.cmsRecEditClearFlyerPick = function() { _cmsRecEdit.flyerFile = null; cmsRecEditRenderFlyer(); };
+window.cmsRecEditRemoveFlyer = function() { _cmsRecEdit.flyerRemoved = true; _cmsRecEdit.flyerFile = null; cmsRecEditRenderFlyer(); };
+window.cmsRecEditFilesPicked = function(input) {
+  var fs = input && input.files ? Array.prototype.slice.call(input.files) : [];
+  fs.forEach(function(f) { _cmsRecEdit.newFiles.push(f); });
+  input.value = '';
+  cmsRecEditRenderFiles();
+};
+window.cmsRecEditRemoveFile = function(i) {
+  var f = _cmsRecEdit.files.splice(i, 1)[0];
+  if (f && f.path) _cmsRecEdit.removedPaths.push(f.path);
+  cmsRecEditRenderFiles();
+};
+window.cmsRecEditRemoveNewFile = function(i) { _cmsRecEdit.newFiles.splice(i, 1); cmsRecEditRenderFiles(); };
+
 window.cmsOpenRecEditModal = function(docId) {
   var r = (_cmsRecArchive || []).find(function(x) { return x.id === docId; });
   var apply = function(rec) {
+    var files = Array.isArray(rec.files) && rec.files.length
+      ? rec.files.map(function(f) { return { url: f.url || '', path: f.path || '', name: f.name || 'File', type: f.type || '' }; })
+      : (rec.slidesUrl ? [{ url: rec.slidesUrl, path: rec.slidesStoragePath || '', name: 'Slides.pdf', type: 'application/pdf' }] : []);
+    _cmsRecEdit = {
+      docId: docId,
+      flyerUrl: rec.flyerUrl || '',
+      flyerPath: rec.flyerStoragePath || '',
+      flyerFile: null,
+      flyerRemoved: false,
+      _hasEvent: !!rec.eventId,
+      files: files,
+      newFiles: [],
+      removedPaths: [],
+    };
     document.getElementById('cmsRecEditId').value = docId;
     document.getElementById('cmsRecEditTitle').value = rec.eventTitle || '';
     document.getElementById('cmsRecEditDesc').value = rec.description || '';
-    document.getElementById('cmsRecEditSlides').value = '';
-    document.getElementById('cmsRecEditSlidesNow').textContent = rec.slidesUrl ? 'Current: slides attached' : 'Current: no slides';
+    var fi = document.getElementById('cmsRecEditFlyer'); if (fi) fi.value = '';
+    var xi = document.getElementById('cmsRecEditFiles'); if (xi) xi.value = '';
+    cmsRecEditRenderFlyer();
+    cmsRecEditRenderFiles();
     document.getElementById('cmsRecEditOverlay').classList.add('active');
     setTimeout(function() { document.getElementById('cmsRecEditTitle').focus(); }, 50);
   };
@@ -22974,34 +23077,72 @@ window.cmsCloseRecEditModal = function() {
   document.getElementById('cmsRecEditOverlay').classList.remove('active');
 };
 
+function _cmsGuessContentType(file) {
+  if (file.type) return file.type;
+  var n = String(file.name || '').toLowerCase();
+  if (/\.pdf$/.test(n)) return 'application/pdf';
+  if (/\.png$/.test(n)) return 'image/png';
+  if (/\.jpe?g$/.test(n)) return 'image/jpeg';
+  if (/\.webp$/.test(n)) return 'image/webp';
+  if (/\.docx$/.test(n)) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (/\.pptx$/.test(n)) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (/\.doc$/.test(n)) return 'application/msword';
+  if (/\.ppt$/.test(n)) return 'application/vnd.ms-powerpoint';
+  return 'application/octet-stream';
+}
+
 window.cmsSaveRecEdit = async function() {
+  if (!_cmsRecEdit) return;
+  var e = _cmsRecEdit;
   var docId = document.getElementById('cmsRecEditId').value;
   var title = (document.getElementById('cmsRecEditTitle').value || '').trim();
   var desc = (document.getElementById('cmsRecEditDesc').value || '').trim();
   if (!title) { _showToast('Title is required.', '#DC2626'); return; }
-  var update = { eventTitle: title, description: desc };
-  var fileInput = document.getElementById('cmsRecEditSlides');
-  var file = fileInput && fileInput.files && fileInput.files[0];
+  _showToast('Saving...', '#0891B2');
   try {
-    if (file) {
-      var safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      var path = 'recordingsArchive/' + docId + '/' + Date.now() + '_' + safe;
-      var ref = firebase.storage().ref(path);
-      await ref.put(file, { contentType: 'application/pdf' });
-      update.slidesUrl = await ref.getDownloadURL();
-      // best-effort: delete the previously-stored slide file if it was in Storage
-      var prev = (_cmsRecArchive || []).find(function(x) { return x.id === docId; });
-      var oldPath = prev && prev.slidesStoragePath;
-      update.slidesStoragePath = path;
-      if (oldPath && oldPath !== path) { try { await firebase.storage().ref(oldPath).delete(); } catch (e) {} }
+    var update = { eventTitle: title, description: desc };
+
+    // ── Cover flyer image ──
+    if (e.flyerFile) {
+      var fj = await _cmsFlyerToJpeg(e.flyerFile);
+      var fSafe = String(fj.name || 'flyer.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
+      var fPath = 'recordingsArchive/' + docId + '/flyer_' + Date.now() + '_' + fSafe;
+      var fRef = firebase.storage().ref(fPath);
+      await fRef.put(fj, { contentType: 'image/jpeg' });
+      update.flyerUrl = await fRef.getDownloadURL();
+      update.flyerStoragePath = fPath;
+      if (e.flyerPath && e.flyerPath !== fPath) { try { await firebase.storage().ref(e.flyerPath).delete(); } catch (x) {} }
+    } else if (e.flyerRemoved) {
+      update.flyerUrl = ''; update.flyerStoragePath = '';
+      if (e.flyerPath) { try { await firebase.storage().ref(e.flyerPath).delete(); } catch (x) {} }
     }
+
+    // ── Files: keep existing, upload new, delete removed ──
+    var finalFiles = e.files.slice();
+    for (var i = 0; i < e.newFiles.length; i++) {
+      var nf = e.newFiles[i];
+      var ct = _cmsGuessContentType(nf);
+      var safe = String(nf.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+      var path = 'recordingsArchive/' + docId + '/' + Date.now() + '_' + i + '_' + safe;
+      var ref = firebase.storage().ref(path);
+      await ref.put(nf, { contentType: ct });
+      finalFiles.push({ url: await ref.getDownloadURL(), path: path, name: nf.name || 'File', type: ct });
+    }
+    for (var j = 0; j < e.removedPaths.length; j++) {
+      if (e.removedPaths[j]) { try { await firebase.storage().ref(e.removedPaths[j]).delete(); } catch (x) {} }
+    }
+    update.files = finalFiles;
+    // Backward-compat mirror so any legacy reader still finds the primary file.
+    update.slidesUrl = finalFiles.length ? finalFiles[0].url : '';
+    update.slidesStoragePath = finalFiles.length ? (finalFiles[0].path || '') : '';
+
     await db.collection('eventRecordings').doc(docId).update(update);
     auditLog('Edited member archive recording', title);
     cmsCloseRecEditModal();
     cmsLoadRecordingArchive();
     _showToast('Recording updated.', '#16A34A');
-  } catch (e) {
-    _showToast('Save failed: ' + e.message, '#DC2626');
+  } catch (err) {
+    _showToast('Save failed: ' + (err && err.message ? err.message : 'unknown error'), '#DC2626');
   }
 };
 
