@@ -5040,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.15.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.16.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22050,11 +22050,13 @@ window.cmsCopyText = function(text, label) {
   }
 };
 
+var _cmsZoomRecs = [];
 function cmsRenderZoomRecordings(items) {
+  _cmsZoomRecs = items || [];
   var container = document.getElementById('cmsZoomRecordingsCards');
   if (!items.length) { container.innerHTML = '<div class="cms-empty"><p>No Zoom cloud recordings found in the last 120 days.</p></div>'; return; }
   var html = '';
-  items.forEach(function(r) {
+  items.forEach(function(r, i) {
     var meta = rsEscape(r.eventDate || '') + ' &middot; ' + rsEscape(String(r.durationMin || 0)) + ' min &middot; ' + rsEscape(String(r.sizeMb || 0)) + ' MB &middot; ' + rsEscape(r.recordingType || '');
     var action = r.alreadyPublished
       ? '<span style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:.72rem;font-weight:700;border-radius:12px;padding:3px 10px;">In member archive</span>'
@@ -22075,15 +22077,49 @@ function cmsRenderZoomRecordings(items) {
       share += '</div>';
     }
 
+    // AI meeting summary (populates once the Zoom meeting_summary scope is added).
+    var summaryBlock = '';
+    if (r.summaryText) {
+      summaryBlock += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #EEF2F5;">';
+      summaryBlock += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<span style="font-size:.72rem;font-weight:700;color:#7C3AED;text-transform:uppercase;letter-spacing:.03em;flex:0 0 auto;">AI meeting summary</span>' +
+        '<button class="btn btn-ghost" style="font-size:.74rem;padding:4px 10px;color:#7C3AED;flex:0 0 auto;" onclick="event.stopPropagation();cmsToggleZoomSummary(' + i + ')">Show / hide</button>' +
+        '<button class="btn btn-ghost" style="font-size:.74rem;padding:4px 10px;color:#0891B2;flex:0 0 auto;" onclick="event.stopPropagation();cmsCopyZoomSummary(' + i + ')">Copy</button>' +
+        (r.alreadyPublished ? '<button class="btn btn-ghost" style="font-size:.74rem;padding:4px 10px;color:#16A34A;flex:0 0 auto;" onclick="event.stopPropagation();cmsUseSummaryAsDesc(' + i + ')">Use as member description</button>' : '') +
+        '</div>';
+      summaryBlock += '<div id="cmsZoomSum' + i + '" style="display:none;margin-top:8px;font-size:.82rem;color:#334;white-space:pre-wrap;background:#FAF9FF;border:1px solid #EDE9FE;border-radius:8px;padding:10px 12px;max-height:280px;overflow:auto;">' + rsEscape(r.summaryText) + '</div>';
+      if (!r.alreadyPublished) summaryBlock += '<div style="font-size:.7rem;color:#94a3b8;margin-top:4px;">Publish to the member archive first to use this as its member description.</div>';
+      summaryBlock += '</div>';
+    }
+
     html += '<div class="cms-card">' +
       '<div class="cms-card-title">' + rsEscape(r.topic || 'Zoom recording') + '</div>' +
       '<div class="cms-card-subtitle">' + meta + '</div>' +
       share +
+      summaryBlock +
       '<div class="cms-card-buttons" style="margin-top:10px;">' + action + '</div>' +
     '</div>';
   });
   container.innerHTML = html;
 }
+window.cmsToggleZoomSummary = function(i) {
+  var el = document.getElementById('cmsZoomSum' + i);
+  if (el) el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+};
+window.cmsCopyZoomSummary = function(i) {
+  var r = _cmsZoomRecs[i]; if (r && r.summaryText) cmsCopyText(r.summaryText, 'Summary');
+};
+window.cmsUseSummaryAsDesc = async function(i) {
+  var r = _cmsZoomRecs[i];
+  if (!r || !r.summaryText) return;
+  if (!r.publishedRecordingId) { _showToast('Publish this recording to the archive first, then use its summary.', '#D97706'); return; }
+  if (!confirm('Set this recording\'s member-facing description to the AI summary?\n\nYou can still edit it afterward in Recordings Archive.')) return;
+  try {
+    await db.collection('eventRecordings').doc(r.publishedRecordingId).update({ description: r.summaryText });
+    auditLog('Used AI summary as recording description', r.topic || '');
+    _showToast('Member description updated from the AI summary.', '#16A34A');
+  } catch (e) { _showToast('Update failed: ' + (e && e.message ? e.message : 'error'), '#DC2626'); }
+};
 
 window.cmsPublishZoomRecording = async function(uuid, topic) {
   if (!confirm('Publish "' + topic + '" to the member archive?\n\nThe video will be copied to Google Drive — this can take a minute or two for a large recording. Keep this tab open.')) return;
