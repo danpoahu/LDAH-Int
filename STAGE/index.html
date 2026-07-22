@@ -5046,7 +5046,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.11.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.12.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23206,6 +23206,7 @@ function cmsRenderZoomRecordings(items) {
         '<button class="btn btn-ghost" style="font-size:.74rem;padding:4px 10px;color:#7C3AED;flex:0 0 auto;" onclick="event.stopPropagation();cmsToggleZoomSummary(' + i + ')">Show / hide</button>' +
         '<button class="btn btn-ghost" style="font-size:.74rem;padding:4px 10px;color:#0891B2;flex:0 0 auto;" onclick="event.stopPropagation();cmsCopyZoomSummary(' + i + ')">Copy</button>' +
         (r.alreadyPublished ? '<button class="btn btn-ghost" style="font-size:.74rem;padding:4px 10px;color:#16A34A;flex:0 0 auto;" onclick="event.stopPropagation();cmsUseSummaryAsDesc(' + i + ')">Use as member description</button>' : '') +
+        '<button class="btn btn-ghost" style="font-size:.74rem;padding:4px 10px;color:#7C3AED;flex:0 0 auto;" onclick="event.stopPropagation();cmsPublishSummaryToMembers(' + i + ')">Publish to member recaps</button>' +
         '</div>';
       summaryBlock += '<div id="cmsZoomSum' + i + '" style="display:none;margin-top:8px;font-size:.82rem;color:#334;white-space:pre-wrap;background:#FAF9FF;border:1px solid #EDE9FE;border-radius:8px;padding:10px 12px;max-height:280px;overflow:auto;">' + rsEscape(r.summaryText) + '</div>';
       if (!r.alreadyPublished) summaryBlock += '<div style="font-size:.7rem;color:#94a3b8;margin-top:4px;">Publish to the member archive first to use this as its member description.</div>';
@@ -23239,6 +23240,37 @@ window.cmsUseSummaryAsDesc = async function(i) {
     auditLog('Used AI summary as recording description', r.topic || '');
     _showToast('Member description updated from the AI summary.', '#16A34A');
   } catch (e) { _showToast('Update failed: ' + (e && e.message ? e.message : 'error'), '#DC2626'); }
+};
+
+// Publish an AI recap to the member-facing "AI Summaries" page (memberSummaries
+// collection). Staff-only, explicit — this is the ONLY path a summary reaches
+// members, so private/internal meetings never leak.
+window.cmsPublishSummaryToMembers = async function(i) {
+  var r = _cmsZoomRecs[i];
+  if (!r || !r.summary) { _showToast('No AI summary on this recording to publish.', '#D97706'); return; }
+  var defTitle = String(r.topic || 'Learning Lab recap').trim();
+  var title = prompt('Title for the member recap (this is what members see on the AI Summaries page):', defTitle);
+  if (title === null) return;
+  title = (title || '').trim() || defTitle;
+  var s = r.summary;
+  var keyPoints = (s.details || []).map(function(d){ return (d.label ? d.label + ': ' : '') + d.text; });
+  try {
+    await db.collection('memberSummaries').add({
+      title: title,
+      eventDate: r.eventDate || '',
+      overview: s.overview || '',
+      keyPoints: keyPoints,
+      nextSteps: s.nextSteps || [],
+      active: true,
+      archived: false,
+      zoomMeetingUuid: r.uuid || '',
+      publishedRecordingId: r.publishedRecordingId || '',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'staff'
+    });
+    auditLog('Published AI recap to members', title);
+    _showToast('Recap published to the member AI Summaries page.', '#16A34A');
+  } catch (e) { _showToast('Publish failed: ' + (e && e.message ? e.message : 'error'), '#DC2626'); }
 };
 
 window.cmsPublishZoomRecording = async function(uuid, topic) {
