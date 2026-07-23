@@ -5046,7 +5046,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.12.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.13.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12015,6 +12015,36 @@ var _photoPendingByIsland = {};
   }
 
   // ── Auth State Listener ──
+  // ── System-failure red banner (reliable, no-email channel) ──
+  var _sysAlertUnsub = null;
+  function _setupSystemAlertBanner() {
+    try {
+      if (_sysAlertUnsub) return;
+      _sysAlertUnsub = db.collection('systemAlerts').where('acknowledged', '==', false).onSnapshot(function (snap) {
+        var items = [];
+        snap.forEach(function (d) { items.push(Object.assign({ id: d.id }, d.data())); });
+        items.sort(function (a, b) { var am = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0; var bm = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0; return bm - am; });
+        _renderSystemAlertBanner(items);
+      }, function (err) { console.warn('systemAlerts listener:', err.message); });
+    } catch (e) { console.warn('_setupSystemAlertBanner:', e.message); }
+  }
+  function _renderSystemAlertBanner(items) {
+    var host = document.getElementById('sysAlertBanner');
+    if (!host) { host = document.createElement('div'); host.id = 'sysAlertBanner'; host.style.cssText = 'position:sticky;top:0;z-index:99999;'; document.body.insertBefore(host, document.body.firstChild); }
+    if (!items.length) { host.innerHTML = ''; return; }
+    host.innerHTML = items.map(function (a) {
+      return '<div style="background:#DC2626;color:#fff;padding:12px 18px;display:flex;align-items:flex-start;gap:14px;box-shadow:0 3px 12px rgba(0,0,0,.25);">' +
+        '<span style="font-size:1.3rem;line-height:1.1;">&#9888;</span>' +
+        '<div style="flex:1;min-width:0;"><div style="font-weight:800;font-size:1rem;">' + rsEscape(a.subject || 'System alert') + '</div>' +
+        '<div style="font-size:.85rem;opacity:.95;margin-top:3px;">Check <strong>Admin &rarr; Email Log</strong>. This alarm was also emailed to Daniel &amp; Rosie.</div></div>' +
+        '<button onclick="_ackSystemAlert(' + _jsArg(a.id) + ')" style="background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.55);color:#fff;border-radius:8px;padding:6px 14px;font-weight:700;cursor:pointer;flex:0 0 auto;">Dismiss</button>' +
+        '</div>';
+    }).join('');
+  }
+  window._ackSystemAlert = function (id) {
+    db.collection('systemAlerts').doc(id).update({ acknowledged: true, acknowledgedAt: firebase.firestore.FieldValue.serverTimestamp(), acknowledgedBy: (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'staff' }).catch(function (e) { console.warn('ack failed:', e.message); });
+  };
+
   auth.onAuthStateChanged(async (user) => {
     if (user) {
       try {
@@ -12033,6 +12063,7 @@ var _photoPendingByIsland = {};
             alertPrefs: roleDoc.data().alertPrefs || null,
             alertSubs: roleDoc.data().alertSubs || {}
           };
+          _setupSystemAlertBanner();
           // Real-time listener: keep currentUserData in sync with Firestore changes
           _userRolesUnsubscribe = db.collection('userRoles').doc(user.uid).onSnapshot(function(snap) {
             if (!snap.exists || !currentUserData) return;
