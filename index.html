@@ -5040,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.22.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.23.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7559,6 +7559,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <button class="cms-tab active" onclick="cmsSwitchEventsTab('events')">One-Time Events <span class="cms-ib cms-ib-light" onclick="event.stopPropagation();cmsIbShow(this,'Single-date events with a specific start and end date. Great for workshops, trainings, and special events.')">i</span></button>
         <button class="cms-tab" onclick="cmsSwitchEventsTab('programs')">Ongoing Programs <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Recurring programs with weekly or monthly schedules. Parents see the next 30 days of sessions when signing up.')">i</span></button>
         <button class="cms-tab" onclick="cmsSwitchEventsTab('special')">Special <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Special events are one-time outreach where LDAH staffs a booth/table at someone else&apos;s event. Each has its own QR-triggered signup form (never shown on the public website). Turn on <b>Screening</b> to collect the full screening-consent form for Chassidy&apos;s report.')">i</span></button>
+        <button class="cms-tab" onclick="cmsSwitchEventsTab('flyers')">Flyers <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Flyers (Information items) are announcement-only cards with a flyer image and no signups. A flyer <b>with</b> an image shows in the home page News &amp; Information section; <b>without</b> an image it appears on the events calendar only. Includes recurring flyer-only items and one-time information events.')">i</span></button>
       </div>
       </div>
 
@@ -7592,6 +7593,17 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         </div>
         <div class="cms-cards" id="cmsSpecialCards">
           <div class="cms-empty"><p>Loading special events...</p></div>
+        </div>
+      </div>
+
+      <!-- Flyers Tab (information items: recurring flyerOnly + one-time infoOnly, no signups) -->
+      <div id="cmsFlyersTabPane" style="display:none;">
+        <div class="cms-toolbar">
+          <button class="btn btn-primary" onclick="cmsOpenEventModal(null, false, false, true)">Add Flyer</button>
+          <button class="btn btn-ghost" id="cmsArchiveToggle_flyers" style="font-size:.82rem;" onclick="cmsToggleArchived('flyers')">Show Archived</button>
+        </div>
+        <div class="cms-cards" id="cmsFlyersCards">
+          <div class="cms-empty"><p>Loading flyers...</p></div>
         </div>
       </div>
 
@@ -21816,6 +21828,7 @@ function cmsToggleArchived(section) {
     case 'events': cmsLoadEvents(true); break;
     case 'programs': cmsLoadPrograms(true); break;
     case 'special': cmsLoadSpecial(true); break;
+    case 'flyers': cmsLoadFlyers(true); break;
     case 'volunteers': cmsLoadVolunteers(); break;
     case 'videos': cmsLoadVideos(); break;
     case 'recordingArchive': cmsLoadRecordingArchive(); break;
@@ -24049,9 +24062,11 @@ window.cmsExportFaqsCsv = function() {
 var _cmsEvents = [];
 var _cmsPrograms = [];
 var _cmsSpecial = [];
+var _cmsFlyers = [];
 var _cmsEventsLoadedAt = 0;
 var _cmsProgramsLoadedAt = 0;
 var _cmsSpecialLoadedAt = 0;
+var _cmsFlyersLoadedAt = 0;
 var _cmsSpecialConfig = null; // Form Builder state for the currently-open special-event modal
 var _cmsCacheTTL = 60000; // 60s cache — navigating back won't re-fetch
 var _cmsSignupsModalData = { eventId: null, isRecurring: false, eventTitle: '', signups: [] };
@@ -24068,11 +24083,13 @@ function cmsSwitchEventsTab(tab) {
   document.getElementById('cmsEventsTabPane').style.display = tab === 'events' ? '' : 'none';
   document.getElementById('cmsProgramsTabPane').style.display = tab === 'programs' ? '' : 'none';
   document.getElementById('cmsSpecialTabPane').style.display = tab === 'special' ? '' : 'none';
+  document.getElementById('cmsFlyersTabPane').style.display = tab === 'flyers' ? '' : 'none';
   document.querySelectorAll('#cmsEventsTabs .cms-tab').forEach(function(b, i) {
-    b.classList.toggle('active', (tab === 'events' && i === 0) || (tab === 'programs' && i === 1) || (tab === 'special' && i === 2));
+    b.classList.toggle('active', (tab === 'events' && i === 0) || (tab === 'programs' && i === 1) || (tab === 'special' && i === 2) || (tab === 'flyers' && i === 3));
   });
   if (tab === 'programs') cmsLoadPrograms();
   if (tab === 'special') cmsLoadSpecial();
+  if (tab === 'flyers') cmsLoadFlyers();
 }
 
 window.cmsLoadEvents = async function(forceRefresh) {
@@ -24097,6 +24114,8 @@ window.cmsLoadEvents = async function(forceRefresh) {
       // the Special tab — exclude them here. A missing field (!== true) still
       // shows in One-Time, so legacy/normal events are unaffected.
       if (d.specialEvent === true) return;
+      // Info/flyer one-time events belong to the Flyers tab now — exclude here.
+      if (d.infoOnly === true) return;
       if (d.archived !== true || _cmsShowArchived['events']) _cmsEvents.push({ id: doc.id, ...d });
     });
     _cmsEvents.sort(function(a, b) { return (b.eventDate || '').localeCompare(a.eventDate || ''); });
@@ -24155,6 +24174,9 @@ window.cmsLoadPrograms = async function(forceRefresh) {
     _cmsPrograms = [];
     snap.forEach(function(doc) {
       var d = doc.data();
+      // Flyer-only recurring items belong to the Flyers tab now — only real
+      // programs (with schedules, e.g. Connect-Gen) show here.
+      if (d.flyerOnly === true) return;
       if (d.archived !== true || _cmsShowArchived['programs']) _cmsPrograms.push({ id: doc.id, ...d });
     });
     _cmsPrograms.sort(function(a, b) { return (b.startDate || '').localeCompare(a.startDate || ''); });
@@ -24245,6 +24267,72 @@ window.cmsLoadSpecial = async function(forceRefresh) {
     container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
   }
 };
+
+// Flyers / Information items = announcement-only cards with no signups. Reorg of
+// EXISTING data (no new flag): recurringEvents.flyerOnly==true OR events.infoOnly==true.
+// Merged into one list; each item tagged _flyerIsRecurring so the shared card
+// renderer receives the correct isRecurring/collection per item.
+window.cmsLoadFlyers = async function(forceRefresh) {
+  var container = document.getElementById('cmsFlyersCards');
+  if (!forceRefresh && _cmsFlyers.length && (Date.now() - _cmsFlyersLoadedAt < _cmsCacheTTL)) {
+    cmsRenderFlyers(_cmsFlyers, container);
+    cmsSetTabBadge('cmsEventsTabs', 3, 0);
+    return;
+  }
+  container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
+  try {
+    var results = await Promise.all([
+      db.collection('recurringEvents').where('flyerOnly', '==', true).get(),
+      db.collection('events').where('infoOnly', '==', true).get()
+    ]);
+    _cmsFlyers = [];
+    results[0].forEach(function(doc) {
+      var d = doc.data();
+      if (d.archived !== true || _cmsShowArchived['flyers']) _cmsFlyers.push({ id: doc.id, ...d, _flyerIsRecurring: true });
+    });
+    results[1].forEach(function(doc) {
+      var d = doc.data();
+      if (d.specialEvent === true) return; // never a flyer
+      if (d.archived !== true || _cmsShowArchived['flyers']) _cmsFlyers.push({ id: doc.id, ...d, _flyerIsRecurring: false });
+    });
+    // Active first (by active flag), then newest by date (eventDate or startDate).
+    _cmsFlyers.sort(function(a, b) {
+      var aAct = (a.active === false) ? 1 : 0, bAct = (b.active === false) ? 1 : 0;
+      return aAct - bAct || (b.eventDate || b.startDate || '').localeCompare(a.eventDate || a.startDate || '');
+    });
+    _cmsFlyersLoadedAt = Date.now();
+    cmsRenderFlyers(_cmsFlyers, container);
+    cmsSetTabBadge('cmsEventsTabs', 3, 0); // flyers have no pending signups
+  } catch (err) {
+    container.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Error: ' + rsEscape(err.message) + '</div>';
+  }
+};
+
+// Flyer list renderer — reuses cmsRenderEventCard per item with the correct
+// isRecurring (recurringEvents flyers vs one-time infoOnly), which cmsRenderEvents
+// can't do because it assumes a single collection for the whole list.
+function cmsRenderFlyers(items, container) {
+  if (!items.length) {
+    container.innerHTML = '<div class="cms-empty"><p>No flyers yet. Click "Add Flyer" to get started.</p></div>';
+    return;
+  }
+  var active = items.filter(function(ev) { return ev.archived !== true; });
+  var archived = items.filter(function(ev) { return ev.archived === true; });
+  function _cardFor(ev) {
+    var rec = ev._flyerIsRecurring === true;
+    return cmsRenderEventCard(ev, rec ? 'recurringEvents' : 'events', rec);
+  }
+  var html = '';
+  if (active.length > 0) {
+    html += '<div style="grid-column:1/-1;font-size:.85rem;font-weight:700;color:#004E7C;padding:4px 0 0;display:flex;align-items:center;gap:8px;"><span style="display:inline-block;width:8px;height:8px;background:#F59E0B;border-radius:50%;"></span> Flyers (' + active.length + ')</div>';
+    active.forEach(function(ev) { html += _cardFor(ev); });
+  }
+  if (archived.length > 0) {
+    html += '<div style="grid-column:1/-1;border-top:2px solid #d1d5db;margin:8px 0 0;padding-top:8px;font-size:.85rem;font-weight:700;color:#94A3B8;display:flex;align-items:center;gap:8px;"><span style="display:inline-block;width:8px;height:8px;background:#cbd5e1;border-radius:50%;"></span> Archived (' + archived.length + ')</div>';
+    archived.forEach(function(ev) { html += _cardFor(ev); });
+  }
+  container.innerHTML = html;
+}
 
 function cmsRenderEvents(items, container, isRecurring) {
   if (!items.length) {
@@ -24363,6 +24451,9 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
   var html = '';
   {
     var isArchived = ev.archived === true;
+    // Flyer / information item (recurring flyerOnly OR one-time infoOnly) — no
+    // signups; only shows in the Flyers tab. Suppress signup-oriented controls.
+    var _isFlyerCard = ev.flyerOnly === true || ev.infoOnly === true;
     var dateStr = isRecurring
       ? (ev.startDate ? 'Starts: ' + rsEscape(ev.startDate) : '')
       : (ev.eventDate ? rsEscape(ev.eventDate) : '');
@@ -24372,8 +24463,8 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
         ? '<div style="padding:8px;background:#f0f0f0;border-radius:10px;margin-bottom:10px;font-size:.85rem;">PDF Flyer attached</div>'
         : '<img src="' + rsEscape(ev.imageUrl) + '" alt="' + rsEscape(ev.title || '') + '" style="width:100%;height:140px;object-fit:cover;border-radius:10px;margin-bottom:10px;">')
       : '';
-    var badgeHtml = '<span style="display:inline-block;background:#0891B2;color:#fff;font-size:.75rem;font-weight:600;border-radius:20px;padding:2px 10px;margin-left:6px;">' + (ev._signupCount || 0) + ' signups</span>';
-    if (ev._pendingCount > 0) {
+    var badgeHtml = _isFlyerCard ? '' : '<span style="display:inline-block;background:#0891B2;color:#fff;font-size:.75rem;font-weight:600;border-radius:20px;padding:2px 10px;margin-left:6px;">' + (ev._signupCount || 0) + ' signups</span>';
+    if (!_isFlyerCard && ev._pendingCount > 0) {
       badgeHtml += '<span style="display:inline-block;background:#DC2626;color:#fff;font-size:.75rem;font-weight:600;border-radius:20px;padding:2px 10px;margin-left:4px;cursor:pointer;" onclick="event.stopPropagation();cmsViewSignups(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',\'' + cmsJsArg(ev.title || '') + '\')">' + ev._pendingCount + ' pending</span>';
     }
     // Active/Inactive badge for programs
@@ -24390,11 +24481,13 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
       var _kindColor = ev.specialKind === 'screening' ? '#7C3AED' : '#0D9488';
       specialBadge = '<span style="display:inline-block;background:' + _kindColor + ';color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-left:6px;">' + _kindLabel + '</span>';
     }
+    // Flyer kind badge
+    var flyerBadge = _isFlyerCard ? '<span style="display:inline-block;background:#F59E0B;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-left:6px;">Flyer</span>' : '';
     var expiredStyle = isExpired ? 'opacity:0.55;filter:grayscale(40%);' : '';
     html += '<div class="cms-card" data-id="' + rsEscape(ev.id) + '" style="display:flex;flex-direction:column;' + (isArchived ? 'opacity:0.5;' : expiredStyle || (isRecurring && ev.active === false ? 'opacity:0.6;' : '')) + '">' +
       (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;">Archived</span>' : '') +
       imgHtml +
-      '<div class="cms-card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + rsEscape(ev.title || '') + badgeHtml + activeBadge + specialBadge + '</div>';
+      '<div class="cms-card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + rsEscape(ev.title || '') + badgeHtml + activeBadge + specialBadge + flyerBadge + '</div>';
     if (dateStr) html += '<div class="cms-card-subtitle">' + dateStr + (ev.time ? ' &bull; ' + rsEscape(ev.time) : '') + '</div>';
     if (ev.location) html += '<div class="cms-card-subtitle">' + rsEscape(ev.location) + '</div>';
     // Schedule summary for recurring programs
@@ -24416,8 +24509,11 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
       html += '<div class="cms-card-subtitle" style="font-style:italic;color:#F59E0B;">Flyer Only (no sign-up)</div>';
     }
     html += '<div class="cms-card-buttons">' +
-      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenEventModal(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',' + (_isSpecialCard ? 'true' : 'false') + ')">Edit</button>' +
-      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsViewSignups(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',\'' + cmsJsArg(ev.title || '') + '\')">View Signups</button>';
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenEventModal(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',' + (_isSpecialCard ? 'true' : 'false') + ')">Edit</button>';
+    // Flyers have no signups — suppress the View Signups control.
+    if (!_isFlyerCard) {
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsViewSignups(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',\'' + cmsJsArg(ev.title || '') + '\')">View Signups</button>';
+    }
     // Special event: copy the QR signup-form link (live special.html).
     if (_isSpecialCard) {
       var _specialUrl = 'https://www.ldahawaii.org/special.html?eventId=' + ev.id;
@@ -24433,12 +24529,13 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     }
     // Future Dates — recurring programs only, lets staff pre-cancel sessions
     // weeks/months out (vacations, holidays). Hidden when archived/expired.
-    if (isRecurring && !isArchived && !isExpired) {
+    // Flyers have no sessions.
+    if (isRecurring && !isArchived && !isExpired && !_isFlyerCard) {
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenFutureDates(\'' + rsEscape(ev.id) + '\',\'' + cmsJsArg(ev.title || '') + '\')">Future Dates</button>';
     }
-    // superAdmin-only Send Announcement button (hidden for archived/expired and
-    // for special events — those are booth captures, not public mailings).
-    if (!isArchived && !isExpired && !_isSpecialCard && window.currentUserData && window.currentUserData.role === 'superAdmin') {
+    // superAdmin-only Send Announcement button (hidden for archived/expired,
+    // special events (booth captures), and flyers (info-only, no mailing)).
+    if (!isArchived && !isExpired && !_isSpecialCard && !_isFlyerCard && window.currentUserData && window.currentUserData.role === 'superAdmin') {
       var announcedLabel = ev.announcementSent ? 'Re-send Announcement' : 'Send Announcement';
       var announcedColor = ev.announcementSent ? '#94A3B8' : '#0891B2';
       html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + cmsJsArg(ev.title || '') + '\')">' + announcedLabel + '</button>';
@@ -24452,7 +24549,7 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     //   so we use _rsParseSessionDate (which tolerates the irregular spacing)
     //   instead of an ISO regex. Pass the verbatim string as sessionDate —
     //   that's the canonical key for recordingEmailSent + sessionAttendance.
-    if (!isRecurring && !isArchived && !isExpired && !_isSpecialCard) {
+    if (!isRecurring && !isArchived && !isExpired && !_isSpecialCard && !_isFlyerCard) {
       var _evDates = Array.isArray(ev.signupDates) ? ev.signupDates : [];
       var _isMulti = _evDates.length > 1;
       if (_isMulti) {
@@ -25007,12 +25104,13 @@ window.cmsPrintSpecialQR = function(){
   w.document.close();
 };
 
-window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial) {
+window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer) {
   var isRec = !!isRecurring;
   var isSpec = !!isSpecial; // may also be turned on below after the doc loads
+  var isFly = !!isFlyer;    // may also be turned on below after the doc loads (infoOnly)
   document.getElementById('cmsEventModalTitle').textContent = docId
-    ? (isSpec ? 'Edit Special Event' : (isRec ? 'Edit Program' : 'Edit Event'))
-    : (isSpec ? 'Add Special Event' : (isRec ? 'Add Program' : 'Add Event'));
+    ? (isSpec ? 'Edit Special Event' : (isFly ? 'Edit Flyer' : (isRec ? 'Edit Program' : 'Edit Event')))
+    : (isSpec ? 'Add Special Event' : (isFly ? 'Add Flyer' : (isRec ? 'Add Program' : 'Add Event')));
   document.getElementById('cmsEventEditId').value = docId || '';
   document.getElementById('cmsEventEditIsRecurring').value = isRec ? '1' : '0';
   document.getElementById('cmsEventEditIsSpecial').value = isSpec ? '1' : '0';
@@ -25041,6 +25139,19 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial) {
     });
   }
   _cmsApplyModeVisibility(isSpec);
+
+  // Flyer / info mode: a one-time event with no signups. Hide the signup-oriented
+  // one-time controls (signup dates, custom questions, group, Source, and the
+  // info-only checkbox row itself — it's forced on) and force infoOnly=true.
+  // Keeps: title, description, image, eventDate/time/location, showing dates.
+  function _cmsApplyFlyerVisibility(flyer) {
+    if (!flyer) return;
+    ['cmsEventInfoOnlyRow', 'cmsEventSignupDatesRow', 'cmsEventCustomQRow', 'cmsEventGroupFieldRow', 'cmsEventSourceRow'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    document.getElementById('cmsEventInfoOnly').checked = true;
+  }
 
   // Reset the Form Builder state (default config; overwritten below on edit).
   _cmsSpecialConfig = _cmsDefaultSpecialConfig();
@@ -25075,6 +25186,9 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial) {
   cmsRenderEventSignupDates();
   cmsRenderEventCustomQuestions();
 
+  // Apply flyer mode (NEW flyer) after the reset so infoOnly stays checked.
+  _cmsApplyFlyerVisibility(isFly);
+
   // Reset recurring fields
   document.getElementById('cmsRecurringActive').checked = true;
   document.getElementById('cmsRecurringFlyerOnly').checked = false;
@@ -25086,8 +25200,8 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial) {
   cmsToggleRecurringScheduleSection();
 
   // Flyer-first: a NEW one-time event opens straight to the flyer uploader;
-  // edits, programs, and special events go straight to the full form.
-  if (!docId && !isRec && !isSpec) { _cmsShowFlyerFirst(); } else { _cmsShowEventForm(); }
+  // edits, programs, special events, and flyers go straight to the full form.
+  if (!docId && !isRec && !isSpec && !isFly) { _cmsShowFlyerFirst(); } else { _cmsShowEventForm(); }
 
   if (docId) {
     try {
@@ -25141,6 +25255,14 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial) {
           if (d.customQuestions) _cmsEventCustomQuestions = d.customQuestions.slice();
           cmsRenderEventSignupDates();
           cmsRenderEventCustomQuestions();
+
+          // Flyer/info event: an Edit opened from a flyer card comes in as a
+          // plain one-time event — detect infoOnly and switch to flyer mode.
+          if (d.infoOnly === true && d.specialEvent !== true) {
+            isFly = true;
+            document.getElementById('cmsEventModalTitle').textContent = 'Edit Flyer';
+            _cmsApplyFlyerVisibility(true);
+          }
 
           // Special event: detect the flag (an Edit opened from a special card
           // may not have passed isSpecial) and round-trip the Form Builder.
@@ -25895,14 +26017,19 @@ window.cmsSaveEvent = async function() {
     }
     auditLog(docId ? 'Updated event' : 'Created event', (isSpecial ? 'Special Event' : (isRecurring ? 'Program' : 'Event')) + ': ' + title + (!isRecurring && !isSpecial && _stage1SessionsCount > 0 ? '; sessions[]=' + _stage1SessionsCount + ' entries' : ''));
     cmsCloseEventModal();
+    // A one-time info/flyer event belongs to the Flyers tab — refresh that so a
+    // newly-added flyer appears immediately (it's excluded from One-Time now).
+    var _savedIsFlyer = !isSpecial && !isRecurring && document.getElementById('cmsEventInfoOnly').checked === true;
     if (isSpecial) {
       await cmsLoadSpecial(true);
     } else if (isRecurring) {
       await cmsLoadPrograms(true);
+    } else if (_savedIsFlyer) {
+      await cmsLoadFlyers(true);
     } else {
       await cmsLoadEvents(true);
     }
-    _showToast(docId ? (isSpecial ? 'Special event updated.' : (isRecurring ? 'Program updated.' : 'Event updated.')) : (isSpecial ? 'Special event added.' : (isRecurring ? 'Program added.' : 'Event added.')), '#16A34A');
+    _showToast(docId ? (isSpecial ? 'Special event updated.' : (_savedIsFlyer ? 'Flyer updated.' : (isRecurring ? 'Program updated.' : 'Event updated.'))) : (isSpecial ? 'Special event added.' : (_savedIsFlyer ? 'Flyer added.' : (isRecurring ? 'Program added.' : 'Event added.'))), '#16A34A');
     // NEW special event: show its kiosk QR immediately + email it to the creator.
     // Fire-and-forget email (backend derives the recipient from caller auth) — never blocks the save.
     if (isSpecial && !docId && _newDocRef && _newDocRef.id) {
