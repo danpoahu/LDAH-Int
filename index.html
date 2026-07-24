@@ -5040,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.23.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.24.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -24527,6 +24527,18 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
         '<a href="javascript:void(0)" onclick="event.stopPropagation();cmsDownloadSpecialQR(\'' + rsEscape(ev.id) + '\',' + _jsArg(ev.title || '') + ')" style="font-size:.8rem;color:#0D9488;font-weight:600;text-decoration:none;">Download QR</a>' +
         '</div>';
     }
+    // Regular one-time event: public Signup QR (scan -> events.html autoOpen ->
+    // signup+registration form). Only for normal one-time events — NOT special
+    // (kiosk QR above), NOT flyer/info (no signups), NOT recurring programs.
+    if (!isRecurring && !_isSpecialCard && !_isFlyerCard) {
+      var _signupUrl = 'https://www.ldahawaii.org/events.html?eventId=' + ev.id + '&autoOpen=1';
+      var _sq = qrcode(0,'H'); _sq.addData(_signupUrl); _sq.make();
+      var _sqThumb = _sq.createDataURL(3,2);
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-basis:100%;">' +
+        '<img src="' + _sqThumb + '" alt="Signup QR" title="Click to enlarge / print" style="width:84px;height:84px;image-rendering:pixelated;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;" onclick="event.stopPropagation();cmsShowEventSignupQR(\'' + rsEscape(ev.id) + '\',' + _jsArg(ev.title || '') + ')">' +
+        '<a href="javascript:void(0)" onclick="event.stopPropagation();cmsDownloadEventSignupQR(\'' + rsEscape(ev.id) + '\',' + _jsArg(ev.title || '') + ')" style="font-size:.8rem;color:#0D9488;font-weight:600;text-decoration:none;">Download QR</a>' +
+        '</div>';
+    }
     // Future Dates — recurring programs only, lets staff pre-cancel sessions
     // weeks/months out (vacations, holidays). Hidden when archived/expired.
     // Flyers have no sessions.
@@ -25039,11 +25051,10 @@ function _cmsBuildSpecialConfigForSave() {
   return out;
 }
 
-// ── Special-event kiosk QR (view / download / print) ────────────────────────
-// Single source of the kiosk-QR PNG (canvas, high-res). Reused by the modal,
-// the card Download link, and the on-save email/popup.
-window._cmsSpecialQRPng = function(eventId){
-  var url = 'https://www.ldahawaii.org/special.html?eventId=' + eventId;
+// ── QR helpers: shared by Special kiosk QR + regular-event signup QR ─────────
+// Single source of QR PNGs (canvas, high-res) from ANY url. Special path calls
+// this with the special.html URL so its PNG is byte-for-byte unchanged.
+window._cmsQRPngForUrl = function(url){
   var q = qrcode(0,'H'); q.addData(url); q.make();
   var count=q.getModuleCount(), cell=12, margin=4;
   var c=document.createElement('canvas'); c.width=c.height=(count+margin*2)*cell;
@@ -25052,19 +25063,31 @@ window._cmsSpecialQRPng = function(eventId){
   return c.toDataURL('image/png');
 };
 
-// Direct download of the kiosk QR (backup path — no modal).
-window.cmsDownloadSpecialQR = function(eventId, title){
-  try { var png=window._cmsSpecialQRPng(eventId);
-    var safe=(title||'special-event').replace(/[^a-z0-9]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,40)||'special-event';
-    var a=document.createElement('a'); a.href=png; a.download=safe+'-kiosk-QR.png'; document.body.appendChild(a); a.click(); a.remove();
+// The two public deep-link shapes, kept in one place.
+function _cmsSpecialQRUrl(eventId){ return 'https://www.ldahawaii.org/special.html?eventId=' + eventId; }
+function _cmsEventSignupQRUrl(eventId){ return 'https://www.ldahawaii.org/events.html?eventId=' + eventId + '&autoOpen=1'; }
+function _cmsQRSlug(title, fallback){ return (title || fallback).replace(/[^a-z0-9]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,40) || fallback; }
+
+// Thin wrapper — Special kiosk PNG (unchanged; on-save email still calls this).
+window._cmsSpecialQRPng = function(eventId){ return window._cmsQRPngForUrl(_cmsSpecialQRUrl(eventId)); };
+
+// Shared direct-download (no modal). fileBase = filename without extension.
+function _cmsDownloadQRFromUrl(url, fileBase){
+  try { var png = window._cmsQRPngForUrl(url);
+    var a=document.createElement('a'); a.href=png; a.download=fileBase+'.png'; document.body.appendChild(a); a.click(); a.remove();
   } catch(e){ if(window._showToast) window._showToast('Could not build QR: '+e.message,'#DC2626'); }
+}
+window.cmsDownloadSpecialQR = function(eventId, title){
+  _cmsDownloadQRFromUrl(_cmsSpecialQRUrl(eventId), _cmsQRSlug(title, 'special-event') + '-kiosk-QR');
+};
+window.cmsDownloadEventSignupQR = function(eventId, title){
+  _cmsDownloadQRFromUrl(_cmsEventSignupQRUrl(eventId), _cmsQRSlug(title, 'event') + '-signup-QR');
 };
 
-window.cmsShowSpecialQR = function(eventId, title){
+// Shared modal (view / download / print) for any QR url.
+window.cmsShowQR = function(url, title, subtitle, fileBase){
   try {
-    var url = 'https://www.ldahawaii.org/special.html?eventId=' + eventId;
-    var png = window._cmsSpecialQRPng(eventId);
-    var safe = (title || 'special-event').replace(/[^a-z0-9]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,40) || 'special-event';
+    var png = window._cmsQRPngForUrl(url);
     window._cmsQRPrint = { png: png, url: url, title: title || '' };
     var ov = document.getElementById('cmsSpecialQROverlay'); if (ov) ov.remove();
     ov = document.createElement('div');
@@ -25074,12 +25097,12 @@ window.cmsShowSpecialQR = function(eventId, title){
     var titleHtml = (window._escHtml ? window._escHtml(title||'') : (title||'').replace(/[&<>"]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}));
     ov.innerHTML =
       '<div style="background:#fff;border-radius:16px;padding:22px;max-width:360px;width:100%;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.28);">' +
-        '<h3 style="margin:0 0 4px;font-size:1.02rem;color:#0f172a;">Kiosk QR &mdash; ' + titleHtml + '</h3>' +
-        '<p style="margin:0 0 14px;font-size:.78rem;color:#64748b;">Scan to open this event&rsquo;s signup form.</p>' +
-        '<img src="' + png + '" alt="Kiosk QR code" style="width:240px;height:240px;image-rendering:pixelated;border:1px solid #e2e8f0;border-radius:8px;">' +
+        '<h3 style="margin:0 0 4px;font-size:1.02rem;color:#0f172a;">QR &mdash; ' + titleHtml + '</h3>' +
+        '<p style="margin:0 0 14px;font-size:.78rem;color:#64748b;">' + subtitle + '</p>' +
+        '<img src="' + png + '" alt="QR code" style="width:240px;height:240px;image-rendering:pixelated;border:1px solid #e2e8f0;border-radius:8px;">' +
         '<p style="margin:12px 0 16px;font-size:.68rem;color:#94a3b8;word-break:break-all;">' + url + '</p>' +
         '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' +
-          '<a href="' + png + '" download="' + safe + '-kiosk-QR.png" style="text-decoration:none;padding:9px 16px;border-radius:9px;background:#0D9488;color:#fff;font-size:.85rem;font-weight:600;">Download PNG</a>' +
+          '<a href="' + png + '" download="' + fileBase + '.png" style="text-decoration:none;padding:9px 16px;border-radius:9px;background:#0D9488;color:#fff;font-size:.85rem;font-weight:600;">Download PNG</a>' +
           '<button onclick="cmsPrintSpecialQR()" style="padding:9px 16px;border-radius:9px;border:1px solid #cbd5e1;background:#fff;color:#0f172a;font-size:.85rem;font-weight:600;cursor:pointer;">Print</button>' +
           '<button onclick="document.getElementById(\'cmsSpecialQROverlay\').remove()" style="padding:9px 16px;border-radius:9px;border:1px solid #cbd5e1;background:#fff;color:#0f172a;font-size:.85rem;cursor:pointer;">Close</button>' +
         '</div>' +
@@ -25088,6 +25111,15 @@ window.cmsShowSpecialQR = function(eventId, title){
   } catch (e) {
     if (window._showToast) window._showToast('Could not generate QR: ' + e.message, '#DC2626'); else console.error('QR error', e);
   }
+};
+
+// Special kiosk QR (special.html) — behavior preserved.
+window.cmsShowSpecialQR = function(eventId, title){
+  window.cmsShowQR(_cmsSpecialQRUrl(eventId), title, 'Scan to open this event’s signup form.', _cmsQRSlug(title, 'special-event') + '-kiosk-QR');
+};
+// Regular one-time event public signup QR (events.html?eventId=...&autoOpen=1).
+window.cmsShowEventSignupQR = function(eventId, title){
+  window.cmsShowQR(_cmsEventSignupQRUrl(eventId), title, 'Scan to sign up for this event.', _cmsQRSlug(title, 'event') + '-signup-QR');
 };
 
 window.cmsPrintSpecialQR = function(){
