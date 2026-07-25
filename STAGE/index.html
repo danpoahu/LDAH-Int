@@ -5046,7 +5046,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.21.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.22.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7646,6 +7646,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <input type="hidden" id="cmsEventEditId">
             <input type="hidden" id="cmsEventEditIsRecurring">
             <input type="hidden" id="cmsEventEditIsSpecial">
+            <input type="hidden" id="cmsEventEditIsRemote">
             <input type="hidden" id="cmsEventImageUrl">
 
             <!-- Flyer-first intro (new one-time events only) -->
@@ -7716,6 +7717,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div class="field">
                 <label>Location</label>
                 <input id="cmsEventLocation" placeholder="e.g. Hawai'i Convention Center">
+              </div>
+              <!-- Remote (off-site in-person) events only — shown via _cmsApplyRemoteVisibility -->
+              <div class="field" id="cmsEventMaxCapacityRow" style="display:none;">
+                <label>Max capacity <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Total number of participants (headcount) this in-person event can hold. The public signup form closes once the headcount reaches this number. Leave blank for no limit.')">i</span></label>
+                <input type="number" id="cmsEventMaxCapacity" min="1" step="1" placeholder="e.g. 45">
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
                 <div class="field">
@@ -24990,9 +24996,11 @@ window.cmsFunnelRoute = async function() {
       if (zm) zm.value = (t === 'parent_talk_cafe') ? 'parent_talk_cafe' : 'event';
       _cmsFunnelApplyExtract(true);
       if (t === 'remote_signup') {
-        // PHASE3_REMOTE: Phase 3 adds location + maxCapacity fields to this editor.
-        // For now, flag the doc so its save stamps remoteSignup + the chosen type.
+        // Remote (off-site in-person) event: reveal the Location + Max-capacity
+        // fields and hide the Zoom/Source selector. cmsSaveEvent then writes
+        // remoteSignup:true, maxCapacity, and forces in-person sessions.
         _cmsPendingRemoteSignup = true;
+        if (typeof _cmsApplyRemoteVisibility === 'function') _cmsApplyRemoteVisibility(true);
       }
     }
     _cmsFunnelSetImage();
@@ -25806,6 +25814,23 @@ window.cmsPrintSpecialQR = function(){
   w.document.close();
 };
 
+// Remote (off-site in-person) mode for the one-time event modal. Mirrors
+// _cmsApplyFlyerVisibility but is top-level so the funnel's remote_signup route
+// (and the edit round-trip) can turn it on after opening the modal. Shows the
+// Max-capacity field, hides the Source/Zoom selector (in-person, no Zoom), and
+// leaves signup + group options visible. Location stays visible in one-time mode.
+function _cmsApplyRemoteVisibility(on) {
+  var hid = document.getElementById('cmsEventEditIsRemote');
+  if (hid) hid.value = on ? '1' : '0';
+  var capRow = document.getElementById('cmsEventMaxCapacityRow');
+  if (capRow) capRow.style.display = on ? '' : 'none';
+  if (on) {
+    var srcRow = document.getElementById('cmsEventSourceRow');
+    if (srcRow) srcRow.style.display = 'none';
+  }
+}
+window._cmsApplyRemoteVisibility = _cmsApplyRemoteVisibility;
+
 window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer) {
   var isRec = !!isRecurring;
   var isSpec = !!isSpecial; // may also be turned on below after the doc loads
@@ -25889,11 +25914,15 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
   _cmsEventCustomQuestions = [];
   document.getElementById('cmsEventShowGroupField').checked = false;
   document.getElementById('cmsEventInfoOnly').checked = false;
+  document.getElementById('cmsEventMaxCapacity').value = '';
   cmsRenderEventSignupDates();
   cmsRenderEventCustomQuestions();
 
   // Apply flyer mode (NEW flyer) after the reset so infoOnly stays checked.
   _cmsApplyFlyerVisibility(isFly);
+  // Default remote mode OFF; the funnel's remote_signup route or the edit
+  // round-trip turns it on (shows Max capacity, hides the Zoom/Source field).
+  _cmsApplyRemoteVisibility(false);
 
   // Reset recurring fields
   document.getElementById('cmsRecurringActive').checked = true;
@@ -25968,6 +25997,13 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
             isFly = true;
             document.getElementById('cmsEventModalTitle').textContent = 'Edit Flyer';
             _cmsApplyFlyerVisibility(true);
+          }
+
+          // Remote (off-site in-person) event: round-trip the remote fields.
+          if (d.remoteSignup === true && d.specialEvent !== true && d.infoOnly !== true) {
+            document.getElementById('cmsEventModalTitle').textContent = 'Edit Remote Event';
+            if (d.maxCapacity != null) document.getElementById('cmsEventMaxCapacity').value = d.maxCapacity;
+            _cmsApplyRemoteVisibility(true);
           }
 
           // Special event: detect the flag (an Edit opened from a special card
@@ -26681,7 +26717,23 @@ window.cmsSaveEvent = async function() {
   // over flag-derivation (remote_signup vs learning_labs both look like a plain
   // event). Set by cmsFunnelRoute after opening this modal; cleared on next open.
   if (_cmsPendingEventType) payload.eventType = _cmsPendingEventType;
-  if (_cmsPendingRemoteSignup) payload.remoteSignup = true; // PHASE3_REMOTE: fields added in Phase 3
+
+  // Remote (off-site in-person) event: a one-time `events` doc. Detect via the
+  // hidden flag (set by _cmsApplyRemoteVisibility), the funnel pending flag, or
+  // the round-tripped eventType. Stamp remoteSignup + maxCapacity + eventType so
+  // the public form can enforce capacity; sessions are forced in-person below so
+  // the email lifecycle uses location, not a Zoom link.
+  var _isRemote = !isRecurring && (
+    (document.getElementById('cmsEventEditIsRemote') && document.getElementById('cmsEventEditIsRemote').value === '1') ||
+    _cmsPendingRemoteSignup || payload.eventType === 'remote_signup'
+  );
+  if (_isRemote) {
+    payload.remoteSignup = true;
+    payload.eventType = 'remote_signup';
+    var _capRaw = (document.getElementById('cmsEventMaxCapacity').value || '').trim();
+    var _cap = parseInt(_capRaw, 10);
+    if (_capRaw !== '' && !isNaN(_cap) && _cap > 0) payload.maxCapacity = _cap; // omit if blank/invalid
+  }
 
   // Stage 1: canonical sessions[] on one-time events (additive only — no
   // reader consumes this yet). Recurring docs stay read-time only; we leave
@@ -26690,6 +26742,11 @@ window.cmsSaveEvent = async function() {
   try {
     if (!isRecurring) {
       var _builtSessions = _buildSessionsForOneTimeEvent(payload);
+      // Remote events are in-person off-site — force every built session to
+      // in-person so the reminder pipeline uses location instead of a Zoom link.
+      if (_isRemote && Array.isArray(_builtSessions)) {
+        _builtSessions.forEach(function(s) { if (s) s.modality = 'in-person'; });
+      }
       payload.sessions = _builtSessions;
       payload.sessionsBuiltAt = firebase.firestore.FieldValue.serverTimestamp();
       _stage1SessionsCount = _builtSessions.length;
