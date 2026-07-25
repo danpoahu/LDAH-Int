@@ -5040,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.31.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.32.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7783,7 +7783,25 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
               <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:#fffbeb;border-radius:8px;border:1px solid #fde68a;margin-bottom:1rem;">
                 <input type="checkbox" id="cmsRecurringFlyerOnly" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" onchange="cmsToggleRecurringScheduleSection()">
-                <label for="cmsRecurringFlyerOnly" style="margin:0;cursor:pointer;font-weight:500;">Informational Flyer Only (no dates or sign-up)</label>
+                <label for="cmsRecurringFlyerOnly" style="margin:0;cursor:pointer;font-weight:500;">Informational Flyer (no sign-up)</label>
+              </div>
+
+              <!-- Lifecycle dates for recurring FLYER items — shown only when "Informational Flyer" is checked -->
+              <div id="cmsRecurringFlyerDates" style="display:none;margin-bottom:1rem;">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">
+                  <div class="field">
+                    <label>Start Showing <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'These three dates control how the flyer flows through its life:<br><br><b>Start Showing</b> — the flyer becomes visible on the public site.<br><br><b>Move to Past</b> — the flyer drops to the Past section (still visible for reference).<br><br><b>Remove</b> — the flyer disappears entirely from the public site.')">i</span></label>
+                    <input type="date" id="cmsRecurringStartDate">
+                  </div>
+                  <div class="field">
+                    <label>Move to Past</label>
+                    <input type="date" id="cmsRecurringMoveToPastDate">
+                  </div>
+                  <div class="field">
+                    <label>Remove Date</label>
+                    <input type="date" id="cmsRecurringRemoveDate">
+                  </div>
+                </div>
               </div>
 
               <div id="cmsRecurringScheduleSection">
@@ -24456,7 +24474,9 @@ window.cmsRenderUnified = function() {
   var activeItems = [], pastItems = [], expiredItems = [], archivedItems = [];
   items.forEach(function(ev) {
     if (ev.archived === true) { archivedItems.push(ev); return; }
-    if (ev.isRecurring) { activeItems.push(ev); return; }
+    // Non-flyer recurring programs (Connect-Gen) have no lifecycle dates — always Active.
+    // Recurring FLYERS and one-time events use the 3 lifecycle dates below.
+    if (ev.isRecurring && ev.flyerOnly !== true) { activeItems.push(ev); return; }
     var moveToPast = ev.moveToPastDate || '';
     var removeDate = ev.removeDate || '';
     if (removeDate && /^\d{4}-\d{2}-\d{2}$/.test(removeDate) && removeDate <= today) { expiredItems.push(ev); }
@@ -25632,6 +25652,9 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
   document.getElementById('cmsRecurringActive').checked = true;
   document.getElementById('cmsRecurringFlyerOnly').checked = false;
   document.getElementById('cmsRecurringShowGroupField').checked = false;
+  document.getElementById('cmsRecurringStartDate').value = '';
+  document.getElementById('cmsRecurringMoveToPastDate').value = '';
+  document.getElementById('cmsRecurringRemoveDate').value = '';
   _cmsRecurringSchedules = [];
   _cmsRecurringQuestions = [];
   cmsRenderRecurringScheduleRows();
@@ -25674,6 +25697,9 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
           document.getElementById('cmsRecurringActive').checked = d.active !== false;
           document.getElementById('cmsRecurringFlyerOnly').checked = !!d.flyerOnly;
           document.getElementById('cmsRecurringShowGroupField').checked = !!d.showGroupField;
+          document.getElementById('cmsRecurringStartDate').value = d.startDate || '';
+          document.getElementById('cmsRecurringMoveToPastDate').value = d.moveToPastDate || '';
+          document.getElementById('cmsRecurringRemoveDate').value = d.removeDate || '';
           if (d.schedules) d.schedules.forEach(function(s) { _cmsRecurringSchedules.push(Object.assign({}, s)); });
           if (d.customQuestions) _cmsRecurringQuestions = d.customQuestions.slice();
           cmsRenderRecurringScheduleRows();
@@ -26353,6 +26379,9 @@ window.cmsToggleRecurringScheduleSection = function() {
   var hidden = document.getElementById('cmsRecurringFlyerOnly').checked;
   var section = document.getElementById('cmsRecurringScheduleSection');
   if (section) section.style.display = hidden ? 'none' : '';
+  // Recurring flyers have no schedule but DO carry lifecycle dates — show them only when flyerOnly.
+  var flyerDates = document.getElementById('cmsRecurringFlyerDates');
+  if (flyerDates) flyerDates.style.display = hidden ? '' : 'none';
 };
 
 window.cmsSaveEvent = async function() {
@@ -26384,6 +26413,16 @@ window.cmsSaveEvent = async function() {
     payload.schedules = isFlyerOnly ? [] : _cmsRecurringSchedules;
     payload.customQuestions = isFlyerOnly ? [] : _cmsRecurringQuestions;
     payload.showGroupField = isFlyerOnly ? false : document.getElementById('cmsRecurringShowGroupField').checked;
+    // Recurring FLYER items carry lifecycle dates (Show / Move to Past / Remove).
+    // Only add them for flyerOnly — non-flyer programs (Connect-Gen) are untouched.
+    if (isFlyerOnly) {
+      var _rStart = document.getElementById('cmsRecurringStartDate').value;
+      var _rPast = document.getElementById('cmsRecurringMoveToPastDate').value;
+      var _rRemove = document.getElementById('cmsRecurringRemoveDate').value;
+      if (_rStart) payload.startDate = _rStart;
+      if (_rPast) payload.moveToPastDate = _rPast;
+      if (_rRemove) payload.removeDate = _rRemove;
+    }
   } else {
     payload.eventDate = document.getElementById('cmsEventDate').value;
     payload.time = document.getElementById('cmsEventTime').value.trim();
