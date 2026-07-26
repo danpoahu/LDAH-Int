@@ -5040,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.33.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.34.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16685,6 +16685,9 @@ var _photoPendingByIsland = {};
       return;
     }
     try {
+      // Reveal the (always-emitted, hidden-by-default) slot now that there's a
+      // real Connect-Gen signup to show — for online-consent AND in-person families.
+      slot.style.display = '';
       // Load signup + parent event in parallel.
       var sigRef = db.collection('recurringEvents').doc(cg.eventId).collection('signups').doc(cg.signupId);
       var evRef = db.collection('recurringEvents').doc(cg.eventId);
@@ -16755,10 +16758,23 @@ var _photoPendingByIsland = {};
     }
 
     var detailId = 'ctCgDetail_' + (cg.signupId || Date.now());
-    var html =
-      '<span style="display:inline-block;background:#16A34A;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">Signed</span>' +
-      'Signed <strong>' + rsEscape(when) + '</strong> by <strong>' + rsEscape(cg.signedName || '') + '</strong>' +
-      (cg.version ? '<br><span style="font-size:.78rem;color:#64748B;">Form revision: ' + rsEscape(cg.version) + '</span>' : '');
+    // Header: keep the green "Signed … by …" when there's an online consent;
+    // otherwise (in-person families sign on arrival, no connectGenConsent) show a
+    // neutral/amber status header inferred from the session modality.
+    var html;
+    if (cg && cg.signedAt) {
+      html =
+        '<span style="display:inline-block;background:#16A34A;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">Signed</span>' +
+        'Signed <strong>' + rsEscape(when) + '</strong> by <strong>' + rsEscape(cg.signedName || '') + '</strong>' +
+        (cg.version ? '<br><span style="font-size:.78rem;color:#64748B;">Form revision: ' + rsEscape(cg.version) + '</span>' : '');
+    } else {
+      var _cgVirtual = /virtual|zoom|all islands/i.test(sessionDates || '');
+      html = _cgVirtual
+        ? '<span style="display:inline-block;background:#FEF3C7;color:#92400E;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">Not signed</span>' +
+          'Online consent: <strong>not signed yet</strong>'
+        : '<span style="display:inline-block;background:#FEF3C7;color:#92400E;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">In-person</span>' +
+          'Consent: <strong>signed on arrival (in-person)</strong>';
+    }
 
     if (event && event.title) {
       html += '<div style="margin-top:8px;font-size:.86rem;color:#0F172A;"><strong>Event:</strong> ' + rsEscape(event.title) + '</div>';
@@ -17225,13 +17241,13 @@ var _photoPendingByIsland = {};
       // Connect-Gen consent block — present only when the contact has signed.
       // Reserves a slot here; full content is rendered async below once we've
       // fetched the signup doc.
-      var connectGenSlot = '';
-      if (c.connectGenConsent && c.connectGenConsent.signedAt) {
-        connectGenSlot = '<div id="ctConnectGenBlock" class="ct-info-card" style="background:#F0FDF4;border:1px solid #86EFAC;margin:0 0 12px;">' +
-          '<div class="ct-info-field span2"><label style="color:#166534;">Connect-Gen Session</label>' +
-          '<div class="val" style="color:var(--text-soft);font-size:.85rem;">Loading session details…</div>' +
-          '</div></div>';
-      }
+      // Always emit the Connect-Gen slot but keep it hidden; it's unhidden by
+      // cmsRenderConnectGenContactBlock only when a real CG signup exists — so
+      // in-person families (no online connectGenConsent) still get the block + pill.
+      var connectGenSlot = '<div id="ctConnectGenBlock" class="ct-info-card" style="display:none;background:#F0FDF4;border:1px solid #86EFAC;margin:0 0 12px;">' +
+        '<div class="ct-info-field span2"><label style="color:#166534;">Connect-Gen Session</label>' +
+        '<div class="val" style="color:var(--text-soft);font-size:.85rem;">Loading session details…</div>' +
+        '</div></div>';
 
       // Now load all interactions + signups for this contact
       // Regular interactions use contactId, chat-linked use clientId
@@ -17347,6 +17363,21 @@ var _photoPendingByIsland = {};
         results.push(sData);
         window._ctContactSignups.push(sData);
       });
+
+      // In-person Connect-Gen families sign consent on arrival (online consent is
+      // only for the Monday virtual session), so they have no connectGenConsent —
+      // but their completed Parent Worksheet must still be reviewable here.
+      if (!(c.connectGenConsent && c.connectGenConsent.signedAt)) {
+        var _cgSu = (window._ctContactSignups || []).find(function(su){
+          return su.eventTitle === 'Connect-Gen' || su.prepToken || su.parentWorksheet || su.cgReadyAt || su.cgWorksheetRequestEmailSentAt;
+        });
+        if (_cgSu && _cgSu._refPath) {
+          var _pp = _cgSu._refPath.split('/');
+          if (_pp[0] === 'recurringEvents' && _pp[1] && _pp[3]) {
+            cmsRenderConnectGenContactBlock({ eventId: _pp[1], signupId: _pp[3], signedAt: null, signedName: '' }, contactId);
+          }
+        }
+      }
 
       // ── Materials received rollup (contact card, v146) ──
       // Live-computed each open. Sources: (a) materials logged on this contact's
