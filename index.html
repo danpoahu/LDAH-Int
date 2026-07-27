@@ -53,6 +53,7 @@
     };
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 
   <style>
@@ -5040,7 +5041,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.35.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.36.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6220,6 +6221,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   <div style="margin-top:6px;">Summary of edits, reasons, and admin approvals.</div>
                   <div style="margin-top:10px;">
                     <button class="btn btn-ghost" type="button">View</button>
+                  </div>
+                </div>
+                <div class="audit-card">
+                  <b>PTI / OSEP Audit Export</b>
+                  <div style="margin-top:6px;">Wide grant-year workbook — all activities + demographics, matching the federal pink sheet.</div>
+                  <div style="margin-top:10px;">
+                    <button class="btn btn-ghost" type="button" onclick="ptiOsepExport()">Generate</button>
                   </div>
                 </div>
               </div>
@@ -40694,6 +40702,246 @@ window.cmsBuildStaffActivityReport = async function() {
     } catch (err) {
       console.error('cmsBuildEventAttendanceReport error:', err);
       if (listHost) listHost.innerHTML = '<div style="background:#fff;border-radius:var(--radius);padding:18px;color:#DC2626;text-align:center;box-shadow:var(--shadow-soft);">Error building report: ' + _esc(err.message) + '</div>';
+    }
+  };
+
+  // ── PTI / OSEP Audit Export (v146.31.0) ────────────────────────────
+  // Builds a true .xlsx (SheetJS) that mirrors the federal PTI "pink sheet":
+  // one worksheet per PTI grant year (Mar 1 – Feb 28), one row per event,
+  // ~65 columns + a leading Source column. Reuses the Event Attendance
+  // Report enumeration (_enumerateEventDates) and its demographic tally
+  // helpers (_computeAgeCounts / _computeEthnicityCounts /
+  // _computeDisabilityCounts / _computePresentationFeedback / _yseNo) so the
+  // numbers reconcile to that report. Client-side only; the only data leaving
+  // the browser is the downloaded file.
+  window.ptiOsepExport = async function() {
+    if (typeof XLSX === 'undefined') {
+      alert('The spreadsheet library (SheetJS) did not load. Check your connection, reload the page, and try again.');
+      return;
+    }
+    try {
+      if (typeof _showToast === 'function') _showToast('Building PTI / OSEP export...', '#0891B2');
+
+      // 1. Enumerate EVERY event-date. Passing a mode other than 'initial'
+      // or 'oneoffs' skips both filters, so one-off (PTI-import) events are
+      // included alongside recurring + one-time events.
+      var built = await _enumerateEventDates('all');
+      var rows = built.rows || [];
+
+      // 2. Column definitions (pink-sheet order, per design spec §4).
+      // Age: our 5 canonical buckets map onto the pink sheet's 6 bands; the
+      // 13-17 bucket lands in "15-18" and "12-14" has no source (left blank).
+      var AGE_MAP = [
+        { header: 'Birth-2',   canon: '0-2'   },
+        { header: '3-5',       canon: '3-5'   },
+        { header: '6-11',      canon: '6-12'  },
+        { header: '12-14',     canon: null    },
+        { header: '15-18',     canon: '13-17' },
+        { header: 'Beyond HS', canon: 'Adult' },
+      ];
+      var ETH_MAP = [
+        { header: 'AfrAm',  bucket: 'African American' },
+        { header: 'Asian',  bucket: 'Asian' },
+        { header: 'Cau',    bucket: 'Caucasian' },
+        { header: 'Filip',  bucket: 'Filipino' },
+        { header: 'Hisp',   bucket: 'Hispanic' },
+        { header: 'PtHaw',  bucket: 'Hawaiian/Part Hawaiian' },
+        { header: 'PacIsl', bucket: 'Pacific Islander' },
+        { header: 'Other',  bucket: 'Other / 2 or more' },
+      ];
+      // Spec §4 disability order (note: Intel BEFORE Gifted, which is the
+      // reverse of _eaDisabList's order) mapped to the canonical labels.
+      var DIS_MAP = [
+        { header: 'ADHD',     canon: 'ADD-ADHD' },
+        { header: 'Autism',   canon: 'Autism Spectrum (ASD)' },
+        { header: 'Deaf',     canon: 'Deaf/Hard of Hearing' },
+        { header: 'DevDelay', canon: 'Developmental Disability' },
+        { header: 'EmoDist',  canon: 'Emotional Disability' },
+        { header: 'Intel',    canon: 'Intellectual Disability' },
+        { header: 'Gifted',   canon: 'Gifted' },
+        { header: 'MultDis',  canon: 'Multiple Disabilities' },
+        { header: 'NoIDEA',   canon: 'No IDEA Disability' },
+        { header: 'Ortho',    canon: 'Orthopedic (Physical)' },
+        { header: 'OHI',      canon: 'Other Health Disability' },
+        { header: 'SLD',      canon: 'Specific Learning Disability' },
+        { header: 'SpLang',   canon: 'Speech or Language' },
+        { header: 'Susp',     canon: 'Suspected' },
+        { header: 'TBI',      canon: 'Traumatic Brain Injury' },
+        { header: 'VisIm',    canon: 'Visual (incl. blindness)' },
+        { header: 'DF/BL',    canon: 'Deaf/Blindness' },
+      ];
+      var Q_FIELDS = [
+        'increasedKnowledge', 'relevantToChild', 'usefulToMe', 'overallSatisfied',
+        'priorImpactServices', 'priorImpactShared', 'priorImpactSchool', 'priorImpactResolved',
+      ];
+
+      var header = ['Source', 'Grant Year', 'Disposition', 'Tier', 'Date', 'County', 'Description', 'Location', 'Co-Sponsors', 'Dissem Reach', 'Head Count', 'Parents', 'Prof', 'Youth', 'Military'];
+      AGE_MAP.forEach(function(a) { header.push(a.header); });
+      ETH_MAP.forEach(function(e) { header.push(e.header); });
+      DIS_MAP.forEach(function(d) { header.push(d.header); });
+      header.push('Help1-VH', 'Help1-H', 'Help1-NH', 'Help2-VH', 'Help2-H', 'Help2-NH');
+      for (var _qi = 1; _qi <= 8; _qi++) { header.push('Q' + _qi + '-Y', 'Q' + _qi + '-N'); }
+      header.push('Flags', 'Assumptions');
+
+      // County derivation — mirrors COUNTY_MAP in
+      // scripts/pti-backfill/01_clean_and_extract.py. Unmapped -> blank + flag.
+      var COUNTY_MAP = [
+        ['honolulu', 'Honolulu'], ['kaneohe', 'Honolulu'], ['kailua', 'Honolulu'], ['leeward', 'Honolulu'],
+        ['hawaii', 'Hawaii'], ['maui', 'Maui'], ['molokai', 'Maui'], ['lanai', 'Maui'], ['kauai', 'Kauai'],
+      ];
+      function _deriveCounty(loc) {
+        var s = String(loc || '').toLowerCase();
+        for (var i = 0; i < COUNTY_MAP.length; i++) {
+          if (s.indexOf(COUNTY_MAP[i][0]) !== -1) return COUNTY_MAP[i][1];
+        }
+        return '';
+      }
+
+      // PTI grant year (Mar 1 -> Feb 28/29). Year 1 = Mar 1 2025 - Feb 28 2026,
+      // Year 2 = Mar 1 2026 - Feb 28 2027, etc. Uses the enumerator's already
+      // parsed Date (sessionDateObj), not new Date("YYYY-MM-DD").
+      function _grantYear(dt) {
+        if (!dt) return { key: 999999, label: 'Undated' };
+        var startYear = (dt.getMonth() >= 2) ? dt.getFullYear() : (dt.getFullYear() - 1);
+        var n = startYear - 2024; // 2025 -> Year 1
+        // PTI grant runs 2025-2030; anything before Mar 1 2025 is not a grant
+        // year — roll it into one "Pre-grant" tab (sorted after grant years,
+        // before Undated) instead of emitting nonsensical Year 0 / Year -N.
+        if (n < 1) return { key: 999000, label: 'Pre-grant' };
+        var yy = String((startYear + 1) % 100).padStart(2, '0');
+        return { key: startYear, label: 'Year ' + n + ' (' + startYear + '-' + yy + ')' };
+      }
+
+      // Read a signup-less attendance total, tolerating both storage shapes:
+      // manual Event-Summary overrides (summary.attendanceOverrides.<ovKey>)
+      // and PTI-import flat summary fields (summary.<flatKey>).
+      function _ovNum(summary, ovKey, flatKey) {
+        var ov = (summary && summary.attendanceOverrides) || {};
+        if (typeof ov[ovKey] === 'number') return ov[ovKey];
+        if (flatKey && summary && typeof summary[flatKey] === 'number') return summary[flatKey];
+        return 0;
+      }
+
+      var AGE_ASSUMPTION = 'Age 13-17 counted in 15-18 (12-14 not separately captured). Survey Y/N binarized: Yes=Y, other answers=N.';
+
+      // 3. Shape each enumerated row into the PTI column set, grouped by grant year.
+      var sheets = {}; // label -> { key, rows: [] }
+      var totalRows = 0;
+      rows.forEach(function(r) {
+        var summary = r.summary || {};
+        var ev = r.eventDoc || {};
+        var gy = _grantYear(r.sessionDateObj);
+        if (!sheets[gy.label]) sheets[gy.label] = { key: gy.key, rows: [] };
+
+        var isPti = !!(summary._ptiImport || ev._ptiImport);
+        var source = isPti ? 'PTI import' : 'Live signups';
+        var disposition = (summary.activityType === 'Dissemination') ? 'DISSEM' : 'NETNEW';
+        var county = _deriveCounty(r.location);
+        var flags = [];
+        if (r.location && !county) flags.push('County unmapped from location "' + r.location + '"');
+        else if (!r.location) flags.push('No location');
+        if (!r.sessionDateObj) flags.push('No parseable event date');
+
+        var hasSignups = Array.isArray(r.signups) && r.signups.length > 0;
+
+        var headCount, parents, prof, youth, military;
+        if (hasSignups) {
+          headCount = r.totalAttended || 0;
+          parents   = (r.newParentCount || 0) + (r.parentReturningCount || 0);
+          prof      = r.professionalOtherCount || 0;
+          youth     = r.youthWithDisabilityCount || 0;
+          military  = r.militaryActiveCount || 0;
+        } else {
+          // Signup-less (one-off / PTI import): totals from overrides / flat summary.
+          headCount = _ovNum(summary, 'attTotal', 'totalAttended') || (r.totalAttended || 0);
+          parents   = _ovNum(summary, 'newParent', 'newParentCount') + _ovNum(summary, 'parentReturning', 'attendanceParentReturning');
+          prof      = _ovNum(summary, 'profOther', 'attendanceProfessionalOther');
+          youth     = _ovNum(summary, 'youthWD', 'attendanceYouthWithDisability');
+          military  = _ovNum(summary, 'militaryActive', 'attendanceMilitaryActiveDuty');
+        }
+
+        var row = [
+          source,
+          (gy.label === 'Undated') ? '' : gy.label,
+          disposition,
+          r.tier || '',
+          r.sessionDateIso || (r.sessionDate || ''),
+          county,
+          r.eventTitle || '',
+          r.location || '',
+          summary.coSponsors || '',
+          (summary.dissemReach != null ? summary.dissemReach : ''),
+          headCount,
+          parents,
+          prof,
+          youth,
+          military,
+        ];
+
+        if (hasSignups) {
+          var ageCounts = _computeAgeCounts(r);
+          AGE_MAP.forEach(function(a) { row.push(a.canon ? (ageCounts[a.canon] || 0) : ''); });
+          var ethCounts = _computeEthnicityCounts(r);
+          ETH_MAP.forEach(function(e) { row.push(ethCounts[e.bucket] || 0); });
+          var disCounts = _computeDisabilityCounts(r);
+          DIS_MAP.forEach(function(d) { row.push(disCounts[d.canon] || 0); });
+          // Presentation feedback rows: [0]=overallSatisfied, [1]=presenter, [2]=handouts.
+          var presFb = _computePresentationFeedback(r);
+          var help1 = (presFb[1] && presFb[1].counts) || {};
+          var help2 = (presFb[2] && presFb[2].counts) || {};
+          row.push(help1['Very Helpful'] || 0, help1['Helpful'] || 0, help1['Not Helpful'] || 0);
+          row.push(help2['Very Helpful'] || 0, help2['Helpful'] || 0, help2['Not Helpful'] || 0);
+          Q_FIELDS.forEach(function(field) {
+            var y = 0, n = 0;
+            (r.feedback || []).forEach(function(fb) {
+              var v = _yseNo(fb[field]); // 'Yes' | 'To some extent' | 'No' | null (blank/no-answer)
+              if (v === null) return;
+              if (v === 'Yes') y++; else n++;
+            });
+            row.push(y, n);
+          });
+          row.push(flags.join('; '));
+          row.push(AGE_ASSUMPTION);
+        } else {
+          // Per-attendee breakdown (age/ethnicity/disability/survey) left blank.
+          var _blanks = AGE_MAP.length + ETH_MAP.length + DIS_MAP.length + 6 + 16;
+          for (var _b = 0; _b < _blanks; _b++) row.push('');
+          row.push(flags.join('; '));
+          row.push('');
+        }
+
+        sheets[gy.label].rows.push(row);
+        totalRows++;
+      });
+
+      // 4. Build the workbook — one worksheet per grant year (Undated last).
+      var labels = Object.keys(sheets).sort(function(a, b) { return sheets[a].key - sheets[b].key; });
+      if (!labels.length) {
+        alert('No event-dates found to export.');
+        return;
+      }
+      function _safeSheetName(name) {
+        var nm = String(name).replace(/[\[\]\:\*\?\/\\]/g, ' ').trim();
+        if (nm.length > 31) nm = nm.slice(0, 31);
+        return nm || 'Sheet';
+      }
+      var wb = XLSX.utils.book_new();
+      labels.forEach(function(label) {
+        var aoa = [header].concat(sheets[label].rows);
+        var ws = XLSX.utils.aoa_to_sheet(aoa);
+        XLSX.utils.book_append_sheet(wb, ws, _safeSheetName(label));
+      });
+
+      var _d = new Date();
+      var isoDate = _d.getFullYear() + '-' + String(_d.getMonth() + 1).padStart(2, '0') + '-' + String(_d.getDate()).padStart(2, '0');
+      XLSX.writeFile(wb, 'LDAH_PTI_OSEP_ourdata_' + isoDate + '.xlsx');
+
+      if (typeof auditLog === 'function') auditLog('Generated PTI / OSEP Audit Export', totalRows + ' rows across ' + labels.length + ' grant-year tab(s)');
+      if (typeof _showToast === 'function') _showToast('Export ready - ' + totalRows + ' rows.', '#059669');
+      alert('PTI / OSEP export downloaded: ' + totalRows + ' rows across ' + labels.length + ' grant-year tab(s).');
+    } catch (err) {
+      console.error('ptiOsepExport error:', err);
+      alert('PTI / OSEP export failed: ' + (err && err.message ? err.message : err));
     }
   };
 
