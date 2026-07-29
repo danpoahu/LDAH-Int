@@ -5089,7 +5089,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.37.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.38.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27623,6 +27623,66 @@ function cmsRenderOtherSignupData(s) {
     rows + '</div>';
 }
 
+
+/* ── Editable headcount on a signup card ────────────────────────────────────
+   participationType is what the counting actually keys off: an "Individual"
+   contributes exactly 1 no matter what groupSize says. So saving a number
+   sets BOTH fields together — 1 means Individual, anything more means Group —
+   and staff never have to know that rule. */
+function _cmsHeadcountRow(s, collection, eventId) {
+  var isGroup = s.participationType === 'Group';
+  var n = isGroup ? (parseInt(s.groupSize, 10) || 1) : 1;
+  var vid = 'hcView_' + s.id, eid = 'hcEdit_' + s.id, inp = 'hcInput_' + s.id;
+  var label = n === 1 ? '1 person' : (n + ' people');
+  var sub = isGroup ? 'Group' : 'Individual';
+  return '<div style="font-size:.83rem;grid-column:1/-1;">' +
+    '<span id="' + vid + '">Attending: <strong>' + rsEscape(label) + '</strong>' +
+      ' <span style="color:#94A3B8;font-size:.78rem;">(' + sub + ')</span>' +
+      ' <button class="btn btn-ghost" title="Edit how many are attending"' +
+        ' style="font-size:.72rem;padding:1px 8px;margin-left:6px;background:#F0F9FF;color:#0891B2;border:1px solid #BAE6FD;"' +
+        ' onclick="event.stopPropagation();_cmsHeadcountEdit(' + _jsArg(s.id) + ',true)">Edit</button>' +
+    '</span>' +
+    '<span id="' + eid + '" style="display:none;">Attending: ' +
+      '<input id="' + inp + '" type="number" min="1" step="1" value="' + n + '"' +
+        ' style="width:70px;padding:2px 6px;border:1px solid #CBD5E1;border-radius:6px;font-size:.83rem;"' +
+        ' onclick="event.stopPropagation();">' +
+      ' <button class="btn btn-ghost" style="font-size:.72rem;padding:1px 8px;background:#F0FDF4;color:#16A34A;border:1px solid #BBF7D0;"' +
+        ' onclick="event.stopPropagation();cmsSaveHeadcount(' + _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ',' + _jsArg(inp) + ')">Save</button>' +
+      ' <button class="btn btn-ghost" style="font-size:.72rem;padding:1px 8px;color:#64748B;"' +
+        ' onclick="event.stopPropagation();_cmsHeadcountEdit(' + _jsArg(s.id) + ',false)">Cancel</button>' +
+    '</span>' +
+  '</div>';
+}
+
+window._cmsHeadcountEdit = function(signupId, editing) {
+  var v = document.getElementById('hcView_' + signupId);
+  var e = document.getElementById('hcEdit_' + signupId);
+  if (!v || !e) return;
+  v.style.display = editing ? 'none' : '';
+  e.style.display = editing ? '' : 'none';
+  if (editing) { var i = document.getElementById('hcInput_' + signupId); if (i) { i.focus(); i.select(); } }
+};
+
+window.cmsSaveHeadcount = async function(collection, eventId, signupId, inputId) {
+  var raw = ((document.getElementById(inputId) || {}).value || '').trim();
+  var n = parseInt(raw, 10);
+  if (!isFinite(n) || n < 1) { _showToast('Enter how many people are attending (1 or more).', '#DC2626'); return; }
+  // 1 => Individual, more => Group. Keeping the two fields consistent is the
+  // whole point; a groupSize on an Individual would silently still count as 1.
+  var payload = n === 1
+    ? { participationType: 'Individual', groupSize: 1 }
+    : { participationType: 'Group', groupSize: n };
+  try {
+    await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update(payload);
+    var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+    if (s) { s.participationType = payload.participationType; s.groupSize = payload.groupSize; }
+    var sName = s ? (s.name || signupId) : signupId;
+    auditLog('Updated signup headcount', sName + ' \u2014 ' + n + (n === 1 ? ' person' : ' people') + ' \u2014 ' + (_cmsSignupsModalData.eventTitle || 'Event'));
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+    _showToast('Headcount saved: ' + n + (n === 1 ? ' person.' : ' people.'), '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
 function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, sessionDateKey) {
   var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
   var statusColor = statusColors[s.status] || '#64748B';
@@ -27801,7 +27861,12 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   if (s.email) h += '<div style="font-size:.83rem;">Email: <a href="mailto:' + rsEscape(s.email) + '" style="color:#0369A1;">' + rsEscape(s.email) + '</a></div>';
   if (s.phone) h += '<div style="font-size:.83rem;">Phone: <a href="tel:' + rsEscape(s.phone) + '" style="color:#0369A1;">' + rsEscape(window.ldahFormatPhone(s.phone)) + '</a></div>';
   if (s.preferredContact) h += '<div style="font-size:.83rem;">Preferred: <strong>' + rsEscape(s.preferredContact) + '</strong></div>';
-  if (s.participationType) h += '<div style="font-size:.83rem;">Participation: <strong>' + rsEscape(s.participationType) + '</strong></div>';
+  // ── Headcount, editable ────────────────────────────────────────────────
+  // Capacity, session sheets and the audit export all count PEOPLE, not
+  // signups — but the number lived only in the Other Data dump with no way to
+  // correct it, so a family saying "actually there'll be four of us" needed a
+  // direct database edit. Shown here, one click to fix.
+  h += _cmsHeadcountRow(s, collection, eventId);
   if (s.numVolunteers) h += '<div style="font-size:.83rem;">Volunteers: ' + rsEscape(String(s.numVolunteers)) + '</div>';
   if (s.groupName) h += '<div style="font-size:.83rem;">Group: ' + rsEscape(s.groupName) + '</div>';
   if (demo.streetAddress) h += '<div style="font-size:.83rem;grid-column:1/-1;">Address: <strong>' + rsEscape(demo.streetAddress + (demo.city ? ', ' + demo.city : '') + (demo.zipCode ? ' ' + demo.zipCode : '')) + '</strong></div>';
