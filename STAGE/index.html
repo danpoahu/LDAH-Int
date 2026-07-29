@@ -5089,7 +5089,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.35.3-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.36.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27290,16 +27290,47 @@ function cmsRegStatusBadge(s) {
 
 function cmsRegAdminNote(s) {
   var h = '';
-  // Connect-Gen consent gate: registration is in but consent is still
-  // outstanding. Show this BEFORE the generic "pending registration" branch.
-  if (s.status === 'pending' && s.registrationCompletedAt && !s.consentSignedAt) {
-    var _consentSent = '';
-    if (s.consentRequiredEmailSentAt) {
-      if (s.consentRequiredEmailSentAt.toDate) _consentSent = s.consentRequiredEmailSentAt.toDate().toLocaleDateString();
-      else if (s.consentRequiredEmailSentAt.seconds) _consentSent = new Date(s.consentRequiredEmailSentAt.seconds * 1000).toLocaleDateString();
+  // Connect-Gen readiness gate: registration is in but the family still owes
+  // something. WHICH thing depends on the session, so this must not name consent
+  // unconditionally. Monday "All Islands Virtual" families owe a signed consent,
+  // their IEP/Evaluation and the worksheet. Thursday Oahu / Hilo / Kona families
+  // attend in person, sign consent on arrival, and owe ONLY the Parent Report
+  // Worksheet -- they are never sent a consent form at all. Previously every
+  // pending Connect-Gen family was reported as "awaiting consent signature",
+  // which sent staff chasing a signature that had never been requested.
+  // Mirrors _cgRequirements() in W2 functions/index.js.
+  if (s.status === 'pending' && s.registrationCompletedAt) {
+    var _cgEv = (typeof _cmsSignupsModalData !== 'undefined' && _cmsSignupsModalData)
+      ? _cmsSignupsModalData.eventDoc : null;
+    var _cgIsCg = !!(_cgEv && _cgEv.zoomMode === 'program')
+      || !!s.prepToken || !!s.cgWorksheetRequestEmailSentAt || !!s.consentRequiredEmailSentAt;
+    if (_cgIsCg && typeof window._cgSignupReadiness === 'function') {
+      var _rd = window._cgSignupReadiness(s, _cgEv, { assumeConnectGen: true });
+      if (!_rd.ready) {
+        var _cgLbl = {
+          consent: 'a signed consent form',
+          documents: "the child's IEP and Evaluation",
+          worksheet: 'the Parent Report Worksheet'
+        };
+        var _parts = (_rd.outstanding || []).map(function(k) { return _cgLbl[k] || k; });
+        var _phrase = _parts.length <= 1 ? (_parts[0] || 'outstanding items')
+          : (_parts.length === 2 ? _parts[0] + ' and ' + _parts[1]
+             : _parts.slice(0, -1).join(', ') + ' and ' + _parts[_parts.length - 1]);
+        // Surface when we last asked for whichever item is outstanding.
+        var _askedField = (_rd.outstanding.indexOf('consent') > -1)
+          ? s.consentRequiredEmailSentAt : s.cgWorksheetRequestEmailSentAt;
+        var _asked = '';
+        if (_askedField) {
+          if (_askedField.toDate) _asked = _askedField.toDate().toLocaleDateString();
+          else if (_askedField.seconds) _asked = new Date(_askedField.seconds * 1000).toLocaleDateString();
+        }
+        h += '<div style="background:#EFF6FF;border-left:4px solid #0891B2;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#0C4A6E;margin-top:8px;">'
+          + 'Registration complete &mdash; awaiting ' + rsEscape(_phrase)
+          + (_asked ? ' (requested ' + rsEscape(_asked) + ')' : '')
+          + '. Status will flip to Confirmed once ' + (_parts.length > 1 ? 'these are' : 'this is') + ' received.</div>';
+        return h;
+      }
     }
-    h += '<div style="background:#EFF6FF;border-left:4px solid #0891B2;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#0C4A6E;margin-top:8px;">Registration complete &mdash; awaiting Connect-Gen consent signature' + (_consentSent ? ' (consent email sent ' + rsEscape(_consentSent) + ')' : '') + '. Status will flip to Confirmed when the parent signs.</div>';
-    return h;
   }
   // Registration pipeline notes
   if (s.status === 'confirmed' && s.registrationCompletedAt) {
