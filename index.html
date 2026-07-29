@@ -5083,7 +5083,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.39.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.40.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27318,6 +27318,68 @@ function cmsRenderOtherSignupData(s) {
     rows + '</div>';
 }
 
+/* ── Editable headcount chip, in the signup card header ─────────────────────
+   Capacity, session sheets and the audit export all count PEOPLE, not signups.
+   This sat in the Personal Info list where it was easy to miss entirely, so it
+   is now a solid chip beside the name — click it to edit in place.
+
+   participationType is what the counting keys off: an "Individual" contributes
+   exactly 1 whatever groupSize says. Saving writes BOTH fields so staff never
+   have to know that. */
+function _cmsHeadcountChip(s, collection, eventId) {
+  var isGroup = s.participationType === 'Group';
+  var n = isGroup ? (parseInt(s.groupSize, 10) || 1) : 1;
+  var vid = 'hcView_' + s.id, eid = 'hcEdit_' + s.id, inp = 'hcInput_' + s.id;
+  // A party of several is the number worth noticing, so it gets the warm colour.
+  var bg = n > 1 ? '#C2410C' : '#0891B2';
+  return '<span id="' + vid + '" onclick="event.stopPropagation();_cmsHeadcountEdit(' + _jsArg(s.id) + ',true)"' +
+      ' title="How many people are attending — click to change"' +
+      ' style="display:inline-flex;align-items:center;gap:5px;background:' + bg + ';color:#fff;' +
+      'font-size:.74rem;font-weight:700;letter-spacing:.03em;border-radius:999px;padding:3px 10px;' +
+      'white-space:nowrap;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.18);">' +
+      '<span style="font-size:.8rem;line-height:1;">&#128101;</span>' +
+      n + (n === 1 ? ' attending' : ' attending') +
+      '<span style="opacity:.75;font-weight:600;">&#9998;</span>' +
+    '</span>' +
+    '<span id="' + eid + '" style="display:none;align-items:center;gap:5px;" onclick="event.stopPropagation();">' +
+      '<input id="' + inp + '" type="number" min="1" step="1" value="' + n + '"' +
+        ' style="width:64px;padding:2px 6px;border:1px solid #CBD5E1;border-radius:6px;font-size:.8rem;">' +
+      '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 9px;background:#F0FDF4;color:#16A34A;border:1px solid #BBF7D0;"' +
+        ' onclick="event.stopPropagation();cmsSaveHeadcount(' + _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ',' + _jsArg(inp) + ')">Save</button>' +
+      '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 9px;color:#64748B;"' +
+        ' onclick="event.stopPropagation();_cmsHeadcountEdit(' + _jsArg(s.id) + ',false)">Cancel</button>' +
+    '</span>';
+}
+
+window._cmsHeadcountEdit = function(signupId, editing) {
+  var v = document.getElementById('hcView_' + signupId);
+  var e = document.getElementById('hcEdit_' + signupId);
+  if (!v || !e) return;
+  v.style.display = editing ? 'none' : 'inline-flex';
+  e.style.display = editing ? 'inline-flex' : 'none';
+  if (editing) { var i = document.getElementById('hcInput_' + signupId); if (i) { i.focus(); i.select(); } }
+};
+
+window.cmsSaveHeadcount = async function(collection, eventId, signupId, inputId) {
+  var raw = ((document.getElementById(inputId) || {}).value || '').trim();
+  var n = parseInt(raw, 10);
+  if (!isFinite(n) || n < 1) { _showToast('Enter how many people are attending (1 or more).', '#DC2626'); return; }
+  // 1 => Individual, more => Group. Keeping the two fields consistent is the
+  // whole point; a groupSize on an Individual would silently still count as 1.
+  var payload = n === 1
+    ? { participationType: 'Individual', groupSize: 1 }
+    : { participationType: 'Group', groupSize: n };
+  try {
+    await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update(payload);
+    var s = _cmsSignupsModalData.signups.find(function(x) { return x.id === signupId; });
+    if (s) { s.participationType = payload.participationType; s.groupSize = payload.groupSize; }
+    var sName = s ? (s.name || signupId) : signupId;
+    auditLog('Updated signup headcount', sName + ' \u2014 ' + n + (n === 1 ? ' person' : ' people') + ' \u2014 ' + (_cmsSignupsModalData.eventTitle || 'Event'));
+    cmsRenderSignupsList(_cmsSignupsModalData.signups, collection, eventId);
+    _showToast('Headcount saved: ' + n + (n === 1 ? ' person.' : ' people.'), '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
 function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, sessionDateKey) {
   var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
   var statusColor = statusColors[s.status] || '#64748B';
@@ -27340,6 +27402,10 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   h += '<div style="flex:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;">';
   h += '<span class="cmsChevron" style="font-size:.65rem;color:var(--text-soft);flex-shrink:0;">&#9654;</span>';
   h += '<span style="font-weight:600;font-size:.9rem;">' + name + '</span>';
+  // Headcount, front and centre. Capacity, session sheets and the audit export
+  // all count PEOPLE rather than signups, so this is the number staff need to
+  // see and be able to fix without leaving the row.
+  h += _cmsHeadcountChip(s, collection, eventId);
   // Which child this signup is for — parents who register several children
   // otherwise read as duplicate rows. Only shown when a child name is present.
   var _sChildName = (s.registration && s.registration.childName) || s.childName || '';
