@@ -5083,7 +5083,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.45.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.46.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -42942,11 +42942,13 @@ window.cmsBuildStaffActivityReport = async function() {
     try {
       var snap = await db.collection('members').get();
       _mrMembers = [];
+      _mrInternalHidden = 0;
       snap.forEach(function(d) {
         var m = Object.assign({ _id: d.id }, d.data() || {});
         // Removed rows stay in Firestore — they are the record of an abandoned
         // checkout — but they are out of the report unless staff ask to see them.
         if (m.archived === true && !_mrShowRemoved) return;
+        if (!_mrShowInternal && _mrIsInternal(m)) { _mrInternalHidden++; return; }
         _mrMembers.push(m);
       });
       _mrMembers.sort(function(a, b) { var ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0; var tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0; return tb - ta; });
@@ -42957,6 +42959,37 @@ window.cmsBuildStaffActivityReport = async function() {
     }
   };
   var _mrShowRemoved = false;
+  var _mrShowInternal = false;
+  var _mrInternalHidden = 0;
+
+  /* Internal and test records are excluded from the membership report by
+     default. The report is what Daniel reads to answer "how many members do we
+     have and how much came in" — and until now it answered $4,200 when the real
+     figure was $200, because every test payment made while building the
+     checkout counted.
+
+     Three rules, in order of how obvious they are:
+       - any name containing "test" (catches "Test", "Test Rosie", "La'a Test",
+         and "Chester McTester")
+       - any @ldahawaii.org address — staff, not the public
+       - a short list of internal accounts on public domains, which neither of
+         the first two rules can see
+
+     Nothing is deleted and nothing is hidden for good: "Show test/staff
+     records" puts them back. */
+  var _MR_INTERNAL_EMAILS = [
+    'danpellegrini63@gmail.com',   // Daniel's own checkout testing
+    'ldahhelp@gmail.com',          // the LDAH help account
+    'info@discovermore.app'        // Chester McTester
+  ];
+  function _mrIsInternal(r) {
+    var n = String(r.name || '').toLowerCase();
+    if (n.indexOf('test') !== -1) return true;
+    var e = String(r.email || '').trim().toLowerCase();
+    if (!e) return false;
+    if (/@ldahawaii\.org$/.test(e)) return true;
+    return _MR_INTERNAL_EMAILS.indexOf(e) !== -1;
+  }
   function _mrAmt(r) { return typeof r.amount === 'number' ? r.amount : (parseInt(r.amount, 10) || 0); }
   function _mrDate(r) { var ts = r.paidAt || r.createdAt; return (ts && ts.toDate) ? ts.toDate().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''; }
   function _mrRender() {
@@ -43019,7 +43052,11 @@ window.cmsBuildStaffActivityReport = async function() {
       });
       html += '</tbody></table>';
     }
-    html += '<div style="margin-top:9px;font-size:.78rem;color:var(--text-soft);"><a href="#" onclick="event.preventDefault();mrToggleRemoved();" style="color:#0891B2;font-weight:600;">' + (_mrShowRemoved ? 'Hide removed' : 'Show removed') + '</a></div>';
+    html += '<div style="margin-top:9px;font-size:.78rem;color:var(--text-soft);display:flex;gap:14px;flex-wrap:wrap;">'
+      + '<a href="#" onclick="event.preventDefault();mrToggleRemoved();" style="color:#0891B2;font-weight:600;">' + (_mrShowRemoved ? 'Hide removed' : 'Show removed') + '</a>'
+      + '<a href="#" onclick="event.preventDefault();mrToggleInternal();" style="color:#0891B2;font-weight:600;" title="Records excluded from this report: any name containing &quot;test&quot;, any @ldahawaii.org address, and a short list of internal accounts.">'
+        + (_mrShowInternal ? 'Hide test / staff records' : 'Show test / staff records' + (_mrInternalHidden ? ' (' + _mrInternalHidden + ')' : ''))
+      + '</a></div>';
     html += '</div>';
 
     // ── Paid members, the list Daniel actually wants to look at ──────────────
@@ -43134,6 +43171,7 @@ window.cmsBuildStaffActivityReport = async function() {
   };
 
   window.mrToggleRemoved = function() { _mrShowRemoved = !_mrShowRemoved; cmsBuildMembershipReport(); };
+  window.mrToggleInternal = function() { _mrShowInternal = !_mrShowInternal; cmsBuildMembershipReport(); };
 
   window.mrExportPaidCSV = function() {
     var paid = _mrMembers.filter(function(r) { return r.status === 'paid'; });
