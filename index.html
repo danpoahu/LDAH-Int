@@ -5083,7 +5083,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.43.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.44.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -42918,7 +42918,13 @@ window.cmsBuildStaffActivityReport = async function() {
     try {
       var snap = await db.collection('members').get();
       _mrMembers = [];
-      snap.forEach(function(d) { _mrMembers.push(Object.assign({ _id: d.id }, d.data() || {})); });
+      snap.forEach(function(d) {
+        var m = Object.assign({ _id: d.id }, d.data() || {});
+        // Removed rows stay in Firestore — they are the record of an abandoned
+        // checkout — but they are out of the report unless staff ask to see them.
+        if (m.archived === true && !_mrShowRemoved) return;
+        _mrMembers.push(m);
+      });
       _mrMembers.sort(function(a, b) { var ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0; var tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0; return tb - ta; });
       _mrRender();
       var st = document.getElementById('mrGeneratedAt'); if (st) st.textContent = 'Generated ' + new Date().toLocaleString();
@@ -42926,6 +42932,7 @@ window.cmsBuildStaffActivityReport = async function() {
       if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load membership data: ' + rsEscape(e.message) + '</div>';
     }
   };
+  var _mrShowRemoved = false;
   function _mrAmt(r) { return typeof r.amount === 'number' ? r.amount : (parseInt(r.amount, 10) || 0); }
   function _mrDate(r) { var ts = r.paidAt || r.createdAt; return (ts && ts.toDate) ? ts.toDate().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : ''; }
   function _mrRender() {
@@ -42950,16 +42957,65 @@ window.cmsBuildStaffActivityReport = async function() {
     html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;margin-bottom:16px;"><div style="font-weight:700;margin-bottom:8px;">By Level</div><table style="width:100%;border-collapse:collapse;font-size:.88rem;"><thead><tr style="text-align:left;color:var(--text-soft);"><th style="padding:4px;">Level</th><th style="padding:4px;text-align:center;">Members</th><th style="padding:4px;text-align:right;">Paid $</th></tr></thead><tbody>';
     Object.keys(levels).forEach(function(L) { html += '<tr style="border-top:1px solid #F1F5F9;"><td style="padding:5px 4px;">' + rsEscape(L) + '</td><td style="padding:5px 4px;text-align:center;">' + levels[L].n + '</td><td style="padding:5px 4px;text-align:right;">$' + levels[L].paid.toLocaleString() + '</td></tr>'; });
     html += '</tbody></table></div>';
-    html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div style="font-weight:700;">Pending Memberships (' + pending.length + ')</div>' + (pending.length ? '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="mrMarkAllPending()">Mark all paid</button>' : '') + '</div>';
+    // A pending row whose email ALREADY has a paid membership is an abandoned
+    // checkout, not someone who owes us money. Erica Au left four of them on
+    // 29 Jul before her payment finally went through. Marking those makes the
+    // difference between "chase this person" and "tidy this away" obvious, and
+    // lets the bulk button clear only the ones that are provably safe.
+    var _paidEmails = {};
+    paid.forEach(function(r) { var e = String(r.email || '').trim().toLowerCase(); if (e) _paidEmails[e] = true; });
+    var _superseded = pending.filter(function(r) { return _paidEmails[String(r.email || '').trim().toLowerCase()]; });
+
+    html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;"><div style="font-weight:700;">Pending Memberships (' + pending.length + ')</div><div style="display:flex;gap:6px;flex-wrap:wrap;">'
+      + (_superseded.length ? '<button class="btn btn-ghost" style="font-size:.8rem;color:#B91C1C;" title="These people already have a paid membership on the same email — these rows are abandoned checkout attempts." onclick="mrRemoveSuperseded()">Remove ' + _superseded.length + ' already paid</button>' : '')
+      + (pending.length ? '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="mrMarkAllPending()">Mark all paid</button>' : '')
+      + '</div></div>';
+    if (_superseded.length) {
+      html += '<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px 11px;margin-bottom:9px;font-size:.8rem;color:#92400E;">'
+        + '<strong>' + _superseded.length + ' of these already paid.</strong> Each one is a checkout that was started and abandoned before a later attempt succeeded on the same email. Removing them hides the row; the record stays in Firestore and nobody\'s membership changes.</div>';
+    }
     if (!pending.length) { html += '<div style="color:var(--text-soft);font-size:.85rem;">No pending memberships. All caught up.</div>'; }
     else {
       html += '<table style="width:100%;border-collapse:collapse;font-size:.85rem;"><tbody>';
       pending.forEach(function(r) {
-        html += '<tr style="border-top:1px solid #F1F5F9;"><td style="padding:6px 4px;"><b>' + rsEscape(r.name || '(no name)') + '</b><br><span style="color:var(--text-soft);font-size:.78rem;">' + rsEscape(r.email || '') + '</span></td>'
+        var isSup = !!_paidEmails[String(r.email || '').trim().toLowerCase()];
+        html += '<tr style="border-top:1px solid #F1F5F9;' + (r.archived === true ? 'opacity:.5;' : '') + '"><td style="padding:6px 4px;"><b>' + rsEscape(r.name || '(no name)') + '</b>'
+          + (isSup ? ' <span style="font-size:.68rem;font-weight:700;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;border-radius:999px;padding:1px 7px;white-space:nowrap;" title="This email already has a paid membership.">already paid</span>' : '')
+          + (r.archived === true ? ' <span style="font-size:.68rem;font-weight:700;color:#64748B;background:#F1F5F9;border-radius:999px;padding:1px 7px;">removed</span>' : '')
+          + '<br><span style="color:var(--text-soft);font-size:.78rem;">' + rsEscape(r.email || '') + '</span></td>'
           + '<td style="padding:6px 4px;">' + rsEscape(r.level || '') + '</td>'
           + '<td style="padding:6px 4px;">$' + _mrAmt(r) + '</td>'
           + '<td style="padding:6px 4px;color:var(--text-soft);">' + rsEscape(_mrDate(r)) + '</td>'
-          + '<td style="padding:6px 4px;text-align:right;"><button class="btn btn-primary" style="font-size:.75rem;padding:5px 12px;background:#16A34A;border-color:#16A34A;" onclick="mrMarkPaid(\'' + r._id + '\')">Mark Paid</button></td></tr>';
+          + '<td style="padding:6px 4px;text-align:right;white-space:nowrap;">'
+          + (r.archived === true
+              ? '<button class="btn btn-ghost" style="font-size:.75rem;padding:5px 10px;color:#16A34A;" onclick="mrRestorePending(' + _jsArg(r._id) + ')">Restore</button>'
+              : '<button class="btn btn-primary" style="font-size:.75rem;padding:5px 12px;background:#16A34A;border-color:#16A34A;" onclick="mrMarkPaid(' + _jsArg(r._id) + ')">Mark Paid</button>'
+                + ' <button class="btn btn-ghost" style="font-size:.75rem;padding:5px 10px;color:#B91C1C;" title="Hide this abandoned checkout from the report" onclick="mrRemovePending(' + _jsArg(r._id) + ')">Remove</button>')
+          + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '<div style="margin-top:9px;font-size:.78rem;color:var(--text-soft);"><a href="#" onclick="event.preventDefault();mrToggleRemoved();" style="color:#0891B2;font-weight:600;">' + (_mrShowRemoved ? 'Hide removed' : 'Show removed') + '</a></div>';
+    html += '</div>';
+
+    // ── Paid members, the list Daniel actually wants to look at ──────────────
+    var _paidSorted = paid.slice().sort(function(a, b) {
+      var ta = (a.paidAt && a.paidAt.toMillis) ? a.paidAt.toMillis() : ((a.createdAt && a.createdAt.toMillis) ? a.createdAt.toMillis() : 0);
+      var tb = (b.paidAt && b.paidAt.toMillis) ? b.paidAt.toMillis() : ((b.createdAt && b.createdAt.toMillis) ? b.createdAt.toMillis() : 0);
+      return tb - ta;
+    });
+    html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;margin-bottom:16px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+      + '<div style="font-weight:700;">Paid Members (' + _paidSorted.length + ')</div>'
+      + '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="mrExportPaidCSV()">Export paid members</button></div>';
+    if (!_paidSorted.length) { html += '<div style="color:var(--text-soft);font-size:.85rem;">No paid memberships yet.</div>'; }
+    else {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:.85rem;"><thead><tr style="text-align:left;color:var(--text-soft);font-size:.78rem;"><th style="padding:4px;">Member</th><th style="padding:4px;">Level</th><th style="padding:4px;text-align:right;">Amount</th><th style="padding:4px;">Paid</th></tr></thead><tbody>';
+      _paidSorted.forEach(function(r) {
+        html += '<tr style="border-top:1px solid #F1F5F9;"><td style="padding:6px 4px;"><b>' + rsEscape(r.name || '(no name)') + '</b><br><span style="color:var(--text-soft);font-size:.78rem;">' + rsEscape(r.email || '') + '</span></td>'
+          + '<td style="padding:6px 4px;">' + rsEscape(r.level || '') + '</td>'
+          + '<td style="padding:6px 4px;text-align:right;font-weight:600;color:#166534;">$' + _mrAmt(r) + '</td>'
+          + '<td style="padding:6px 4px;color:var(--text-soft);">' + rsEscape(_mrDate(r)) + '</td></tr>';
       });
       html += '</tbody></table>';
     }
@@ -42992,6 +43048,92 @@ window.cmsBuildStaffActivityReport = async function() {
     try { await _mrMarkOnePaid(memberId); _mrRender(); if (typeof _showToast === 'function') _showToast('Marked paid.', '#16A34A'); }
     catch (e) { alert('Could not mark paid: ' + e.message); }
   };
+  /* Remove = archived:true. Never a delete: an abandoned checkout is a real
+     thing that happened and staff may need to explain a PayPal line later. It
+     also deliberately does NOT touch the person's contact — someone with a
+     paid membership stays a member, and clearing isMember off the back of a
+     tidy-up is exactly the kind of side effect nobody would expect. */
+  async function _mrSetArchived(memberId, on) {
+    await db.collection('members').doc(memberId).update({
+      archived: !!on,
+      abandonedAt: on ? firebase.firestore.FieldValue.serverTimestamp() : firebase.firestore.FieldValue.delete(),
+    });
+    var r = _mrMembers.find(function(x) { return x._id === memberId; });
+    if (r) r.archived = !!on;
+  }
+
+  window.mrRemovePending = async function(memberId) {
+    var r = _mrMembers.find(function(x) { return x._id === memberId; });
+    if (!r) return;
+    if (r.status === 'paid') { alert('That membership is paid — it cannot be removed here.'); return; }
+    if (!confirm('Remove this pending membership from the report?\n\n' + (r.name || '(no name)') + ' — ' + (r.email || '') + '\n\nThe record stays in Firestore and their contact is not changed. You can put it back with "Show removed".')) return;
+    try {
+      await _mrSetArchived(memberId, true);
+      auditLog('Removed pending membership', (r.name || r.email || memberId) + ' — ' + (r.level || '') + ' $' + _mrAmt(r));
+      if (!_mrShowRemoved) _mrMembers = _mrMembers.filter(function(x) { return x._id !== memberId; });
+      _mrRender();
+      if (typeof _showToast === 'function') _showToast('Pending membership removed.', '#16A34A');
+    } catch (e) { alert('Could not remove: ' + e.message); }
+  };
+
+  window.mrRestorePending = async function(memberId) {
+    try {
+      await _mrSetArchived(memberId, false);
+      var r = _mrMembers.find(function(x) { return x._id === memberId; });
+      auditLog('Restored pending membership', (r && (r.name || r.email)) || memberId);
+      _mrRender();
+      if (typeof _showToast === 'function') _showToast('Restored.', '#16A34A');
+    } catch (e) { alert('Could not restore: ' + e.message); }
+  };
+
+  // Only the rows whose email already has a PAID membership — the provably
+  // safe ones. Anything else still has to be removed deliberately, one by one.
+  window.mrRemoveSuperseded = async function() {
+    var paidEmails = {};
+    _mrMembers.forEach(function(r) { if (r.status === 'paid') { var e = String(r.email || '').trim().toLowerCase(); if (e) paidEmails[e] = true; } });
+    var targets = _mrMembers.filter(function(r) {
+      return r.status !== 'paid' && r.archived !== true && paidEmails[String(r.email || '').trim().toLowerCase()];
+    });
+    if (!targets.length) { alert('Nothing to remove — no pending row matches a paid membership.'); return; }
+    var names = targets.slice(0, 10).map(function(r) { return '  \u2022 ' + (r.name || '(no name)') + ' — ' + (r.level || '') + ' $' + _mrAmt(r); }).join('\n');
+    if (!confirm('Remove ' + targets.length + ' abandoned checkout' + (targets.length === 1 ? '' : 's') + '?\n\n' + names + (targets.length > 10 ? '\n  …and ' + (targets.length - 10) + ' more' : '') + '\n\nEvery one of these people already has a PAID membership on the same email. Records stay in Firestore and no contact is changed.')) return;
+    try {
+      for (var i = 0; i < targets.length; i++) await _mrSetArchived(targets[i]._id, true);
+      auditLog('Removed abandoned memberships', targets.length + ' pending row(s) superseded by a paid membership');
+      if (!_mrShowRemoved) {
+        var ids = {}; targets.forEach(function(t) { ids[t._id] = true; });
+        _mrMembers = _mrMembers.filter(function(x) { return !ids[x._id]; });
+      }
+      _mrRender();
+      if (typeof _showToast === 'function') _showToast(targets.length + ' removed.', '#16A34A');
+    } catch (e) { alert('Error: ' + e.message); }
+  };
+
+  window.mrToggleRemoved = function() { _mrShowRemoved = !_mrShowRemoved; cmsBuildMembershipReport(); };
+
+  window.mrExportPaidCSV = function() {
+    var paid = _mrMembers.filter(function(r) { return r.status === 'paid'; });
+    if (!paid.length) { alert('No paid members to export.'); return; }
+    paid.sort(function(a, b) {
+      var ta = (a.paidAt && a.paidAt.toMillis) ? a.paidAt.toMillis() : 0;
+      var tb = (b.paidAt && b.paidAt.toMillis) ? b.paidAt.toMillis() : 0;
+      return tb - ta;
+    });
+    var out = [['Name', 'Email', 'Level', 'Amount', 'Paid Date', 'Contact ID']];
+    paid.forEach(function(r) {
+      out.push([r.name || '', r.email || '', r.level || '', _mrAmt(r), _mrDate(r), r.linkedContactId || ''].map(function(v) {
+        var s = (v == null ? '' : String(v)).replace(/"/g, '""');
+        return /[",\n]/.test(s) ? '"' + s + '"' : s;
+      }));
+    });
+    var blob = new Blob([out.map(function(r) { return r.join(','); }).join('\n')], { type: 'text/csv;charset=utf-8;' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ldah-paid-members-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.click();
+    auditLog('Exported paid members CSV', paid.length + ' member(s)');
+  };
+
   window.mrMarkAllPending = async function() {
     var pend = _mrMembers.filter(function(r) { return r.status !== 'paid'; });
     if (!pend.length) return;
