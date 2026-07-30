@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.49.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.49.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17069,7 +17069,15 @@ var _photoPendingByIsland = {};
       try {
         var ms = await db.collection('members').where('linkedContactId', '==', contactId).get();
         var batch = db.batch();
-        ms.forEach(function(d) { if ((d.data() || {}).status === 'pending') batch.update(d.ref, { status: 'paid', paidAt: firebase.firestore.FieldValue.serverTimestamp() }); });
+        ms.forEach(function(d) {
+          var v = d.data() || {};
+          // Never revive a removed record. Marking a contact paid used to flip
+          // EVERY linked pending row, including abandoned checkouts already
+          // cleared away — which would have turned Erica's four dead attempts
+          // into four paid $100 memberships.
+          if (v.archived === true) return;
+          if (v.status === 'pending') batch.update(d.ref, { status: 'paid', paidAt: firebase.firestore.FieldValue.serverTimestamp() });
+        });
         await batch.commit();
       } catch (e) { console.warn('member paid update:', e.message); }
       var cc = (_allContacts || []).find(function(x) { return x.id === contactId; });
@@ -17523,7 +17531,10 @@ var _photoPendingByIsland = {};
           })();
           db.collection('members').where('linkedContactId', '==', cid).get().then(function(snap) {
             var recs = [];
-            snap.forEach(function(d) { recs.push(d.data() || {}); });
+            // Skip removed rows. An abandoned checkout that staff cleared from the
+            // membership report must not keep showing on the contact card — that
+            // was the whole point of removing it.
+            snap.forEach(function(d) { var v = d.data() || {}; if (v.archived === true) return; recs.push(v); });
             recs.sort(function(a, b) {
               var ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
               var tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
