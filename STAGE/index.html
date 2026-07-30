@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.39.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.40.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -29476,7 +29476,54 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
     displaced.forEach(function(s) { displacedIds[s.id] = true; });
   }
 
+  // ── Fold the quiet rows away (2026-07-29) ────────────────────────────────
+  // A recurring program generates an occurrence row for every upcoming date in
+  // the window. Connect-Gen has four schedules, so a single family with one
+  // booking was buried under ~18 rows reading "No signups for this date" plus
+  // struck-through cancelled ones. Rows that carry signups render in full; the
+  // rest collapse into one line each, expandable on click.
+  function _sessHasSignups(sess) {
+    return active.some(function(s) {
+      var sDates = s.selectedSessions || s.selectedDates || [];
+      return sDates.some(function(sd) {
+        if (sd.indexOf(sess.date) === -1) return false;
+        if (sess.location && (sd.indexOf('|') !== -1 || sd.indexOf('@ ') !== -1)) {
+          return sd.indexOf(sess.location) !== -1;
+        }
+        return true;
+      });
+    });
+  }
+  var _foldEmpty = [], _foldCancelled = [];
+  if (!_cmsSignupsFilterDisplaced) {
+    sessions.forEach(function(sess) {
+      if (_sessHasSignups(sess)) return;           // never fold a row with people in it
+      (sess.cancelled ? _foldCancelled : _foldEmpty).push(sess);
+    });
+  }
+  var _folded = {};
+  _foldEmpty.concat(_foldCancelled).forEach(function(sess) { _folded[sess.date + '|' + (sess.location || '')] = true; });
+
+  function _foldRow(list, label, colour, bg, id) {
+    if (!list.length) return '';
+    var inner = list.map(function(x) {
+      return '<div style="font-size:.8rem;padding:2px 0;color:' + colour + ';">'
+        + rsEscape(x.dayName + ', ' + x.date) + ' &middot; ' + rsEscape(x.location || '')
+        + (x.cancelReason ? ' — ' + rsEscape(x.cancelReason) : '') + '</div>';
+    }).join('');
+    return '<div style="margin-bottom:12px;border:1px dashed #CBD5E1;border-radius:10px;background:' + bg + ';overflow:hidden;">'
+      + '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer;font-size:.85rem;color:' + colour + ';"'
+      + ' onclick="var b=document.getElementById(\'' + id + '\');var open=b.style.display!==\'none\';b.style.display=open?\'none\':\'block\';this.querySelector(\'.fchev\').textContent=open?\'\\u25B8\':\'\\u25BE\';">'
+      + '<span class="fchev">&#9656;</span><b>' + list.length + '</b> ' + label
+      + '<span style="margin-left:auto;font-size:.76rem;opacity:.8;">show</span></div>'
+      + '<div id="' + id + '" style="display:none;padding:4px 14px 10px 34px;">' + inner + '</div>'
+      + '</div>';
+  }
+  html += _foldRow(_foldEmpty, 'upcoming dates with no signups yet', '#475569', '#F8FAFC', 'cmsFoldEmpty');
+  html += _foldRow(_foldCancelled, 'cancelled dates with no signups', '#991B1B', '#FEF2F2', 'cmsFoldCancelled');
+
   sessions.forEach(function(sess) {
+    if (_folded[sess.date + '|' + (sess.location || '')]) return;
     // Find signups for this session date
     var dateSignups = active.filter(function(s) {
       var sDates = s.selectedSessions || s.selectedDates || [];
