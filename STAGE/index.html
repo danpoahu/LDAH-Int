@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.43.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.43.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25560,7 +25560,7 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
         announcedLabel = _sent1 ? 'Re-announce' : 'Announce';
         announcedColor = _sent1 ? '#94A3B8' : '#0891B2';
       }
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + cmsJsArg(ev.title || '') + '\')"' + announcedLabel + '</button>';
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + cmsJsArg(ev.title || '') + '\')">' + announcedLabel + '</button>';
     }
     // Recording & Slides — non-recurring, non-archived, non-expired events.
     // Single-date events: top-level button gated by Past category.
@@ -27433,7 +27433,20 @@ function cmsRegStatusBadge(s) {
   // hasn't signed the consent form yet — distinguish from "Pending Registration"
   // (which means the registration form itself is still outstanding).
   if (s.status === 'pending' && s.registrationCompletedAt && !s.consentSignedAt) {
-    return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#E0F2FE;color:#0C4A6E;">Awaiting Consent</span>';
+    // Consent is only required of Monday "All Islands Virtual" families. A
+    // Thursday / Hilo / Kona family signs on arrival and is never sent a form,
+    // so naming consent here sent staff chasing a signature nobody asked for —
+    // same mistake as cmsRegAdminNote had. Ask what this family actually owes.
+    var _sbEv = (typeof _cmsSignupsModalData !== 'undefined' && _cmsSignupsModalData)
+      ? (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc) : null;
+    var _sbRd = (typeof window._cgSignupReadiness === 'function')
+      ? window._cgSignupReadiness(s, _sbEv, { assumeConnectGen: !!(s.prepToken || s.parentWorksheet) })
+      : null;
+    if (!_sbRd || !_sbRd.isConnectGen || _sbRd.required.indexOf('consent') > -1) {
+      return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#E0F2FE;color:#0C4A6E;">Awaiting Consent</span>';
+    }
+    var _sbWait = (_sbRd.outstanding || []).indexOf('worksheet') > -1 ? 'Awaiting Worksheet' : 'Pending';
+    return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#FEF3C7;color:#92400E;">' + _sbWait + '</span>';
   }
   if (s.status === 'pending') return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#FEF3C7;color:#92400E;">Pending Registration</span>';
   return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#F3F4F6;color:#374151;">Signed Up</span>';
@@ -27995,7 +28008,7 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   // Connect-Gen documents action row — always visible (not gated on expand)
   // so staff can review IEP + Evaluation directly from the signup sheet.
   // Renders only for Connect-Gen context; other events get nothing here.
-  h += cmsCgDocsButtonRow(s, collection, eventId);
+  h += cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey);
 
   // Expandable detail body (hidden by default)
   h += '<div id="' + cardId + '_body" style="display:none;padding:12px 14px 14px;border-top:1px dashed #E2E8F0;background:#FAFCFF;">';
@@ -28587,6 +28600,23 @@ function _cgIsMondayVirtualClient(signup, event) {
 window._cgReadinessPillHtml = function(signup, event, opts) {
   var r = _cgSignupReadiness(signup, event, opts);
   if (!r.isConnectGen) return '';
+  // Readiness is about getting a family PREPARED for a session. Once the session
+  // has happened — or attendance was taken — the paperwork is moot; chasing a
+  // worksheet for 23 Jul is noise, not a task. Attendance is recorded per
+  // session (sessionAttendance[dateKey]), not on the signup, so the caller
+  // passes the date key.
+  var _rpKey = (opts && opts.sessionDateKey) || '';
+  if (signup) {
+    if (signup.attendanceStatus === 'attended' || signup.attendanceStatus === 'no-show') return '';
+    var _rpRec = (_rpKey && signup.sessionAttendance) ? signup.sessionAttendance[_rpKey] : null;
+    if (_rpRec && (_rpRec.status === 'attended' || _rpRec.status === 'no-show')) return '';
+  }
+  var _rpDate = String(_rpKey).match(/(\d{4}-\d{2}-\d{2})/);
+  if (_rpDate) {
+    var _rpNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+    var _rpToday = _rpNow.getFullYear() + '-' + String(_rpNow.getMonth() + 1).padStart(2, '0') + '-' + String(_rpNow.getDate()).padStart(2, '0');
+    if (_rpDate[1] < _rpToday) return '';   // session already passed
+  }
   var base = 'display:inline-block;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;';
   if (r.ready) {
     return '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet — everything that applies to this family is done.">Ready</span>';
@@ -28615,13 +28645,13 @@ function cmsCgWorksheetBtn(s, collection, eventId) {
     _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ')">' + rsEscape(label) + '</button>';
 }
 
-function cmsCgDocsButtonRow(s, collection, eventId) {
+function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
   if (!cmsIsConnectGenContext()) return '';
   // Readiness pill — same in every branch below, so build it once. We know we
   // are in a Connect-Gen context (the guard above), so assume it even if the
   // event doc has not loaded / carries no zoomMode.
   var _cgEv = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
-  var _cgPill = _cgReadinessPillHtml(s, _cgEv, { assumeConnectGen: true });
+  var _cgPill = _cgReadinessPillHtml(s, _cgEv, { assumeConnectGen: true, sessionDateKey: sessionDateKey });
   var docs = (s && s.connectGenDocuments && typeof s.connectGenDocuments === 'object') ? s.connectGenDocuments : null;
   // Count every file, not one per type — a family may send 7 IEP pages.
   var iepList = _cgDocList(docs, 'iep');
