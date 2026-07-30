@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.42.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.43.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20619,7 +20619,8 @@ var _photoPendingByIsland = {};
         var ogSettled = await Promise.allSettled(ogProms);
         ogSettled.forEach(function(settled, i) {
           if (settled.status !== 'fulfilled') return;
-          var pc = 0, sc = 0, hc = 0;
+          var pc = 0, sc = 0, hc = 0, uc = 0;
+          var _tk = _localToday();
           settled.value.forEach(function(doc) {
             var d = doc.data(); if (d.archived === true) return;
             sc++;
@@ -20627,9 +20628,10 @@ var _photoPendingByIsland = {};
             // Headcount for the card's seats chip — Group contributes groupSize,
             // Individual exactly 1. Free here: every doc is already read.
             if (d.status !== 'cancelled') hc += (d.participationType === 'Group' ? (parseInt(d.groupSize, 10) || 1) : 1);
+            if (d.status !== 'cancelled' && _cmsSignupIsUpcoming(d, _tk)) uc++;
           });
           totalSignups += sc;
-          pgCache[ogIds[i]] = { signupCount: sc, pendingCount: pc, headcount: hc };
+          pgCache[ogIds[i]] = { signupCount: sc, pendingCount: pc, headcount: hc, upcomingCount: uc };
         });
       } catch (e) {
         console.warn('cmsGetAlertCounts: signup subcollection scan failed:', e.message);
@@ -24767,6 +24769,7 @@ window.cmsLoadPrograms = async function(forceRefresh) {
         ev._signupCount = _sc.programs[ev.id].signupCount;
         ev._pendingCount = _sc.programs[ev.id].pendingCount;
         ev._headcount = _sc.programs[ev.id].headcount;
+        ev._upcomingCount = _sc.programs[ev.id].upcomingCount;
         return false;
       }
       return true;
@@ -24775,12 +24778,13 @@ window.cmsLoadPrograms = async function(forceRefresh) {
       await Promise.all(needsFetch.map(async function(ev) {
         try {
           var cSnap = await db.collection('recurringEvents').doc(ev.id).collection('signups').get();
-          var sc = 0; var pc = 0; var hc = 0;
+          var sc = 0; var pc = 0; var uc = 0; var _tk = _localToday(); var hc = 0;
           cSnap.forEach(function(doc) {
             var d = doc.data();
             if (d.archived === true) return;
             sc++;
             if (d.status === 'pending' || d.status === 'new') pc++;
+            if (d.status !== 'cancelled' && _cmsSignupIsUpcoming(d, _tk)) uc++;
             // Headcount for the seats chip: a Group contributes its groupSize, an
             // Individual exactly 1 — mirrors getEventCapacity server-side.
             if (d.status !== 'cancelled') {
@@ -24789,6 +24793,7 @@ window.cmsLoadPrograms = async function(forceRefresh) {
           });
           ev._signupCount = sc;
           ev._pendingCount = pc;
+          ev._upcomingCount = uc;
           ev._headcount = hc;
         } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
       }));
@@ -24973,7 +24978,7 @@ window.cmsLoadAllEvents = async function(forceRefresh) {
     results[1].forEach(function(doc) {
       var d = doc.data();
       var ev = { id: doc.id, ...d, _coll: 'recurringEvents', isRecurring: true, _type: window._cmsDeriveEventType(d, 'recurringEvents') };
-      if (_scFresh && _sc.programs && _sc.programs[ev.id]) { ev._signupCount = _sc.programs[ev.id].signupCount; ev._pendingCount = _sc.programs[ev.id].pendingCount; ev._headcount = _sc.programs[ev.id].headcount; }
+      if (_scFresh && _sc.programs && _sc.programs[ev.id]) { ev._signupCount = _sc.programs[ev.id].signupCount; ev._pendingCount = _sc.programs[ev.id].pendingCount; ev._headcount = _sc.programs[ev.id].headcount; ev._upcomingCount = _sc.programs[ev.id].upcomingCount; }
       all.push(ev);
     });
     _cmsAllEvents = all;
@@ -25374,6 +25379,20 @@ function cmsJsArg(s) {
     .replace(/[\r\n\t]/g, ' ');
 }
 
+// True when a signup still has a session on or after today. Used so an ongoing
+// programme's card counts who is actually COMING rather than everyone who has
+// ever attended — Connect-Gen showed "17 signups" when 16 of those were on past
+// dates and only one family was upcoming.
+function _cmsSignupIsUpcoming(d, todayKey) {
+  var keys = (Array.isArray(d.selectedSessions) && d.selectedSessions.length)
+    ? d.selectedSessions
+    : (Array.isArray(d.selectedDates) ? d.selectedDates : []);
+  if (!keys.length) return true;   // no date on the signup — never hide it
+  return keys.some(function(k) {
+    var m = String(k || '').match(/(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] >= todayKey : true;
+  });
+}
 function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
   var html = '';
   {
@@ -25394,7 +25413,9 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     // PEOPLE (remote signup). "Active" is deliberately NOT shown: every card in
     // the Active/Upcoming section is active, so the badge carried no information
     // while adding a chip to every row. Status chips now mean "pay attention".
-    var _n = ev._signupCount || 0;
+    // An ongoing programme runs indefinitely, so the lifetime total is noise on
+    // a card. Count who is actually upcoming; one-time events keep their total.
+    var _n = (isRecurring && ev._upcomingCount != null) ? ev._upcomingCount : (ev._signupCount || 0);
     var badgeHtml = _isFlyerCard ? ''
       : '<span class="cmsChip cmsChip-count">' + _n + (_n === 1 ? ' signup' : ' signups') + '</span>';
     if (!_isFlyerCard && ev._pendingCount > 0) {
