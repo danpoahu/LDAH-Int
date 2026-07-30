@@ -4322,8 +4322,27 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
   cursor: grab; font-size: 1.2rem; color: var(--text-soft); opacity: 0.4; padding: 8px;
 }
 .cms-card .cms-card-buttons {
-  display: flex; gap: 8px; margin-top: auto; padding-top: 10px; flex-wrap: wrap;
+  display: flex; gap: 6px; margin-top: auto; padding-top: 10px;
+  border-top: 1px solid #F1F5F9; flex-wrap: wrap; align-items: center;
 }
+/* Utilities (QR, Archive) always sit right-aligned so the action row reads the
+   same on every card regardless of which controls that type gets. */
+.cms-card .cms-card-util { margin-left: auto; display: flex; gap: 6px; }
+
+/* ── Unified card chips (standardised 2026-07-29) ────────────────────────────
+   One row of chips below the title. Previously they were appended inline after
+   the title, so their position shifted with title length and a flyer could show
+   "Flyer" twice. Order is fixed: type -> counts -> pending -> capacity -> state. */
+.cms-card .cms-card-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
+.cms-card .cms-card-chips:empty { display: none; }
+.cmsChip { display:inline-block; font-size:.7rem; font-weight:700; border-radius:999px;
+  padding:2px 9px; white-space:nowrap; letter-spacing:.02em; line-height:1.5; }
+.cmsChip-count   { background:#F1F5F9; color:#334155; border:1px solid #E2E8F0; font-weight:600; }
+.cmsChip-pending { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; cursor:pointer; }
+.cmsChip-quiet   { background:#F1F5F9; color:#64748B; border:1px solid #E2E8F0; font-weight:600; }
+.cmsChip-warn    { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; }
+.cmsChip-full    { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; }
+.cmsChip-off     { background:#E2E8F0; color:#475569; }
 .cms-card .cms-drag-handle:hover { opacity: 1; }
 .cms-card.dragging { opacity: 0.4; }
 .cms-card.drag-over { border: 2px dashed var(--ocean-mid); }
@@ -5089,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.38.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.39.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -24675,10 +24694,21 @@ window.cmsLoadEvents = async function(forceRefresh) {
       await Promise.all(needsFetch.map(async function(ev) {
         try {
           var cSnap = await db.collection('events').doc(ev.id).collection('signups').get();
-          var sc = 0; var pc = 0;
-          cSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          var sc = 0; var pc = 0; var hc = 0;
+          cSnap.forEach(function(doc) {
+            var d = doc.data();
+            if (d.archived === true) return;
+            sc++;
+            if (d.status === 'pending' || d.status === 'new') pc++;
+            // Headcount for the seats chip: a Group contributes its groupSize, an
+            // Individual exactly 1 — mirrors getEventCapacity server-side.
+            if (d.status !== 'cancelled') {
+              hc += (d.participationType === 'Group' ? (parseInt(d.groupSize, 10) || 1) : 1);
+            }
+          });
           ev._signupCount = sc;
           ev._pendingCount = pc;
+          ev._headcount = hc;
         } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
       }));
     }
@@ -24737,10 +24767,21 @@ window.cmsLoadPrograms = async function(forceRefresh) {
       await Promise.all(needsFetch.map(async function(ev) {
         try {
           var cSnap = await db.collection('recurringEvents').doc(ev.id).collection('signups').get();
-          var sc = 0; var pc = 0;
-          cSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          var sc = 0; var pc = 0; var hc = 0;
+          cSnap.forEach(function(doc) {
+            var d = doc.data();
+            if (d.archived === true) return;
+            sc++;
+            if (d.status === 'pending' || d.status === 'new') pc++;
+            // Headcount for the seats chip: a Group contributes its groupSize, an
+            // Individual exactly 1 — mirrors getEventCapacity server-side.
+            if (d.status !== 'cancelled') {
+              hc += (d.participationType === 'Group' ? (parseInt(d.groupSize, 10) || 1) : 1);
+            }
+          });
           ev._signupCount = sc;
           ev._pendingCount = pc;
+          ev._headcount = hc;
         } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
       }));
     }
@@ -24795,10 +24836,21 @@ window.cmsLoadSpecial = async function(forceRefresh) {
       await Promise.all(needsFetch.map(async function(ev) {
         try {
           var cSnap = await db.collection('events').doc(ev.id).collection('signups').get();
-          var sc = 0; var pc = 0;
-          cSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; sc++; if (d.status === 'pending' || d.status === 'new') pc++; });
+          var sc = 0; var pc = 0; var hc = 0;
+          cSnap.forEach(function(doc) {
+            var d = doc.data();
+            if (d.archived === true) return;
+            sc++;
+            if (d.status === 'pending' || d.status === 'new') pc++;
+            // Headcount for the seats chip: a Group contributes its groupSize, an
+            // Individual exactly 1 — mirrors getEventCapacity server-side.
+            if (d.status !== 'cancelled') {
+              hc += (d.participationType === 'Group' ? (parseInt(d.groupSize, 10) || 1) : 1);
+            }
+          });
           ev._signupCount = sc;
           ev._pendingCount = pc;
+          ev._headcount = hc;
         } catch(e) { ev._signupCount = 0; ev._pendingCount = 0; }
       }));
     }
@@ -25319,15 +25371,34 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
         ? '<div style="padding:8px;background:#f0f0f0;border-radius:10px;margin-bottom:10px;font-size:.85rem;">PDF Flyer attached</div>'
         : '<img src="' + rsEscape(ev.imageUrl) + '" alt="' + rsEscape(ev.title || '') + '" style="width:100%;height:140px;object-fit:cover;border-radius:10px;margin-bottom:10px;">')
       : '';
-    var badgeHtml = _isFlyerCard ? '' : '<span style="display:inline-block;background:#0891B2;color:#fff;font-size:.75rem;font-weight:600;border-radius:20px;padding:2px 10px;margin-left:6px;">' + (ev._signupCount || 0) + ' signups</span>';
+    // Counts. Pluralised, and a seats chip only where capacity is measured in
+    // PEOPLE (remote signup). "Active" is deliberately NOT shown: every card in
+    // the Active/Upcoming section is active, so the badge carried no information
+    // while adding a chip to every row. Status chips now mean "pay attention".
+    var _n = ev._signupCount || 0;
+    var badgeHtml = _isFlyerCard ? ''
+      : '<span class="cmsChip cmsChip-count">' + _n + (_n === 1 ? ' signup' : ' signups') + '</span>';
     if (!_isFlyerCard && ev._pendingCount > 0) {
-      badgeHtml += '<span style="display:inline-block;background:#DC2626;color:#fff;font-size:.75rem;font-weight:600;border-radius:20px;padding:2px 10px;margin-left:4px;cursor:pointer;" onclick="event.stopPropagation();cmsViewSignups(\'' + rsEscape(ev.id) + '\',' + (isRecurring ? 'true' : 'false') + ',\'' + cmsJsArg(ev.title || '') + '\')">' + ev._pendingCount + ' pending</span>';
+      badgeHtml += '<span class="cmsChip cmsChip-pending" title="Pending signups — click to review"'
+        + ' onclick="event.stopPropagation();cmsViewSignups(' + _jsArg(ev.id) + ',' + (isRecurring ? 'true' : 'false') + ',' + _jsArg(ev.title || '') + ')">'
+        + ev._pendingCount + ' pending</span>';
     }
-    // Active/Inactive badge for programs
+    var _capN = Number(ev.maxCapacity);
+    if (!_isFlyerCard && isFinite(_capN) && _capN > 0) {
+      // Only claim a headcount we actually computed. Falling back to the signup
+      // count would understate a group signup and misreport the venue.
+      var _heads = ev._headcount;
+      var _pct = (_heads == null) ? -1 : _heads / _capN;
+      var _capCls = _pct >= 1 ? 'cmsChip-full' : (_pct >= 0.8 ? 'cmsChip-warn' : 'cmsChip-quiet');
+      badgeHtml += (_heads == null)
+        ? '<span class="cmsChip cmsChip-quiet" title="Capacity for this event">cap ' + _capN + '</span>'
+        : '<span class="cmsChip ' + _capCls + '" title="Headcount against capacity">' + _heads + ' / ' + _capN + ' seats</span>';
+    }
+    if (_isFlyerCard) badgeHtml += '<span class="cmsChip cmsChip-quiet">No sign-ups</span>';
+    // Only the exceptional state is worth a chip — an inactive program.
     var activeBadge = '';
-    if (isRecurring && !isArchived) {
-      var isActive = ev.active !== false;
-      activeBadge = '<span style="display:inline-block;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-left:6px;background:' + (isActive ? '#0891B2' : '#e2e8f0') + ';color:' + (isActive ? '#fff' : '#555') + ';">' + (isActive ? 'Active' : 'Inactive') + '</span>';
+    if (isRecurring && !isArchived && ev.active === false) {
+      activeBadge = '<span class="cmsChip cmsChip-off">Inactive</span>';
     }
     // Special-event kind badge (Outreach / Screening)
     var _isSpecialCard = ev.specialEvent === true;
@@ -25337,8 +25408,8 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
       var _kindColor = ev.specialKind === 'screening' ? '#7C3AED' : '#0D9488';
       specialBadge = '<span style="display:inline-block;background:' + _kindColor + ';color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-left:6px;">' + _kindLabel + '</span>';
     }
-    // Flyer kind badge
-    var flyerBadge = _isFlyerCard ? '<span style="display:inline-block;background:#F59E0B;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-left:6px;">Flyer</span>' : '';
+    // (no separate flyer badge — the type chip already says Flyer)
+    var flyerBadge = '';
     var expiredStyle = isExpired ? 'opacity:0.55;filter:grayscale(40%);' : '';
     // Colored left edge per event type (unified list only; set in cmsRenderUnified).
     // Matches the Event Attendance Report cards. No-op for the old/unused loaders.
@@ -25346,7 +25417,8 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     html += '<div class="cms-card" data-id="' + rsEscape(ev.id) + '" style="display:flex;flex-direction:column;' + (isArchived ? 'opacity:0.5;' : expiredStyle || (isPast ? 'opacity:0.78;' : '') || (isRecurring && ev.active === false ? 'opacity:0.6;' : '')) + _typeEdge + '">' +
       (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;">Archived</span>' : '') +
       imgHtml +
-      '<div class="cms-card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + rsEscape(ev.title || '') + (ev._typeBadge || '') + badgeHtml + activeBadge + specialBadge + flyerBadge + '</div>';
+      '<div class="cms-card-title">' + rsEscape(ev.title || '') + '</div>' +
+      '<div class="cms-card-chips">' + (ev._typeBadge || '') + badgeHtml + activeBadge + specialBadge + flyerBadge + '</div>';
     if (dateStr) html += '<div class="cms-card-subtitle">' + dateStr + (ev.time ? ' &bull; ' + rsEscape(ev.time) : '') + '</div>';
     if (ev.location) html += '<div class="cms-card-subtitle">' + rsEscape(ev.location) + '</div>';
     // Schedule summary for recurring programs
