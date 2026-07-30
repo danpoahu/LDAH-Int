@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.46.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.47.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23223,16 +23223,31 @@ window.cmsFilterResources = function() {
 
 /* ── CMS: Recordings Archive (staff view of member-facing eventRecordings) ── */
 var _cmsRecArchive = [];
+
+/* Two different things reach members from here and they were never shown
+   together: the session RECORDINGS (eventRecordings) and the AI SUMMARIES
+   (memberSummaries). Only the first was listed, so a published AI recap could
+   sit on the member portal with no way to see it — let alone take it down —
+   from this screen. Both are loaded now, tagged with _kind, and grouped. */
 window.cmsLoadRecordingArchive = async function() {
   var container = document.getElementById('cmsRecordingArchiveCards');
   if (!container.children.length || container.innerHTML.indexOf('Loading') !== -1)
     container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
   try {
-    var snap = await db.collection('eventRecordings').orderBy('eventDate', 'desc').get();
+    var showArchived = !!_cmsShowArchived['recordingArchive'];
+    // memberSummaries has no eventDate index guarantee, so it is sorted client-side.
+    var res = await Promise.all([
+      db.collection('eventRecordings').orderBy('eventDate', 'desc').get(),
+      db.collection('memberSummaries').get()
+    ]);
     _cmsRecArchive = [];
-    snap.forEach(function(doc) {
+    res[0].forEach(function(doc) {
       var d = doc.data();
-      if (d.archived !== true || _cmsShowArchived['recordingArchive']) _cmsRecArchive.push({ id: doc.id, ...d });
+      if (d.archived !== true || showArchived) _cmsRecArchive.push(Object.assign({ id: doc.id, _kind: 'video' }, d));
+    });
+    res[1].forEach(function(doc) {
+      var d = doc.data();
+      if (d.archived !== true || showArchived) _cmsRecArchive.push(Object.assign({ id: doc.id, _kind: 'summary' }, d));
     });
     cmsRenderRecordingArchive(_cmsRecArchive);
   } catch (err) {
@@ -23240,44 +23255,180 @@ window.cmsLoadRecordingArchive = async function() {
   }
 };
 
+// eventDate is a plain 'YYYY-MM-DD' string on both collections, so a string
+// compare sorts correctly; createdAt is the fallback for anything without one.
+function _cmsRecSortKey(r) {
+  var d = String(r.eventDate || '').match(/(\d{4}-\d{2}-\d{2})/);
+  if (d) return d[1];
+  var c = r.createdAt;
+  try {
+    if (c && c.toDate) return c.toDate().toISOString().slice(0, 10);
+    if (c && c.seconds) return new Date(c.seconds * 1000).toISOString().slice(0, 10);
+  } catch (_) {}
+  return '';
+}
+
+/* Colour is the fastest way to tell the two apart at a glance, so each kind
+   owns one: teal for a session recording, violet for an AI summary. The same
+   violet is used on the group header, the type chip and the card's left edge. */
+var _CMS_REC_KIND = {
+  video:   { label: 'Recording',  colour: '#0891B2', bg: '#ECFEFF', border: '#A5F3FC',
+             heading: 'Session recordings', blurb: 'Videos and slides members can watch on the portal.' },
+  summary: { label: 'AI summary', colour: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE',
+             heading: 'AI summaries', blurb: 'AI-written recaps published to the member portal’s AI Summaries page.' }
+};
+
+function _cmsRecVisibilityChip(r) {
+  // What a member would see right now. active is what the member callables gate
+  // on, so it is the honest answer — not `archived`.
+  if (r.active === true && r.archived !== true) {
+    return '<span title="Members can see this right now." style="display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-weight:700;color:#166534;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:999px;padding:2px 9px;">' +
+      '<span style="width:7px;height:7px;border-radius:50%;background:#16A34A;display:inline-block;"></span>On the portal</span>';
+  }
+  return '<span title="Not visible to members." style="display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-weight:700;color:#64748B;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:999px;padding:2px 9px;">' +
+    '<span style="width:7px;height:7px;border-radius:50%;background:#94A3B8;display:inline-block;"></span>Hidden</span>';
+}
+
+function _cmsRecCard(r) {
+  var kind = _CMS_REC_KIND[r._kind] || _CMS_REC_KIND.video;
+  var isArchived = r.archived === true;
+  var title = r._kind === 'summary' ? (r.title || 'Untitled recap') : (r.eventTitle || r.title || 'Untitled');
+  var h = '<div class="cms-card" data-id="' + rsEscape(r.id) + '" style="border-left:4px solid ' + kind.colour + ';' +
+    (isArchived ? 'opacity:0.55;' : '') + '">';
+
+  h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">' +
+    '<span style="display:inline-block;background:' + kind.bg + ';color:' + kind.colour + ';border:1px solid ' + kind.border +
+      ';font-size:.68rem;font-weight:800;letter-spacing:.03em;border-radius:999px;padding:2px 9px;">' + kind.label + '</span>' +
+    _cmsRecVisibilityChip(r) +
+    (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.68rem;font-weight:700;border-radius:999px;padding:2px 9px;">Archived</span>' : '') +
+    '</div>';
+
+  h += '<div class="cms-card-title">' + rsEscape(title) + '</div>' +
+       '<div class="cms-card-subtitle">' + rsEscape(r.eventDate || '') + '</div>';
+
+  if (r._kind === 'summary') {
+    var nPts = Array.isArray(r.keyPoints) ? r.keyPoints.length : 0;
+    var nNext = Array.isArray(r.nextSteps) ? r.nextSteps.length : 0;
+    var bits = [];
+    if (nPts) bits.push(nPts + (nPts === 1 ? ' key point' : ' key points'));
+    if (nNext) bits.push(nNext + (nNext === 1 ? ' next step' : ' next steps'));
+    if (bits.length) h += '<div style="font-size:.76rem;color:#7C3AED;font-weight:600;margin-top:2px;">' + bits.join(' &middot; ') + '</div>';
+    if (r.overview) {
+      var ov = String(r.overview);
+      h += '<div class="cms-card-bio">' + rsEscape(ov.length > 190 ? ov.slice(0, 190) + '…' : ov) + '</div>';
+    }
+    h += '<div id="recSum_' + rsEscape(r.id) + '" style="display:none;margin-top:8px;padding:10px 12px;background:#FAF9FF;border:1px solid #EDE9FE;border-radius:10px;font-size:.84rem;color:#334155;"></div>';
+    h += '<div class="cms-card-buttons">' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#7C3AED;" onclick="event.stopPropagation();cmsToggleSummaryDetail(' + _jsArg(r.id) + ')">Read it</button>';
+    if (isArchived) {
+      h += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreSummary(' + _jsArg(r.id) + ',' + _jsArg(title) + ')">Restore</button>';
+    } else {
+      h += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#DC2626;" onclick="event.stopPropagation();cmsArchiveSummary(' + _jsArg(r.id) + ',' + _jsArg(title) + ')">Remove</button>';
+    }
+    return h + '</div></div>';
+  }
+
+  if (r.description) h += '<div class="cms-card-bio">' + rsEscape(r.description) + '</div>';
+  h += '<div class="cms-card-buttons">' +
+    '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenRecEditModal(' + _jsArg(r.id) + ')">Edit</button>' +
+    '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(' + _jsArg(r.recordingUrl) + ',\'_blank\')">Watch</button>' +
+    (r.slidesUrl ? '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(' + _jsArg(r.slidesUrl) + ',\'_blank\')">Slides</button>' : '');
+  if (isArchived) {
+    h += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreRecording(' + _jsArg(r.id) + ',' + _jsArg(title) + ')">Restore</button>';
+  } else {
+    h += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveRecording(' + _jsArg(r.id) + ',' + _jsArg(title) + ')">Remove</button>';
+  }
+  return h + '</div></div>';
+}
+
 function cmsRenderRecordingArchive(items) {
   var container = document.getElementById('cmsRecordingArchiveCards');
   if (!items.length) {
-    container.innerHTML = '<div class="cms-empty"><p>No recordings published yet.</p></div>';
+    container.innerHTML = '<div class="cms-empty"><p>Nothing published to the member portal yet.</p></div>';
     return;
   }
   var html = '';
-  items.forEach(function(r) {
-    var isArchived = r.archived === true;
-    var slidesHtml = r.slidesUrl
-      ? '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(' + _jsArg(r.slidesUrl) + ',\'_blank\')">Slides</button>'
-      : '';
-    html += '<div class="cms-card" data-id="' + rsEscape(r.id) + '"' + (isArchived ? ' style="opacity:0.5;"' : '') + '>' +
-      (isArchived ? '<span style="display:inline-block;background:#94A3B8;color:#fff;font-size:.7rem;font-weight:700;border-radius:12px;padding:2px 8px;margin-bottom:6px;">Archived</span>' : '') +
-      '<div class="cms-card-title">' + rsEscape(r.eventTitle || 'Untitled') + '</div>' +
-      '<div class="cms-card-subtitle">' + rsEscape(r.eventDate || '') + '</div>';
-    if (r.description) html += '<div class="cms-card-bio">' + rsEscape(r.description) + '</div>';
-    html += '<div class="cms-card-buttons">' +
-      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();cmsOpenRecEditModal(' + _jsArg(r.id) + ')">Edit</button>' +
-      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="event.stopPropagation();window.open(' + _jsArg(r.recordingUrl) + ',\'_blank\')">Watch</button>' +
-      slidesHtml;
-    if (isArchived) {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreRecording(' + _jsArg(r.id) + ',' + _jsArg(r.eventTitle || '') + ')">Restore</button>';
-    } else {
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#F97316;" onclick="event.stopPropagation();cmsArchiveRecording(' + _jsArg(r.id) + ',' + _jsArg(r.eventTitle || '') + ')">Remove</button>';
-    }
-    html += '</div></div>';
+  ['video', 'summary'].forEach(function(kindKey) {
+    var group = items.filter(function(r) { return r._kind === kindKey; });
+    if (!group.length) return;
+    group.sort(function(a, b) {
+      var ka = _cmsRecSortKey(a), kb = _cmsRecSortKey(b);
+      if (ka === kb) return 0;
+      return ka < kb ? 1 : -1;                       // newest first
+    });
+    var kind = _CMS_REC_KIND[kindKey];
+    var live = group.filter(function(r) { return r.active === true && r.archived !== true; }).length;
+    html += '<div style="grid-column:1/-1;margin:14px 0 2px;padding:8px 12px;background:' + kind.bg +
+      ';border-left:4px solid ' + kind.colour + ';border-radius:8px;">' +
+      '<div style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;">' +
+        '<span style="font-family:Outfit,sans-serif;font-weight:700;font-size:.95rem;color:' + kind.colour + ';">' + kind.heading + '</span>' +
+        '<span style="font-size:.74rem;font-weight:700;color:' + kind.colour + ';opacity:.8;">' +
+          group.length + (group.length === 1 ? ' item' : ' items') +
+          (live ? ' &middot; ' + live + ' on the portal' : ' &middot; none on the portal') + '</span>' +
+      '</div>' +
+      '<div style="font-size:.76rem;color:#64748B;margin-top:2px;">' + kind.blurb + '</div>' +
+    '</div>';
+    group.forEach(function(r) { html += _cmsRecCard(r); });
   });
   container.innerHTML = html;
 }
+
+// Read the recap in place rather than opening another modal — staff are usually
+// checking "is this the one I want gone?", which needs one click, not a journey.
+window.cmsToggleSummaryDetail = function(docId) {
+  var host = document.getElementById('recSum_' + docId);
+  if (!host) return;
+  if (host.style.display !== 'none') { host.style.display = 'none'; return; }
+  var r = _cmsRecArchive.find(function(x) { return x.id === docId && x._kind === 'summary'; });
+  if (!r) return;
+  var h = '';
+  if (r.overview) h += '<div style="margin-bottom:8px;">' + rsEscape(r.overview) + '</div>';
+  if (Array.isArray(r.keyPoints) && r.keyPoints.length) {
+    h += '<div style="font-weight:700;color:#5B21B6;font-size:.78rem;margin-bottom:3px;">Key points</div><ul style="margin:0 0 8px 18px;padding:0;">' +
+      r.keyPoints.map(function(p) { return '<li>' + rsEscape(p) + '</li>'; }).join('') + '</ul>';
+  }
+  if (Array.isArray(r.nextSteps) && r.nextSteps.length) {
+    h += '<div style="font-weight:700;color:#5B21B6;font-size:.78rem;margin-bottom:3px;">Next steps</div><ul style="margin:0 0 0 18px;padding:0;">' +
+      r.nextSteps.map(function(p) { return '<li>' + rsEscape(p) + '</li>'; }).join('') + '</ul>';
+  }
+  host.innerHTML = h || '<em style="color:#94A3B8;">This recap has no text.</em>';
+  host.style.display = 'block';
+};
 
 window.cmsFilterRecordingArchive = function(q) {
   q = (q || '').toLowerCase().trim();
   if (!q) { cmsRenderRecordingArchive(_cmsRecArchive); return; }
   var filtered = _cmsRecArchive.filter(function(r) {
-    return (r.eventTitle || '').toLowerCase().indexOf(q) !== -1;
+    // Search a summary's own title and its text too, not just an event title it
+    // may not even have.
+    return ((r.eventTitle || '') + ' ' + (r.title || '') + ' ' + (r.overview || '')).toLowerCase().indexOf(q) !== -1;
   });
   cmsRenderRecordingArchive(filtered);
+};
+
+/* Taking an AI recap off the member portal. Same convention as recordings:
+   active:false is what actually hides it (the member callable requires
+   active==true), archived:true keeps it out of the default staff list.
+   Reversible, and never a delete — the recap is evidence of what members were
+   shown. */
+window.cmsArchiveSummary = async function(docId, title) {
+  if (!confirm('Remove the AI summary "' + title + '" from the member portal?\n\nMembers will stop seeing it immediately. This can be undone with Restore.')) return;
+  try {
+    await db.collection('memberSummaries').doc(docId).update({ archived: true, active: false });
+    auditLog('Removed AI summary from member portal', title);
+    await cmsLoadRecordingArchive();
+    _showToast('AI summary removed from the member portal.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+window.cmsRestoreSummary = async function(docId, title) {
+  if (!confirm('Put the AI summary "' + title + '" back on the member portal?\n\nEvery paid member will be able to read it.')) return;
+  try {
+    await db.collection('memberSummaries').doc(docId).update({ archived: false, active: true });
+    auditLog('Restored AI summary to member portal', title);
+    await cmsLoadRecordingArchive();
+    _showToast('AI summary is back on the member portal.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
 // Remove sets active:false (the member callable requires active==true to
