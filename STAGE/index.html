@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.44.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.45.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7934,6 +7934,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
         </div>
         <div class="modal-body" style="display:block; padding: 0;">
+          <!-- Summary strip. Lives OUTSIDE #cmsSignupsList because the three list
+               renderers (flat, one-time-by-date, recurring-by-date) each replace
+               that container's innerHTML wholesale, which would wipe it. -->
+          <div id="cmsSignupsSummary"></div>
           <div id="cmsSignupsList" style="padding:12px 16px 16px;">
             <div class="cms-empty"><p>Loading signups...</p></div>
           </div>
@@ -27383,6 +27387,10 @@ window.cmsViewSignups = async function(eventId, isRecurring, eventTitle) {
   _cmsAttendanceMode = false;
   document.getElementById('cmsSignupsModalTitle').textContent = 'Signups: ' + eventTitle;
   document.getElementById('cmsSignupsList').innerHTML = '<div class="cms-empty"><p>Loading signups...</p></div>';
+  // Blank the strip too, or the previous event's numbers sit there while this
+  // one loads and read as if they belong to it.
+  var _sumHost = document.getElementById('cmsSignupsSummary');
+  if (_sumHost) _sumHost.innerHTML = '';
   document.getElementById('cmsSignupsOverlay').classList.add('active');
 
   try {
@@ -27596,10 +27604,129 @@ function cmsRegDetailsSection(s) {
   return h;
 }
 
+/* ── Summary strip ──────────────────────────────────────────────────────────
+   Four numbers at the top of the modal, so staff read the state of an event
+   before scrolling a list. Which four depends on the type, because the three
+   types measure different things:
+
+     Connect-Gen   families, and what they still owe — a roster of obligations
+     Remote signup PEOPLE against a venue capacity, not signups
+     everything else  a flat list: signed up / confirmed / pending / attended
+
+   Connect-Gen and remote-signup numbers are scoped to UPCOMING sessions. A
+   program that has run for two years accumulates hundreds of past families and
+   none of them are a task; the same reason the event cards count upcoming only.
+
+   Cancelled signups are excluded everywhere except the raw roster count. */
+function _cmsHeadcountOf(s) {
+  return s.participationType === 'Group' ? (parseInt(s.groupSize, 10) || 1) : 1;
+}
+
+function _cmsRenderSignupsSummary(signups, collection, eventId) {
+  var host = document.getElementById('cmsSignupsSummary');
+  if (!host) return;
+  var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.eventDoc || _cmsSignupsModalData.programDoc)) || null;
+  var active = signups.filter(function(s) { return s.archived !== true; });
+  var live = active.filter(function(s) { return s.status !== 'cancelled'; });
+
+  var now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+  var todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  var upcoming = live.filter(function(s) { return _cmsSignupIsUpcoming(s, todayKey); });
+
+  function stat(k, v, tone, title, wide) {
+    var col = tone === 'ok' ? '#166534' : (tone === 'warn' ? '#B45309' : '#0F172A');
+    return '<div' + (title ? ' title="' + rsEscape(title) + '"' : '') + ' style="min-width:0;">' +
+      '<div style="font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;color:#64748B;font-weight:700;white-space:nowrap;">' + k + '</div>' +
+      '<div style="font-family:Outfit,sans-serif;font-weight:700;font-size:' + (wide ? '.95rem' : '1.15rem') + ';color:' + col + ';line-height:1.15;">' + v + '</div>' +
+      '</div>';
+  }
+
+  var cells = '';
+  var isCg = cmsIsConnectGenContext();
+  var isRemote = !!(ev && (ev.eventType === 'remote_signup' || ev.remoteSignup === true || Number(ev.maxCapacity) > 0));
+
+  if (isCg) {
+    var awaitingWs = 0, ready = 0;
+    upcoming.forEach(function(s) {
+      var r = _cgSignupReadiness(s, ev, { assumeConnectGen: true });
+      if (!r.isConnectGen) return;
+      if (r.ready) { ready++; return; }
+      if (r.outstanding.indexOf('worksheet') > -1) awaitingWs++;
+    });
+    // Nearest upcoming session across every family, so staff see what's next
+    // without opening a date group.
+    var nextKey = '';
+    upcoming.forEach(function(s) {
+      var keys = (Array.isArray(s.selectedSessions) && s.selectedSessions.length) ? s.selectedSessions : (s.selectedDates || []);
+      (Array.isArray(keys) ? keys : []).forEach(function(k) {
+        var m = String(k || '').match(/(\d{4}-\d{2}-\d{2})/);
+        if (!m || m[1] < todayKey) return;
+        if (!nextKey || m[1] < nextKey.slice(0, 10)) nextKey = String(k);
+      });
+    });
+    var nextLabel = '&mdash;';
+    if (nextKey) {
+      var nm = nextKey.match(/(\d{4})-(\d{2})-(\d{2})/);
+      var nd = new Date(Date.UTC(+nm[1], +nm[2] - 1, +nm[3]));
+      nextLabel = nd.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+      var loc = nextKey.split('|')[2] || nextKey.split('|')[1] || '';
+      if (loc && !/^\d/.test(loc) && loc.length < 24) nextLabel += ' &middot; ' + rsEscape(loc);
+    }
+    cells =
+      stat('Families', String(upcoming.length), '', 'Families with an upcoming session. Past families are not a task, so they are not counted here.') +
+      stat('Awaiting worksheet', String(awaitingWs), awaitingWs ? 'warn' : '', 'Upcoming families whose Parent Report Worksheet is still outstanding.') +
+      stat('Ready', String(ready), ready ? 'ok' : '', 'Upcoming families who have done everything that applies to them.') +
+      stat('Next session', nextLabel, '', 'The nearest upcoming session with a family on it.', true);
+  } else if (isRemote) {
+    var people = 0;
+    live.forEach(function(s) { people += _cmsHeadcountOf(s); });
+    var pendingR = live.filter(function(s) { return s.status === 'pending' || s.status === 'new'; }).length;
+    var cap = Number(ev && ev.maxCapacity) || 0;
+    cells =
+      stat('Signups', String(live.length), '', 'Rows in the list — not the same as people.') +
+      stat('People', String(people), '', 'Total attending, adding up each signup’s headcount. This is what capacity counts.') +
+      stat('Pending', String(pendingR), pendingR ? 'warn' : '');
+    if (cap > 0) {
+      var pct = Math.min(100, Math.round((people / cap) * 100));
+      var barCol = pct >= 100 ? '#DC2626' : (pct >= 80 ? '#D97706' : '#0891B2');
+      cells += '<div style="margin-left:auto;min-width:190px;" title="Capacity is counted in PEOPLE, not signups.">' +
+        '<div style="font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;color:#64748B;font-weight:700;">Capacity</div>' +
+        '<div style="font-family:Outfit,sans-serif;font-weight:700;font-size:1.15rem;line-height:1.15;color:' +
+          (pct >= 100 ? '#B91C1C' : (pct >= 80 ? '#B45309' : '#166534')) + ';">' +
+          people + ' / ' + cap + ' seats' + (pct >= 100 ? ' &mdash; full' : '') + '</div>' +
+        '<div style="height:7px;background:#E2E8F0;border-radius:99px;overflow:hidden;margin-top:4px;">' +
+          '<div style="display:block;height:100%;width:' + pct + '%;background:' + barCol + ';"></div>' +
+        '</div></div>';
+    }
+  } else {
+    var confirmed = live.filter(function(s) { return String(s.status || '').indexOf('confirmed') === 0; }).length;
+    var pending = live.filter(function(s) { return s.status === 'pending' || s.status === 'new'; }).length;
+    // Attendance is per session, so count a signup as attended if either the
+    // legacy top-level field or any session record says so.
+    var attended = 0;
+    live.forEach(function(s) {
+      if (s.attendanceStatus === 'attended') { attended++; return; }
+      var sa = s.sessionAttendance;
+      if (sa && typeof sa === 'object' && Object.keys(sa).some(function(k) { return sa[k] && sa[k].status === 'attended'; })) attended++;
+    });
+    cells =
+      stat('Signed up', String(live.length), '') +
+      stat('Confirmed', String(confirmed), confirmed ? 'ok' : '') +
+      stat('Pending', String(pending), pending ? 'warn' : '') +
+      stat('Attended', attended ? String(attended) : '&mdash;', '', attended ? '' : 'No attendance taken yet.');
+  }
+
+  host.innerHTML = '<div style="display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-start;padding:.7rem 1.1rem;' +
+    'background:#F8FAFC;border-bottom:1px solid #E2E8F0;">' + cells + '</div>';
+}
+
 function cmsRenderSignupsList(signups, collection, eventId) {
   var container = document.getElementById('cmsSignupsList');
   var active = signups.filter(function(s) { return s.archived !== true; });
   var archived = signups.filter(function(s) { return s.archived === true; });
+
+  try { _cmsRenderSignupsSummary(signups, collection, eventId); }
+  catch (e) { console.warn('signups summary failed:', e && e.message); }
 
   // Attendance mode rendering
   if (_cmsAttendanceMode) {
@@ -27880,6 +28007,114 @@ window.cmsSaveHeadcount = async function(collection, eventId, signupId, inputId)
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
+/* ── Row overflow menu ("⋯") ────────────────────────────────────────────────
+   Anchored to the button but appended to <body>: the signup card sets
+   overflow:hidden so an inline popover would be clipped at the card edge.
+   Rebuilt on every open — no stale state to keep in sync with the list. */
+window._cmsRowMenuClose = function() {
+  var m = document.getElementById('cmsRowMenu');
+  if (m) m.remove();
+  document.removeEventListener('mousedown', window._cmsRowMenuOutside, true);
+  document.removeEventListener('keydown', window._cmsRowMenuKey, true);
+  window.removeEventListener('resize', window._cmsRowMenuClose);
+  window.removeEventListener('scroll', window._cmsRowMenuClose, true);
+};
+window._cmsRowMenuOutside = function(e) {
+  var m = document.getElementById('cmsRowMenu');
+  if (m && !m.contains(e.target)) window._cmsRowMenuClose();
+};
+window._cmsRowMenuKey = function(e) { if (e.key === 'Escape') window._cmsRowMenuClose(); };
+
+window._cmsRowMenu = function(btn, specJson) {
+  var open = document.getElementById('cmsRowMenu');
+  var wasFor = open && open.getAttribute('data-for');
+  window._cmsRowMenuClose();
+  var spec;
+  try { spec = JSON.parse(specJson); } catch (e) { return; }
+  var key = spec.c + '/' + spec.e + '/' + spec.s;
+  if (wasFor === key) return;                       // second click on the same ⋯ closes it
+
+  // Expand the card body, so "detail" and "note" actually reveal something.
+  function expand() {
+    var body = document.getElementById(spec.card + '_body');
+    if (!body) return null;
+    body.style.display = 'block';
+    var card = document.getElementById(spec.card);
+    var chev = card && card.querySelector('.cmsChevron');
+    if (chev) chev.textContent = '▼';
+    return body;
+  }
+
+  var items = [];
+  items.push({ label: 'Registration detail', act: function() {
+    var b = expand();
+    if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' });
+  }});
+  items.push({ label: 'Add a note', act: function() {
+    expand();
+    var t = document.getElementById(spec.notes);
+    if (t) { if (t.scrollIntoView) t.scrollIntoView({ block: 'center' }); t.focus(); }
+  }});
+  if (spec.mail) {
+    items.push({ label: 'Resend confirmation email', act: function() {
+      // cmsResendRegistrationEmail mutates the button it is handed; the menu is
+      // gone by then, so give it a throwaway node. Progress shows as a toast.
+      cmsResendRegistrationEmail(document.createElement('span'), spec.c, spec.e, spec.s);
+    }});
+  }
+  if (spec.dates) {
+    items.push({ label: 'Change dates', act: function() { cmsOpenSignupDateEditor(spec.e, spec.s); } });
+  }
+  items.push(spec.arch
+    ? { label: 'Restore from archive', tone: 'ok', act: function() { cmsArchiveSignup(spec.c, spec.e, spec.s, false); } }
+    : { label: 'Archive this signup', tone: 'danger', act: function() { cmsArchiveSignup(spec.c, spec.e, spec.s, true); } });
+
+  var menu = document.createElement('div');
+  menu.id = 'cmsRowMenu';
+  menu.setAttribute('data-for', key);
+  menu.style.cssText = 'position:fixed;z-index:100000;min-width:212px;background:#fff;border:1px solid #CBD5E1;' +
+    'border-radius:10px;box-shadow:0 10px 28px rgba(15,23,42,.18);padding:5px;font-size:.82rem;';
+  if (spec.name) {
+    var hd = document.createElement('div');
+    hd.textContent = spec.name;
+    hd.style.cssText = 'padding:5px 10px 6px;font-weight:700;color:#0F172A;border-bottom:1px solid #F1F5F9;' +
+      'margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;';
+    menu.appendChild(hd);
+  }
+  items.forEach(function(it) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = it.label;
+    var col = it.tone === 'danger' ? '#B91C1C' : (it.tone === 'ok' ? '#166534' : '#334155');
+    b.style.cssText = 'display:block;width:100%;text-align:left;font-family:inherit;font-size:.82rem;' +
+      'padding:7px 10px;border:none;background:none;border-radius:7px;cursor:pointer;color:' + col + ';';
+    b.onmouseover = function() { b.style.background = it.tone === 'danger' ? '#FEF2F2' : '#F1F5F9'; };
+    b.onmouseout = function() { b.style.background = 'none'; };
+    b.onclick = function(e) {
+      e.stopPropagation();
+      window._cmsRowMenuClose();
+      try { it.act(); } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+    };
+    menu.appendChild(b);
+  });
+
+  document.body.appendChild(menu);
+  // Anchor under the button, flipping up or left when it would leave the viewport.
+  var r = btn.getBoundingClientRect();
+  var mw = menu.offsetWidth, mh = menu.offsetHeight;
+  var left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+  var top = (r.bottom + mh + 8 > window.innerHeight) ? Math.max(8, r.top - mh - 6) : r.bottom + 6;
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+
+  setTimeout(function() {
+    document.addEventListener('mousedown', window._cmsRowMenuOutside, true);
+    document.addEventListener('keydown', window._cmsRowMenuKey, true);
+    window.addEventListener('resize', window._cmsRowMenuClose);
+    window.addEventListener('scroll', window._cmsRowMenuClose, true);
+  }, 0);
+};
+
 function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, sessionDateKey) {
   var name = s.name ? rsEscape(s.name) : rsEscape([s.firstName, s.lastName].filter(Boolean).join(' ')) || '(No name)';
   var statusColor = statusColors[s.status] || '#64748B';
@@ -28011,18 +28246,24 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   if (_cbCancelLocked) {
     h += '<span style="font-size:.68rem;color:#94A3B8;font-style:italic;white-space:nowrap;" title="' + _cbTooltip + '">(cancel locked &mdash; session is here)</span>';
   }
-  // v128.0.0: "Change Dates" button — only for one-time events with 2+ dates,
-  // active signups only. CG/recurring programs have their own per-session UX.
+  // Everything rare moves under "⋯" — archive, resend, notes, change dates,
+  // registration detail. The row then reads left to right as who / what kind /
+  // what state, instead of trailing three or four competing buttons.
+  var _ovDates = false;
   if (!isArchived && collection === 'events') {
     var _evForDates = _cmsSignupsModalData && _cmsSignupsModalData.eventDoc;
     var _evDates = _evForDates && Array.isArray(_evForDates.signupDates) ? _evForDates.signupDates : [];
-    if (_evDates.length >= 2) {
-      h += '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;background:#EFF6FF;color:#0891B2;" onclick="event.stopPropagation();cmsOpenSignupDateEditor(\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">Change Dates</button>';
-    }
+    _ovDates = _evDates.length >= 2;
   }
-  h += (isArchived ?
-    '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;background:#F0FDF4;color:#16A34A;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',false)">Restore</button>' :
-    '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;background:#F5F3FF;color:#7C3AED;" onclick="cmsArchiveSignup(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\',true)">Archive</button>');
+  var _ovSpec = {
+    c: collection, e: eventId, s: s.id,
+    card: cardId, notes: notesId,
+    arch: !!isArchived, mail: !!s.email, dates: _ovDates,
+    name: s.name || [s.firstName, s.lastName].filter(Boolean).join(' ') || ''
+  };
+  h += '<button data-role="row-menu" title="More actions" onclick="event.stopPropagation();_cmsRowMenu(this,' + _jsArg(JSON.stringify(_ovSpec)) + ')"' +
+       ' style="font-family:inherit;font-size:.9rem;line-height:1;font-weight:700;color:#475569;background:#fff;' +
+       'border:1px solid #CBD5E1;border-radius:6px;padding:3px 9px;cursor:pointer;">&hellip;</button>';
   h += '</div>';
   h += '</div>';
 
@@ -28618,26 +28859,65 @@ function _cgIsMondayVirtualClient(signup, event) {
 
 // The pill staff scan for: green "Ready", or amber "Waiting on: documents,
 // worksheet". Returns '' for anything that is not a Connect-Gen signup.
+/* Readiness is about getting a family PREPARED for a session. Once the session
+   has happened — or attendance was taken — the paperwork is moot; chasing a
+   worksheet for 23 Jul is noise, not a task. Attendance is recorded per session
+   (sessionAttendance[dateKey]), not on the signup, so the caller passes the
+   date key. Shared by the pill and the requirements row so the two can't drift. */
+window._cgReadinessHidden = function(signup, sessionDateKey) {
+  var key = sessionDateKey || '';
+  if (signup) {
+    if (signup.attendanceStatus === 'attended' || signup.attendanceStatus === 'no-show') return true;
+    var rec = (key && signup.sessionAttendance) ? signup.sessionAttendance[key] : null;
+    if (rec && (rec.status === 'attended' || rec.status === 'no-show')) return true;
+  }
+  var m = String(key).match(/(\d{4}-\d{2}-\d{2})/);
+  if (m) {
+    var now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+    var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    if (m[1] < today) return true;          // session already passed
+  }
+  return false;
+};
+
+/* The three requirements as a row, so it is clear at a glance what a family
+   still owes AND what was never asked of them. A Thursday in-person family
+   shows consent and documents as "n/a" rather than as outstanding items — the
+   old single pill said "Waiting on: worksheet" and left staff guessing whether
+   the other two were missing or irrelevant. */
+window._cgRequirementsRowHtml = function(signup, event, opts) {
+  var r = _cgSignupReadiness(signup, event, opts);
+  if (!r.isConnectGen) return '';
+  if (_cgReadinessHidden(signup, (opts && opts.sessionDateKey) || '')) return '';
+
+  var base = 'font-size:.68rem;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap;';
+  var done = base + 'background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;';
+  var wait = base + 'background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;';
+  var na   = base + 'background:#F8FAFC;color:#94A3B8;border:1px solid #E2E8F0;';
+
+  function chip(label, req, has, naNote, doneNote) {
+    if (!req) return '<span style="' + na + '" title="Not required for this family.">' + label + ' n/a' +
+      (naNote ? ' (' + naNote + ')' : '') + '</span>';
+    if (has) return '<span style="' + done + '" title="' + rsEscape(doneNote || '') + '">' + label + ' &#10003;</span>';
+    return '<span style="' + wait + '" title="Still outstanding.">' + label + ' &mdash; outstanding</span>';
+  }
+
+  var needsConsent = r.required.indexOf('consent') > -1;
+  var needsDocs = r.required.indexOf('documents') > -1;
+  return '<span style="display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center;">' +
+    chip('Worksheet', true, r.hasWorksheet, '', 'Parent Report Worksheet complete.') +
+    chip('Consent', needsConsent, r.hasConsent, 'signed in person', 'Consent signed online.') +
+    chip('Documents', needsDocs, r.hasDocs, 'in person', 'IEP and Evaluation both on file.') +
+    (r.ready ? '<span style="' + base + 'background:#16A34A;color:#fff;" title="Everything that applies to this family is done.">Ready</span>' : '') +
+    '</span>';
+};
+
+// The older single pill. Kept for callers outside the signup card (the admin
+// note in the registration status block) that want one short phrase.
 window._cgReadinessPillHtml = function(signup, event, opts) {
   var r = _cgSignupReadiness(signup, event, opts);
   if (!r.isConnectGen) return '';
-  // Readiness is about getting a family PREPARED for a session. Once the session
-  // has happened — or attendance was taken — the paperwork is moot; chasing a
-  // worksheet for 23 Jul is noise, not a task. Attendance is recorded per
-  // session (sessionAttendance[dateKey]), not on the signup, so the caller
-  // passes the date key.
-  var _rpKey = (opts && opts.sessionDateKey) || '';
-  if (signup) {
-    if (signup.attendanceStatus === 'attended' || signup.attendanceStatus === 'no-show') return '';
-    var _rpRec = (_rpKey && signup.sessionAttendance) ? signup.sessionAttendance[_rpKey] : null;
-    if (_rpRec && (_rpRec.status === 'attended' || _rpRec.status === 'no-show')) return '';
-  }
-  var _rpDate = String(_rpKey).match(/(\d{4}-\d{2}-\d{2})/);
-  if (_rpDate) {
-    var _rpNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
-    var _rpToday = _rpNow.getFullYear() + '-' + String(_rpNow.getMonth() + 1).padStart(2, '0') + '-' + String(_rpNow.getDate()).padStart(2, '0');
-    if (_rpDate[1] < _rpToday) return '';   // session already passed
-  }
+  if (_cgReadinessHidden(signup, (opts && opts.sessionDateKey) || '')) return '';
   var base = 'display:inline-block;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;';
   if (r.ready) {
     return '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet — everything that applies to this family is done.">Ready</span>';
@@ -28672,7 +28952,9 @@ function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
   // are in a Connect-Gen context (the guard above), so assume it even if the
   // event doc has not loaded / carries no zoomMode.
   var _cgEv = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
-  var _cgPill = _cgReadinessPillHtml(s, _cgEv, { assumeConnectGen: true, sessionDateKey: sessionDateKey });
+  // Requirements as a row of three rather than one "Waiting on:" pill, so
+  // "never asked of this family" reads differently from "still owed".
+  var _cgPill = _cgRequirementsRowHtml(s, _cgEv, { assumeConnectGen: true, sessionDateKey: sessionDateKey });
   var docs = (s && s.connectGenDocuments && typeof s.connectGenDocuments === 'object') ? s.connectGenDocuments : null;
   // Count every file, not one per type — a family may send 7 IEP pages.
   var iepList = _cgDocList(docs, 'iep');
@@ -29982,6 +30264,9 @@ window.cmsToggleSessionCancel = async function(eventId, dateStr, location, venue
 
 window.cmsCloseSignupsModal = function() {
   _cmsAttendanceMode = false;
+  if (typeof _cmsRowMenuClose === 'function') _cmsRowMenuClose();
+  var _sh = document.getElementById('cmsSignupsSummary');
+  if (_sh) _sh.innerHTML = '';
   document.getElementById('cmsSignupsOverlay').classList.remove('active');
 };
 
