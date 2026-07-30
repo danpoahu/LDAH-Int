@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.47.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.48.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7505,6 +7505,41 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div class="modal-actions">
             <button class="btn btn-ghost" onclick="cmsCloseRecEditModal()">Cancel</button>
             <button class="btn btn-primary" onclick="cmsSaveRecEdit()">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit an AI summary before members read it. The recap is machine-written
+           from a Zoom transcript, so staff need to correct names, trim anything
+           that should not be public, and fix the tone — an AI recap of a session
+           with families is not something to publish unread. -->
+      <div class="overlay" id="cmsSumEditOverlay">
+        <div class="modal">
+          <div class="modal-header" style="background:linear-gradient(135deg,#5B21B6,#7C3AED);">
+            <div class="left"><div>Edit AI Summary</div></div>
+            <button class="close" type="button" onclick="cmsCloseSumEditModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="cmsSumEditId">
+            <div id="cmsSumEditLiveWarn" style="grid-column: span 2; display:none; background:#FFFBEB; border:1px solid #FDE68A; color:#92400E; border-radius:8px; padding:8px 11px; font-size:.82rem; font-weight:600;">
+              This recap is on the member portal right now &mdash; saving changes what members read immediately.
+            </div>
+            <div class="field" style="grid-column: span 2;"><label>Title <span style="color:#DC2626;">*</span></label><input id="cmsSumEditTitle" placeholder="What members see in the list"></div>
+            <div class="field" style="grid-column: span 2;"><label>Session date</label><input id="cmsSumEditDate" placeholder="YYYY-MM-DD"></div>
+            <div class="field" style="grid-column: span 2;"><label>Overview</label><textarea id="cmsSumEditOverview" placeholder="The short paragraph members read first..." rows="4"></textarea></div>
+            <div class="field" style="grid-column: span 2;">
+              <label>Key points <span style="font-weight:400;color:#94a3b8;">(one per line)</span></label>
+              <textarea id="cmsSumEditKeyPoints" placeholder="One point per line..." rows="6"></textarea>
+            </div>
+            <div class="field" style="grid-column: span 2;">
+              <label>Next steps <span style="font-weight:400;color:#94a3b8;">(one per line)</span></label>
+              <textarea id="cmsSumEditNextSteps" placeholder="One step per line..." rows="4"></textarea>
+            </div>
+            <div style="grid-column: span 2; font-size:.75rem; color:#94a3b8;">Blank lines are ignored. Clearing a box removes that section for members.</div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="cmsCloseSumEditModal()">Cancel</button>
+            <button class="btn btn-primary" style="background:#7C3AED;" onclick="cmsSaveSumEdit()">Save</button>
           </div>
         </div>
       </div>
@@ -23319,6 +23354,7 @@ function _cmsRecCard(r) {
     }
     h += '<div id="recSum_' + rsEscape(r.id) + '" style="display:none;margin-top:8px;padding:10px 12px;background:#FAF9FF;border:1px solid #EDE9FE;border-radius:10px;font-size:.84rem;color:#334155;"></div>';
     h += '<div class="cms-card-buttons">' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#7C3AED;" onclick="event.stopPropagation();cmsOpenSumEditModal(' + _jsArg(r.id) + ')">Edit</button>' +
       '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#7C3AED;" onclick="event.stopPropagation();cmsToggleSummaryDetail(' + _jsArg(r.id) + ')">Read it</button>';
     if (isArchived) {
       h += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:#16A34A;" onclick="event.stopPropagation();cmsRestoreSummary(' + _jsArg(r.id) + ',' + _jsArg(title) + ')">Restore</button>';
@@ -23404,6 +23440,63 @@ window.cmsFilterRecordingArchive = function(q) {
     return ((r.eventTitle || '') + ' ' + (r.title || '') + ' ' + (r.overview || '')).toLowerCase().indexOf(q) !== -1;
   });
   cmsRenderRecordingArchive(filtered);
+};
+
+/* Edit an AI recap before (or after) members read it. The text is written by a
+   machine off a Zoom transcript, so it needs a human pass — wrong names,
+   anything a family said that should not be public, tone. Key points and next
+   steps are stored as arrays but edited as one-per-line text, which is far
+   quicker than a row-builder for what is usually a few tidy-ups. */
+window.cmsOpenSumEditModal = function(docId) {
+  var r = _cmsRecArchive.find(function(x) { return x.id === docId && x._kind === 'summary'; });
+  if (!r) { _showToast('Could not find that summary — try reloading.', '#DC2626'); return; }
+  document.getElementById('cmsSumEditId').value = docId;
+  document.getElementById('cmsSumEditTitle').value = r.title || '';
+  document.getElementById('cmsSumEditDate').value = r.eventDate || '';
+  document.getElementById('cmsSumEditOverview').value = r.overview || '';
+  document.getElementById('cmsSumEditKeyPoints').value = (Array.isArray(r.keyPoints) ? r.keyPoints : []).join('\n');
+  document.getElementById('cmsSumEditNextSteps').value = (Array.isArray(r.nextSteps) ? r.nextSteps : []).join('\n');
+  // Saying so up front matters: this is not a draft, it is what members read.
+  var warn = document.getElementById('cmsSumEditLiveWarn');
+  if (warn) warn.style.display = (r.active === true && r.archived !== true) ? 'block' : 'none';
+  document.getElementById('cmsSumEditOverlay').classList.add('active');
+};
+
+window.cmsCloseSumEditModal = function() {
+  document.getElementById('cmsSumEditOverlay').classList.remove('active');
+};
+
+function _cmsSumLines(id) {
+  return (document.getElementById(id).value || '')
+    .split('\n')
+    .map(function(s) { return s.trim(); })
+    .filter(function(s) { return !!s; });
+}
+
+window.cmsSaveSumEdit = async function() {
+  var docId = document.getElementById('cmsSumEditId').value;
+  var title = (document.getElementById('cmsSumEditTitle').value || '').trim();
+  if (!docId) return;
+  if (!title) { _showToast('Give the recap a title — members see it in the list.', '#DC2626'); return; }
+  var date = (document.getElementById('cmsSumEditDate').value || '').trim();
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    _showToast('Session date must look like 2026-07-22.', '#DC2626'); return;
+  }
+  try {
+    await db.collection('memberSummaries').doc(docId).update({
+      title: title,
+      eventDate: date,
+      overview: (document.getElementById('cmsSumEditOverview').value || '').trim(),
+      keyPoints: _cmsSumLines('cmsSumEditKeyPoints'),
+      nextSteps: _cmsSumLines('cmsSumEditNextSteps'),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'staff'
+    });
+    auditLog('Edited AI summary', title);
+    cmsCloseSumEditModal();
+    await cmsLoadRecordingArchive();
+    _showToast('AI summary saved.', '#16A34A');
+  } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
 
 /* Taking an AI recap off the member portal. Same convention as recordings:
