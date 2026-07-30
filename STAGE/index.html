@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.41.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.42.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25005,7 +25005,17 @@ window.cmsRenderUnified = function() {
     else if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast <= today) { pastItems.push(ev); }
     else { activeItems.push(ev); }
   });
-  activeItems.sort(function(a, b) { return (a.flyerOnly ? 1 : 0) - (b.flyerOnly ? 1 : 0) || (b._pendingCount || 0) - (a._pendingCount || 0) || (a.eventDate || a.startDate || '').localeCompare(b.eventDate || b.startDate || ''); });
+  // Flyers (recurring flyerOnly OR one-time infoOnly) always sort to the end,
+  // among themselves by release date (startDate, falling back to eventDate).
+  // Everything else keeps the pending-first ordering.
+  activeItems.sort(function(a, b) {
+    var af = (a.flyerOnly === true || a.infoOnly === true) ? 1 : 0;
+    var bf = (b.flyerOnly === true || b.infoOnly === true) ? 1 : 0;
+    if (af !== bf) return af - bf;
+    if (af === 1) return String(a.startDate || a.eventDate || '').localeCompare(String(b.startDate || b.eventDate || ''));
+    return (b._pendingCount || 0) - (a._pendingCount || 0)
+      || String(a.eventDate || a.startDate || '').localeCompare(String(b.eventDate || b.startDate || ''));
+  });
   pastItems.sort(function(a, b) { return (b.eventDate || '').localeCompare(a.eventDate || ''); });
   expiredItems.sort(function(a, b) { return (b.eventDate || '').localeCompare(a.eventDate || ''); });
 
@@ -25432,9 +25442,25 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     if (ev.location) html += '<div class="cms-card-subtitle">' + rsEscape(ev.location) + '</div>';
     // Schedule summary for recurring programs
     if (isRecurring && ev.schedules && ev.schedules.length > 0) {
+      // Staff-only view, so keep it short: "Mondays 3-5pm Virtual" rather than
+      // the full time range plus venue address on every line.
+      var _shortT = function(t) {
+        var m = String(cmsFmt12(t) || '').match(/^(\d{1,2})(?::(\d{2}))?\s*([AP]M)?/i);
+        if (!m) return cmsFmt12(t) || '';
+        return m[1] + (m[2] && m[2] !== '00' ? ':' + m[2] : '');
+      };
+      var _shortLoc = function(loc) {
+        var l = String(loc || '');
+        if (/all islands virtual|virtual|zoom/i.test(l)) return 'Virtual';
+        return l.replace(/^Hawai.i$/i, 'Hawai\u2018i');
+      };
       var schedSummary = ev.schedules.map(function(s) {
-        if (s.frequency === 'weekly') return _CMS_DAY_NAMES[s.dayOfWeek] + 's ' + cmsFmt12(s.startTime) + ' - ' + cmsFmt12(s.endTime) + ' @ ' + (s.location || '') + (s.venue ? ' (' + s.venue + ')' : '');
-        return _CMS_ORDINAL[s.weekOfMonth] + ' ' + _CMS_DAY_NAMES[s.dayOfWeek] + ' ' + cmsFmt12(s.startTime) + ' - ' + cmsFmt12(s.endTime) + ' @ ' + (s.location || '') + (s.venue ? ' (' + s.venue + ')' : '');
+        var when = (s.frequency === 'weekly')
+          ? _CMS_DAY_NAMES[s.dayOfWeek] + 's'
+          : _CMS_ORDINAL[s.weekOfMonth] + ' ' + _CMS_DAY_NAMES[s.dayOfWeek];
+        var span = _shortT(s.startTime) + '-' + _shortT(s.endTime) + (/PM/i.test(cmsFmt12(s.endTime) || '') ? 'pm' : 'am');
+        var where = _shortLoc(s.venue && /Kona|Hilo/i.test(s.venue) ? (/Kona/i.test(s.venue) ? 'Kona' : 'Hilo') : s.location);
+        return when + ' ' + span + ' ' + where;
       }).join('<br>');
       html += '<div class="cms-card-subtitle" style="font-size:.8rem;line-height:1.5;margin-top:4px;">' + schedSummary + '</div>';
     }
@@ -25495,9 +25521,25 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     // superAdmin-only Send Announcement button (hidden for archived/expired,
     // special events (booth captures), and flyers (info-only, no mailing)).
     if (!isArchived && !isExpired && !_isSpecialCard && !_isFlyerCard && window.currentUserData && window.currentUserData.role === 'superAdmin') {
-      var announcedLabel = ev.announcementSent ? 'Re-send Announcement' : 'Send Announcement';
-      var announcedColor = ev.announcementSent ? '#94A3B8' : '#0891B2';
-      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + cmsJsArg(ev.title || '') + '\')">' + announcedLabel + '</button>';
+      // announcementSent is a single per-EVENT boolean and is unreliable on a
+      // multi-date event: August LL had Aug 12 sent to 145 people with the flag
+      // unset (so the card invited a duplicate send), while June LL had only one
+      // of two dates sent with the flag true (so it looked finished). The truth
+      // is announcementSentDates, keyed by signup date. Label from that.
+      var _annMap = ev.announcementSentDates || {};
+      var _annAll = Array.isArray(ev.signupDates) ? ev.signupDates : [];
+      var _annDone = _annAll.filter(function(d) { return !!_annMap[d]; }).length;
+      var announcedLabel, announcedColor;
+      if (_annAll.length > 1) {
+        if (_annDone === 0)                 { announcedLabel = 'Announce';        announcedColor = '#0891B2'; }
+        else if (_annDone < _annAll.length) { announcedLabel = 'Announce (' + _annDone + ' of ' + _annAll.length + ' sent)'; announcedColor = '#B45309'; }
+        else                                { announcedLabel = 'Re-announce';    announcedColor = '#94A3B8'; }
+      } else {
+        var _sent1 = ev.announcementSent || _annDone > 0;
+        announcedLabel = _sent1 ? 'Re-announce' : 'Announce';
+        announcedColor = _sent1 ? '#94A3B8' : '#0891B2';
+      }
+      html += '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;color:' + announcedColor + ';" onclick="event.stopPropagation();cmsSendAnnouncement(\'' + rsEscape(ev.id) + '\',\'' + collection + '\',\'' + cmsJsArg(ev.title || '') + '\')"' + announcedLabel + '</button>';
     }
     // Recording & Slides — non-recurring, non-archived, non-expired events.
     // Single-date events: top-level button gated by Past category.
