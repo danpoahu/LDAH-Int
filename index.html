@@ -5083,7 +5083,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.50.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.51.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25594,6 +25594,27 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
 }
 
 // ── Send Event Announcement (superAdmin only) ──
+/* Hawaiʻi County (Big Island) ZIPs. Zip is the reliable signal; the city
+   field is free text and inconsistent ("Hilo", "hilo", "Hilo, HI", "Kea’au",
+   "Keaau, HI"). City is only used as a fallback when no usable zip is on file.
+
+   Kilauea is deliberately NOT a Big Island city here: the volcano is on Hawaiʻi
+   island but the TOWN of Kilauea is on Kauaʻi (96754), and two real contacts
+   live there. Matching on the name alone would have mailed them a Hilo event. */
+var CMS_BIG_ISLAND_ZIPS = ['96704','96710','96718','96719','96720','96721','96725','96726','96727','96728',
+  '96737','96738','96739','96740','96743','96745','96749','96750','96755','96760','96764','96771','96772',
+  '96773','96774','96776','96777','96778','96780','96781','96783','96785'];
+var CMS_BIG_ISLAND_CITY = /\b(hilo|kailua[- ]kona|kona|kea.?au|waimea|kamuela|honoka.?a|pahoa|volcano|na.?alehu|captain cook|kealakekua|holualoa|honaunau|waikoloa|hawi|kapaau|papaikou|pepeekeo|mountain view|kurtistown|laupahoehoe|ookala|paauilo|pahala|ocean view|hakalau|ninole)\b/i;
+
+function cmsIsBigIsland(city, zip) {
+  var z = String(zip || '').trim().slice(0, 5);
+  if (z) return CMS_BIG_ISLAND_ZIPS.indexOf(z) !== -1;   // a zip on file settles it
+  var c = String(city || '').trim();
+  if (!c) return false;
+  if (/\bkilauea\b/i.test(c)) return false;               // Kilauea town is on Kauaʻi
+  return CMS_BIG_ISLAND_CITY.test(c);
+}
+
 window.cmsSendAnnouncement = async function(eventId, collection, title) {
   var endpoint = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendEventAnnouncement';
 
@@ -25657,9 +25678,13 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
             '<span style="font-size:.72rem;color:#16A34A;font-weight:700;flex-shrink:0;">Signed up</span></div>';
         } else {
           html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F5F9;">' +
-            '<input type="checkbox" class="cmsAnnRecip" data-rid="' + rsEscape(r.id) + '" checked style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">' +
+            '<input type="checkbox" class="cmsAnnRecip" data-rid="' + rsEscape(r.id) + '"'
+              + ' data-bi="' + (cmsIsBigIsland(r.city, r.zipCode) ? '1' : '0') + '"'
+              + ' checked style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">' +
             '<div style="flex:1;min-width:0;"><span style="font-weight:600;font-size:.85rem;">' + nm + '</span>' +
-            '<span style="font-size:.74rem;color:#64748B;margin-left:8px;">' + em + '</span></div>' +
+            '<span style="font-size:.74rem;color:#64748B;margin-left:8px;">' + em + '</span>' +
+            (r.city ? '<span style="font-size:.72rem;color:' + (cmsIsBigIsland(r.city, r.zipCode) ? '#B45309' : '#94A3B8') + ';margin-left:8px;">' + rsEscape(r.city) + (r.zipCode ? ' ' + rsEscape(String(r.zipCode).slice(0,5)) : '') + '</span>' : '') +
+            '</div>' +
             (r.alreadySent ? '<span style="font-size:.72rem;color:#92400E;flex-shrink:0;">already emailed</span>' : '') + '</div>';
         }
       });
@@ -25727,7 +25752,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
         '<div style="margin-bottom:14px;">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
             '<strong style="color:#004E7C;font-size:.9rem;">Recipients</strong>' +
-            '<span style="font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" id="cmsAnnSelAll">Select all</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelNone">Select none</a></span>' +
+            '<span style="font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" id="cmsAnnSelAll">Select all</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelNone">Select none</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelBigIsland" style="color:#B45309;font-weight:700;" title="Tick only contacts on Hawai&#8216;i Island \u2014 by ZIP, falling back to city">Big Island only</a></span>' +
           '</div>' +
           '<div id="cmsAnnRecipientList" style="max-height:260px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:8px;"></div>' +
           '<div style="font-size:.78rem;color:#64748B;margin-top:6px;">Selected to send: <strong id="cmsAnnSelCount">0</strong> &middot; <span style="color:#16A34A;">&#10003;</span> = already signed up (skipped)</div>' +
@@ -25770,6 +25795,21 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   document.getElementById('cmsAnnSelNone').addEventListener('click', function() {
     Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) { cb.checked = false; });
     _annUpdateSelCount();
+  });
+  // Ticks the Big Island and unticks everyone else, so one click gives the
+  // audience for a Hilo or Kona event. Nothing sends until Send is pressed.
+  var _biLink = document.getElementById('cmsAnnSelBigIsland');
+  if (_biLink) _biLink.addEventListener('click', function() {
+    var n = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) {
+      var on = cb.getAttribute('data-bi') === '1';
+      cb.checked = on;
+      if (on) n++;
+    });
+    _annUpdateSelCount();
+    if (typeof _showToast === 'function') {
+      _showToast(n ? n + ' Big Island recipient' + (n === 1 ? '' : 's') + ' selected.' : 'No Big Island contacts among the eligible recipients.', n ? '#B45309' : '#64748B');
+    }
   });
 
   // Audience radio — live-refresh recipient counts on change (v122.5.0)
