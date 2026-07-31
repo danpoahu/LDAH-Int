@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.51.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.52.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7493,7 +7493,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <label>Cover flyer / image <span style="font-weight:400;color:#94a3b8;">(shown in the member library)</span></label>
               <div id="cmsRecEditFlyerPreview" style="margin-bottom:6px;"></div>
               <input type="file" id="cmsRecEditFlyer" accept="image/*,application/pdf" onchange="cmsRecEditFlyerPicked(this)">
-              <div style="font-size:.75rem;color:#94a3b8;margin-top:3px;">JPG or PNG. A PDF or HEIC flyer is converted to JPG automatically. Leave empty to keep the current image.</div>
+              <div style="font-size:.75rem;color:#94a3b8;margin-top:3px;">JPG or PNG. A PDF or HEIC flyer is converted to JPG automatically, and the cover is resized to 250px wide (proportions kept). Leave empty to keep the current image.</div>
             </div>
             <div class="field" style="grid-column: span 2;">
               <label>Files <span style="font-weight:400;color:#94a3b8;">(slides, handouts &mdash; you can attach more than one)</span></label>
@@ -23715,7 +23715,7 @@ window.cmsSaveRecEdit = async function() {
 
     // ── Cover flyer image ──
     if (e.flyerFile) {
-      var fj = await _cmsFlyerToJpeg(e.flyerFile);
+      var fj = await _cmsRecCoverToJpeg(e.flyerFile);
       var fSafe = String(fj.name || 'flyer.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
       var fPath = 'recordingsArchive/' + docId + '/flyer_' + Date.now() + '_' + fSafe;
       var fRef = firebase.storage().ref(fPath);
@@ -26786,6 +26786,51 @@ async function _cmsFlyerToJpeg(file) {
     var base = (file.name || 'flyer').replace(/\.[^.]+$/, '');
     return new File([blob], base + '.jpg', { type: 'image/jpeg' });
   } catch (e) { console.warn('_cmsFlyerToJpeg failed, using original:', e && e.message); return file; }
+}
+
+/* Recordings Archive cover image.
+   The member library renders this at thumbnail size, so storing the flyer at
+   full resolution costs every viewer bandwidth for pixels they never see — and
+   _cmsFlyerToJpeg deliberately passes an existing JPEG through untouched, so a
+   4MB phone photo went up as a 4MB phone photo.
+
+   Downscaled to 250px wide, aspect ratio kept. It never UPSCALES: a 120px-wide
+   image stays 120px rather than being blown up into a blurry 250. PDFs still
+   render their first page first, then get scaled like anything else. Any
+   failure falls back to the old path, so a Save never breaks over a thumbnail. */
+var CMS_REC_COVER_WIDTH = 250;
+
+function _cmsScaleCanvasToWidth(src, targetW) {
+  if (!src || !src.width || src.width <= targetW) return src;
+  var w = targetW;
+  var h = Math.max(1, Math.round(src.height * (targetW / src.width)));
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  var ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(src, 0, 0, w, h);
+  return c;
+}
+
+async function _cmsRecCoverToJpeg(file, targetW) {
+  targetW = targetW || CMS_REC_COVER_WIDTH;
+  try {
+    if (!file || !file.type) return file;
+    var isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+    var canvas = isPdf ? await _cmsRenderPdfFirstPage(file) : await _cmsImageToCanvas(file);
+    var scaled = _cmsScaleCanvasToWidth(canvas, targetW);
+    var blob = await new Promise(function(res) { scaled.toBlob(res, 'image/jpeg', 0.85); });
+    if (!blob) return await _cmsFlyerToJpeg(file);
+    var base = (file.name || 'cover').replace(/\.[^.]+$/, '');
+    console.log('[rec cover] ' + (file.name || '') + ' -> ' + scaled.width + 'x' + scaled.height +
+      ', ' + Math.round(blob.size / 1024) + 'KB (was ' + Math.round((file.size || 0) / 1024) + 'KB)');
+    return new File([blob], base + '.jpg', { type: 'image/jpeg' });
+  } catch (e) {
+    console.warn('_cmsRecCoverToJpeg failed, using the full-size path:', e && e.message);
+    return await _cmsFlyerToJpeg(file);
+  }
 }
 
 // Drag & drop onto the flyer box — same result as clicking to pick a file.
