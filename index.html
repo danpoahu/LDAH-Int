@@ -5083,7 +5083,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.49.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.50.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -30057,6 +30057,13 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
       });
     });
   }
+  // Today in HST, needed by BOTH the past-session styling in the loop below and
+  // the orphan check further down. Declared here because `var` hoists the name
+  // but not the value — computing it after the loop left every comparison
+  // against `undefined`, so nothing was ever marked past.
+  var _orphNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+  var _orphToday = _orphNow.getFullYear() + '-' + String(_orphNow.getMonth() + 1).padStart(2, '0') + '-' + String(_orphNow.getDate()).padStart(2, '0');
+
   var _foldEmpty = [], _foldCancelled = [];
   if (!_cmsSignupsFilterDisplaced) {
     sessions.forEach(function(sess) {
@@ -30135,18 +30142,31 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
     var _recPrefix = reportEventPrefix(_cmsSignupsModalData.eventTitle || '');
     var _recHeading = (_recPrefix ? _recPrefix + ': For ' : '') + sessLabel;
 
-    html += '<div style="margin-bottom:16px;border:2px solid ' + (sess.cancelled ? '#FECACA' : '#0891B2') + ';border-radius:10px;overflow:hidden;' + (sess.cancelled ? 'background:#FEF2F2;' : '') + '">';
-    // Date header with cancel checkbox — dark blue band (v129.0.2)
-    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:' + (sess.cancelled ? '#FEE2E2' : '#004E7C') + ';border-bottom:1px solid ' + (sess.cancelled ? '#FECACA' : '#003d63') + ';" title="' + (sess.cancelled ? 'Uncheck to restore this session' : 'Check to cancel this session') + '">';
+    /* A session that has already happened reads identically to one still to
+       come — same navy band — so a list mixing both takes a moment to parse
+       every time. Past sessions get amber: the band, the border and the count,
+       plus a "Past" chip. Cancelled still wins, since that is the stronger
+       statement about a date. */
+    var _sessIsPast = (String(sess.date || '') < _orphToday) && !sess.cancelled;
+    var _bandBg     = sess.cancelled ? '#FEE2E2' : (_sessIsPast ? '#B45309' : '#004E7C');
+    var _bandEdge   = sess.cancelled ? '#FECACA' : (_sessIsPast ? '#92400E' : '#003d63');
+    var _boxEdge    = sess.cancelled ? '#FECACA' : (_sessIsPast ? '#FDBA74' : '#0891B2');
+    var _boxBg      = sess.cancelled ? 'background:#FEF2F2;' : (_sessIsPast ? 'background:#FFFBEB;' : '');
+
+    html += '<div style="margin-bottom:16px;border:2px solid ' + _boxEdge + ';border-radius:10px;overflow:hidden;' + _boxBg + '">';
+    // Date header with cancel checkbox — navy upcoming, amber past, red cancelled
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:' + _bandBg + ';border-bottom:1px solid ' + _bandEdge + ';" title="' + (sess.cancelled ? 'Uncheck to restore this session' : (_sessIsPast ? 'This session has already happened' : 'Check to cancel this session')) + '">';
     html += '<input type="checkbox" ' + (sess.cancelled ? 'checked' : '') + ' onchange="cmsToggleSessionCancel(\'' + _attrJsArg(eventId) + '\',\'' + _attrJsArg(sess.date) + '\',decodeURIComponent(\'' + _attrJsArg(sess.location || '') + '\'),decodeURIComponent(\'' + _attrJsArg(sess.venue || '') + '\'),this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#DC2626;">';
     html += '<label style="font-size:.68rem;color:' + (sess.cancelled ? '#DC2626' : 'rgba(255,255,255,.8)') + ';cursor:pointer;user-select:none;" onclick="this.previousElementSibling.click()">' + (sess.cancelled ? 'Restore' : 'Cancel') + '</label>';
     html += '<div style="flex:1;min-width:0;">';
-    html += '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' + (sess.cancelled ? 'color:#DC2626;text-decoration:line-through;' : 'color:#fff;') + '">' + rsEscape(_recHeading) + '</div>';
+    html += '<div style="font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' + (sess.cancelled ? 'color:#DC2626;text-decoration:line-through;' : 'color:#fff;') + '">'
+      + (_sessIsPast ? '<span style="display:inline-block;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.45);color:#fff;font-size:.62rem;font-weight:800;letter-spacing:.04em;border-radius:999px;padding:1px 7px;margin-right:7px;vertical-align:middle;">PAST</span>' : '')
+      + rsEscape(_recHeading) + '</div>';
     // "CANCELLED" word dropped 2026-06-09 — the red strikethrough already says it.
     // Keep the cancel reason on its own line if one was entered (real info).
     if (sess.cancelled && sess.cancelReason) html += '<div style="font-size:.78rem;color:#DC2626;font-weight:600;">' + rsEscape(sess.cancelReason) + '</div>';
     html += '</div>';
-    html += '<span style="font-size:.78rem;color:' + (sess.cancelled ? 'var(--text-soft)' : 'rgba(255,255,255,.75)') + ';">' + dateSignups.length + ' signup' + (dateSignups.length !== 1 ? 's' : '') + '</span>';
+    html += '<span style="font-size:.78rem;white-space:nowrap;color:' + (sess.cancelled ? 'var(--text-soft)' : 'rgba(255,255,255,.85)') + ';">' + dateSignups.length + ' signup' + (dateSignups.length !== 1 ? 's' : '') + '</span>';
     html += '</div>';
 
     // Participants for this date
@@ -30172,8 +30192,6 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
   // Orphaned signups: active but their session keys match no current schedule slot.
   // Use the wider 90-day window so a signup that only matches something 31-90 days out
   // isn't mislabeled as orphaned.
-  var _orphNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
-  var _orphToday = _orphNow.getFullYear() + '-' + String(_orphNow.getMonth() + 1).padStart(2, '0') + '-' + String(_orphNow.getDate()).padStart(2, '0');
   var orphaned = active.filter(function(s) {
     if (cmsIsSignupSessionMatched(s, sessionsWide)) return false;
     if (_cmsSignupIsHistoric(s, _orphToday)) return false;   // past session — nothing to fix
