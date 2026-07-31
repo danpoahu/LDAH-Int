@@ -5108,7 +5108,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.52.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.53.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -30035,6 +30035,33 @@ window.cmsDoReschedule = async function(signupId, sessionIndex, newDate, newDayN
 };
 
 /* ── Orphaned: active signup whose selectedSessions match no current schedule ── */
+/* A signup whose session has already happened is history, not a problem.
+   The orphan check compares session keys against a 90-day schedule window, so
+   every family drops out of that window 90 days after they attend and then gets
+   flagged as "not matched to current schedule" — inviting staff to edit a key
+   that was always correct. Rommel del Mundo attended Thu 30 Apr 2026, was
+   marked present and left feedback the same night, and surfaced as a problem on
+   31 Jul purely because he had crossed 90 days.
+
+   Historic = every session key on the signup parses to a date before today.
+   An unparseable key is still flagged (that IS broken), and so is a signup with
+   any date still to come — a future session that matches nothing is a real
+   problem worth showing. */
+function _cmsSignupIsHistoric(s, todayKey) {
+  var keys = (Array.isArray(s.selectedSessions) && s.selectedSessions.length)
+    ? s.selectedSessions
+    : (Array.isArray(s.selectedDates) ? s.selectedDates : []);
+  if (!keys.length) return false;                 // nothing to judge on — leave it flagged
+  var sawDate = false;
+  for (var i = 0; i < keys.length; i++) {
+    var m = String(keys[i] || '').match(/(\d{4}-\d{2}-\d{2})/);
+    if (!m) return false;                         // a key we cannot read is genuinely broken
+    sawDate = true;
+    if (m[1] >= todayKey) return false;           // still to come — keep flagging
+  }
+  return sawDate;
+}
+
 function cmsIsSignupSessionMatched(signup, sessions) {
   var sDates = signup.selectedSessions || signup.selectedDates || [];
   if (!sDates.length) return false;
@@ -30381,12 +30408,18 @@ function cmsRenderRecurringSignupsByDate(active, archived, collection, eventId) 
   // Orphaned signups: active but their session keys match no current schedule slot.
   // Use the wider 90-day window so a signup that only matches something 31-90 days out
   // isn't mislabeled as orphaned.
-  var orphaned = active.filter(function(s) { return !cmsIsSignupSessionMatched(s, sessionsWide); });
+  var _orphNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+  var _orphToday = _orphNow.getFullYear() + '-' + String(_orphNow.getMonth() + 1).padStart(2, '0') + '-' + String(_orphNow.getDate()).padStart(2, '0');
+  var orphaned = active.filter(function(s) {
+    if (cmsIsSignupSessionMatched(s, sessionsWide)) return false;
+    if (_cmsSignupIsHistoric(s, _orphToday)) return false;   // past session — nothing to fix
+    return true;
+  });
   if (orphaned.length > 0 && !_cmsSignupsFilterDisplaced) {
     html += '<div style="margin-top:16px;border:2px solid #F59E0B;border-radius:10px;overflow:hidden;">';
     html += '<div style="padding:10px 14px;background:#FEF3C7;border-bottom:1px solid #F59E0B;">';
     html += '<div style="font-weight:600;font-size:.9rem;color:#92400E;">&#9888; Not matched to current schedule (' + orphaned.length + ')</div>';
-    html += '<div style="font-size:.76rem;color:#92400E;margin-top:3px;">These active signups have session keys that don\'t line up with any scheduled session. Edit the keys below to restore visibility.</div>';
+    html += '<div style="font-size:.76rem;color:#92400E;margin-top:3px;">These active signups are for a date still to come, but their session keys don\'t line up with any scheduled session. Edit the keys below to restore visibility. (Signups whose session has already passed are left alone.)</div>';
     html += '</div>';
     orphaned.forEach(function(s) {
       html += cmsRenderSignupCard(s, statusColors, collection, eventId);
