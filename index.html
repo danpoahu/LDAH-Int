@@ -5090,7 +5090,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.53.1</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.54.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25694,7 +25694,13 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
           html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F5F9;">' +
             '<input type="checkbox" class="cmsAnnRecip" data-rid="' + rsEscape(r.id) + '"'
               + ' data-bi="' + (cmsIsBigIsland(r.city, r.zipCode) ? '1' : '0') + '"'
-              + ' checked style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">' +
+              + ' data-sent="' + (r.alreadySent ? '1' : '0') + '"'
+              // Already-sent rows start UNTICKED. They used to arrive ticked, so a
+              // re-announce meant unticking them one by one — fine at 18 recipients,
+              // impossible at 221. Nobody ever wants to send the same announcement
+              // to the same person twice.
+              + (r.alreadySent ? '' : ' checked')
+              + ' style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">' +
             '<div style="flex:1;min-width:0;"><span style="font-weight:600;font-size:.85rem;">' + nm + '</span>' +
             '<span style="font-size:.74rem;color:#64748B;margin-left:8px;">' + em + '</span>' +
             (r.city ? '<span style="font-size:.72rem;color:' + (cmsIsBigIsland(r.city, r.zipCode) ? '#B45309' : '#94A3B8') + ';margin-left:8px;">' + rsEscape(r.city) + (r.zipCode ? ' ' + rsEscape(String(r.zipCode).slice(0,5)) : '') + '</span>' : '') +
@@ -25766,7 +25772,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
         '<div style="margin-bottom:14px;">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
             '<strong style="color:#004E7C;font-size:.9rem;">Recipients</strong>' +
-            '<span style="font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" id="cmsAnnSelAll">Select all</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelNone">Select none</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelBigIsland" style="color:#B45309;font-weight:700;" title="Tick only contacts on Hawai&#8216;i Island \u2014 by ZIP, falling back to city">Big Island only</a></span>' +
+            '<span style="font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" id="cmsAnnSelAll">Select all</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelNone">Select none</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelBigIsland" style="color:#B45309;font-weight:700;" title="Tick only contacts on Hawai&#8216;i Island who have not already been sent this \u2014 by ZIP, falling back to city">Big Island only</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelUnsent" style="color:#166534;font-weight:700;" title="Tick everyone who has not already received this announcement">Not yet sent</a></span>' +
           '</div>' +
           '<div id="cmsAnnRecipientList" style="max-height:260px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:8px;"></div>' +
           '<div style="font-size:.78rem;color:#64748B;margin-top:6px;">Selected to send: <strong id="cmsAnnSelCount">0</strong> &middot; <span style="color:#16A34A;">&#10003;</span> = already signed up (skipped)</div>' +
@@ -25812,18 +25818,27 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   });
   // Ticks the Big Island and unticks everyone else, so one click gives the
   // audience for a Hilo or Kona event. Nothing sends until Send is pressed.
-  var _biLink = document.getElementById('cmsAnnSelBigIsland');
-  if (_biLink) _biLink.addEventListener('click', function() {
+  // Both quick-selects skip anyone already sent — re-sending the same
+  // announcement to the same person is never the intent.
+  function _annPick(test, label, colour) {
     var n = 0;
     Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) {
-      var on = cb.getAttribute('data-bi') === '1';
+      var on = cb.getAttribute('data-sent') !== '1' && test(cb);
       cb.checked = on;
       if (on) n++;
     });
     _annUpdateSelCount();
     if (typeof _showToast === 'function') {
-      _showToast(n ? n + ' Big Island recipient' + (n === 1 ? '' : 's') + ' selected.' : 'No Big Island contacts among the eligible recipients.', n ? '#B45309' : '#64748B');
+      _showToast(n ? n + ' ' + label + (n === 1 ? '' : 's') + ' selected.' : 'Nobody matches — everyone eligible may already have been sent this.', n ? colour : '#64748B');
     }
+  }
+  var _biLink = document.getElementById('cmsAnnSelBigIsland');
+  if (_biLink) _biLink.addEventListener('click', function() {
+    _annPick(function(cb) { return cb.getAttribute('data-bi') === '1'; }, 'Big Island recipient', '#B45309');
+  });
+  var _unsentLink = document.getElementById('cmsAnnSelUnsent');
+  if (_unsentLink) _unsentLink.addEventListener('click', function() {
+    _annPick(function() { return true; }, 'recipient', '#166534');
   });
 
   // Audience radio — live-refresh recipient counts on change (v122.5.0)
