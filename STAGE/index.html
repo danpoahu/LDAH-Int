@@ -5115,7 +5115,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.59.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.60.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5451,6 +5451,43 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             // The resource modal lives inside the Resources section (display:none
             // until active), so switch to that section FIRST, then open the card a
             // tick later — same pattern the no-email overlay uses (index.html).
+
+            /* Abandoned-membership task actions. The task exists because someone
+               reached the payment step and stopped; they may still have paid by
+               another route, so staff check PayPal before either button. */
+            window.myDayMembershipPaid = async function(memberId, interactionId){
+              if(!confirm('Mark this membership PAID?\n\nOnly do this if you have SEEN the payment in PayPal.\n\nThis sends them the thank-you email with their member-portal login, and activates their membership.')) return;
+              try{
+                var now = firebase.firestore.FieldValue.serverTimestamp();
+                var snap = await db.collection('members').doc(memberId).get();
+                if(!snap.exists){ alert('That membership record no longer exists.'); return; }
+                var m = snap.data()||{};
+                if(m.status==='paid'){ alert('Already marked paid — nothing to do.'); return; }
+                await db.collection('members').doc(memberId).update({ status:'paid', paidAt: now, paidMarkedBy: 'staff (PayPal verified)' });
+                if(m.linkedContactId){ try{ await db.collection('contacts').doc(m.linkedContactId)
+                  .update({ membershipStatus:'paid', membershipPaidAt: now }); }catch(e){} }
+                await db.collection('interactions').doc(interactionId)
+                  .update({ status:'Closed', updatedAt: now,
+                            notes: (m.name||'Member')+' — payment confirmed in PayPal and marked paid by staff.' });
+                auditLog('Membership marked paid from task', (m.name||memberId)+' — $'+(m.amount||''));
+                if(typeof _showToast==='function') _showToast('Marked paid. Thank-you email with portal login is on its way.', '#16A34A');
+              }catch(e){ alert('Could not mark paid: '+e.message); }
+            };
+            window.myDayMembershipRemind = async function(memberId, interactionId){
+              if(!confirm('Send the "you are one step away" reminder?\n\nOnly do this if you have checked PayPal and there is NO payment.\n\nThey get a link back to their own checkout with their details already filled in. Nothing is charged.')) return;
+              try{
+                var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendMembershipResumeEmail',{
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ memberId: memberId })});
+                var j = await resp.json();
+                if(!resp.ok) throw new Error(j.error||'send failed');
+                await db.collection('interactions').doc(interactionId).update({
+                  status:'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                  notes:'No payment found in PayPal. Reminder with a resume link sent to '+(j.to||'them')+'.' });
+                auditLog('Membership reminder sent', j.to||memberId);
+                if(typeof _showToast==='function') _showToast('Reminder sent to '+(j.to||'them')+'.', '#B45309');
+              }catch(e){ alert('Could not send the reminder: '+e.message); }
+            };
             window.myDayOpenResource = function(id){
               var d=(window._myDayDocs||{})[id];
               if(!d||!d.workflowEventId)return;
@@ -5796,6 +5833,15 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoVerify(\''+d._id+'\')">Review / Revert &rarr;</button>';
                         else if(d.workflowStep==='photoReleaseStall')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoStall(\''+d._id+'\')">Resolve Stalled Release &rarr;</button>';
+                        else if(d.workflowEventId&&d.workflowStep==='membershipUnpaid')
+                          // TWO buttons, in the order the job is actually done: check
+                          // PayPal first, and only ask them to pay if there is genuinely
+                          // no payment. Asking a member to pay twice is the one outcome
+                          // worth designing against.
+                          actionBtn='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;">'
+                            +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#16A34A;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();myDayMembershipPaid(\''+d.workflowEventId+'\',\''+d._id+'\')">&#10003; Found the payment &mdash; mark paid</button>'
+                            +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#B45309;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();myDayMembershipRemind(\''+d.workflowEventId+'\',\''+d._id+'\')">No payment &mdash; send reminder</button>'
+                            +'</div>';
                         else if(d.workflowEventId&&d.workflowStep==='cancelPendingSignups')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayCancelPending(\''+d._id+'\')">Cancel &amp; archive pending &rarr;</button>';
                       }
