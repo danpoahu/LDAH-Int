@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Events &amp; Programs Card Counts — Design</title>
+<style>
+  :root{ --ink:#1f2d3d; --muted:#5b6b7b; --line:#dce3ea; --accent:#0d9488; --accent-deep:#0b6e66; --warn:#b45309; --warn-soft:#fef3e2; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6f8;color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .wrap{max-width:860px;margin:24px auto;padding:0 18px;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:30px 36px;box-shadow:0 1px 3px rgba(20,40,60,.06);}
+  h1{font-size:24px;margin:0 0 4px;color:var(--accent-deep);}
+  .meta{color:var(--muted);font-size:13px;margin:0 0 22px;border-bottom:1px solid var(--line);padding-bottom:16px;}
+  h2{font-size:18px;margin:30px 0 8px;color:var(--accent-deep);border-left:4px solid var(--accent);padding-left:10px;}
+  h3{font-size:15px;margin:20px 0 6px;color:var(--ink);text-transform:uppercase;letter-spacing:.03em;}
+  p{margin:0 0 12px;} ul{margin:0 0 12px;padding-left:22px;} li{margin:0 0 7px;}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.88em;background:#f1f5f9;padding:1px 6px;border-radius:4px;color:#0b4f6c;}
+  .def{background:#e9f7f5;border:1px solid #bfe6e1;border-radius:10px;padding:14px 18px;margin:14px 0;}
+  .warn{background:var(--warn-soft);border:1px solid #f0c987;border-left:4px solid var(--warn);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:.92rem;}
+  .bad{background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #b91c1c;border-radius:8px;padding:10px 16px;margin:12px 0;font-size:.92rem;}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.92rem;}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top;}
+  th{background:#f1f5f9;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+  .tbl-wrap{overflow-x:auto;}
+  pre{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:ui-monospace,Menlo,monospace;font-size:.82rem;line-height:1.55;margin:12px 0;}
+  /* live preview of the proposed chips */
+  .chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:6px 0 4px;}
+  .chip{display:inline-block;font-size:.7rem;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap;letter-spacing:.02em;line-height:1.5;}
+  .c-type{color:#fff;}
+  .c-count{background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;font-weight:600;}
+  .c-pending{background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;}
+  .c-seats{background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;}
+  .c-warn{background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;}
+  .c-full{background:#FEF2F2;color:#991B1B;border:1px solid #FECACA;}
+  .c-quiet{background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0;font-weight:600;}
+  .demo{border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:10px 0;background:#fff;}
+  .demo .t{font-weight:700;font-size:.95rem;margin-bottom:2px;}
+  .demo .s{color:var(--muted);font-size:.82rem;}
+  .swatch{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <h1>Events &amp; Programs Card Counts — Design</h1>
+  <p class="meta"><strong>Date:</strong> 2026-08-03 &nbsp;·&nbsp; <strong>Status:</strong> Approved by Daniel, not implemented &nbsp;·&nbsp; <strong>Files:</strong> <code>index.html</code>, <code>STAGE/index.html</code> (LDAH-Int)</p>
+
+  <h2>Problem</h2>
+  <p>Every card in the unified Events &amp; Programs list reads <code>0 signups</code>, the capacity chip can only ever say <code>cap 45</code> / <code>cap 80</code>, and the chip row renders unstyled — so <code>0 signups</code> and <code>cap 45</code> collide into <code>0 signupscap 45</code>.</p>
+  <p>Three independent defects, all present in live v145.55.0:</p>
+
+  <div class="bad">
+    <strong>1. The unified view never counts.</strong> <code>cmsLoadAllEvents</code> (<code>index.html:25011-25028</code>) copies counts out of <code>window._cmsSignupCountCache</code> only when that cache is under 60 s old (<code>_cmsCacheTTL = 60000</code>, line 24660). The cache is built once by <code>cmsGetAlertCounts()</code> at CMS dashboard load, so by the time staff click into Events &amp; Programs it is stale and every card silently falls back to 0. The three legacy per-tab loaders (lines 24737-24917) do count for themselves; the unified list never learned to.
+  </div>
+  <div class="bad">
+    <strong>2. The cache is missing two fields.</strong> Even when fresh it writes only <code>signupCount</code> and <code>pendingCount</code> (line 24474) — never <code>headcount</code> or <code>upcomingCount</code>, the exact two fields the card needs for <code>N / 80 seats</code> and for a recurring program's upcoming count. So the seats chip falls to its <code>cap N</code> branch and <code>_upcomingCount</code> is always undefined.
+  </div>
+  <div class="bad">
+    <strong>3. The chip CSS is missing from live.</strong> <code>.cms-card-chips</code> and <code>.cmsChip</code> exist in <code>STAGE/index.html</code> (lines 4343-4352) but not in <code>index.html</code>. Live has the markup and none of the styling.
+  </div>
+
+  <h2>Verified data</h2>
+  <p>Read-only Firestore queries, 2026-08-03:</p>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>Card</th><th>Doc</th><th>Live signups</th><th>Card should read</th></tr>
+    <tr><td>Connect-Gen</td><td><code>recurringEvents/CmkPXEpPwfAQ5sR377K2</code></td><td>17 live — 15 confirmed, 1 cancelled, 1 pending</td><td><code>1 pending</code> · <code>15 enrolled</code></td></tr>
+    <tr><td>Learning Labs August</td><td><code>events/IqTwpWFPtpONhThQZmzs</code></td><td>20 live, all confirmed; Aug 12 → 19, Aug 26 → 18</td><td><code>Aug 12: 19</code> · <code>Aug 26: 18</code></td></tr>
+    <tr><td>Molokai movie</td><td><code>events/e3XtawFloXgHb4WQJcuc</code></td><td>1 confirmed, Individual, cap 45</td><td><code>1 attending</code> · <code>1 / 45 seats</code></td></tr>
+    <tr><td>Hilo movie</td><td><code>events/0ttCcUQdAuFCrPiiULqw</code></td><td>5 live — 4 confirmed, 1 pending; cap 80</td><td><code>11 attending</code> · <code>3 pending</code> · <code>11 / 80 seats</code></td></tr>
+  </table>
+  </div>
+  <div class="warn">
+    Hilo's <strong>11</strong> uses the existing headcount rule at <code>index.html:27746</code> — a <code>Group</code> contributes its <code>groupSize</code>, anything else contributes 1: 4 + 1 + 4 + 2. Lyndee Hoyer holds <strong>two</strong> live confirmed signups (same email; one <code>announcement-email</code> Group of 4 on Aug 1, one <code>registration-email</code> with no <code>participationType</code> on Aug 2). <strong>Daniel's decision: leave both, count as-is.</strong> The card therefore reads 11, not the 14 that double-counting her family would give.
+  </div>
+
+  <h2>Approach</h2>
+  <div class="def">
+    <p style="margin:0"><strong>One shared counter.</strong> Extract the signup scan currently buried inside <code>cmsGetAlertCounts</code> (lines 24437-24474) into <code>cmsRefreshSignupCounts()</code>. Both the dashboard and <code>cmsLoadAllEvents</code> call it; when the cache is stale the unified view <em>awaits</em> it rather than falling back to 0.</p>
+  </div>
+  <p><strong>Rejected:</strong> having <code>cmsLoadAllEvents</code> count for itself — a fourth copy of counting logic, which is the mistake <code>feedback_daily-report-two-implementations</code> records. Also rejected: denormalizing onto the event doc via a Cloud Function <code>onWrite</code> trigger — it needs a new function, a backfill, and a shared-helper change forces redeploying all 112 functions (<code>feedback_cf-helper-deploy</code>). Too much blast radius for data the card already fetches.</p>
+
+  <h2>The counter</h2>
+  <p><code>cmsRefreshSignupCounts()</code> returns, per event and per program:</p>
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>Field</th><th>Meaning</th></tr>
+    <tr><td><code>signupCount</code></td><td>live docs, <code>archived !== true</code></td></tr>
+    <tr><td><code>pendingCount</code></td><td>docs with <code>status</code> <code>pending</code> or <code>new</code></td></tr>
+    <tr><td><code>pendingHeads</code></td><td><strong>people</strong> pending — Hilo's 3, not 1</td></tr>
+    <tr><td><code>headcount</code></td><td>people, via the existing rule at <code>index.html:27746</code></td></tr>
+    <tr><td><code>enrolledCount</code></td><td>live, non-cancelled, non-pending — Connect-Gen's 15</td></tr>
+    <tr><td><code>perDate{}</code></td><td>keyed by <code>sigDateKey(label)</code> → <code>{label, count, heads, pending}</code></td></tr>
+  </table>
+  </div>
+  <p><code>sigDateKey</code> is promoted out of the Session Sheet IIFE (<code>index.html:11448</code>) to a shared helper, <strong>behaviour unchanged</strong> — including its contract of returning <code>''</code> rather than guessing, so callers keep an unreadable label instead of silently hiding a session. Promotion is required because IIFE vars are invisible across <code>&lt;script&gt;</code> blocks (<code>feedback_ldah-int-script-block-scope</code>).</p>
+
+  <h2>Chip rules by card type</h2>
+
+  <div class="demo">
+    <div class="t">Learning Labs: For the Month of August — IDEA/Chapter 60 …</div>
+    <div class="chips">
+      <span class="chip c-type" style="background:#0891B2">Learning Labs</span>
+      <span class="chip c-count">Aug 12: 19</span>
+      <span class="chip c-count">Aug 26: 18</span>
+    </div>
+    <div class="s">2026-08-12 · 5:00 PM · Zoom</div>
+  </div>
+  <p><strong>Multi-date one-time.</strong> One chip per <em>upcoming</em> <code>signupDates</code> entry. Past entries drop off, so the card rolls to the next class on its own with no extra logic. Entries <code>sigDateKey</code> cannot parse are always shown. When every date has passed, a single <code>20 total</code> chip. <strong>"Upcoming" means <code>sigDateKey(label) &gt;= _localToday()</code></strong> — an entry dated today still shows, and the comparison is on HST date strings, never <code>new Date()</code>.</p>
+
+  <div class="demo">
+    <div class="t">Hilo 'Ohana Movie Night</div>
+    <div class="chips">
+      <span class="chip c-type" style="background:#4F46E5">Remote Signup</span>
+      <span class="chip c-count">11 attending</span>
+      <span class="chip c-pending">3 pending</span>
+      <span class="chip c-seats">11 / 80 seats</span>
+    </div>
+    <div class="s">2026-08-29 · 2:30 PM · Historic Palace Theater, Hilo</div>
+  </div>
+  <p><strong>Remote Signup.</strong> The leading word changes from "signups" to "attending", because these events are measured in people, not registrations. Molokai reads <code>1 attending</code> · <code>1 / 45 seats</code>.</p>
+  <div class="warn"><strong><code>attending</code> and the seats chip both count confirmed heads only</strong> — pending people are reported separately and do not consume seats. Hilo therefore reads <code>11 / 80</code>, not <code>14 / 80</code>. If pending should hold a seat, that is a one-line change and worth revisiting once a venue actually gets close to full.</div>
+
+  <div class="demo">
+    <div class="t">Connect-Gen</div>
+    <div class="chips">
+      <span class="chip c-type" style="background:#16A34A">Connect-Gen</span>
+      <span class="chip c-pending">1 pending</span>
+      <span class="chip c-quiet">15 enrolled</span>
+    </div>
+    <div class="s">Mondays 3-5pm Virtual · Thursdays 11-1pm Oahu</div>
+  </div>
+  <p><strong>Ongoing recurring.</strong> No lifetime total: an ongoing program runs indefinitely and the running total is noise on a card. The pending chip is the one that needs action, so it carries the color.</p>
+
+  <p><strong>Single-date one-time</strong> — <code>N signups</code> plus a pending chip. Unchanged. <strong>Flyer</strong> (<code>flyerOnly</code> or <code>infoOnly</code>) — <code>No sign-ups</code>. Unchanged.</p>
+
+  <h2>Color</h2>
+  <p>Port STAGE's block to live, then retune two entries. STAGE currently renders pending in <strong>red</strong>; the approved semantics put pending in amber and reserve red for a venue at capacity.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <tr><th>Class</th><th>Swatch</th><th>Palette</th><th>Meaning</th></tr>
+    <tr><td><code>.cmsChip-count</code></td><td><span class="chip c-count">19 signups</span></td><td class="swatch">#EFF6FF / #1E40AF / #BFDBFE</td><td>counts</td></tr>
+    <tr><td><code>.cmsChip-pending</code></td><td><span class="chip c-pending">3 pending</span></td><td class="swatch">#FFFBEB / #92400E / #FDE68A</td><td>awaiting action</td></tr>
+    <tr><td><code>.cmsChip-seats</code></td><td><span class="chip c-seats">11 / 80 seats</span></td><td class="swatch">#ECFDF5 / #065F46 / #A7F3D0</td><td>under 80% full</td></tr>
+    <tr><td><code>.cmsChip-warn</code></td><td><span class="chip c-warn">68 / 80 seats</span></td><td class="swatch">#FFFBEB / #92400E / #FDE68A</td><td>80–99%</td></tr>
+    <tr><td><code>.cmsChip-full</code></td><td><span class="chip c-full">80 / 80 seats</span></td><td class="swatch">#FEF2F2 / #991B1B / #FECACA</td><td>at capacity</td></tr>
+    <tr><td><code>.cmsChip-quiet</code></td><td><span class="chip c-quiet">15 enrolled</span></td><td class="swatch">#F1F5F9 / #64748B / #E2E8F0</td><td>enrolled, no-signups</td></tr>
+  </table>
+  </div>
+
+<pre>.cms-card-chips  display:flex; flex-wrap:wrap; gap:4px   fixes "0 signupscap 45"
+.cmsChip         radius:999px; padding:2px 9px; font-size:.7rem; white-space:nowrap</pre>
+
+  <div class="warn"><code>.cmsChip-seats</code> is a <strong>new class</strong>. Today the under-80% case reuses <code>.cmsChip-quiet</code> (<code>index.html:25479</code>: <code>_capCls = _pct &gt;= 1 ? 'cmsChip-full' : (_pct &gt;= 0.8 ? 'cmsChip-warn' : 'cmsChip-quiet')</code>). That line changes so a healthy venue reads green rather than grey; <code>-quiet</code> stays as-is for <code>15 enrolled</code>, <code>No sign-ups</code>, and the <code>cap N</code> fallback.</div>
+
+  <p>Color carries status, not decoration. Type identity already has its own solid badge and the card's left edge (<code>_CMS_TYPE_META</code>), so chips deliberately do not reuse type colors — otherwise nothing stands out. Scanning the list, amber and red should be the only things that pull the eye.</p>
+
+  <h2>STAGE and live</h2>
+  <div class="warn">
+    Both <code>index.html</code> and <code>STAGE/index.html</code> get the change, patched <strong>surgically</strong>. STAGE is ahead of live (v146 vs v145) and must never be copied wholesale over live — <code>feedback_stage-live-drift-both-ways</code>. STAGE already has the chip CSS block, so there the work is the retune plus the JS; live needs the whole block. Version bump on Int as always.
+  </div>
+
+  <h2>Out of scope</h2>
+  <ul>
+    <li><strong>Lyndee's duplicate signup.</strong> Daniel chose to leave it. Worth noting the duplicate arrived via <code>registration-email</code> a day after her <code>announcement-email</code> signup, which suggests that path creates a second doc rather than updating the first. If so, other events are quietly double-counting. Prior work exists in <code>plans/2026-06-12-duplicate-signup-prevention-part2.md</code> and <code>2026-06-12-duplicate-signup-removal-int.md</code>; this may be an uncovered path or a regression. Own investigation, not this one.</li>
+    <li>Any change to how signups are created, confirmed, or archived.</li>
+    <li>The View Signups modal, which already computes people correctly.</li>
+  </ul>
+</div></div>
+</body>
+</html>
