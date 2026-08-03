@@ -37,7 +37,7 @@ Read-only Firestore queries, 2026-08-03:
 
 | Card | Doc | Live signups | Card should read |
 |---|---|---|---|
-| Connect-Gen | `recurringEvents/CmkPXEpPwfAQ5sR377K2` | 17 live (15 confirmed, 1 cancelled, 1 pending) | `1 pending` · `15 enrolled` |
+| Connect-Gen | `recurringEvents/CmkPXEpPwfAQ5sR377K2` | 17 live, but only **1** has a session dated today or later (Kathryn Kuhaulua, 2026-08-13, pending); the other 16 are completed May–July sessions | `1 pending` |
 | Learning Labs August | `events/IqTwpWFPtpONhThQZmzs` | 20 live, all confirmed; Aug 12 → 19, Aug 26 → 18 | `Aug 12: 19` · `Aug 26: 18` |
 | Molokai movie | `events/e3XtawFloXgHb4WQJcuc` | 1 confirmed, Individual, cap 45 | `1 attending` · `1 / 45 seats` |
 | Hilo movie | `events/0ttCcUQdAuFCrPiiULqw` | 5 live (4 confirmed, 1 pending), cap 80 | `11 attending` · `3 pending` · `11 / 80 seats` |
@@ -73,8 +73,17 @@ fetches).
 | `pendingCount` | docs with `status` `pending` or `new` |
 | `pendingHeads` | **people** pending — Hilo's 3, not 1 |
 | `headcount` | people, via the existing rule at `index.html:27746` |
-| `enrolledCount` | live, non-cancelled, non-pending — Connect-Gen's 15 |
+| `upcomingCount` | signups with a session dated today or later, confirmed only |
+| `upcomingPending` | same, but `status` pending/new — Connect-Gen's 1 |
 | `perDate{}` | keyed by `sigDateKey(label)` → `{label, count, heads, pending}` |
+
+Recurring-program session dates live in **`selectedSessions`**, not
+`selectedDates`, as composite keys of the form
+`2026-08-13|Oahu – 245 N. Kukui Street, Suite 205|11:00 AM – 1:00 PM`. Split on
+`|` and take element 0 (`feedback_composite-session-keys`). A signup with no
+readable future date is treated as *not* upcoming unless it is pending, in which
+case it is counted — same "keep what you cannot read" contract as `sigDateKey`,
+so a signup awaiting action is never silently hidden.
 
 `sigDateKey` is promoted out of the Session Sheet IIFE (`index.html:11448`) to a
 shared helper, **behaviour unchanged** — including its contract of returning `''`
@@ -98,9 +107,15 @@ hiding a session. Promotion is required because IIFE vars are invisible across
   people are reported separately and do not consume seats. Hilo therefore reads
   `11 / 80`, not `14 / 80`. If pending should hold a seat, that is a one-line
   change and worth revisiting once a venue actually gets close to full.
-- **Ongoing recurring** (Connect-Gen) — `1 pending` amber, `15 enrolled` grey.
-  No lifetime total: an ongoing program runs indefinitely and the running total
-  is noise on a card.
+- **Ongoing recurring** (Connect-Gen) — `N upcoming` blue (omitted when 0) and
+  `M pending` amber (omitted when 0), both counting **only sessions dated today
+  or later**. Today that is a single `1 pending` chip.
+  **No lifetime total and no "enrolled" chip.** Connect-Gen is not a rolling
+  roster: each family books one session and is finished. Of its 17 live signups,
+  16 are completed sessions from May–July and exactly one — Kathryn Kuhaulua,
+  2026-08-13, pending worksheet — is still ahead. Counting the other 16 as
+  "enrolled" would report finished work as outstanding, which is the opposite of
+  what the card is for.
 - **Single-date one-time** — `N signups` plus a pending chip. Unchanged.
 - **Flyer** (`flyerOnly` or `infoOnly`) — `No sign-ups`. Unchanged.
 

@@ -4331,6 +4331,21 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 .cms-card .cms-card-buttons {
   display: flex; gap: 8px; margin-top: auto; padding-top: 10px; flex-wrap: wrap;
 }
+.cms-card .cms-card-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
+.cms-card .cms-card-chips:empty { display: none; }
+/* Events & Programs count chips. Color carries STATUS, never decoration — type
+   identity already owns the solid badge and the card's left edge, so reusing
+   type colors here would leave nothing standing out. Amber and red should be
+   the only things that pull the eye down a long list. */
+.cmsChip { display:inline-block; font-size:.7rem; font-weight:700; border-radius:999px;
+  padding:2px 9px; white-space:nowrap; letter-spacing:.02em; line-height:1.5; }
+.cmsChip-count   { background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE; font-weight:600; }
+.cmsChip-pending { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; cursor:pointer; }
+.cmsChip-seats   { background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0; }
+.cmsChip-warn    { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; }
+.cmsChip-full    { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; }
+.cmsChip-quiet   { background:#F1F5F9; color:#64748B; border:1px solid #E2E8F0; font-weight:600; }
+.cmsChip-off     { background:#E2E8F0; color:#475569; }
 .cms-card .cms-drag-handle:hover { opacity: 1; }
 .cms-card.dragging { opacity: 0.4; }
 .cms-card.drag-over { border: 2px dashed var(--ocean-mid); }
@@ -5090,7 +5105,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.55.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.56.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20366,6 +20381,143 @@ var _photoPendingByIsland = {};
     updateNotifBadge();
   };
 
+  /* ── Signup counting: ONE implementation, shared (v145.56.0) ──────────────
+     The unified Events & Programs list, the three legacy per-tab loaders and
+     the Alerts badge all need the same numbers. Previously only the badge path
+     counted, and cmsLoadAllEvents silently fell back to 0 whenever the cache
+     was older than _cmsCacheTTL (60s) — which it always was by the time staff
+     clicked into Events & Programs, so every card read "0 signups". */
+
+  // A Group contributes its groupSize; anything else is one person. Same rule
+  // the View Signups modal uses, so a card and its modal can never disagree.
+  window._cmsSignupHeads = function(d) {
+    return (d && d.participationType === 'Group') ? (parseInt(d.groupSize, 10) || 1) : 1;
+  };
+
+  var _CMS_MONTH_NUM = { january:1, february:2, march:3, april:4, may:5, june:6,
+                         july:7, august:8, september:9, october:10, november:11, december:12 };
+  // Resolve a free-text signupDates entry ("July 8th, 5pm - A-B-C's of Advocacy")
+  // to a YYYY-MM-DD key. Returns '' when the string can't be read — callers KEEP
+  // those rather than silently hide a session. Promoted out of the Session Sheet
+  // IIFE so every caller shares one parser (IIFE vars don't cross <script> blocks).
+  window._cmsSigDateKey = function(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    var withYear = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})/);
+    if (withYear && _CMS_MONTH_NUM[withYear[1].toLowerCase()]) {
+      return withYear[3] + '-' + String(_CMS_MONTH_NUM[withYear[1].toLowerCase()]).padStart(2,'0') +
+             '-' + String(parseInt(withYear[2],10)).padStart(2,'0');
+    }
+    var noYear = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+    if (noYear && _CMS_MONTH_NUM[noYear[1].toLowerCase()]) {
+      var now = new Date();
+      var mo = _CMS_MONTH_NUM[noYear[1].toLowerCase()], day = parseInt(noYear[2],10);
+      var year = now.getFullYear();
+      var diffDays = (Date.UTC(year, mo-1, day) - Date.UTC(year, now.getMonth(), now.getDate())) / 86400000;
+      if (diffDays < -182) year += 1; else if (diffDays > 182) year -= 1;
+      return year + '-' + String(mo).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+    }
+    return '';
+  };
+
+  // "August 12, 2026, 5:00 PM - IDEA/CHAPTER 60" -> "Aug 12", for a chip that
+  // has to sit next to two others without wrapping the card. Falls back to the
+  // raw string trimmed, so an unparseable label still says something.
+  window._cmsShortDateLabel = function(raw) {
+    var k = window._cmsSigDateKey(raw);
+    if (k) {
+      var p = k.split('-');
+      var dt = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    }
+    return String(raw || '').slice(0, 14);
+  };
+
+  // True when a signup still has a session on or after today. Used so an ongoing
+  // programme's card counts who is actually COMING rather than everyone who has
+  // ever attended — Connect-Gen showed "17 signups" when 16 of those were on past
+  // dates and only one family was upcoming. Sessions are composite keys, date
+  // first: "2026-08-13|Oahu – 245 N. Kukui Street, Suite 205|11:00 AM – 1:00 PM".
+  window._cmsSignupIsUpcoming = function(d, todayKey) {
+    var keys = (Array.isArray(d.selectedSessions) && d.selectedSessions.length)
+      ? d.selectedSessions
+      : (Array.isArray(d.selectedDates) ? d.selectedDates : []);
+    if (!keys.length) return true;   // no date on the signup — never hide it
+    return keys.some(function(k) {
+      var m = String(k || '').match(/(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] >= todayKey : true;
+    });
+  };
+
+  // Tally one event's signups subcollection. sigDates is the parent event's
+  // signupDates[] (one-time multi-date events); pass [] for recurring programs.
+  function _cmsTallySignups(snap, sigDates, todayKey) {
+    var st = { signupCount:0, pendingCount:0, pendingHeads:0, headcount:0,
+               upcomingCount:0, upcomingPending:0, perDate:{} };
+    var keyed = {};
+    (sigDates || []).forEach(function(lbl) {
+      keyed[lbl] = { label: lbl, key: window._cmsSigDateKey(lbl), count:0, heads:0, pending:0 };
+    });
+    snap.forEach(function(doc) {
+      var d = doc.data() || {};
+      if (d.archived === true) return;
+      var isPending = (d.status === 'pending' || d.status === 'new');
+      var isCancelled = (d.status === 'cancelled');
+      var heads = window._cmsSignupHeads(d);
+      st.signupCount++;
+      if (isPending) { st.pendingCount++; st.pendingHeads += heads; }
+      else if (!isCancelled) { st.headcount += heads; }
+
+      // Per-date breakdown for one-time multi-date events (Learning Labs).
+      if (Array.isArray(d.selectedDates)) {
+        d.selectedDates.forEach(function(lbl) {
+          if (!keyed[lbl]) keyed[lbl] = { label: lbl, key: window._cmsSigDateKey(lbl), count:0, heads:0, pending:0 };
+          if (isCancelled) return;
+          keyed[lbl].count++; keyed[lbl].heads += heads; if (isPending) keyed[lbl].pending++;
+        });
+      }
+
+      // Upcoming, for ongoing programs. Connect-Gen families book ONE session
+      // and are then finished — counting the whole roster would report months of
+      // completed work as outstanding. Split confirmed from pending so a single
+      // pending family doesn't render twice ("1 signup" beside "1 pending").
+      if (isCancelled) return;
+      if (window._cmsSignupIsUpcoming(d, todayKey)) {
+        if (isPending) st.upcomingPending++; else st.upcomingCount++;
+      }
+    });
+    st.perDate = keyed;
+    return st;
+  }
+
+  // Scan every event + program's signups and refresh the shared cache.
+  // Optionally hand it snapshots the caller already has, to avoid re-fetching.
+  window.cmsRefreshSignupCounts = async function(evSnap, recSnap) {
+    if (!evSnap || !recSnap) {
+      var r = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
+      evSnap = r[0]; recSnap = r[1];
+    }
+    var todayKey = window._localToday();
+    var evCache = {}, pgCache = {};
+    var otIds = [], otDates = [], otProms = [];
+    evSnap.forEach(function(doc) {
+      var d = doc.data() || {};
+      otIds.push(doc.id);
+      otDates.push(Array.isArray(d.signupDates) ? d.signupDates : []);
+      otProms.push(db.collection('events').doc(doc.id).collection('signups').get());
+    });
+    var ogIds = [], ogProms = [];
+    recSnap.forEach(function(doc) {
+      ogIds.push(doc.id);
+      ogProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get());
+    });
+    var otSettled = await Promise.allSettled(otProms);
+    otSettled.forEach(function(s, i) { if (s.status === 'fulfilled') evCache[otIds[i]] = _cmsTallySignups(s.value, otDates[i], todayKey); });
+    var ogSettled = await Promise.allSettled(ogProms);
+    ogSettled.forEach(function(s, i) { if (s.status === 'fulfilled') pgCache[ogIds[i]] = _cmsTallySignups(s.value, [], todayKey); });
+    window._cmsSignupCountCache = { events: evCache, programs: pgCache, loadedAt: Date.now() };
+    return window._cmsSignupCountCache;
+  };
+
   // Fetch CMS alert counts (items needing attention, not archived)
   window.cmsGetAlertCounts = async function() {
     if (!currentUserData || !_cmsAlertRoles.includes(currentUserData.role)) {
@@ -20435,43 +20587,25 @@ var _photoPendingByIsland = {};
     }
 
     var pendingSignups = 0, pendingOneTime = 0, pendingOngoing = 0, totalSignups = 0;
-    var evCache = {}, pgCache = {};
     if (evSnap && recSnap) {
       try {
         _eventsSnapCache = { evSnap: evSnap, recSnap: recSnap, loadedAt: Date.now() };
-        var otIds = [], otProms = [];
-        evSnap.forEach(function(doc) { otIds.push(doc.id); otProms.push(db.collection('events').doc(doc.id).collection('signups').get()); });
-        var ogIds = [], ogProms = [];
-        recSnap.forEach(function(doc) { ogIds.push(doc.id); ogProms.push(db.collection('recurringEvents').doc(doc.id).collection('signups').get()); });
-        var otSettled = await Promise.allSettled(otProms);
-        otSettled.forEach(function(settled, i) {
-          if (settled.status !== 'fulfilled') return;
-          var pc = 0, sc = 0;
-          settled.value.forEach(function(doc) {
-            var d = doc.data(); if (d.archived === true) return;
-            sc++;
-            if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOneTime++; pc++; }
-          });
-          totalSignups += sc;
-          evCache[otIds[i]] = { signupCount: sc, pendingCount: pc };
+        // The scan itself lives in cmsRefreshSignupCounts so the unified Events
+        // list shares ONE implementation with these badges. Hand it the two
+        // snapshots we already have rather than making it re-fetch them.
+        var _scan = await window.cmsRefreshSignupCounts(evSnap, recSnap);
+        Object.keys(_scan.events).forEach(function(id) {
+          var t = _scan.events[id];
+          totalSignups += t.signupCount; pendingSignups += t.pendingCount; pendingOneTime += t.pendingCount;
         });
-        var ogSettled = await Promise.allSettled(ogProms);
-        ogSettled.forEach(function(settled, i) {
-          if (settled.status !== 'fulfilled') return;
-          var pc = 0, sc = 0;
-          settled.value.forEach(function(doc) {
-            var d = doc.data(); if (d.archived === true) return;
-            sc++;
-            if (d.status === 'pending' || d.status === 'new') { pendingSignups++; pendingOngoing++; pc++; }
-          });
-          totalSignups += sc;
-          pgCache[ogIds[i]] = { signupCount: sc, pendingCount: pc };
+        Object.keys(_scan.programs).forEach(function(id) {
+          var t = _scan.programs[id];
+          totalSignups += t.signupCount; pendingSignups += t.pendingCount; pendingOngoing += t.pendingCount;
         });
       } catch (e) {
         console.warn('cmsGetAlertCounts: signup subcollection scan failed:', e.message);
       }
     }
-    window._cmsSignupCountCache = { events: evCache, programs: pgCache, loadedAt: Date.now() };
     _cmsAlertCounts = {
       volunteers:    _countActive(volSnap),
       contacts:      _countActive(contactSnap),
@@ -24830,7 +24964,7 @@ window.cmsLoadPrograms = async function(forceRefresh) {
             if (d.archived === true) return;
             sc++;
             if (d.status === 'pending' || d.status === 'new') pc++;
-            if (d.status !== 'cancelled' && _cmsSignupIsUpcoming(d, _tk)) uc++;
+            if (d.status !== 'cancelled' && window._cmsSignupIsUpcoming(d, _tk)) uc++;
             // Headcount for the seats chip: a Group contributes its groupSize, an
             // Individual exactly 1 — mirrors getEventCapacity server-side.
             if (d.status !== 'cancelled') {
@@ -25008,8 +25142,23 @@ window.cmsLoadAllEvents = async function(forceRefresh) {
       db.collection('recurringEvents').get()
     ]);
     var all = [];
+    // Counts used to come from a 60s cache this view never populated, so a
+    // stale cache meant every card silently rendered "0 signups". Compute them
+    // when they're missing or stale instead of falling back to zero — the
+    // snapshots we just fetched are handed straight over, so this costs the
+    // signup subcollections and nothing more.
     var _sc = window._cmsSignupCountCache;
-    var _scFresh = _sc && (Date.now() - _sc.loadedAt < _cmsCacheTTL);
+    if (!_sc || (Date.now() - _sc.loadedAt >= _cmsCacheTTL)) {
+      try { _sc = await window.cmsRefreshSignupCounts(results[0], results[1]); }
+      catch (e) { console.warn('cmsLoadAllEvents: signup count refresh failed:', e.message); _sc = null; }
+    }
+    var _applyCounts = function(ev, t) {
+      if (!t) return;
+      ev._signupCount = t.signupCount; ev._pendingCount = t.pendingCount;
+      ev._pendingHeads = t.pendingHeads; ev._headcount = t.headcount;
+      ev._upcomingCount = t.upcomingCount; ev._upcomingPending = t.upcomingPending;
+      ev._perDate = t.perDate;
+    };
     results[0].forEach(function(doc) {
       var d = doc.data();
       // The `events` collection is overloaded with internal one-off / EA-report
@@ -25018,13 +25167,13 @@ window.cmsLoadAllEvents = async function(forceRefresh) {
       // the EA-report filter: !(e._coll === 'events' && e.isOneOff === true))
       if (d.isOneOff === true) return;
       var ev = { id: doc.id, ...d, _coll: 'events', isRecurring: false, _type: window._cmsDeriveEventType(d, 'events') };
-      if (_scFresh && _sc.events && _sc.events[ev.id]) { ev._signupCount = _sc.events[ev.id].signupCount; ev._pendingCount = _sc.events[ev.id].pendingCount; ev._headcount = _sc.events[ev.id].headcount; }
+      _applyCounts(ev, _sc && _sc.events && _sc.events[ev.id]);
       all.push(ev);
     });
     results[1].forEach(function(doc) {
       var d = doc.data();
       var ev = { id: doc.id, ...d, _coll: 'recurringEvents', isRecurring: true, _type: window._cmsDeriveEventType(d, 'recurringEvents') };
-      if (_scFresh && _sc.programs && _sc.programs[ev.id]) { ev._signupCount = _sc.programs[ev.id].signupCount; ev._pendingCount = _sc.programs[ev.id].pendingCount; ev._headcount = _sc.programs[ev.id].headcount; ev._upcomingCount = _sc.programs[ev.id].upcomingCount; }
+      _applyCounts(ev, _sc && _sc.programs && _sc.programs[ev.id]);
       all.push(ev);
     });
     _cmsAllEvents = all;
@@ -25429,16 +25578,9 @@ function cmsJsArg(s) {
 // programme's card counts who is actually COMING rather than everyone who has
 // ever attended — Connect-Gen showed "17 signups" when 16 of those were on past
 // dates and only one family was upcoming.
-function _cmsSignupIsUpcoming(d, todayKey) {
-  var keys = (Array.isArray(d.selectedSessions) && d.selectedSessions.length)
-    ? d.selectedSessions
-    : (Array.isArray(d.selectedDates) ? d.selectedDates : []);
-  if (!keys.length) return true;   // no date on the signup — never hide it
-  return keys.some(function(k) {
-    var m = String(k || '').match(/(\d{4}-\d{2}-\d{2})/);
-    return m ? m[1] >= todayKey : true;
-  });
-}
+// _cmsSignupIsUpcoming now lives on window, beside the shared signup counter, so
+// every <script> block can reach it (a plain function declaration here was
+// invisible to the counter's block). Same body, one implementation.
 
 function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
   var html = '';
@@ -25462,24 +25604,71 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     // while adding a chip to every row. Status chips now mean "pay attention".
     // An ongoing programme runs indefinitely, so the lifetime total is noise on
     // a card. Count who is actually upcoming; one-time events keep their total.
-    var _n = (isRecurring && ev._upcomingCount != null) ? ev._upcomingCount : (ev._signupCount || 0);
-    var badgeHtml = _isFlyerCard ? ''
-      : '<span class="cmsChip cmsChip-count">' + _n + (_n === 1 ? ' signup' : ' signups') + '</span>';
-    if (!_isFlyerCard && ev._pendingCount > 0) {
-      badgeHtml += '<span class="cmsChip cmsChip-pending" title="Pending signups — click to review"'
-        + ' onclick="event.stopPropagation();cmsViewSignups(' + _jsArg(ev.id) + ',' + (isRecurring ? 'true' : 'false') + ',' + _jsArg(ev.title || '') + ')">'
-        + ev._pendingCount + ' pending</span>';
-    }
+    var _today = _localToday();
     var _capN = Number(ev.maxCapacity);
-    if (!_isFlyerCard && isFinite(_capN) && _capN > 0) {
-      // Only claim a headcount we actually computed. Falling back to the signup
-      // count would understate a group signup and misreport the venue.
+    var _isRemote = isFinite(_capN) && _capN > 0;   // capacity is measured in PEOPLE
+    var _pendClick = ' onclick="event.stopPropagation();cmsViewSignups(' + _jsArg(ev.id) + ','
+      + (isRecurring ? 'true' : 'false') + ',' + _jsArg(ev.title || '') + ')"';
+    var _pendChip = function(n, label) {
+      return '<span class="cmsChip cmsChip-pending" title="Pending — click to review"' + _pendClick + '>'
+        + n + ' ' + (label || 'pending') + '</span>';
+    };
+    var badgeHtml = '';
+
+    if (_isFlyerCard) {
+      badgeHtml = '';
+    } else if (isRecurring) {
+      // Ongoing programme. Connect-Gen families book ONE session and are then
+      // finished, so the lifetime roster is months of completed work — counting
+      // it would report finished business as outstanding. Only what is still
+      // ahead earns a chip, and a programme with nothing ahead shows none.
+      var _up = ev._upcomingCount || 0, _upPend = ev._upcomingPending || 0;
+      if (_up > 0) badgeHtml += '<span class="cmsChip cmsChip-count" title="Signups with a session today or later">' + _up + ' upcoming</span>';
+      if (_upPend > 0) badgeHtml += _pendChip(_upPend);
+    } else if (Array.isArray(ev.signupDates) && ev.signupDates.length > 1 && ev._perDate) {
+      // Multi-date one-time event (Learning Labs): one chip per session still
+      // ahead, so the card rolls to the next class on its own as dates pass.
+      // Labels sigDateKey can't read are always shown rather than silently lost.
+      var _future = ev.signupDates.filter(function(lbl) {
+        var t = ev._perDate[lbl]; var k = t ? t.key : window._cmsSigDateKey(lbl);
+        return !k || k >= _today;
+      });
+      if (_future.length) {
+        _future.forEach(function(lbl) {
+          var t = ev._perDate[lbl] || { count: 0, pending: 0 };
+          badgeHtml += '<span class="cmsChip cmsChip-count" title="' + rsEscape(lbl) + '">'
+            + rsEscape(_cmsShortDateLabel(lbl)) + ': ' + t.count + '</span>';
+          if (t.pending > 0) badgeHtml += _pendChip(t.pending);
+        });
+      } else {
+        var _tot = ev._signupCount || 0;
+        badgeHtml += '<span class="cmsChip cmsChip-count">' + _tot + ' total</span>';
+        if (ev._pendingCount > 0) badgeHtml += _pendChip(ev._pendingCount);
+      }
+    } else if (_isRemote) {
+      // Remote Signup: measured in PEOPLE, not registrations — a family of four
+      // is one signup and four seats. Say "attending" so the number reads right.
       var _heads = ev._headcount;
-      var _pct = (_heads == null) ? -1 : _heads / _capN;
-      var _capCls = _pct >= 1 ? 'cmsChip-full' : (_pct >= 0.8 ? 'cmsChip-warn' : 'cmsChip-quiet');
-      badgeHtml += (_heads == null)
+      badgeHtml += '<span class="cmsChip cmsChip-count" title="People confirmed, counting group sizes">'
+        + (_heads == null ? (ev._signupCount || 0) : _heads) + ' attending</span>';
+      if (ev._pendingHeads > 0) badgeHtml += _pendChip(ev._pendingHeads);
+      else if (ev._pendingCount > 0) badgeHtml += _pendChip(ev._pendingCount);
+    } else {
+      var _n = ev._signupCount || 0;
+      badgeHtml += '<span class="cmsChip cmsChip-count">' + _n + (_n === 1 ? ' signup' : ' signups') + '</span>';
+      if (ev._pendingCount > 0) badgeHtml += _pendChip(ev._pendingCount);
+    }
+
+    if (!_isFlyerCard && _isRemote) {
+      // Only claim a headcount we actually computed. Falling back to the signup
+      // count would understate a group signup and misreport the venue. Pending
+      // people don't hold a seat — they're reported beside this, not inside it.
+      var _h = ev._headcount;
+      var _pct = (_h == null) ? -1 : _h / _capN;
+      var _capCls = _pct >= 1 ? 'cmsChip-full' : (_pct >= 0.8 ? 'cmsChip-warn' : 'cmsChip-seats');
+      badgeHtml += (_h == null)
         ? '<span class="cmsChip cmsChip-quiet" title="Capacity for this event">cap ' + _capN + '</span>'
-        : '<span class="cmsChip ' + _capCls + '" title="Headcount against capacity">' + _heads + ' / ' + _capN + ' seats</span>';
+        : '<span class="cmsChip ' + _capCls + '" title="Confirmed headcount against capacity">' + _h + ' / ' + _capN + ' seats</span>';
     }
     if (_isFlyerCard) badgeHtml += '<span class="cmsChip cmsChip-quiet">No sign-ups</span>';
     // Only the exceptional state is worth a chip — an inactive program.
@@ -27755,7 +27944,7 @@ function _cmsRenderSignupsSummary(signups, collection, eventId) {
 
   var now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
   var todayKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-  var upcoming = live.filter(function(s) { return _cmsSignupIsUpcoming(s, todayKey); });
+  var upcoming = live.filter(function(s) { return window._cmsSignupIsUpcoming(s, todayKey); });
 
   function stat(k, v, tone, title, wide) {
     var col = tone === 'ok' ? '#166534' : (tone === 'warn' ? '#B45309' : '#0F172A');
