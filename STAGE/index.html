@@ -2193,13 +2193,36 @@
     .screenshare-toolbar-left{
       display:flex; align-items:center; gap:10px;
     }
+    /* Status dot reflects the REAL connection state. It used to be hardcoded
+       green, so a session that never carried a single byte still looked
+       connected — which is exactly how a firewall-blocked share presented:
+       green dot, confident label, black rectangle. */
     .screenshare-status{
       width:10px; height:10px; border-radius:50%;
-      background:#22c55e; animation:ssPulse 2s ease infinite;
+      background:#94a3b8; animation:ssPulse 2s ease infinite;
     }
+    .screenshare-status.waiting   { background:#f59e0b; }
+    .screenshare-status.connecting{ background:#f59e0b; }
+    .screenshare-status.connected { background:#22c55e; animation:none; }
+    .screenshare-status.failed    { background:#dc2626; animation:none; }
     @keyframes ssPulse{
       0%,100%{ opacity:1; } 50%{ opacity:.4; }
     }
+    /* Explains what is happening over the black video area. */
+    .screenshare-msg{
+      position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:10px;
+      text-align:center; padding:24px; pointer-events:none;
+    }
+    .screenshare-msg.hidden{ display:none; }
+    .screenshare-msg h4{
+      margin:0; color:#f1f5f9; font-size:1.05rem; font-weight:800;
+    }
+    .screenshare-msg p{
+      margin:0; color:#94a3b8; font-size:.86rem; line-height:1.6; max-width:520px;
+    }
+    .screenshare-msg.is-error h4{ color:#fca5a5; }
+
     .screenshare-label{
       color:white; font-weight:700; font-size:.88rem;
     }
@@ -2222,6 +2245,7 @@
     .screenshare-video-wrap{
       flex:1; display:flex; align-items:center;
       justify-content:center; min-height:0; padding:8px;
+      position:relative;
     }
     .screenshare-video-wrap video{
       width:100%; height:100%; object-fit:contain;
@@ -5120,7 +5144,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.63.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.64.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8839,8 +8863,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
   <div class="screenshare-overlay" id="screenshareOverlay">
     <div class="screenshare-toolbar">
       <div class="screenshare-toolbar-left">
-        <div class="screenshare-status"></div>
-        <span class="screenshare-label" id="screenshareLabel">Viewing screen...</span>
+        <div class="screenshare-status" id="screenshareStatus"></div>
+        <span class="screenshare-label" id="screenshareLabel">Starting...</span>
       </div>
       <div class="screenshare-toolbar-right">
         <button class="screenshare-btn fullscreen" id="screenshareFull" type="button">Fullscreen</button>
@@ -8849,6 +8873,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     </div>
     <div class="screenshare-video-wrap">
       <video id="screenshareVideo" autoplay playsinline></video>
+      <div class="screenshare-msg" id="screenshareMsg"></div>
     </div>
   </div>
 
@@ -10396,6 +10421,81 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     ]
   };
 
+  var _rtcStatsTimer = null;  // polls getStats() to see whether video ACTUALLY arrives
+  var _rtcSharerName = '';
+
+  /* ── Viewer status ────────────────────────────────────────────────────────
+     Negotiating a track is not the same as receiving one. ontrack fires as soon
+     as the SDP names a video track, so the old code showed a green dot and
+     "Viewing <name>'s screen" while zero bytes were flowing — which is what a
+     firewall-blocked share looked like: indistinguishable from success, except
+     the picture was black. States below are driven by real signals: the peer
+     connection state, and inbound bytesReceived actually increasing. */
+  // Local escaper: escHTML lives in a different <script> block and is not
+  // visible from this IIFE.
+  function ssEsc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function rtcSetViewerState(state, label, title, detail) {
+    var dot = document.getElementById('screenshareStatus');
+    var lab = document.getElementById('screenshareLabel');
+    var msg = document.getElementById('screenshareMsg');
+    if (dot) dot.className = 'screenshare-status ' + state;
+    if (lab) lab.textContent = label;
+    if (!msg) return;
+    if (!title) { msg.className = 'screenshare-msg hidden'; msg.innerHTML = ''; return; }
+    msg.className = 'screenshare-msg' + (state === 'failed' ? ' is-error' : '');
+    msg.innerHTML = '<h4>' + ssEsc(title) + '</h4>' + (detail ? '<p>' + detail + '</p>' : '');
+  }
+
+  function rtcShowBlocked() {
+    rtcSetViewerState('failed', 'Could not connect',
+      'No video is coming through',
+      'The screen share was accepted, but no video reached this computer. This is almost ' +
+      'always the network blocking the direct connection between the two machines &mdash; ' +
+      'office and guest Wi-Fi commonly do. Try again with one of you on a phone hotspot to ' +
+      'confirm. If it works there, the office network is the cause.');
+  }
+
+  // Watch inbound video. The first time bytes actually increase we are genuinely
+  // connected; if nothing arrives within the window, say so instead of sitting
+  // on a black rectangle.
+  function rtcWatchIncoming() {
+    if (_rtcStatsTimer) clearInterval(_rtcStatsTimer);
+    var last = 0, ticks = 0, everFlowed = false;
+    _rtcStatsTimer = setInterval(function() {
+      if (!_rtcPeer || typeof _rtcPeer.getStats !== 'function') return;
+      ticks++;
+      _rtcPeer.getStats(null).then(function(stats) {
+        var bytes = 0;
+        stats.forEach(function(r) {
+          if (r.type === 'inbound-rtp' && (r.kind === 'video' || r.mediaType === 'video')) {
+            bytes += (r.bytesReceived || 0);
+          }
+        });
+        if (bytes > last) {
+          last = bytes;
+          if (!everFlowed) {
+            everFlowed = true;
+            rtcSetViewerState('connected', 'Viewing ' + _rtcSharerName + '\'s screen', '', '');
+          }
+        }
+        // ~14s with nothing at all: the media path never formed.
+        if (!everFlowed && ticks >= 14) {
+          clearInterval(_rtcStatsTimer); _rtcStatsTimer = null;
+          rtcShowBlocked();
+        }
+      }).catch(function(){});
+    }, 1000);
+  }
+
+  function rtcStopWatching() {
+    if (_rtcStatsTimer) { clearInterval(_rtcStatsTimer); _rtcStatsTimer = null; }
+  }
+
   function rtcDb() { return firebase.firestore(); }
   function rtcMyUid() { return window.currentUserData ? window.currentUserData.uid : null; }
   function rtcMyName() { return window.currentUserData ? window.currentUserData.displayName : 'Unknown'; }
@@ -10420,7 +10520,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
   window.rtcRequestScreenShare = function(convId, otherUid, otherName) {
     if (!convId || !otherUid) return;
     _rtcConvId = convId;
+    _rtcSharerName = otherName || 'Staff';
     _rtcSessionId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+
+    // Open the viewer straight away in a WAITING state. Previously nothing
+    // appeared until the other person accepted, so a request that was never
+    // answered looked identical to one that was never sent.
+    var _ov = document.getElementById('screenshareOverlay');
+    if (_ov) _ov.classList.add('active');
+    rtcSetViewerState('waiting', 'Waiting for ' + _rtcSharerName,
+      'Request sent to ' + _rtcSharerName,
+      'They need to click <strong>Share My Screen</strong> in the chat. ' +
+      'Their screen appears here as soon as they do.');
 
     // Clean old signals first
     cleanSignals(convId);
@@ -10484,7 +10595,15 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       var video = document.getElementById('screenshareVideo');
       if (video && e.streams && e.streams[0]) {
         video.srcObject = e.streams[0];
-        showViewer(signal.fromName || 'Staff');
+        _rtcSharerName = signal.fromName || _rtcSharerName || 'Staff';
+        showViewer(_rtcSharerName);
+        // A track was NEGOTIATED. That is not the same as video arriving, so
+        // stay amber until bytes actually move.
+        rtcSetViewerState('connecting', 'Connecting to ' + _rtcSharerName + '...',
+          'Connecting...',
+          _rtcSharerName + ' accepted. Setting up the direct video connection between ' +
+          'the two computers.');
+        rtcWatchIncoming();
       }
     };
 
@@ -10501,9 +10620,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     };
 
     _rtcPeer.onconnectionstatechange = function() {
-      if (_rtcPeer && (_rtcPeer.connectionState === 'disconnected' || _rtcPeer.connectionState === 'failed')) {
-        rtcStop();
-      }
+      if (!_rtcPeer) return;
+      var st = _rtcPeer.connectionState;
+      // 'failed' means the two machines could never reach each other. Say so and
+      // leave the overlay up — closing it silently is what made this look like a
+      // bug in the dashboard rather than a blocked network.
+      if (st === 'failed') { rtcStopWatching(); rtcShowBlocked(); return; }
+      if (st === 'disconnected') { rtcStop(); }
     };
 
     _rtcPeer.setRemoteDescription(new RTCSessionDescription(JSON.parse(signal.data)))
@@ -10667,6 +10790,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
   function rtcStop() {
     // Close peer connection
+    rtcStopWatching();
     if (_rtcPeer) { try { _rtcPeer.close(); } catch(e){} _rtcPeer = null; }
     // Stop local stream tracks
     if (_rtcStream) {
@@ -10682,6 +10806,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     if (overlay) overlay.classList.remove('active');
     var video = document.getElementById('screenshareVideo');
     if (video) video.srcObject = null;
+    rtcSetViewerState('', 'Starting...', '', '');
+    _rtcSharerName = '';
     // Exit fullscreen if active
     if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
     // Reset state
