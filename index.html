@@ -5128,7 +5128,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.60.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.61.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5484,6 +5484,39 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 auditLog('Membership marked paid from task', (m.name||memberId)+' — $'+(m.amount||''));
                 if(typeof _showToast==='function') _showToast('Marked paid. Thank-you email with portal login is on its way.', '#16A34A');
               }catch(e){ alert('Could not mark paid: '+e.message); }
+            };
+            /* Duplicate-contact review. Both actions go through
+               resolveContactDuplicate so the decision is recorded either way —
+               "keep separate" is remembered permanently, which is what stops
+               the daily job raising the same pair every morning. */
+            window.dupResolve = async function(action, keeperId, loserId, interactionId, keeperName, loserName){
+              var merging = (action === 'merge');
+              var msg = merging
+                ? 'Merge these two records into ONE?\n\nKEEP:   ' + keeperName +
+                  '\nREMOVE: ' + loserName +
+                  '\n\nEverything on the removed record — interactions, signups, screenings, ' +
+                  'children — moves onto the kept one. A second email address is preserved. ' +
+                  'This cannot be undone from here.'
+                : 'Keep these as TWO separate people?\n\n  ' + keeperName + '\n  ' + loserName +
+                  '\n\nNothing changes, and this pair will never be raised again.';
+              if(!confirm(msg)) return;
+              try{
+                var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/resolveContactDuplicate',{
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ action: action, keeperId: keeperId, loserId: loserId,
+                    interactionId: interactionId,
+                    decidedBy: (window.currentUserData && window.currentUserData.displayName) || 'staff' })
+                });
+                var j = {}; try{ j = await resp.json(); }catch(e){}
+                if(!resp.ok){ alert('Could not save that: ' + (j.error || resp.status)); return; }
+                auditLog(merging ? 'Merged duplicate contacts' : 'Kept duplicate contacts separate',
+                         keeperName + ' / ' + loserName);
+                if(typeof _showToast==='function') _showToast(
+                  merging ? 'Merged. Moved ' + (j.interactions||0) + ' interaction(s) and ' + (j.signups||0) + ' signup(s).'
+                          : 'Kept separate — this pair will not come back.', '#16A34A');
+                if(typeof closeIxView==='function') closeIxView();
+                if(typeof loadContacts==='function') loadContacts(true);
+              }catch(e){ alert('Could not save that: '+e.message); }
             };
             window.myDayMembershipRemind = async function(memberId, interactionId){
               if(!confirm('Send the "you are one step away" reminder?\n\nOnly do this if you have checked PayPal and there is NO payment.\n\nThey get a link back to their own checkout with their details already filled in. Nothing is charged.')) return;
@@ -19605,7 +19638,29 @@ var _photoPendingByIsland = {};
           '</div>' +
         '</div>';
     }
-    body.innerHTML = _memBtns + infoCard + contactSection + detailSection;
+    /* Duplicate-contact review actions. The task NOTES carry the full side-by-side
+       comparison and what to look for; these are the two ways out of it. */
+    var _dupBtns = '';
+    if (d.workflowStep === 'contactDuplicate' && d.dupKeeperId && d.dupLoserId && d.status !== 'Closed') {
+      var _kn = d.contactName || 'the first record';
+      var _ln = (String(d.summary || '').split(' and ')[1] || '').split(' share')[0] || 'the second record';
+      _dupBtns =
+        '<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 16px;margin-bottom:14px;">' +
+          '<div style="font-weight:700;color:#92400E;font-size:.92rem;margin-bottom:4px;">Is this one person, or two?</div>' +
+          '<div style="font-size:.84rem;color:#334155;line-height:1.5;margin-bottom:10px;">' +
+            'Read the two records below before choosing. Merging cannot be undone from here; ' +
+            'keeping them separate is remembered, so this pair will not be raised again.</div>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+            '<button class="btn" style="font-size:.82rem;padding:8px 15px;background:#16A34A;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" ' +
+              'onclick="dupResolve(\'merge\',' + _jsArg(d.dupKeeperId) + ',' + _jsArg(d.dupLoserId) + ',' +
+                _jsArg(docId) + ',' + _jsArg(_kn) + ',' + _jsArg(_ln) + ')">&#10003; Same person &mdash; merge them</button>' +
+            '<button class="btn" style="font-size:.82rem;padding:8px 15px;background:#475569;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" ' +
+              'onclick="dupResolve(\'keep-separate\',' + _jsArg(d.dupKeeperId) + ',' + _jsArg(d.dupLoserId) + ',' +
+                _jsArg(docId) + ',' + _jsArg(_kn) + ',' + _jsArg(_ln) + ')">Two different people &mdash; keep both</button>' +
+          '</div>' +
+        '</div>';
+    }
+    body.innerHTML = _memBtns + _dupBtns + infoCard + contactSection + detailSection;
 
       // Populate the owner picker if it was rendered (read-only mode + canChangeStatus).
       if (typeof _populateOwnerSelect === 'function') _populateOwnerSelect();
