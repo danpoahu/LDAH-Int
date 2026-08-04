@@ -5144,7 +5144,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.64.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.65.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16837,7 +16837,39 @@ var _photoPendingByIsland = {};
     if (em) em.placeholder = 'Optional';
   };
 
+  /* Double-click guard (v146.65.0).
+     saveContact is async and awaits an advocate lookup before contacts.add(),
+     so the Save button stayed live for tens of milliseconds after the first
+     click. A second click in that window ran the whole function again and wrote
+     a SECOND contact. It produced real duplicates — Leesa Gulliver 73ms apart,
+     Sadie Belanio 60ms, Chad Domingo 165ms — and because the two runs read the
+     form at slightly different instants, one copy could be half-empty.
+
+     The flag is set SYNCHRONOUSLY here, before any await, which is the only
+     point at which a second click can be turned away. The real body is left
+     untouched below so its early `return`s still work; `finally` releases the
+     button whichever way it exits. */
   window.saveContact = async function() {
+    if (window._ctSaving) return;                 // a save is already in flight
+    window._ctSaving = true;
+    var _saveBtn = document.querySelector('.ct-form-save');
+    if (_saveBtn) {
+      _saveBtn.disabled = true;
+      _saveBtn.dataset.idleLabel = _saveBtn.textContent;
+      _saveBtn.textContent = 'Saving…';
+    }
+    try {
+      return await _saveContactInner();
+    } finally {
+      window._ctSaving = false;
+      if (_saveBtn) {
+        _saveBtn.disabled = false;
+        _saveBtn.textContent = _saveBtn.dataset.idleLabel || 'Save Contact';
+      }
+    }
+  };
+
+  async function _saveContactInner() {
     var firstName = document.getElementById('ctFirstName').value.trim();
     var lastName = document.getElementById('ctLastName').value.trim();
     if (!firstName || !lastName) {
@@ -17048,7 +17080,7 @@ var _photoPendingByIsland = {};
     } catch (err) {
       alert('Error saving contact: ' + err.message);
     }
-  };
+  }
 
   window.archiveContact = async function(docId, name) {
     if (!confirm('Archive contact "' + name + '"?')) return;
