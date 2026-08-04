@@ -5144,7 +5144,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.69.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.70.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5502,6 +5502,26 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 if(typeof _showToast==='function') _showToast('Marked paid. Thank-you email with portal login is on its way.', '#16A34A');
               }catch(e){ alert('Could not mark paid: '+e.message); }
             };
+            /* Manual worksheet nudge, from the signups modal. The automatic
+               reminder runs every 3 days (daily inside 4 days of the session,
+               3 max), so this is for when someone wants to chase sooner. */
+            window.cgResendWorksheet = async function(collection, eventId, signupId, who){
+              if(!confirm('Email ' + (who || 'this family') + ' the Parent Report Worksheet link again?')) return;
+              try{
+                var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/resendCgWorksheetRequest',{
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ collection: collection, eventId: eventId, signupId: signupId,
+                    requestedBy: (window.currentUserData && window.currentUserData.displayName) || 'staff' })
+                });
+                var j={}; try{ j = await resp.json(); }catch(e){}
+                if(!resp.ok){ alert(j.error || ('Could not send it — ' + resp.status)); return; }
+                auditLog('Resent Connect-Gen worksheet request', (who || signupId));
+                if(typeof _showToast==='function') _showToast('Worksheet reminder sent to ' + (who || 'the family') + '.', '#16A34A');
+                if(typeof cmsViewSignups==='function' && _cmsSignupsModalData)
+                  cmsViewSignups(_cmsSignupsModalData.eventId, _cmsSignupsModalData.isRecurring, _cmsSignupsModalData.eventTitle);
+              }catch(e){ alert('Could not send it: '+e.message); }
+            };
+
             /* Duplicate-contact review. Both actions go through
                resolveContactDuplicate so the decision is recorded either way —
                "keep separate" is remembered permanently, which is what stops
@@ -29077,6 +29097,27 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   var _regType = s.registrantType || (s.registration && s.registration.role) || '';
   if (_regType) h += '<span style="font-size:.72rem;font-weight:600;color:#0369A1;background:#E0F2FE;border-radius:12px;padding:1px 8px;white-space:nowrap;">' + rsEscape(_regType) + '</span>';
   h += cmsRegStatusBadge(s);
+  /* Nudge button, right beside the Awaiting Worksheet chip. The automatic
+     reminder is every 3 days (daily inside 4 days of the session, capped at 3),
+     so there was no way for staff to chase a family sooner — asked for
+     2026-07-29. Only shown when a worksheet is genuinely outstanding and the
+     family has an email; a manual nudge is not subject to the automatic cap. */
+  (function() {
+    var _wsRd = (typeof window._cgSignupReadiness === 'function')
+      ? window._cgSignupReadiness(s, (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null,
+          { assumeConnectGen: !!(s.prepToken || s.parentWorksheet) })
+      : null;
+    if (!_wsRd || !_wsRd.isConnectGen) return;
+    if ((_wsRd.outstanding || []).indexOf('worksheet') === -1) return;
+    if (!s.email || !s.prepToken) return;
+    var _n = s.cgWorksheetManualNudges || 0;
+    h += '<button title="Email this family the worksheet link again"'
+      + ' onclick="event.stopPropagation();cgResendWorksheet(' + _jsArg(collection) + ',' + _jsArg(eventId) + ','
+      + _jsArg(s.id) + ',' + _jsArg(s.name || '') + ')"'
+      + ' style="font-size:.7rem;font-weight:700;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;'
+      + 'border-radius:12px;padding:1px 9px;margin-left:2px;cursor:pointer;white-space:nowrap;">'
+      + '&#9993; Resend' + (_n ? ' (' + _n + ')' : '') + '</button>';
+  })();
   if (s._isDuplicate) {
     h += '<span onclick="event.stopPropagation();cmsOpenDuplicateResolve(' + s._dupGroupId + ')" '
       + 'title="This person appears more than once for the same date — click to resolve" '
