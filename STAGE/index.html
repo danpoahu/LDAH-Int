@@ -5144,7 +5144,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.72.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.73.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -29349,9 +29349,9 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
             h += '<span style="font-size:.7rem;font-weight:600;color:#DC2626;background:#FEE2E2;border-radius:10px;padding:1px 8px;">CANCELLED</span>';
             h += '<button id="cmsRescheduleBtn_' + rsEscape(s.id) + '_' + idx + '" class="btn btn-ghost" style="font-size:.72rem;padding:2px 10px;background:#EEF2FF;color:#4338CA;font-weight:600;border:1px solid #A5B4FC;" onclick="event.stopPropagation();cmsShowRescheduleDropdown(\'' + rsEscape(s.id) + '\',' + idx + ',\'' + rsEscape(displacedIndexes[idx]) + '\')">Reschedule</button>';
           } else if (hasProgSchedules && !isArchived && s.status !== 'cancelled') {
-            var _dm = String(sess).match(/\d{4}-\d{2}-\d{2}/);
-            var _excl = _dm ? _dm[0] : '';
-            h += '<button id="cmsRescheduleBtn_' + rsEscape(s.id) + '_' + idx + '" class="btn btn-ghost" style="font-size:.74rem;padding:2px 10px;background:#FEF3C7;color:#92400E;font-weight:700;border:1px solid #F59E0B;" onclick="event.stopPropagation();cmsShowRescheduleDropdown(\'' + rsEscape(s.id) + '\',' + idx + ',\'' + _excl + '\')">Change date</button>';
+            // Pass the WHOLE session key, not just the date — the dropdown needs
+            // the time to tell one of a day's sessions from another.
+            h += '<button id="cmsRescheduleBtn_' + rsEscape(s.id) + '_' + idx + '" class="btn btn-ghost" style="font-size:.74rem;padding:2px 10px;background:#FEF3C7;color:#92400E;font-weight:700;border:1px solid #F59E0B;" onclick="event.stopPropagation();cmsShowRescheduleDropdown(' + _jsArg(s.id) + ',' + idx + ',' + _jsArg(String(sess)) + ')">Change date</button>';
           }
           h += '</div>';
         });
@@ -30562,7 +30562,29 @@ window.cmsShowRescheduleDropdown = function(signupId, sessionIndex, cancelledDat
 
   var prog = _cmsSignupsModalData.programDoc;
   var allSessions = cmsGenerateSessionDates(prog.schedules, prog.cancelledDates, 90);
-  var available = allSessions.filter(function(sess) { return !sess.cancelled && sess.date !== cancelledDate; });
+
+  /* Exclude only the session they are ALREADY on, not the whole day.
+     Connect-Gen runs more than one session on some dates — 2026-08-13 has both
+     Oahu 11:00-1:00 and Hilo 9:00-11:00 — and excluding by date alone hid the
+     Hilo slot from anyone sitting on the Oahu one, so a same-day move between
+     locations was impossible.
+     `exclude` is the full stored session key ("<date>|<location>|<times>").
+     Older callers still pass a bare date; those keep the whole-day behaviour. */
+  var _exStr = String(cancelledDate || '');
+  var _exDate = (_exStr.match(/\d{4}-\d{2}-\d{2}/) || [''])[0];
+  var _exWholeDay = _exStr.indexOf('|') === -1;          // legacy: date only
+  var _exStart = '';
+  if (!_exWholeDay) {
+    // "…|11:00 AM – 1:00 PM" -> "11:00 AM". Handles en-dash or hyphen.
+    var _tm = _exStr.split('|').pop().split(/[–-]/)[0].trim();
+    _exStart = _tm;
+  }
+  var available = allSessions.filter(function(sess) {
+    if (sess.cancelled) return false;
+    if (!_exDate || sess.date !== _exDate) return true;   // different day — always fine
+    if (_exWholeDay) return false;                        // legacy behaviour
+    return cmsFmt12(sess.startTime) !== _exStart;         // same day, different slot — keep
+  });
 
   var btn = document.getElementById('cmsRescheduleBtn_' + signupId + '_' + sessionIndex);
   if (!btn) return;
