@@ -4120,6 +4120,34 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 .cms-dash-kpi.accent-green { border-left-color: var(--palm); }
 .cms-dash-kpi.accent-blue  { border-left-color: var(--ocean-deep); }
 .cms-dash-kpi.accent-orange{ border-left-color: var(--sunset-coral); }
+
+/* Signups-by-event chart (CMS dashboard). Plain CSS bars rather than a chart
+   library — Int is one self-contained HTML file and a CDN dependency would be
+   the only one in it. */
+.cms-chart-card { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow-soft); padding: 18px 22px 12px; margin-bottom: 26px; }
+.cms-chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+.cms-chart-head h3 { font-size:1.05rem; margin:0; letter-spacing:-.3px; }
+.cms-chart-sub { font-size:.78rem; color:var(--text-light,#64748B); }
+.cms-chart-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.74rem; color:#475569; }
+.cms-chart-legend span { display:inline-flex; align-items:center; gap:5px; }
+.cms-chart-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+/* Plot area: a y-axis gutter plus a scrolling row of bars, so a long list
+   scrolls sideways instead of squeezing the bars to slivers. */
+.cms-chart-plot { display:flex; gap:8px; }
+.cms-chart-yaxis { position:relative; width:30px; flex:0 0 30px; height:210px; }
+.cms-chart-yaxis b { position:absolute; right:0; transform:translateY(-50%); font-size:.68rem; font-weight:600; color:#94A3B8; }
+.cms-chart-scroll { flex:1; overflow-x:auto; overflow-y:hidden; padding-bottom:2px; }
+.cms-chart-bars { display:flex; align-items:flex-end; gap:14px; height:210px; min-width:100%;
+  background-image:repeating-linear-gradient(to top, transparent 0, transparent calc(25% - 1px), #E2E8F0 calc(25% - 1px), #E2E8F0 25%);
+  border-bottom:2px solid #CBD5E1; }
+.cms-chart-bar { flex:1 0 46px; max-width:74px; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; }
+.cms-chart-bar u { display:block; width:100%; border-radius:4px 4px 0 0; text-decoration:none; transition:filter .12s; }
+.cms-chart-bar:hover u { filter:brightness(1.12); }
+.cms-chart-bar em { font-style:normal; font-size:.76rem; font-weight:800; color:#334155; margin-bottom:3px; }
+.cms-chart-xlabels { display:flex; gap:14px; min-width:100%; margin-top:6px; }
+.cms-chart-xlabels div { flex:1 0 46px; max-width:74px; font-size:.66rem; line-height:1.25; color:#475569; text-align:center;
+  overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+.cms-chart-empty { padding:26px 0; text-align:center; color:#94A3B8; font-size:.86rem; }
 .cms-dash-kpi-number {
   font-size: 2rem;
   font-weight: 800;
@@ -5157,7 +5185,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.70.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.71.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7401,6 +7429,19 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div id="cmsDashKpiProvidersPending" class="kpi-pending-badge" style="display:none;"></div>
           <div class="cms-dash-kpi-desc">Provider Requests</div>
         </div>
+      </div>
+
+      <!-- Signups by event — filled by cmsRenderSignupChart from the same
+           pass that feeds the KPI cards above, so it costs no extra reads. -->
+      <div class="cms-chart-card" id="cmsDashSignupChartCard">
+        <div class="cms-chart-head">
+          <div>
+            <h3>Signups by Event</h3>
+            <div class="cms-chart-sub" id="cmsDashSignupChartSub">Loading…</div>
+          </div>
+          <div class="cms-chart-legend" id="cmsDashSignupChartLegend"></div>
+        </div>
+        <div id="cmsDashSignupChartBody"><div class="cms-chart-empty">Loading…</div></div>
       </div>
 
       <h3 style="font-size:1.05rem;margin-bottom:12px;letter-spacing:-.3px;">Content Overview</h3>
@@ -40123,6 +40164,91 @@ window.cmsShowNoEmailResources = function() {
   document.body.appendChild(overlay);
 };
 
+// ── Signups by Event chart (CMS dashboard) ──────────────────────────────
+// Colour is the event TYPE, so the mix is readable at a glance rather than
+// just the ranking. Types are the stored `eventType` values; anything without
+// one is the historical PTI-activity backlog, which never has signups.
+window.CMS_EVENT_TYPE_COLORS = {
+  learning_labs:    { c: '#0891B2', label: 'Learning Labs' },
+  connect_gen:      { c: '#7C3AED', label: 'Connect-Gen' },
+  parent_talk_cafe: { c: '#F97316', label: 'Parent Talk Cafe' },
+  remote_signup:    { c: '#059669', label: 'Remote Signup' },
+  flyer:            { c: '#94A3B8', label: 'Flyer' },
+  '':               { c: '#64748B', label: 'Other' }
+};
+
+// rows: [{ title, etype, count }] — unsorted, may include zero-signup events.
+window.cmsRenderSignupChart = function(rows) {
+  var body = document.getElementById('cmsDashSignupChartBody');
+  var sub = document.getElementById('cmsDashSignupChartSub');
+  var legend = document.getElementById('cmsDashSignupChartLegend');
+  if (!body) return;
+
+  var MAX_BARS = 14;
+  var withSignups = (rows || []).filter(function(r) { return r.count > 0; })
+                                .sort(function(a, b) { return b.count - a.count; });
+  var shown = withSignups.slice(0, MAX_BARS);
+
+  if (!shown.length) {
+    body.innerHTML = '<div class="cms-chart-empty">No signups recorded yet.</div>';
+    if (sub) sub.textContent = '';
+    if (legend) legend.innerHTML = '';
+    return;
+  }
+
+  var peak = shown[0].count;
+  // Round the top of the scale up to a sensible step so the gridlines land on
+  // whole numbers instead of a fraction of the tallest bar.
+  var step = peak <= 8 ? 2 : peak <= 20 ? 5 : peak <= 50 ? 10 : 25;
+  var top = Math.ceil(peak / step) * step;
+
+  var colorOf = function(t) {
+    return (window.CMS_EVENT_TYPE_COLORS[t] || window.CMS_EVENT_TYPE_COLORS['']).c;
+  };
+
+  var yTicks = '';
+  for (var v = 0; v <= top; v += step) {
+    yTicks += '<b style="bottom:' + ((v / top) * 100) + '%;">' + v + '</b>';
+  }
+
+  var bars = '', labels = '';
+  shown.forEach(function(r) {
+    var pct = (r.count / top) * 100;
+    var full = r.title + ' — ' + r.count + ' signup' + (r.count === 1 ? '' : 's');
+    bars += '<div class="cms-chart-bar" title="' + rsEscape(full) + '">' +
+              '<em>' + r.count + '</em>' +
+              '<u style="height:' + pct + '%;background:' + colorOf(r.etype) + ';"></u>' +
+            '</div>';
+    labels += '<div title="' + rsEscape(r.title) + '">' + rsEscape(r.title) + '</div>';
+  });
+
+  body.innerHTML =
+    '<div class="cms-chart-plot">' +
+      '<div class="cms-chart-yaxis">' + yTicks + '</div>' +
+      '<div class="cms-chart-scroll">' +
+        '<div class="cms-chart-bars">' + bars + '</div>' +
+        '<div class="cms-chart-xlabels">' + labels + '</div>' +
+      '</div>' +
+    '</div>';
+
+  if (sub) {
+    var total = withSignups.reduce(function(s, r) { return s + r.count; }, 0);
+    sub.textContent = total + ' signups across ' + withSignups.length + ' event' +
+      (withSignups.length === 1 ? '' : 's') +
+      (withSignups.length > shown.length ? ' — showing the top ' + shown.length : '');
+  }
+
+  if (legend) {
+    // Only the types actually on the chart, so the key stays honest.
+    var seen = {};
+    shown.forEach(function(r) { seen[r.etype in window.CMS_EVENT_TYPE_COLORS ? r.etype : ''] = true; });
+    legend.innerHTML = Object.keys(seen).map(function(t) {
+      var d = window.CMS_EVENT_TYPE_COLORS[t];
+      return '<span><i style="background:' + d.c + ';"></i>' + rsEscape(d.label) + '</span>';
+    }).join('');
+  }
+};
+
 // ── CMS Dashboard ──
 window.cmsLoadCmsDashboard = async function() {
   // Helper to set text
@@ -40163,22 +40289,47 @@ window.cmsLoadCmsDashboard = async function() {
         db.collection('recurringEvents').get()
       ]);
       var sigPromises = [];
-      evDirect.forEach(function(d) { sigPromises.push({ col: 'events', snap: db.collection('events').doc(d.id).collection('signups').get() }); });
-      recDirect.forEach(function(d) { sigPromises.push({ col: 'recurringEvents', snap: db.collection('recurringEvents').doc(d.id).collection('signups').get() }); });
+      // Title/type ride along so the Signups-by-Event chart can be built from
+      // this same pass — no second read of every signup subcollection.
+      evDirect.forEach(function(d) {
+        var v = d.data() || {};
+        sigPromises.push({ col: 'events', title: v.title || '(untitled)', etype: v.eventType || '',
+                           evArchived: v.archived === true,
+                           snap: db.collection('events').doc(d.id).collection('signups').get() });
+      });
+      recDirect.forEach(function(d) {
+        var v = d.data() || {};
+        sigPromises.push({ col: 'recurringEvents', title: v.title || '(untitled)', etype: v.eventType || '',
+                           evArchived: v.archived === true,
+                           snap: db.collection('recurringEvents').doc(d.id).collection('signups').get() });
+      });
       var sigSnaps = await Promise.all(sigPromises.map(function(x) { return x.snap; }));
+      var chartRows = [];
       sigSnaps.forEach(function(snap, i) {
-        var col = sigPromises[i].col;
+        var meta = sigPromises[i];
+        var col = meta.col;
+        var perEvent = 0;
         snap.forEach(function(doc) {
           var d = doc.data() || {};
           if (d.archived === true) return;
           totalSignupsDirect++;
+          // Cancelled signups still count in the KPI total (unchanged), but a
+          // cancelled seat is not a signup worth charting.
+          if (d.status !== 'cancelled') perEvent++;
           if (d.status === 'pending' || d.status === 'new') {
             pendingSignupsDirect++;
             if (col === 'events') pendingOneTimeDirect++;
             else pendingOngoingDirect++;
           }
         });
+        // Archived EVENTS stay out of the chart; they still feed the KPI above,
+        // which is deliberately left as it was.
+        if (!meta.evArchived && perEvent > 0) {
+          chartRows.push({ title: meta.title, etype: meta.etype, count: perEvent });
+        }
       });
+      try { if (window.cmsRenderSignupChart) window.cmsRenderSignupChart(chartRows); }
+      catch (chartErr) { console.warn('Signup chart render failed:', chartErr.message); }
     } catch (sigErr) { console.warn('Direct signup count error:', sigErr.message); }
 
     // Use direct counts; still call cmsGetAlertCounts in the background to
