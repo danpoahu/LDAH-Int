@@ -4131,6 +4131,22 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 .cms-chart-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.74rem; color:#475569; }
 .cms-chart-legend span { display:inline-flex; align-items:center; gap:5px; }
 .cms-chart-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+/* Two panels side by side — Upcoming | Past. Both share one y-scale so a bar
+   in one half is directly comparable to a bar in the other. */
+.cms-chart-split { display:flex; gap:26px; align-items:flex-start; }
+.cms-chart-pane { flex:1 1 0; min-width:0; }
+.cms-chart-pane + .cms-chart-pane { border-left:1px solid #E2E8F0; padding-left:26px; }
+.cms-chart-pane-title { font-size:.8rem; font-weight:800; letter-spacing:.02em; text-transform:uppercase; color:#475569; margin-bottom:2px; }
+.cms-chart-pane-sub { font-size:.72rem; color:#94A3B8; margin-bottom:10px; }
+@media (max-width: 900px) {
+  .cms-chart-split { flex-direction:column; gap:22px; }
+  .cms-chart-pane + .cms-chart-pane { border-left:0; padding-left:0; border-top:1px solid #E2E8F0; padding-top:18px; }
+}
+/* Attended portion sits inside the signup bar, so height = signups and the
+   solid fill = how many actually came. */
+.cms-chart-bar u { display:flex; flex-direction:column; justify-content:flex-end; overflow:hidden; }
+.cms-chart-bar s { display:block; width:100%; text-decoration:none; }
+
 /* Plot area: a y-axis gutter plus a scrolling row of bars, so a long list
    scrolls sideways instead of squeezing the bars to slivers. */
 .cms-chart-plot { display:flex; gap:8px; }
@@ -5185,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.71.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.72.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -40178,74 +40194,155 @@ window.CMS_EVENT_TYPE_COLORS = {
 };
 
 // rows: [{ title, etype, count }] — unsorted, may include zero-signup events.
+// Did this signup actually turn up? Deliberately NOT
+// _signupHasAttendanceEvidence — that one is true for no-shows too, which
+// would overstate turnout. Tolerates every shape attendance has been stored in.
+window._cmsSignupAttended = function(s) {
+  if (!s || typeof s !== 'object') return false;
+  if (s.attended === true) return true;
+  if (s.attendanceStatus === 'attended') return true;
+  var sa = s.sessionAttendance;
+  if (sa && typeof sa === 'object' && !Array.isArray(sa)) {
+    var k = Object.keys(sa);
+    for (var i = 0; i < k.length; i++) {
+      var r = sa[k[i]];
+      if (r && typeof r === 'object' && r.status === 'attended') return true;
+    }
+  }
+  var ss = s.sessionStatuses;
+  if (ss && typeof ss === 'object') {
+    var k2 = Object.keys(ss);
+    for (var j = 0; j < k2.length; j++) {
+      var w = ss[k2[j]];
+      if (w === 'attended' || (w && typeof w === 'object' && w.status === 'attended')) return true;
+    }
+  }
+  return false;
+};
+
+// rows: [{ title, etype, count, attended, lastDate }] — unsorted, may include
+// zero-signup events. Split into Upcoming | Past on lastDate; the past side
+// also shows how many of those signups actually turned up.
 window.cmsRenderSignupChart = function(rows) {
   var body = document.getElementById('cmsDashSignupChartBody');
   var sub = document.getElementById('cmsDashSignupChartSub');
   var legend = document.getElementById('cmsDashSignupChartLegend');
   if (!body) return;
 
-  var MAX_BARS = 14;
-  var withSignups = (rows || []).filter(function(r) { return r.count > 0; })
-                                .sort(function(a, b) { return b.count - a.count; });
-  var shown = withSignups.slice(0, MAX_BARS);
+  var MAX_BARS = 8;   // per pane
+  var today = (typeof _localToday === 'function') ? _localToday() : new Date().toISOString().slice(0, 10);
+  var all = (rows || []).filter(function(r) { return r.count > 0; })
+                        .sort(function(a, b) { return b.count - a.count; });
 
-  if (!shown.length) {
+  if (!all.length) {
     body.innerHTML = '<div class="cms-chart-empty">No signups recorded yet.</div>';
     if (sub) sub.textContent = '';
     if (legend) legend.innerHTML = '';
     return;
   }
 
-  var peak = shown[0].count;
-  // Round the top of the scale up to a sensible step so the gridlines land on
-  // whole numbers instead of a fraction of the tallest bar.
-  var step = peak <= 8 ? 2 : peak <= 20 ? 5 : peak <= 50 ? 10 : 25;
-  var top = Math.ceil(peak / step) * step;
+  // An event with no readable date is treated as upcoming — better to show it
+  // as still open than to bury it in the past where nobody looks.
+  var upcoming = all.filter(function(r) { return !r.lastDate || r.lastDate >= today; });
+  var past = all.filter(function(r) { return r.lastDate && r.lastDate < today; });
 
   var colorOf = function(t) {
     return (window.CMS_EVENT_TYPE_COLORS[t] || window.CMS_EVENT_TYPE_COLORS['']).c;
   };
+
+  // ONE scale across both panes, so a bar on the left is directly comparable
+  // to a bar on the right.
+  var peak = all[0].count;
+  var step = peak <= 8 ? 2 : peak <= 20 ? 5 : peak <= 50 ? 10 : 25;
+  var top = Math.ceil(peak / step) * step;
 
   var yTicks = '';
   for (var v = 0; v <= top; v += step) {
     yTicks += '<b style="bottom:' + ((v / top) * 100) + '%;">' + v + '</b>';
   }
 
-  var bars = '', labels = '';
-  shown.forEach(function(r) {
-    var pct = (r.count / top) * 100;
-    var full = r.title + ' — ' + r.count + ' signup' + (r.count === 1 ? '' : 's');
-    bars += '<div class="cms-chart-bar" title="' + rsEscape(full) + '">' +
-              '<em>' + r.count + '</em>' +
-              '<u style="height:' + pct + '%;background:' + colorOf(r.etype) + ';"></u>' +
-            '</div>';
-    labels += '<div title="' + rsEscape(r.title) + '">' + rsEscape(r.title) + '</div>';
-  });
+  function pane(title, list, showAttended) {
+    var shown = list.slice(0, MAX_BARS);
+    var totalSignups = list.reduce(function(s, r) { return s + r.count; }, 0);
+    var totalAtt = list.reduce(function(s, r) { return s + (r.attended || 0); }, 0);
 
-  body.innerHTML =
-    '<div class="cms-chart-plot">' +
-      '<div class="cms-chart-yaxis">' + yTicks + '</div>' +
-      '<div class="cms-chart-scroll">' +
-        '<div class="cms-chart-bars">' + bars + '</div>' +
-        '<div class="cms-chart-xlabels">' + labels + '</div>' +
-      '</div>' +
+    var subLine;
+    if (!list.length) subLine = 'Nothing here yet';
+    else {
+      subLine = totalSignups + ' signup' + (totalSignups === 1 ? '' : 's') +
+                ' across ' + list.length + ' event' + (list.length === 1 ? '' : 's');
+      if (showAttended) {
+        var rate = totalSignups ? Math.round((totalAtt / totalSignups) * 100) : 0;
+        subLine += ' · ' + totalAtt + ' attended (' + rate + '%)';
+      }
+      if (list.length > shown.length) subLine += ' · top ' + shown.length + ' shown';
+    }
+
+    var html = '<div class="cms-chart-pane">' +
+      '<div class="cms-chart-pane-title">' + title + '</div>' +
+      '<div class="cms-chart-pane-sub">' + rsEscape(subLine) + '</div>';
+
+    if (!shown.length) {
+      html += '<div class="cms-chart-empty">No ' + (showAttended ? 'past' : 'upcoming') + ' events with signups.</div></div>';
+      return html;
+    }
+
+    var bars = '', labels = '';
+    shown.forEach(function(r) {
+      var col = colorOf(r.etype);
+      var barPct = (r.count / top) * 100;
+      var att = Math.min(r.attended || 0, r.count);
+      // Attended is drawn INSIDE the signup bar, so the bar height still reads
+      // as signups and the solid fill reads as turnout.
+      var attPct = r.count ? (att / r.count) * 100 : 0;
+      var capLabel = showAttended ? (att + '/' + r.count) : String(r.count);
+      var tip = r.title + ' — ' + r.count + ' signup' + (r.count === 1 ? '' : 's') +
+                (showAttended ? ', ' + att + ' attended' : '') +
+                (r.lastDate ? ' (' + r.lastDate + ')' : '');
+      bars += '<div class="cms-chart-bar" title="' + rsEscape(tip) + '">' +
+                '<em>' + rsEscape(capLabel) + '</em>' +
+                '<u style="height:' + barPct + '%;background:' + col + (showAttended ? '33' : '') + ';">' +
+                  (showAttended ? '<s style="height:' + attPct + '%;background:' + col + ';"></s>' : '') +
+                '</u>' +
+              '</div>';
+      labels += '<div title="' + rsEscape(r.title) + '">' + rsEscape(r.title) + '</div>';
+    });
+
+    html += '<div class="cms-chart-plot">' +
+              '<div class="cms-chart-yaxis">' + yTicks + '</div>' +
+              '<div class="cms-chart-scroll">' +
+                '<div class="cms-chart-bars">' + bars + '</div>' +
+                '<div class="cms-chart-xlabels">' + labels + '</div>' +
+              '</div>' +
+            '</div></div>';
+    return html;
+  }
+
+  body.innerHTML = '<div class="cms-chart-split">' +
+    pane('Upcoming', upcoming, false) +
+    pane('Past', past, true) +
     '</div>';
 
   if (sub) {
-    var total = withSignups.reduce(function(s, r) { return s + r.count; }, 0);
-    sub.textContent = total + ' signups across ' + withSignups.length + ' event' +
-      (withSignups.length === 1 ? '' : 's') +
-      (withSignups.length > shown.length ? ' — showing the top ' + shown.length : '');
+    var grand = all.reduce(function(s, r) { return s + r.count; }, 0);
+    sub.textContent = grand + ' signups across ' + all.length + ' event' + (all.length === 1 ? '' : 's') +
+      ' · ' + upcoming.length + ' upcoming, ' + past.length + ' past';
   }
 
   if (legend) {
-    // Only the types actually on the chart, so the key stays honest.
     var seen = {};
-    shown.forEach(function(r) { seen[r.etype in window.CMS_EVENT_TYPE_COLORS ? r.etype : ''] = true; });
-    legend.innerHTML = Object.keys(seen).map(function(t) {
+    all.forEach(function(r) { seen[r.etype in window.CMS_EVENT_TYPE_COLORS ? r.etype : ''] = true; });
+    var html = Object.keys(seen).map(function(t) {
       var d = window.CMS_EVENT_TYPE_COLORS[t];
       return '<span><i style="background:' + d.c + ';"></i>' + rsEscape(d.label) + '</span>';
     }).join('');
+    // Say what the two-tone past bars mean, or the pale portion looks like a bug.
+    if (past.length) {
+      html += '<span style="margin-left:4px;padding-left:12px;border-left:1px solid #E2E8F0;">' +
+              '<i style="background:#64748B;"></i>attended' +
+              '<i style="background:#64748B33;margin-left:8px;"></i>signed up</span>';
+    }
+    legend.innerHTML = html;
   }
 };
 
@@ -40294,13 +40391,13 @@ window.cmsLoadCmsDashboard = async function() {
       evDirect.forEach(function(d) {
         var v = d.data() || {};
         sigPromises.push({ col: 'events', title: v.title || '(untitled)', etype: v.eventType || '',
-                           evArchived: v.archived === true,
+                           evArchived: v.archived === true, eventDate: v.eventDate || '',
                            snap: db.collection('events').doc(d.id).collection('signups').get() });
       });
       recDirect.forEach(function(d) {
         var v = d.data() || {};
         sigPromises.push({ col: 'recurringEvents', title: v.title || '(untitled)', etype: v.eventType || '',
-                           evArchived: v.archived === true,
+                           evArchived: v.archived === true, eventDate: v.eventDate || '',
                            snap: db.collection('recurringEvents').doc(d.id).collection('signups').get() });
       });
       var sigSnaps = await Promise.all(sigPromises.map(function(x) { return x.snap; }));
@@ -40308,14 +40405,28 @@ window.cmsLoadCmsDashboard = async function() {
       sigSnaps.forEach(function(snap, i) {
         var meta = sigPromises[i];
         var col = meta.col;
-        var perEvent = 0;
+        var perEvent = 0, perAttended = 0, lastDate = meta.eventDate || '';
         snap.forEach(function(doc) {
           var d = doc.data() || {};
           if (d.archived === true) return;
           totalSignupsDirect++;
           // Cancelled signups still count in the KPI total (unchanged), but a
           // cancelled seat is not a signup worth charting.
-          if (d.status !== 'cancelled') perEvent++;
+          if (d.status !== 'cancelled') {
+            perEvent++;
+            if (_cmsSignupAttended(d)) perAttended++;
+            // Latest date this signup covers decides whether the event has
+            // finished. Recurring keys start with the ISO date; one-time
+            // selectedDates are free text, so reuse the shared parser.
+            (Array.isArray(d.selectedSessions) ? d.selectedSessions : []).forEach(function(k) {
+              var m = String(k).match(/^(\d{4}-\d{2}-\d{2})/);
+              if (m && m[1] > lastDate) lastDate = m[1];
+            });
+            (Array.isArray(d.selectedDates) ? d.selectedDates : []).forEach(function(k) {
+              var key = window._cmsSigDateKey ? window._cmsSigDateKey(String(k)) : '';
+              if (key && key > lastDate) lastDate = key;
+            });
+          }
           if (d.status === 'pending' || d.status === 'new') {
             pendingSignupsDirect++;
             if (col === 'events') pendingOneTimeDirect++;
@@ -40325,7 +40436,8 @@ window.cmsLoadCmsDashboard = async function() {
         // Archived EVENTS stay out of the chart; they still feed the KPI above,
         // which is deliberately left as it was.
         if (!meta.evArchived && perEvent > 0) {
-          chartRows.push({ title: meta.title, etype: meta.etype, count: perEvent });
+          chartRows.push({ title: meta.title, etype: meta.etype, count: perEvent,
+                           attended: perAttended, lastDate: lastDate });
         }
       });
       try { if (window.cmsRenderSignupChart) window.cmsRenderSignupChart(chartRows); }
