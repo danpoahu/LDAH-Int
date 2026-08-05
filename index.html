@@ -4137,7 +4137,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 .cms-chart-pane { flex:1 1 0; min-width:0; }
 .cms-chart-pane + .cms-chart-pane { border-left:1px solid #E2E8F0; padding-left:26px; }
 .cms-chart-pane-title { font-size:.8rem; font-weight:800; letter-spacing:.02em; text-transform:uppercase; color:#475569; margin-bottom:2px; }
-.cms-chart-pane-sub { font-size:.72rem; color:#94A3B8; margin-bottom:10px; }
+.cms-chart-pane-sub { font-size:.74rem; line-height:1.45; color:#64748B; margin-bottom:14px; }
 @media (max-width: 900px) {
   .cms-chart-split { flex-direction:column; gap:22px; }
   .cms-chart-pane + .cms-chart-pane { border-left:0; padding-left:0; border-top:1px solid #E2E8F0; padding-top:18px; }
@@ -4149,7 +4149,7 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 
 /* Plot area: a y-axis gutter plus a scrolling row of bars, so a long list
    scrolls sideways instead of squeezing the bars to slivers. */
-.cms-chart-plot { display:flex; gap:8px; }
+.cms-chart-plot { display:flex; gap:8px; padding-top:9px; }
 .cms-chart-yaxis { position:relative; width:30px; flex:0 0 30px; height:210px; }
 .cms-chart-yaxis b { position:absolute; right:0; transform:translateY(-50%); font-size:.68rem; font-weight:600; color:#94A3B8; }
 .cms-chart-scroll { flex:1; overflow-x:auto; overflow-y:hidden; padding-bottom:2px; }
@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.73.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.74.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -40194,6 +40194,41 @@ window.CMS_EVENT_TYPE_COLORS = {
 };
 
 // rows: [{ title, etype, count }] — unsorted, may include zero-signup events.
+var _CMS_MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// "Learning Labs: For the Month of August - IDEA/Chapter 60 and ..." -> the
+// useful part. Daniel: leave the words Learning Labs off the chart.
+window._cmsStripEventTitle = function(t) {
+  var s = String(t || '').trim();
+  s = s.replace(/^learning\s*labs\s*[:\-–]\s*/i, '');
+  s = s.replace(/^for\s+the\s+month\s+of\s+\w+\s*[,\-–]\s*/i, '');
+  return s || String(t || '');
+};
+
+// A selectedDates entry -> a short axis label. The stored strings are not
+// consistent — the topic trails the time in "August 12, 2026, 5:00 PM - IDEA/
+// CHAPTER 60", sits in the middle of "June 10, 2026 - Navigating Transitions -
+// 5:00 PM", and is absent from "May 13, 2026, 5:00 pm - 6:00 pm" where the
+// dash is a time range. So strip the date, strip every time token, and keep
+// whatever survives.
+window._cmsSessionLabel = function(raw, eventTitle) {
+  var str = String(raw || '');
+  var key = window._cmsSigDateKey ? window._cmsSigDateKey(str) : '';
+  var when = '';
+  if (key) {
+    var p = key.split('-');
+    when = _CMS_MON_ABBR[parseInt(p[1], 10) - 1] + ' ' + parseInt(p[2], 10);
+  }
+  var rest = str
+    .replace(/^\s*[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?\s*,?\s*(?:\d{4})?\s*,?\s*/, '')
+    .replace(/\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?(?:\s*[-–—]\s*\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?)?/gi, '')
+    .replace(/[\s,\-–—·]+$/, '')
+    .replace(/^[\s,\-–—·]+/, '')
+    .trim();
+  var topic = rest.length > 1 ? rest : window._cmsStripEventTitle(eventTitle);
+  return when ? (when + ' \u00b7 ' + topic) : topic;
+};
+
 // Did this signup actually turn up? Deliberately NOT
 // _signupHasAttendanceEvidence — that one is true for no-shows too, which
 // would overstate turnout. Tolerates every shape attendance has been stored in.
@@ -40229,7 +40264,7 @@ window.cmsRenderSignupChart = function(rows) {
   var legend = document.getElementById('cmsDashSignupChartLegend');
   if (!body) return;
 
-  var MAX_BARS = 8;   // per pane
+  var MAX_BARS = 12;  // per pane; the row scrolls sideways beyond that
   var all = rows || [];
 
   var upcoming = all.filter(function(r) { return (r.up || 0) > 0; })
@@ -40272,7 +40307,7 @@ window.cmsRenderSignupChart = function(rows) {
     if (!list.length) subLine = 'Nothing here yet';
     else {
       subLine = totalSignups + ' signup' + (totalSignups === 1 ? '' : 's') +
-                ' across ' + list.length + ' event' + (list.length === 1 ? '' : 's');
+                ' across ' + list.length + ' session' + (list.length === 1 ? '' : 's');
       if (showAttended) {
         var rate = totalSignups ? Math.round((totalAtt / totalSignups) * 100) : 0;
         subLine += ' \u00b7 ' + totalAtt + ' attended (' + rate + '%)';
@@ -40325,9 +40360,14 @@ window.cmsRenderSignupChart = function(rows) {
     '</div>';
 
   if (sub) {
+    // Deliberately NOT a grand total. Now that a multi-session event is one bar
+    // per session, a family booked into both August sessions is counted in
+    // each — so summing the two sides would not be a number of people.
     var upTot = upcoming.reduce(function(s, r) { return s + r.count; }, 0);
     var pastTot = past.reduce(function(s, r) { return s + r.count; }, 0);
-    sub.textContent = (upTot + pastTot) + ' signups \u00b7 ' + upTot + ' upcoming, ' + pastTot + ' past';
+    var attTot = past.reduce(function(s, r) { return s + (r.attended || 0); }, 0);
+    sub.textContent = upTot + ' upcoming \u00b7 ' + pastTot + ' past \u00b7 ' + attTot + ' attended' +
+      (pastTot ? ' (' + Math.round((attTot / pastTot) * 100) + '%)' : '');
   }
 
   if (legend) {
@@ -40409,36 +40449,49 @@ window.cmsLoadCmsDashboard = async function() {
         var meta = sigPromises[i];
         var col = meta.col;
         var _chartToday = (typeof _localToday === 'function') ? _localToday() : new Date().toISOString().slice(0, 10);
+        // One-time events are charted per SESSION: "Learning Labs for the month
+        // of August" is really two trainings (IDEA/Chapter 60 on the 12th,
+        // Understanding Evaluations on the 26th) and one bar of 27 hid that.
+        // Ongoing programmes stay aggregated — Connect-Gen has dozens of
+        // sessions and would shatter into a row of 1s.
+        var perSession = {};
         var upCount = 0, pastCount = 0, pastAttended = 0;
         snap.forEach(function(doc) {
           var d = doc.data() || {};
           if (d.archived === true) return;
           totalSignupsDirect++;
-          // Cancelled signups still count in the KPI total (unchanged), but a
-          // cancelled seat is not a signup worth charting.
           if (d.status !== 'cancelled') {
-            // Upcoming vs past is decided PER SIGNUP, not per event. An ongoing
-            // program is one document whose signups span months: Connect-Gen had
-            // 17, of which only 2 sit on a future session. Judging by the event
-            // put all 17 under Upcoming, which read as 17 families still to come.
-            // Same trap as the Events & Programs card counts.
-            var latest = '';
-            (Array.isArray(d.selectedSessions) ? d.selectedSessions : []).forEach(function(k) {
-              var m = String(k).match(/^(\d{4}-\d{2}-\d{2})/);
-              if (m && m[1] > latest) latest = m[1];
-            });
-            (Array.isArray(d.selectedDates) ? d.selectedDates : []).forEach(function(k) {
-              var key = window._cmsSigDateKey ? window._cmsSigDateKey(String(k)) : '';
-              if (key && key > latest) latest = key;
-            });
-            // No readable session date — fall back to the event's own date, and
-            // treat a dateless signup as still open rather than burying it.
-            if (!latest) latest = meta.eventDate || '';
-            if (!latest || latest >= _chartToday) {
-              upCount++;
+            var sess = Array.isArray(d.selectedDates) ? d.selectedDates.filter(Boolean) : [];
+            if (col === 'events' && sess.length) {
+              sess.forEach(function(raw) {
+                var b = perSession[raw] || (perSession[raw] = { up: 0, past: 0, att: 0 });
+                var key = window._cmsSigDateKey ? window._cmsSigDateKey(String(raw)) : '';
+                if (!key) key = meta.eventDate || '';
+                if (!key || key >= _chartToday) { b.up++; }
+                else {
+                  b.past++;
+                  // sessionAttendance is keyed by the exact session string, so
+                  // turnout is per session rather than per signup.
+                  var rec = (d.sessionAttendance || {})[raw];
+                  if (rec && rec.status === 'attended') b.att++;
+                  else if (!rec && _cmsSignupAttended(d) && sess.length === 1) b.att++;
+                }
+              });
             } else {
-              pastCount++;
-              if (_cmsSignupAttended(d)) pastAttended++;
+              // Upcoming vs past is decided PER SIGNUP, not per event — an
+              // ongoing programme's signups span months.
+              var latest = '';
+              (Array.isArray(d.selectedSessions) ? d.selectedSessions : []).forEach(function(k) {
+                var m = String(k).match(/^(\d{4}-\d{2}-\d{2})/);
+                if (m && m[1] > latest) latest = m[1];
+              });
+              sess.forEach(function(k) {
+                var key = window._cmsSigDateKey ? window._cmsSigDateKey(String(k)) : '';
+                if (key && key > latest) latest = key;
+              });
+              if (!latest) latest = meta.eventDate || '';
+              if (!latest || latest >= _chartToday) upCount++;
+              else { pastCount++; if (_cmsSignupAttended(d)) pastAttended++; }
             }
           }
           if (d.status === 'pending' || d.status === 'new') {
@@ -40447,11 +40500,18 @@ window.cmsLoadCmsDashboard = async function() {
             else pendingOngoingDirect++;
           }
         });
+
         // Archived EVENTS stay out of the chart; they still feed the KPI above,
-        // which is deliberately left as it was. An ongoing programme can appear
-        // on BOTH sides — that is the honest picture, not a duplicate.
-        if (!meta.evArchived && (upCount > 0 || pastCount > 0)) {
-          chartRows.push({ title: meta.title, etype: meta.etype,
+        // which is deliberately left as it was.
+        if (meta.evArchived) return;
+        Object.keys(perSession).forEach(function(raw) {
+          var b = perSession[raw];
+          if (!b.up && !b.past) return;
+          chartRows.push({ title: window._cmsSessionLabel(raw, meta.title),
+                           etype: meta.etype, up: b.up, past: b.past, pastAttended: b.att });
+        });
+        if (upCount > 0 || pastCount > 0) {
+          chartRows.push({ title: window._cmsStripEventTitle(meta.title), etype: meta.etype,
                            up: upCount, past: pastCount, pastAttended: pastAttended });
         }
       });
