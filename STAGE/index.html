@@ -5144,7 +5144,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.71.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.72.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -33783,12 +33783,18 @@ window.cmsSaveEventSummary = async function() {
     if (!_a || !_a.name || !_a.email || _a.interactionLogged) continue;
     try {
       var _cid = _a.contactId || '';
+      // Contacts are stored lowercase, and findContactByEmail normalises — but
+      // the Firestore fallback below did NOT, so a walk-in typed as
+      // "Jane.Smith@x.org" missed every stored "jane.smith@x.org" whenever the
+      // contact cache was cold, and created a duplicate. Normalise once, here,
+      // and use it for the lookup AND the write.
+      var _aEmail = String(_a.email || '').trim().toLowerCase();
       if (!_cid) {
-        var _existing = _F2 ? _F2.findContactByEmail((typeof _allContacts !== 'undefined' ? _allContacts : []), _a.email) : null;
+        var _existing = _F2 ? _F2.findContactByEmail((typeof _allContacts !== 'undefined' ? _allContacts : []), _aEmail) : null;
         if (!_existing) {
           // Cache miss fallback — query Firestore so we don't create a duplicate.
           try {
-            var _q = await db.collection('contacts').where('email', '==', _a.email).limit(1).get();
+            var _q = await db.collection('contacts').where('email', '==', _aEmail).limit(1).get();
             if (!_q.empty) _existing = Object.assign({ id: _q.docs[0].id }, _q.docs[0].data());
           } catch (e) { /* non-fatal */ }
         }
@@ -33797,7 +33803,7 @@ window.cmsSaveEventSummary = async function() {
         } else {
           var _cRef = await db.collection('contacts').add({
             displayName: _a.name,
-            email: _a.email,
+            email: _aEmail,
             type: 'Parent/Guardian',
             createdBy: (currentUserData && currentUserData.uid) || '',
             createdByName: (currentUserData && currentUserData.displayName) || '',
@@ -33805,7 +33811,7 @@ window.cmsSaveEventSummary = async function() {
             source: 'event-summary-walkin'
           });
           _cid = _cRef.id;
-          try { if (typeof _allContacts !== 'undefined' && Array.isArray(_allContacts)) _allContacts.push({ id: _cid, displayName: _a.name, email: _a.email, type: 'Parent/Guardian' }); } catch (e) {}
+          try { if (typeof _allContacts !== 'undefined' && Array.isArray(_allContacts)) _allContacts.push({ id: _cid, displayName: _a.name, email: _aEmail, type: 'Parent/Guardian' }); } catch (e) {}
         }
       }
       await db.collection('interactions').add({
