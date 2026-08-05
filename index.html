@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.72.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.73.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -40220,9 +40220,9 @@ window._cmsSignupAttended = function(s) {
   return false;
 };
 
-// rows: [{ title, etype, count, attended, lastDate }] — unsorted, may include
-// zero-signup events. Split into Upcoming | Past on lastDate; the past side
-// also shows how many of those signups actually turned up.
+// rows: [{ title, etype, up, past, pastAttended }] — each event carries its
+// signups already split by whether the session they booked has happened. An
+// ongoing programme legitimately appears in BOTH panes.
 window.cmsRenderSignupChart = function(rows) {
   var body = document.getElementById('cmsDashSignupChartBody');
   var sub = document.getElementById('cmsDashSignupChartSub');
@@ -40230,21 +40230,21 @@ window.cmsRenderSignupChart = function(rows) {
   if (!body) return;
 
   var MAX_BARS = 8;   // per pane
-  var today = (typeof _localToday === 'function') ? _localToday() : new Date().toISOString().slice(0, 10);
-  var all = (rows || []).filter(function(r) { return r.count > 0; })
-                        .sort(function(a, b) { return b.count - a.count; });
+  var all = rows || [];
 
-  if (!all.length) {
+  var upcoming = all.filter(function(r) { return (r.up || 0) > 0; })
+                    .map(function(r) { return { title: r.title, etype: r.etype, count: r.up, attended: 0 }; })
+                    .sort(function(a, b) { return b.count - a.count; });
+  var past = all.filter(function(r) { return (r.past || 0) > 0; })
+                .map(function(r) { return { title: r.title, etype: r.etype, count: r.past, attended: r.pastAttended || 0 }; })
+                .sort(function(a, b) { return b.count - a.count; });
+
+  if (!upcoming.length && !past.length) {
     body.innerHTML = '<div class="cms-chart-empty">No signups recorded yet.</div>';
     if (sub) sub.textContent = '';
     if (legend) legend.innerHTML = '';
     return;
   }
-
-  // An event with no readable date is treated as upcoming — better to show it
-  // as still open than to bury it in the past where nobody looks.
-  var upcoming = all.filter(function(r) { return !r.lastDate || r.lastDate >= today; });
-  var past = all.filter(function(r) { return r.lastDate && r.lastDate < today; });
 
   var colorOf = function(t) {
     return (window.CMS_EVENT_TYPE_COLORS[t] || window.CMS_EVENT_TYPE_COLORS['']).c;
@@ -40252,7 +40252,9 @@ window.cmsRenderSignupChart = function(rows) {
 
   // ONE scale across both panes, so a bar on the left is directly comparable
   // to a bar on the right.
-  var peak = all[0].count;
+  var peak = Math.max(
+    upcoming.length ? upcoming[0].count : 0,
+    past.length ? past[0].count : 0, 1);
   var step = peak <= 8 ? 2 : peak <= 20 ? 5 : peak <= 50 ? 10 : 25;
   var top = Math.ceil(peak / step) * step;
 
@@ -40273,9 +40275,9 @@ window.cmsRenderSignupChart = function(rows) {
                 ' across ' + list.length + ' event' + (list.length === 1 ? '' : 's');
       if (showAttended) {
         var rate = totalSignups ? Math.round((totalAtt / totalSignups) * 100) : 0;
-        subLine += ' · ' + totalAtt + ' attended (' + rate + '%)';
+        subLine += ' \u00b7 ' + totalAtt + ' attended (' + rate + '%)';
       }
-      if (list.length > shown.length) subLine += ' · top ' + shown.length + ' shown';
+      if (list.length > shown.length) subLine += ' \u00b7 top ' + shown.length + ' shown';
     }
 
     var html = '<div class="cms-chart-pane">' +
@@ -40283,7 +40285,7 @@ window.cmsRenderSignupChart = function(rows) {
       '<div class="cms-chart-pane-sub">' + rsEscape(subLine) + '</div>';
 
     if (!shown.length) {
-      html += '<div class="cms-chart-empty">No ' + (showAttended ? 'past' : 'upcoming') + ' events with signups.</div></div>';
+      html += '<div class="cms-chart-empty">No ' + (showAttended ? 'past' : 'upcoming') + ' signups.</div></div>';
       return html;
     }
 
@@ -40296,9 +40298,8 @@ window.cmsRenderSignupChart = function(rows) {
       // as signups and the solid fill reads as turnout.
       var attPct = r.count ? (att / r.count) * 100 : 0;
       var capLabel = showAttended ? (att + '/' + r.count) : String(r.count);
-      var tip = r.title + ' — ' + r.count + ' signup' + (r.count === 1 ? '' : 's') +
-                (showAttended ? ', ' + att + ' attended' : '') +
-                (r.lastDate ? ' (' + r.lastDate + ')' : '');
+      var tip = r.title + ' \u2014 ' + r.count + ' signup' + (r.count === 1 ? '' : 's') +
+                (showAttended ? ', ' + att + ' attended' : '');
       bars += '<div class="cms-chart-bar" title="' + rsEscape(tip) + '">' +
                 '<em>' + rsEscape(capLabel) + '</em>' +
                 '<u style="height:' + barPct + '%;background:' + col + (showAttended ? '33' : '') + ';">' +
@@ -40324,14 +40325,16 @@ window.cmsRenderSignupChart = function(rows) {
     '</div>';
 
   if (sub) {
-    var grand = all.reduce(function(s, r) { return s + r.count; }, 0);
-    sub.textContent = grand + ' signups across ' + all.length + ' event' + (all.length === 1 ? '' : 's') +
-      ' · ' + upcoming.length + ' upcoming, ' + past.length + ' past';
+    var upTot = upcoming.reduce(function(s, r) { return s + r.count; }, 0);
+    var pastTot = past.reduce(function(s, r) { return s + r.count; }, 0);
+    sub.textContent = (upTot + pastTot) + ' signups \u00b7 ' + upTot + ' upcoming, ' + pastTot + ' past';
   }
 
   if (legend) {
     var seen = {};
-    all.forEach(function(r) { seen[r.etype in window.CMS_EVENT_TYPE_COLORS ? r.etype : ''] = true; });
+    upcoming.concat(past).forEach(function(r) {
+      seen[r.etype in window.CMS_EVENT_TYPE_COLORS ? r.etype : ''] = true;
+    });
     var html = Object.keys(seen).map(function(t) {
       var d = window.CMS_EVENT_TYPE_COLORS[t];
       return '<span><i style="background:' + d.c + ';"></i>' + rsEscape(d.label) + '</span>';
@@ -40405,7 +40408,8 @@ window.cmsLoadCmsDashboard = async function() {
       sigSnaps.forEach(function(snap, i) {
         var meta = sigPromises[i];
         var col = meta.col;
-        var perEvent = 0, perAttended = 0, lastDate = meta.eventDate || '';
+        var _chartToday = (typeof _localToday === 'function') ? _localToday() : new Date().toISOString().slice(0, 10);
+        var upCount = 0, pastCount = 0, pastAttended = 0;
         snap.forEach(function(doc) {
           var d = doc.data() || {};
           if (d.archived === true) return;
@@ -40413,19 +40417,29 @@ window.cmsLoadCmsDashboard = async function() {
           // Cancelled signups still count in the KPI total (unchanged), but a
           // cancelled seat is not a signup worth charting.
           if (d.status !== 'cancelled') {
-            perEvent++;
-            if (_cmsSignupAttended(d)) perAttended++;
-            // Latest date this signup covers decides whether the event has
-            // finished. Recurring keys start with the ISO date; one-time
-            // selectedDates are free text, so reuse the shared parser.
+            // Upcoming vs past is decided PER SIGNUP, not per event. An ongoing
+            // program is one document whose signups span months: Connect-Gen had
+            // 17, of which only 2 sit on a future session. Judging by the event
+            // put all 17 under Upcoming, which read as 17 families still to come.
+            // Same trap as the Events & Programs card counts.
+            var latest = '';
             (Array.isArray(d.selectedSessions) ? d.selectedSessions : []).forEach(function(k) {
               var m = String(k).match(/^(\d{4}-\d{2}-\d{2})/);
-              if (m && m[1] > lastDate) lastDate = m[1];
+              if (m && m[1] > latest) latest = m[1];
             });
             (Array.isArray(d.selectedDates) ? d.selectedDates : []).forEach(function(k) {
               var key = window._cmsSigDateKey ? window._cmsSigDateKey(String(k)) : '';
-              if (key && key > lastDate) lastDate = key;
+              if (key && key > latest) latest = key;
             });
+            // No readable session date — fall back to the event's own date, and
+            // treat a dateless signup as still open rather than burying it.
+            if (!latest) latest = meta.eventDate || '';
+            if (!latest || latest >= _chartToday) {
+              upCount++;
+            } else {
+              pastCount++;
+              if (_cmsSignupAttended(d)) pastAttended++;
+            }
           }
           if (d.status === 'pending' || d.status === 'new') {
             pendingSignupsDirect++;
@@ -40434,10 +40448,11 @@ window.cmsLoadCmsDashboard = async function() {
           }
         });
         // Archived EVENTS stay out of the chart; they still feed the KPI above,
-        // which is deliberately left as it was.
-        if (!meta.evArchived && perEvent > 0) {
-          chartRows.push({ title: meta.title, etype: meta.etype, count: perEvent,
-                           attended: perAttended, lastDate: lastDate });
+        // which is deliberately left as it was. An ongoing programme can appear
+        // on BOTH sides — that is the honest picture, not a duplicate.
+        if (!meta.evArchived && (upCount > 0 || pastCount > 0)) {
+          chartRows.push({ title: meta.title, etype: meta.etype,
+                           up: upCount, past: pastCount, pastAttended: pastAttended });
         }
       });
       try { if (window.cmsRenderSignupChart) window.cmsRenderSignupChart(chartRows); }
