@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.75.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.76.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17445,6 +17445,89 @@ var _photoPendingByIsland = {};
     prev.innerHTML = ''; prev.appendChild(f);
     f.srcdoc = r.html || '<p style="font-family:sans-serif;color:#64748B;padding:12px;">No content stored for this email.</p>';
   };
+  // ── Paper screening consent forms (2026-08-05) ──
+  // The bucket refuses direct client reads and writes for these — a signed
+  // consent names a child and carries a parent signature — so the upload goes
+  // to a resumable URL minted for one path and every view is a short-lived
+  // signed URL. Same handling as the Connect-Gen document vault.
+  var _SC_CONSENT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.heic,.heif,application/pdf,image/jpeg,image/png,image/heic,image/heif';
+
+  window.ctScUploadConsent = function(contactId) {
+    var inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = _SC_CONSENT_ACCEPT;
+    inp.onchange = async function() {
+      var file = inp.files && inp.files[0];
+      if (!file) return;
+      var msg = document.getElementById('ctScUploadMsg_' + contactId);
+      function say(t, colour) { if (msg) { msg.textContent = t; msg.style.color = colour || '#64748B'; } }
+      if (file.size > 25 * 1024 * 1024) { say('That file is larger than 25 MB. Please choose a smaller one.', '#DC2626'); return; }
+      say('Uploading ' + file.name + '…');
+      try {
+        var idToken = await firebase.auth().currentUser.getIdToken();
+        var mime = file.type || 'application/octet-stream';
+        var r1 = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/requestScreeningConsentUploadUrl', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken: idToken, contactId: contactId, mimeType: mime, sizeBytes: file.size })
+        });
+        var d1 = await r1.json();
+        if (!r1.ok || !d1.uploadUrl) throw new Error(d1.error || 'Could not start the upload.');
+
+        var put = await fetch(d1.uploadUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: file });
+        if (!put.ok) throw new Error('Upload failed (' + put.status + ').');
+
+        // Metadata is written from here rather than the function so the file is
+        // only ever recorded once it actually landed in the bucket.
+        var who = (window.currentUserData && window.currentUserData.displayName) || (firebase.auth().currentUser || {}).email || '';
+        await db.collection('contacts').doc(contactId).update({
+          screeningConsentDocs: firebase.firestore.FieldValue.arrayUnion({
+            name: file.name,
+            storagePath: d1.storagePath,
+            contentType: mime,
+            sizeBytes: file.size,
+            uploadedBy: who,
+            // serverTimestamp() is rejected inside an array element, so this is
+            // a plain client date — same reason the children[] entries are.
+            uploadedAt: firebase.firestore.Timestamp.now()
+          })
+        });
+        if (typeof auditLog === 'function') auditLog('Screening consent uploaded', 'contact ' + contactId + ' — ' + file.name);
+        say('Uploaded.', '#059669');
+        if (typeof openContactDetail === 'function') openContactDetail(contactId);
+      } catch (e) {
+        console.error('Screening consent upload failed:', e);
+        say(e.message || 'Upload failed.', '#DC2626');
+      }
+    };
+    inp.click();
+  };
+
+  window.ctScViewConsent = async function(contactId, idx) {
+    var msg = document.getElementById('ctScUploadMsg_' + contactId);
+    try {
+      var snap = await db.collection('contacts').doc(contactId).get();
+      var docs = ((snap.data() || {}).screeningConsentDocs) || [];
+      var rec = docs[idx];
+      if (!rec || !rec.storagePath) throw new Error('That file is no longer on the contact.');
+      if (msg) { msg.textContent = 'Opening…'; msg.style.color = '#64748B'; }
+      // Opened before the await so the browser still treats it as user-initiated
+      // and does not swallow it as a pop-up.
+      var w = window.open('', '_blank');
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var r = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/getScreeningConsentDownloadUrl', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, storagePath: rec.storagePath })
+      });
+      var d = await r.json();
+      if (!r.ok || !d.url) throw new Error(d.error || 'Could not open that file.');
+      if (w) w.location = d.url; else window.open(d.url, '_blank');
+      if (msg) msg.textContent = '';
+    } catch (e) {
+      console.error('Screening consent view failed:', e);
+      if (msg) { msg.textContent = e.message || 'Could not open that file.'; msg.style.color = '#DC2626'; }
+    }
+  };
+
   window.openContactDetail = async function(contactId) {
     var overlay = document.getElementById('ctDetailOverlay');
     var body = document.getElementById('ctDetailBody');
@@ -17655,6 +17738,42 @@ var _photoPendingByIsland = {};
       // interaction fires the email, then flips to "received ✓" with the child +
       // insurance details once the parent submits the consent form.
       var _screenings = Array.isArray(c.screenings) ? c.screenings : [];
+      // Every contact gets a Screening chevron, whether or not a screening
+      // exists, so a paper consent form can be attached before there is
+      // anything else to show. With nothing on file the upload button is the
+      // only thing inside it. (2026-08-05)
+      var _scWrapId = 'ctScreeningWrap_' + contactId;
+      var _scDocs = Array.isArray(c.screeningConsentDocs) ? c.screeningConsentDocs : [];
+      var _scBits = [];
+      if (_screenings.length) _scBits.push(_screenings.length + (_screenings.length === 1 ? ' screening' : ' screenings'));
+      if (_scDocs.length) _scBits.push(_scDocs.length + (_scDocs.length === 1 ? ' consent form' : ' consent forms'));
+      railHtml += '<div style="margin-top:8px;">';
+      railHtml += '<div onclick="_ctAccToggle(this, \'' + _scWrapId + '\')" style="cursor:pointer;user-select:none;font-size:.88rem;font-weight:600;color:#059669;">';
+      railHtml += '<span class="ct-acc-arrow" style="font-size:.65rem;">&#9654;</span> Screening';
+      railHtml += _scBits.length
+        ? ' <span style="font-weight:400;color:#94A3B8;">&middot; ' + rsEscape(_scBits.join(' &middot; ').replace(/&middot;/g, '\u00b7')) + '</span>'
+        : ' <span style="font-weight:400;color:#94A3B8;">&middot; nothing on file</span>';
+      railHtml += '</div>';
+      railHtml += '<div id="' + _scWrapId + '" class="ct-acc-panel" style="display:none;margin-top:8px;">';
+
+      // Paper consent forms scanned in by staff.
+      railHtml += '<button onclick="event.stopPropagation(); ctScUploadConsent(\'' + contactId + '\')" style="font-size:.8rem;font-weight:600;color:#065F46;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:999px;padding:6px 14px;cursor:pointer;">&#43; Upload consent form</button>';
+      railHtml += '<div id="ctScUploadMsg_' + contactId + '" style="font-size:.76rem;color:#64748B;margin-top:6px;"></div>';
+      if (_scDocs.length) {
+        railHtml += '<div style="margin-top:8px;">';
+        _scDocs.forEach(function(_d, _di) {
+          var _when = _d.uploadedAt && _d.uploadedAt.toDate
+            ? _d.uploadedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : (_d.uploadedAtText || '');
+          railHtml += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #E2E8F0;font-size:.8rem;">';
+          railHtml += '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155;">' + rsEscape(_d.name || 'Consent form') + '</span>';
+          railHtml += '<span style="color:#94A3B8;white-space:nowrap;">' + rsEscape(_when) + '</span>';
+          railHtml += '<button onclick="event.stopPropagation(); ctScViewConsent(\'' + contactId + '\', ' + _di + ')" style="font-size:.76rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:3px 10px;cursor:pointer;white-space:nowrap;">View</button>';
+          railHtml += '</div>';
+        });
+        railHtml += '</div>';
+      }
+
       if (_screenings.length) {
         _screenings.forEach(function(_srp) {
           var _srpWhen = _srp.signedAt && _srp.signedAt.toDate ? _srp.signedAt.toDate().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
@@ -17718,6 +17837,7 @@ var _photoPendingByIsland = {};
         railHtml += '⏳ Screening requested' + (_srpReqWhen ? ' · ' + rsEscape(_srpReqWhen) : '');
         railHtml += '<div style="font-weight:400;font-size:.78rem;color:#94A3B8;">awaiting parent</div></div>';
       }
+      railHtml += '</div></div>'; // close Screening panel + wrapper
 
       railHtml += '</div>'; // close .ctd2-rail
 
