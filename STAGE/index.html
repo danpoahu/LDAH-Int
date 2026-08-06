@@ -2710,6 +2710,32 @@
 .wa-row-label { color: var(--text-dark); }
 .wa-row-value { font-weight: 700; color: var(--ocean-deep); }
 
+/* Charts on the Web/App Analytics dashboard. Same card language as the
+   Reports-tab analytics report (.cd-chart-card) so the two pages read as one
+   system, but re-skinned to the white/rounded .wa-detail-card look this page
+   already uses. Canvases need a fixed-height parent — Chart.js runs with
+   maintainAspectRatio:false. */
+.wa-chart-card {
+  background: white;
+  padding: 1.25rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  margin-bottom: 1rem;
+}
+.wa-chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem; }
+.wa-chart-card h4 { margin:0; font-size:0.9rem; color:var(--text-dark); }
+.wa-chart-sub { font-size:0.75rem; color:var(--text-soft); }
+.wa-chart-wrap { position:relative; height:210px; }
+.wa-chart-wrap.tall { height:260px; }
+.wa-chart-wrap.wide { height:230px; }
+/* Numbers stay under every chart; long lists scroll rather than stretch the
+   card past its neighbour in the 2-up grid. */
+.wa-chart-rows { margin-top:0.75rem; max-height:190px; overflow-y:auto; }
+.wa-chart-empty { padding:26px 0; text-align:center; color:#94A3B8; font-size:0.86rem; }
+@media (max-width: 700px) {
+  .wa-chart-wrap, .wa-chart-wrap.tall, .wa-chart-wrap.wide { height:190px; }
+}
+
 .wa-export-section {
   display: flex;
   gap: 1rem;
@@ -5217,7 +5243,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.81.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.82.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6881,22 +6907,38 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             </div>
           </div>
 
+          <!-- Donation clicks over time. Full width, directly under the KPI
+               row so it reads as the detail behind the Donation Clicks KPI.
+               One bar per day on 30d; rolls up to one bar per week on YTD
+               (see _waDonationSeries). -->
+          <div class="wa-chart-card">
+            <div class="wa-chart-head">
+              <h4>Donation Clicks Over Time</h4>
+              <span class="wa-chart-sub" id="waDonationTrendSub">Loading...</span>
+            </div>
+            <div class="wa-chart-wrap wide"><canvas id="waDonationTrendChart"></canvas></div>
+          </div>
+
           <div class="wa-details-grid">
-            <div class="wa-detail-card">
-              <h4>Top Pages</h4>
-              <div id="waTopPages"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
+            <div class="wa-chart-card">
+              <div class="wa-chart-head"><h4>Top Pages</h4><span class="wa-chart-sub">page views</span></div>
+              <div class="wa-chart-wrap tall"><canvas id="waTopPagesChart"></canvas></div>
+              <div class="wa-chart-rows" id="waTopPages"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
             </div>
-            <div class="wa-detail-card">
-              <h4>Interaction Breakdown</h4>
-              <div id="waInteractionBreakdown"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
+            <div class="wa-chart-card">
+              <div class="wa-chart-head"><h4>Interaction Breakdown</h4><span class="wa-chart-sub">calls + emails + links</span></div>
+              <div class="wa-chart-wrap tall"><canvas id="waInteractionChart"></canvas></div>
+              <div class="wa-chart-rows" id="waInteractionBreakdown"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
             </div>
-            <div class="wa-detail-card">
-              <h4>Document / PDF Views</h4>
-              <div id="waDocumentViews"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
+            <div class="wa-chart-card">
+              <div class="wa-chart-head"><h4>Document / PDF Views</h4><span class="wa-chart-sub">top 10 shown</span></div>
+              <div class="wa-chart-wrap tall"><canvas id="waDocumentViewsChart"></canvas></div>
+              <div class="wa-chart-rows" id="waDocumentViews"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
             </div>
-            <div class="wa-detail-card">
-              <h4>Form Submissions</h4>
-              <div id="waFormSubmissions"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
+            <div class="wa-chart-card">
+              <div class="wa-chart-head"><h4>Form Submissions</h4><span class="wa-chart-sub">by form type</span></div>
+              <div class="wa-chart-wrap tall"><canvas id="waFormSubmissionsChart"></canvas></div>
+              <div class="wa-chart-rows" id="waFormSubmissions"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
             </div>
           </div>
         </div>
@@ -22245,8 +22287,14 @@ window.openContactDetail = async function(contactId) {
     let documentViewsByDoc = {};
     let formSubmitsByType = {};
     let pageviewsByPage = {};
+    let donationByDate = {};   // 'YYYY-MM-DD' -> clicks, for the trend chart
 
     siteAnalyticsData.forEach(function(day) {
+      // Per-day donation total, summed from both doc shapes below.
+      var dayDonations = (day.events && day.events.donation_click) || 0;
+      dayDonations += day['events.donation_click'] || 0;
+      if (day.date) donationByDate[day.date] = (donationByDate[day.date] || 0) + dayDonations;
+
       if (day.visitorIds && Array.isArray(day.visitorIds)) {
         day.visitorIds.forEach(function(vid) { uniqueVisitorIds.add(vid); });
       }
@@ -22316,7 +22364,98 @@ window.openContactDetail = async function(contactId) {
       documentViewsByDoc: documentViewsByDoc,
       formSubmitsByType: formSubmitsByType,
       totalInteractions: phoneCalls + emailClicks + outboundClicks + modalOpens + documentViews + formSubmits,
-      pageviewsByPage: pageviewsByPage
+      pageviewsByPage: pageviewsByPage,
+      donationByDate: donationByDate
+    };
+  }
+
+  // ── Web/App Analytics charts ──
+  // Chart.js is already loaded for the Reports-tab reports; these reuse the
+  // same palette so the dashboard and the printable report read as one system.
+  // Instances must be destroyed before every re-render, otherwise toggling
+  // 30d/YTD leaks a Chart per canvas and tooltips fire on stale data.
+  // NOTE: the same values as _cdPalette, duplicated on purpose — that lives in
+  // a different <script> IIFE and is not reachable from this block.
+  var _WA_PALETTE = ['#0891B2','#06B6D4','#F59E0B','#10B981','#DC2626','#7C3AED','#EC4899','#65A30D','#0EA5E9','#F97316','#14B8A6','#A855F7','#84CC16','#EF4444'];
+  var _waChartInstances = [];
+
+  window._waDestroyCharts = function() {
+    if (!_waChartInstances.length) return;
+    for (var i = 0; i < _waChartInstances.length; i++) { try { _waChartInstances[i].destroy(); } catch(_){} }
+    _waChartInstances = [];
+  };
+
+  function _waChart(id, type, labels, datasets, opts) {
+    var ctx = document.getElementById(id);
+    if (!ctx || typeof Chart === 'undefined') return;
+    var o = opts || {};
+    o.responsive = true;
+    o.maintainAspectRatio = false;
+    _waChartInstances.push(new Chart(ctx, { type: type, data: { labels: labels, datasets: datasets }, options: o }));
+  }
+
+  // entries: [[label, value], ...]. 'hbar' for long text labels, 'bar' otherwise.
+  function _waBarChart(id, kind, entries) {
+    var labels = entries.map(function(e) { return String(e[0]); });
+    var values = entries.map(function(e) { return Number(e[1]); });
+    if (kind === 'hbar') {
+      _waChart(id, 'bar', labels, [{ data: values, backgroundColor: '#0891B2', borderRadius: 4 }], {
+        indexAxis: 'y',
+        plugins: { legend: { display: false }, tooltip: { intersect: false } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+      });
+    } else {
+      _waChart(id, 'bar', labels, [{ data: values, borderRadius: 4,
+        backgroundColor: labels.map(function(_, i) { return _WA_PALETTE[i % _WA_PALETTE.length]; }) }], {
+        plugins: { legend: { display: false }, tooltip: { intersect: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      });
+    }
+  }
+
+  // Build the donation timeline. Every calendar day in the active period gets
+  // a point — siteAnalytics only writes docs for days with activity, so
+  // charting the raw docs would silently compress quiet stretches. Beyond ~70
+  // days (i.e. Year to Date) bars would be a few pixels wide, so days roll up
+  // into weeks labelled by week-start date.
+  function _waDonationSeries(donationByDate) {
+    var startKey = _waPeriodStart(waActivePeriod);
+    var start = new Date(startKey + 'T00:00:00');
+    var today = new Date();
+    var end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    if (end < start) end = start;
+
+    var days = [];
+    for (var d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      var key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      days.push({ key: key, date: new Date(d), value: donationByDate[key] || 0 });
+    }
+    if (!days.length) return { labels: [], values: [], granularity: 'day', dayCount: 0 };
+
+    var fmt = function(dt) { return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+
+    if (days.length <= 70) {
+      return {
+        labels: days.map(function(x) { return fmt(x.date); }),
+        values: days.map(function(x) { return x.value; }),
+        granularity: 'day',
+        dayCount: days.length
+      };
+    }
+
+    var weeks = [];
+    for (var i = 0; i < days.length; i += 7) {
+      var chunk = days.slice(i, i + 7);
+      weeks.push({
+        label: fmt(chunk[0].date),
+        value: chunk.reduce(function(sum, x) { return sum + x.value; }, 0)
+      });
+    }
+    return {
+      labels: weeks.map(function(w) { return w.label; }),
+      values: weeks.map(function(w) { return w.value; }),
+      granularity: 'week',
+      dayCount: days.length
     };
   }
 
@@ -22331,9 +22470,33 @@ window.openContactDetail = async function(contactId) {
 
     var pageLabels = { home: 'Home', contact: 'Contact', volunteer: 'Volunteer', events: 'Events', whoweare: 'Who We Are', resources: 'Resources', readiness: 'Readiness', specialed: 'Special Ed', military: 'Military', pacific: 'Pacific', community: 'Community', install: 'Install App', cms: 'CMS', accessibility: 'Accessibility' };
 
+    // Every chart is rebuilt from scratch on each render.
+    _waDestroyCharts();
+
+    // Donation Clicks Over Time — coral to match the Donation Clicks KPI card.
+    var donSeries = _waDonationSeries(totals.donationByDate);
+    var donSubEl = document.getElementById('waDonationTrendSub');
+    if (donSubEl) {
+      donSubEl.textContent = totals.donationClicks.toLocaleString() + ' click' + (totals.donationClicks === 1 ? '' : 's') +
+        ' over ' + donSeries.dayCount.toLocaleString() + ' days · one bar per ' + donSeries.granularity;
+    }
+    _waChart('waDonationTrendChart', 'bar', donSeries.labels, [{
+      label: 'Donation Clicks', data: donSeries.values, backgroundColor: '#F97316', borderRadius: 3
+    }], {
+      plugins: { legend: { display: false }, tooltip: { intersect: false, mode: 'index' } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 } },
+        // Long ranges would overlap every label; let Chart.js thin them out.
+        x: { ticks: { autoSkip: true, maxRotation: 0, font: { size: 10 } }, grid: { display: false } }
+      }
+    });
+
     // Top Pages
     var topPagesEl = document.getElementById('waTopPages');
     var sortedPages = Object.entries(totals.pageviewsByPage).sort(function(a, b) { return b[1] - a[1]; });
+    _waBarChart('waTopPagesChart', 'hbar', sortedPages.slice(0, 12).map(function(e) {
+      return [pageLabels[e[0]] || e[0], e[1]];
+    }));
     if (sortedPages.length === 0) {
       topPagesEl.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:0.5rem;font-size:0.85rem;">No page view data yet.</p>';
     } else {
@@ -22353,6 +22516,14 @@ window.openContactDetail = async function(contactId) {
       { label: 'Modal / Popup Opens', value: totals.modalOpens },
       { label: 'Form Submissions', value: totals.formSubmits }
     ];
+    _waBarChart('waInteractionChart', 'bar', [
+      ['Phone', totals.phoneCalls],
+      ['Email', totals.emailClicks],
+      ['Outbound', totals.outboundClicks],
+      ['Docs', totals.documentViews],
+      ['Modals', totals.modalOpens],
+      ['Forms', totals.formSubmits]
+    ]);
     var hasAny = interactions.some(function(i) { return i.value > 0; });
     if (!hasAny) {
       breakdownEl.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:0.5rem;font-size:0.85rem;">No interactions tracked yet.</p>';
@@ -22365,6 +22536,11 @@ window.openContactDetail = async function(contactId) {
     // Document / PDF Views
     var docViewsEl = document.getElementById('waDocumentViews');
     var sortedDocs = Object.entries(totals.documentViewsByDoc).sort(function(a, b) { return b[1] - a[1]; });
+    var _docTitle = function(name) { return name.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); }); };
+    // Chart shows the top 10; the list below it stays complete.
+    _waBarChart('waDocumentViewsChart', 'hbar', sortedDocs.slice(0, 10).map(function(e) {
+      return [_docTitle(e[0]), e[1]];
+    }));
     if (sortedDocs.length === 0) {
       docViewsEl.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:0.5rem;font-size:0.85rem;">No document views yet.</p>';
     } else {
@@ -22388,6 +22564,9 @@ window.openContactDetail = async function(contactId) {
     };
     var formsEl = document.getElementById('waFormSubmissions');
     var sortedForms = Object.entries(totals.formSubmitsByType).sort(function(a, b) { return b[1] - a[1]; });
+    _waBarChart('waFormSubmissionsChart', 'bar', sortedForms.map(function(e) {
+      return [formLabels[e[0]] || e[0].replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); }), e[1]];
+    }));
     if (sortedForms.length === 0) {
       formsEl.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:0.5rem;font-size:0.85rem;">No form submissions yet.</p>';
     } else {
