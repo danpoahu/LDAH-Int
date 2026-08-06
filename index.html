@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.76.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.77.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17510,9 +17510,6 @@ var _photoPendingByIsland = {};
       var rec = docs[idx];
       if (!rec || !rec.storagePath) throw new Error('That file is no longer on the contact.');
       if (msg) { msg.textContent = 'Opening…'; msg.style.color = '#64748B'; }
-      // Opened before the await so the browser still treats it as user-initiated
-      // and does not swallow it as a pop-up.
-      var w = window.open('', '_blank');
       var idToken = await firebase.auth().currentUser.getIdToken();
       var r = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/getScreeningConsentDownloadUrl', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -17520,7 +17517,27 @@ var _photoPendingByIsland = {};
       });
       var d = await r.json();
       if (!r.ok || !d.url) throw new Error(d.error || 'Could not open that file.');
-      if (w) w.location = d.url; else window.open(d.url, '_blank');
+
+      // Reuse the Connect-Gen document lightbox rather than a second one — it
+      // already renders a PDF in an iframe, an image inline, and falls back to
+      // Download for anything else, and its z-index is set to clear the contact
+      // card. (2026-08-05: was opening a new browser tab.)
+      cmsCgLightboxOpen(d.url, rec.contentType || '', rec.name || 'Consent form');
+      var _dl = document.getElementById('cmsCgLightboxDl');
+      // That opener wires the Download link to the Connect-Gen download audit.
+      // This is not a Connect-Gen document, so drop it.
+      if (_dl) _dl.onclick = null;
+
+      // HEIC renders in Safari but not in Chrome, where it would just show a
+      // broken image. Swap in the download fallback if it fails to decode.
+      var _img = document.querySelector('#cmsCgLightboxStage img');
+      if (_img) {
+        _img.onerror = function() {
+          var stage = document.getElementById('cmsCgLightboxStage');
+          if (stage) stage.innerHTML = '<div style="color:#fff;font-size:.9rem;text-align:center;">' +
+            'This photo format can\'t be shown in this browser.<br>Use <strong>Download</strong> above to open it.</div>';
+        };
+      }
       if (msg) msg.textContent = '';
     } catch (e) {
       console.error('Screening consent view failed:', e);
