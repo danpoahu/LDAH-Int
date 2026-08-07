@@ -5227,7 +5227,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.79.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.80.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9199,8 +9199,22 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             </div>
             <div>
               <label class="ct-demo-label">Zip Code</label>
-              <input id="ctZipCode" placeholder="Zip code">
+              <input id="ctZipCode" placeholder="Zip code" oninput="ctIslandFromZip()">
             </div>
+          </div>
+          <div class="ct-demo-field">
+            <label class="ct-demo-label">Island <span style="color:#DC2626;">*</span></label>
+            <select id="ctIsland" onchange="ctIslandTouched()">
+              <option value="">-- Select island --</option>
+              <option value="Oahu">O&#699;ahu</option>
+              <option value="Hawaii">Hawai&#699;i (Big Island)</option>
+              <option value="Maui">Maui</option>
+              <option value="Kauai">Kaua&#699;i</option>
+              <option value="Molokai">Moloka&#699;i</option>
+              <option value="Lanai">L&#257;na&#699;i</option>
+              <option value="Other">All Other Locations</option>
+            </select>
+            <div id="ctIslandHint" style="font-size:.72rem;color:#64748B;margin-top:3px;">Fills in automatically from the zip code. Required.</div>
           </div>
         </div>
 
@@ -16818,6 +16832,9 @@ var _photoPendingByIsland = {};
     document.getElementById('ctStreetAddress').value = '';
     document.getElementById('ctCity').value = '';
     document.getElementById('ctZipCode').value = '';
+    document.getElementById('ctIsland').value = '';
+    window._ctIslandTouched = false;
+    ctIslandHint('');
     document.querySelectorAll('input[name="ctMilitaryStatus"]').forEach(function(r) { r.checked = r.value === 'Not military'; });
     document.getElementById('ctMilBranchWrap').classList.remove('show');
     document.getElementById('ctMilitaryBranch').value = '';
@@ -16866,6 +16883,16 @@ var _photoPendingByIsland = {};
           document.getElementById('ctStreetAddress').value = d.streetAddress || '';
           document.getElementById('ctCity').value = d.city || '';
           document.getElementById('ctZipCode').value = d.zipCode || '';
+          // Island. "Off Island" is the old name for the same thing as "All
+          // Other Locations". "Unknown" is a legacy placeholder for records that
+          // had no address at all — it is deliberately left UNSELECTED so that
+          // saving the contact forces a real choice and the backlog drains.
+          var _isl = d.island || '';
+          if (_isl === 'Off Island') _isl = 'Other';
+          if (_isl === 'Unknown') _isl = '';
+          document.getElementById('ctIsland').value = _isl;
+          window._ctIslandTouched = !!_isl;
+          ctIslandHint(_isl ? '' : (d.island === 'Unknown' ? 'This contact has no island on file — please pick one.' : ''));
           // Normalize legacy military values for editing (v120.1.0).
           var milVal = (typeof _normMilitaryStatus === 'function') ? (_normMilitaryStatus(d.militaryStatus) || 'Not military') : (d.militaryStatus || 'Not military');
           var milBranchVal = (typeof _normMilitaryBranch === 'function') ? _normMilitaryBranch(d.militaryBranch) : (d.militaryBranch || '');
@@ -16964,6 +16991,64 @@ var _photoPendingByIsland = {};
      point at which a second click can be turned away. The real body is left
      untouched below so its early `return`s still work; `finally` releases the
      button whichever way it exits. */
+  // ── Island resolution ──────────────────────────────────────────────
+  // window-scoped so every <script> block in this SPA can call it; the blocks
+  // are IIFEs and do not share locals.
+  //
+  // The SAME zip table must exist in LDAH_W2 and the LDAH app. If you change it
+  // here, change it there — a contact created on the website and one created in
+  // Int must land on the same island.
+  //
+  // Zip decides it outright. There is deliberately no city-name guessing here:
+  // Waimea exists on BOTH Hawaiʻi Island and Kauaʻi, and Kilauea is a town on
+  // Kauaʻi as well as the volcano on Hawaiʻi Island. A wrong island is worse
+  // than an empty one, because the empty one is what the staff member fills in.
+  window.LDAH_ISLAND_ZIPS = {
+    Oahu: ['96701','96706','96707','96709','96712','96717','96730','96731','96734','96744','96759','96762','96782','96786','96789','96791','96792','96795','96797','96801','96802','96803','96804','96805','96806','96807','96808','96809','96810','96811','96812','96813','96814','96815','96816','96817','96818','96819','96820','96821','96822','96823','96824','96825','96826','96827','96828','96830','96835','96836','96837','96838','96839','96840','96841','96843','96844','96846','96847','96848','96849','96850','96853','96854','96857','96858','96859','96860','96861','96863'],
+    Hawaii: ['96704','96710','96718','96719','96720','96721','96725','96726','96727','96728','96737','96738','96739','96740','96743','96745','96749','96750','96755','96760','96764','96771','96772','96773','96774','96776','96777','96778','96780','96781','96783','96785'],
+    Maui:   ['96708','96713','96732','96733','96753','96761','96767','96768','96779','96784','96788','96790','96793'],
+    Kauai:  ['96703','96705','96714','96715','96716','96722','96741','96746','96747','96751','96752','96754','96756','96765','96766','96769','96796'],
+    Molokai:['96729','96742','96748','96757','96770'],
+    Lanai:  ['96763']
+  };
+
+  // Returns 'Oahu' | 'Hawaii' | ... | 'Other' | '' ('' = cannot tell, ask).
+  // A well-formed 5-digit zip that is NOT a Hawaii zip is genuinely somewhere
+  // else, so that resolves to 'Other' rather than to nothing.
+  window.ldahIslandFromZip = function(zip) {
+    var z = String(zip == null ? '' : zip).trim().slice(0, 5);
+    if (!/^\d{5}$/.test(z)) return '';
+    for (var isl in window.LDAH_ISLAND_ZIPS) {
+      if (window.LDAH_ISLAND_ZIPS[isl].indexOf(z) !== -1) return isl;
+    }
+    return 'Other';
+  };
+
+  window.ctIslandHint = function(msg) {
+    var el = document.getElementById('ctIslandHint');
+    if (!el) return;
+    el.textContent = msg || 'Fills in automatically from the zip code. Required.';
+    el.style.color = msg ? '#B45309' : '#64748B';
+  };
+
+  // A staff member's choice always wins — once they pick, typing a zip must not
+  // silently overwrite them.
+  window.ctIslandTouched = function() { window._ctIslandTouched = true; ctIslandHint(''); };
+
+  window.ctIslandFromZip = function() {
+    var sel = document.getElementById('ctIsland');
+    if (!sel || window._ctIslandTouched) return;
+    var zip = (document.getElementById('ctZipCode') || {}).value || '';
+    var isl = window.ldahIslandFromZip(zip);
+    if (isl) {
+      sel.value = isl;
+      ctIslandHint('');
+    } else if (String(zip).trim().length >= 5) {
+      sel.value = '';
+      ctIslandHint('That zip code is not one we recognise — please pick the island.');
+    }
+  };
+
   window.saveContact = async function() {
     if (window._ctSaving) return;                 // a save is already in flight
     window._ctSaving = true;
@@ -16989,6 +17074,17 @@ var _photoPendingByIsland = {};
     var lastName = document.getElementById('ctLastName').value.trim();
     if (!firstName || !lastName) {
       alert('First name and last name are required.');
+      return;
+    }
+    // Island is required. It normally fills itself in from the zip code, so
+    // this only stops a save when the zip is missing or unrecognised — exactly
+    // the cases where a guess would be wrong and a person has to decide.
+    var _islandSel = document.getElementById('ctIsland');
+    var _islandVal = _islandSel ? _islandSel.value : '';
+    if (!_islandVal) {
+      alert('Please choose an island before saving.\n\nIt fills in automatically once a Hawaiʻi zip code is entered. If the person is not in Hawaiʻi, choose "All Other Locations".');
+      if (_islandSel) { _islandSel.focus(); }
+      ctIslandHint('Please choose an island.');
       return;
     }
 
@@ -17081,6 +17177,10 @@ var _photoPendingByIsland = {};
       phone: document.getElementById('ctPhone').value.trim(),
       organization: document.getElementById('ctOrg').value.trim(),
       location: document.getElementById('ctLocation').value.trim(),
+      island: _islandVal,
+      // How the island was decided, so a bad guess is traceable later. A staff
+      // member touching the dropdown counts as 'manual' and outranks the zip.
+      islandSource: window._ctIslandTouched ? 'manual' : 'zip',
       grantProgram: document.getElementById('ctGrant').value.trim(),
       notes: document.getElementById('ctNotes').value.trim(),
       // Demographics
@@ -40531,12 +40631,21 @@ window.cmsRenderSignupChart = function(rows) {
   var MAX_BARS = 12;  // per pane; the row scrolls sideways beyond that
   var all = rows || [];
 
+  // `plot` is what the bar HEIGHT represents, and it is always whatever the
+  // label above the bar says. A capacity session is labelled in people, so it
+  // must be drawn in people too — a bar of height 3 under a "10/80" label reads
+  // as a bug.
   var upcoming = all.filter(function(r) { return (r.up || 0) > 0; })
-                    .map(function(r) { return { title: r.title, etype: r.etype, count: r.up, attended: 0 }; })
-                    .sort(function(a, b) { return b.count - a.count; });
+                    .map(function(r) {
+                      var cap = r.cap || 0, heads = r.upHeads || 0;
+                      return { title: r.title, etype: r.etype, count: r.up, attended: 0,
+                               cap: cap, heads: heads, plot: cap > 0 ? heads : r.up };
+                    })
+                    .sort(function(a, b) { return b.plot - a.plot; });
   var past = all.filter(function(r) { return (r.past || 0) > 0; })
-                .map(function(r) { return { title: r.title, etype: r.etype, count: r.past, attended: r.pastAttended || 0 }; })
-                .sort(function(a, b) { return b.count - a.count; });
+                .map(function(r) { return { title: r.title, etype: r.etype, count: r.past,
+                                            attended: r.pastAttended || 0, plot: r.past }; })
+                .sort(function(a, b) { return b.plot - a.plot; });
 
   if (!upcoming.length && !past.length) {
     body.innerHTML = '<div class="cms-chart-empty">No signups recorded yet.</div>';
@@ -40551,9 +40660,12 @@ window.cmsRenderSignupChart = function(rows) {
 
   // ONE scale across both panes, so a bar on the left is directly comparable
   // to a bar on the right.
+  // Both panes are sorted by `plot`, so the first row of each is its tallest.
+  // The scale has to be built from plotted values or a seats bar can overflow
+  // the axis.
   var peak = Math.max(
-    upcoming.length ? upcoming[0].count : 0,
-    past.length ? past[0].count : 0, 1);
+    upcoming.length ? upcoming[0].plot : 0,
+    past.length ? past[0].plot : 0, 1);
   var step = peak <= 8 ? 2 : peak <= 20 ? 5 : peak <= 50 ? 10 : 25;
   var top = Math.ceil(peak / step) * step;
 
@@ -40591,14 +40703,20 @@ window.cmsRenderSignupChart = function(rows) {
     var bars = '', labels = '';
     shown.forEach(function(r) {
       var col = colorOf(r.etype);
-      var barPct = (r.count / top) * 100;
+      var barPct = ((r.plot == null ? r.count : r.plot) / top) * 100;
       var att = Math.min(r.attended || 0, r.count);
       // Attended is drawn INSIDE the signup bar, so the bar height still reads
       // as signups and the solid fill reads as turnout.
       var attPct = r.count ? (att / r.count) * 100 : 0;
-      var capLabel = showAttended ? (att + '/' + r.count) : String(r.count);
+      // Upcoming sessions with a capacity read as seats taken: PEOPLE against
+      // the limit, matching the event card's "10 / 80 seats" chip. Without a
+      // capacity the bar keeps showing signups, which is all we can say.
+      var _hasCap = !showAttended && r.cap > 0;
+      var capLabel = showAttended ? (att + '/' + r.count)
+                   : (_hasCap ? (r.heads + '/' + r.cap) : String(r.count));
       var tip = r.title + ' — ' + r.count + ' signup' + (r.count === 1 ? '' : 's') +
-                (showAttended ? ', ' + att + ' attended' : '');
+                (showAttended ? ', ' + att + ' attended' : '') +
+                (_hasCap ? ', ' + r.heads + ' of ' + r.cap + ' seats taken' : '');
       bars += '<div class="cms-chart-bar" title="' + rsEscape(tip) + '">' +
                 '<em>' + rsEscape(capLabel) + '</em>' +
                 '<u style="height:' + barPct + '%;background:' + col + (showAttended ? '33' : '') + ';">' +
@@ -40699,12 +40817,14 @@ window.cmsLoadCmsDashboard = async function() {
         var v = d.data() || {};
         sigPromises.push({ col: 'events', title: v.title || '(untitled)', etype: v.eventType || '',
                            evArchived: v.archived === true, eventDate: v.eventDate || '',
+                           maxCapacity: Number(v.maxCapacity) || 0,
                            snap: db.collection('events').doc(d.id).collection('signups').get() });
       });
       recDirect.forEach(function(d) {
         var v = d.data() || {};
         sigPromises.push({ col: 'recurringEvents', title: v.title || '(untitled)', etype: v.eventType || '',
                            evArchived: v.archived === true, eventDate: v.eventDate || '',
+                           maxCapacity: Number(v.maxCapacity) || 0,
                            snap: db.collection('recurringEvents').doc(d.id).collection('signups').get() });
       });
       var sigSnaps = await Promise.all(sigPromises.map(function(x) { return x.snap; }));
@@ -40727,11 +40847,16 @@ window.cmsLoadCmsDashboard = async function() {
           if (d.status !== 'cancelled') {
             var sess = Array.isArray(d.selectedDates) ? d.selectedDates.filter(Boolean) : [];
             if (col === 'events' && sess.length) {
+              // People, not signups: a Group booking contributes its groupSize.
+              // Same rule as the event card's seats chip and getEventCapacity
+              // server-side, so the chart and the card cannot disagree.
+              var _heads = (d.participationType === 'Group' ? (parseInt(d.groupSize, 10) || 1) : 1);
               sess.forEach(function(raw) {
-                var b = perSession[raw] || (perSession[raw] = { up: 0, past: 0, att: 0 });
+                var b = perSession[raw] || (perSession[raw] = { up: 0, past: 0, att: 0, upHeads: 0 });
+                if (b.upHeads == null) b.upHeads = 0;
                 var key = window._cmsSigDateKey ? window._cmsSigDateKey(String(raw)) : '';
                 if (!key) key = meta.eventDate || '';
-                if (!key || key >= _chartToday) { b.up++; }
+                if (!key || key >= _chartToday) { b.up++; b.upHeads += _heads; }
                 else {
                   b.past++;
                   // sessionAttendance is keyed by the exact session string, so
@@ -40772,7 +40897,10 @@ window.cmsLoadCmsDashboard = async function() {
           var b = perSession[raw];
           if (!b.up && !b.past) return;
           chartRows.push({ title: window._cmsSessionLabel(raw, meta.title),
-                           etype: meta.etype, up: b.up, past: b.past, pastAttended: b.att });
+                           etype: meta.etype, up: b.up, past: b.past, pastAttended: b.att,
+                           // Capacity is a PER-DATE limit, so it rides on the
+                           // session row, not the event.
+                           cap: meta.maxCapacity || 0, upHeads: b.upHeads || 0 });
         });
         if (upCount > 0 || pastCount > 0) {
           chartRows.push({ title: window._cmsStripEventTitle(meta.title), etype: meta.etype,
