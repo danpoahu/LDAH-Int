@@ -5227,7 +5227,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.84.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.85.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -33975,11 +33975,22 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   // derived from signups or the feedback survey. It is also where essentially
   // all of LDAH's audit and grant reporting comes from, which is why it now
   // announces itself instead of looking like one more read-only block.
+  // These numbers are stored per session. With no session picked there is
+  // nowhere correct to put them — a save here used to land on the event's flat
+  // summary field, which for a recurring programme nothing ever reads back.
+  // Say so and take the Save button away rather than accept work that vanishes.
+  var _esNeedsSession = (isRecurring || isOneTimeMulti) && !sessionDate;
+
   html += '<div class="es-staff">';
   html += '<div class="es-staff-banner">' +
             '<span class="es-staff-mark" aria-hidden="true">!</span>' +
-            '<span class="es-staff-copy"><strong>Staff input needed &mdash; everything below is filled in by you.</strong><br>' +
-            'These are the numbers our audit and grant reporting are built from. Nothing here can be worked out automatically, so if it is left blank, it is simply lost.</span>' +
+            (_esNeedsSession
+              ? '<span class="es-staff-copy"><strong>Pick a session date above before entering these numbers.</strong><br>' +
+                'They are recorded against one session, not the whole ' + (isRecurring ? 'programme' : 'event') +
+                ', so there is nowhere to file them while &ldquo;All ' + (isRecurring ? 'Sessions' : 'Dates') +
+                '&rdquo; is selected.</span>'
+              : '<span class="es-staff-copy"><strong>Staff input needed &mdash; everything below is filled in by you.</strong><br>' +
+                'These are the numbers our audit and grant reporting are built from. Nothing here can be worked out automatically, so if it is left blank, it is simply lost.</span>') +
           '</div>';
   html += '<div class="es-section-title">Staff Report (Pink Form)</div>';
   html += '<div class="es-form-grid">';
@@ -34100,7 +34111,11 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
 
   // Section D: Action Buttons
   html += '<div class="es-actions">';
-  html += '<button class="btn btn-primary" style="background:#059669;" onclick="cmsSaveEventSummary()">Save Summary</button>';
+  if (_esNeedsSession) {
+    html += '<button class="btn btn-primary" style="background:#94A3B8;cursor:not-allowed;" disabled title="Pick a session date first — these numbers are stored per session.">Save Summary</button>';
+  } else {
+    html += '<button class="btn btn-primary" style="background:#059669;" onclick="cmsSaveEventSummary()">Save Summary</button>';
+  }
   if (!isRecurring) {
     html += '<button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsSendNoShowReInvitesFromSummary()">Send No-Show Re-invites</button>';
   }
@@ -34341,6 +34356,16 @@ window.cmsSaveEventSummary = async function() {
   var signups = _cmsSignupsModalData.signups || [];
   var evDoc = _cmsEventSummaryData.eventDoc || {};
   var isOneTimeMulti = !isRecurring && Array.isArray(evDoc.signupDates) && evDoc.signupDates.length > 1;
+
+  // The render disables Save without a session, but a UI guard can drift and
+  // this write is unrecoverable: with no session the numbers land on the flat
+  // summary field, which for a recurring programme nothing reads back. Refuse
+  // rather than accept work that disappears.
+  if (!sessionDate && (isRecurring || isOneTimeMulti)) {
+    _showToast('Pick a session date first — these numbers are stored per session.', '#DC2626');
+    return;
+  }
+
   var filteredSignups = signups;
   if (sessionDate && (isRecurring || isOneTimeMulti)) {
     filteredSignups = signups.filter(function(s) {
