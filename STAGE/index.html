@@ -5243,7 +5243,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.88.1-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.89.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -28489,17 +28489,42 @@ window.edRender = async function() {
   }
 };
 
+// The calendar date a sessionSummaries key refers to, whatever shape it is in.
+// One session has been written under at least three: the verbatim signupDates
+// label ("July 8th, 5pm - A-B-C's of Advocacy"), an earlier synthesised
+// rawString ("July 8, 2026 - 5:00 PM"), and a bare dateKey ("2026-07-22").
+function _cmsSummaryKeyDate(key) {
+  var s = String(key || '');
+  var iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  return (typeof window._cmsSigDateKey === 'function') ? window._cmsSigDateKey(s) : '';
+}
+
 // sessionSummaries lookup tolerant of legacy bare-date entries. The dropdown
 // now feeds composite keys; pre-migration summaries are still keyed by the
 // raw "YYYY-MM-DD" prefix, so try that before giving up.
 function cmsLookupSessionSummary(eventDoc, sessionKey) {
   if (!eventDoc || !eventDoc.sessionSummaries || !sessionKey) return null;
-  if (eventDoc.sessionSummaries[sessionKey]) return eventDoc.sessionSummaries[sessionKey];
+  var ss = eventDoc.sessionSummaries;
+  if (ss[sessionKey]) return ss[sessionKey];
   var bareDate = String(sessionKey).split('|')[0];
-  if (bareDate && bareDate !== sessionKey && eventDoc.sessionSummaries[bareDate]) {
-    return eventDoc.sessionSummaries[bareDate];
-  }
-  return null;
+  if (bareDate && bareDate !== sessionKey && ss[bareDate]) return ss[bareDate];
+
+  // Last resort: match on the date the key resolves to, so a presenter saved
+  // under an older key shape still shows instead of reading as unassigned.
+  //
+  // Composite keys are excluded on BOTH sides. A recurring program runs two
+  // sessions on the same date (Oahu plus Hilo or Kona), so date alone cannot
+  // identify one of them — for those the exact key is the only safe answer.
+  if (String(sessionKey).indexOf('|') !== -1) return null;
+  var want = _cmsSummaryKeyDate(sessionKey);
+  if (!want) return null;
+  var hits = Object.keys(ss).filter(function(k) {
+    return String(k).indexOf('|') === -1 && _cmsSummaryKeyDate(k) === want;
+  });
+  // Two entries for one date is ambiguous; showing the wrong presenter is
+  // worse than showing none.
+  return hits.length === 1 ? ss[hits[0]] : null;
 }
 
 window.cmsAddRecurringScheduleRow = function(sch) {
