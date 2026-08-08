@@ -5227,7 +5227,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.82.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.83.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -33432,15 +33432,56 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   // from the last 14 days (no future sessions; feedback/attendance only
   // makes sense for sessions that have already happened).
   if (isRecurring && d.programDoc) {
-    var pastSessions = _cmsGenerateSessionDatesPast(d.programDoc.schedules, d.programDoc.cancelledDates, 14, true);
+    // Learning Labs list every session, upcoming included, and staff rely on that
+    // to check a presenter before the day. Recurring programs were capped to the
+    // past fortnight, so an assigned presenter could not be confirmed here at all.
+    // Same panel, so same rule: recent past, everything upcoming, and any older
+    // session still owed a summary.
+    //
+    // Safe for future dates because this panel writes totals, presenter and
+    // materials — never per-person sessionAttendance. The unchecked-means-no-show
+    // hazard belongs to Take Attendance, which keeps its own past-only guard.
+    var recentSessions   = _cmsGenerateSessionDatesPast(d.programDoc.schedules, d.programDoc.cancelledDates, 7, true);
+    var upcomingSessions = cmsGenerateSessionDates(d.programDoc.schedules, d.programDoc.cancelledDates, 30);
+    var olderSessions    = _cmsGenerateSessionDatesPast(d.programDoc.schedules, d.programDoc.cancelledDates, 90, true);
+
+    var _esToday = new Date(); _esToday.setHours(0, 0, 0, 0);
+    var _esKey = function(dt) {
+      return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    };
+    var _esTodayKey = _esKey(_esToday);
+    var _esCutoff = new Date(_esToday); _esCutoff.setDate(_esCutoff.getDate() - 7);
+    var _esCutoffKey = _esKey(_esCutoff);
+
+    // Signups per session key, so "still owed a summary" means a session that
+    // actually had people in it. A sessionSummaries entry is NOT evidence of
+    // work started — assigning a presenter creates one holding just a name.
+    var _esSignupCount = {};
+    signups.forEach(function(s) {
+      if (!s || s.archived === true) return;
+      var picked = (Array.isArray(s.selectedSessions) && s.selectedSessions.length)
+        ? s.selectedSessions
+        : (Array.isArray(s.selectedDates) ? s.selectedDates : []);
+      picked.forEach(function(k) { _esSignupCount[k] = (_esSignupCount[k] || 0) + 1; });
+    });
+
+    var outstandingSessions = olderSessions.filter(function(s) {
+      if (s.cancelled || s.date >= _esCutoffKey) return false;   // recent ones are already listed
+      var k = cmsBuildSessionKey(s);
+      var sum = cmsLookupSessionSummary(eventDoc, k);
+      if (sum && sum.completedAt) return false;
+      return (_esSignupCount[k] || 0) > 0;
+    });
+
     var seen = {};
-    var combinedSessions = pastSessions.filter(function(s) {
+    var combinedSessions = recentSessions.concat(upcomingSessions).concat(outstandingSessions).filter(function(s) {
+      if (s.cancelled) return false;
       if (seen[s.date + '|' + s.location]) return false;
       seen[s.date + '|' + s.location] = true;
-      return !s.cancelled;
+      return true;
     });
-    // Newest session first in the dropdown
-    combinedSessions.reverse();
+    // Furthest ahead first, so the next session to run is near the top.
+    combinedSessions.sort(function(a, b) { return b.date.localeCompare(a.date); });
 
     html += '<div style="margin-bottom:14px;">';
     html += '<label style="font-size:.82rem;font-weight:600;color:#475569;margin-right:8px;">Session Date:</label>';
@@ -33449,6 +33490,8 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     combinedSessions.forEach(function(sess) {
       var sessKey = cmsBuildSessionKey(sess);
       var lbl = sess.date + (sess.location ? ' @ ' + sess.location : '') + (sess.venue ? ' (' + sess.venue + ')' : '');
+      if (sess.date > _esTodayKey) lbl += ' — upcoming';
+      else if (sess.date < _esCutoffKey) lbl += ' — not completed';
       html += '<option value="' + rsEscape(sessKey) + '"' + (sessionDate === sessKey ? ' selected' : '') + '>' + rsEscape(lbl) + '</option>';
     });
     html += '</select></div>';
@@ -34061,7 +34104,6 @@ function _cmsGenerateSessionDatesPast(schedules, cancelledDates, days, includeTo
   // dropdown. Other call sites concat past + future (which already includes
   // today), so they keep includeToday=false to avoid duplicate today rows.
   var cutoff = includeToday ? new Date(today.getTime() + 24 * 60 * 60 * 1000) : today;
-  var cancelled = (cancelledDates || []).reduce(function(m, cd) { m[cd.date] = cd.reason || true; return m; }, {});
   (schedules || []).forEach(function(sch) {
     var d = new Date(start);
     while (d < cutoff) {
@@ -34074,10 +34116,16 @@ function _cmsGenerateSessionDatesPast(schedules, cancelledDates, days, includeTo
       }
       if (dominated) {
         var iso = d.toISOString().split('T')[0];
+        var location = sch.location || '';
+        var venue = sch.venue || '';
+        // Match on location as well as date, via the same helper the forward
+        // generator uses. Two sessions share a 2nd/3rd Thursday (Oahu plus Hilo
+        // or Kona); keying on the date alone made cancelling one cancel both.
+        var cancelMatch = _cmsIsSessionCancelled(iso, location, venue, cancelledDates);
         sessions.push({
-          date: iso, dayName: _CMS_DAY_NAMES[dow], location: sch.location || '',
-          venue: sch.venue || '', startTime: sch.startTime || '', endTime: sch.endTime || '',
-          cancelled: !!cancelled[iso], cancelReason: cancelled[iso] === true ? '' : (cancelled[iso] || '')
+          date: iso, dayName: _CMS_DAY_NAMES[dow], location: location,
+          venue: venue, startTime: sch.startTime || '', endTime: sch.endTime || '',
+          cancelled: !!cancelMatch, cancelReason: cancelMatch === true ? '' : (cancelMatch || '')
         });
       }
       d.setDate(d.getDate() + 1);
