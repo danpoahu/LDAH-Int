@@ -1,7 +1,7 @@
 # CMS Event Summary: tighten the past-session window
 
 **Date:** 2026-08-08
-**Status:** awaiting review
+**Status:** SHIPPED v145.83.0 / v146.88.0-STAGE, commit 33f2cfc
 **Surface:** `LDAH-Internal/index.html` — CMS → Events & Programs → Event Summary (recurring programs only)
 
 ## Why
@@ -34,8 +34,18 @@ yet a safe fallback entry point. Out of scope here; logged below.
 
 The recurring dropdown (`index.html:33434`) lists:
 
-1. every non-cancelled session in the **last 7 days** (down from 14), plus
-2. any **outstanding** older session, so unfinished work is never stranded.
+1. every non-cancelled session in the **last 7 days** (down from 14),
+2. everything **within 30 days ahead**, and
+3. any **outstanding** older session, so unfinished work is never stranded.
+
+**Revised 2026-08-08 after review.** The original draft dropped past sessions
+only. Daniel pointed out that Learning Labs already list upcoming sessions in
+this same panel, so a presenter assigned to a recurring session could be stored
+correctly and still be unconfirmable anywhere in CMS. Two rules in one panel was
+the actual defect. Upcoming dates are safe here: this panel writes totals,
+presenter and materials, never per-person `sessionAttendance` — the
+unchecked-means-no-show hazard belongs to Take Attendance, which keeps its own
+past-only guard.
 
 **Outstanding** = a session that is
 - within the last 90 days,
@@ -88,9 +98,10 @@ cancelling one hides the other. Already happened three times — 2026-05-14,
 2026-07-09 and 2026-07-16 each cancelled a neighbour-island session and took
 Oahu with it.
 
-Fix: match on date **and** location when the cancellation names a location; fall
-back to whole-date when it does not, so the older location-less entries
-(2026-04-02, 2026-04-06) keep working.
+Fix as shipped: reuse `_cmsIsSessionCancelled(iso, location, venue, ...)` — the
+location-aware helper the **forward** generator already used. The past generator
+was simply not calling it. Location-less legacy entries still cancel the whole
+day, because that helper already handles them.
 
 Impact to date is near nil — Jul 9 and Jul 16 had no signups; May 14 had three
 signups and one record. Worth fixing because a tighter window makes the
