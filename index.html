@@ -5227,7 +5227,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.80.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.81.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17556,8 +17556,45 @@ var _photoPendingByIsland = {};
     if (!ctx.emails.length) { box.innerHTML = '<div style="color:#94A3B8;font-size:.85rem;">No email on file for this contact.</div>'; return; }
     box.innerHTML = '<div style="color:#64748B;font-size:.85rem;">Loading\u2026</div>';
     try {
+      // Two passes, because `to` is stored as the person TYPED it while the
+      // contact stores it lowercased. Jamy Nakanishi signed up as
+      // "JaydenMami12@yahoo.com"; her contact holds "jaydenmami12@yahoo.com",
+      // so an exact match found nothing and her worksheet email looked like it
+      // was never sent. 9% of the log is affected, staff addresses most of all
+      // (LSalvani@, LKailiawa@). Firestore has no case-insensitive matching, so:
+      //   pass 1 — exact address match, as before
+      //   pass 2 — same recipientName, then keep only rows whose address
+      //            matches once BOTH sides are lowercased
+      // The re-check in pass 2 matters: two contacts can share a name, and
+      // without it one family's email could be shown on another's card.
+      var _rowsById = {};
       var snap = await db.collection('emailLog').where('to', 'in', ctx.emails).orderBy('sentAt', 'desc').limit(50).get();
-      var rows = []; snap.forEach(function(d){ rows.push(Object.assign({ _id: d.id }, d.data())); });
+      snap.forEach(function(d){ _rowsById[d.id] = Object.assign({ _id: d.id }, d.data()); });
+
+      if (ctx.name) {
+        try {
+          var _want = {};
+          ctx.emails.forEach(function(e){ _want[String(e).toLowerCase()] = 1; });
+          // No orderBy here on purpose — pairing it with the equality filter
+          // would need a composite index that does not exist. Sorted below.
+          var snap2 = await db.collection('emailLog').where('recipientName', '==', ctx.name).limit(50).get();
+          snap2.forEach(function(d){
+            if (_rowsById[d.id]) return;
+            var v = d.data() || {};
+            var addrs = Array.isArray(v.to) ? v.to : [v.to];
+            var hit = addrs.some(function(a){ return typeof a === 'string' && _want[a.toLowerCase()]; });
+            if (hit) _rowsById[d.id] = Object.assign({ _id: d.id }, v);
+          });
+        } catch (e2) { console.warn('email lookup by name failed:', e2.message); }
+      }
+
+      var rows = Object.keys(_rowsById).map(function(k){ return _rowsById[k]; });
+      rows.sort(function(a, b){
+        var ta = (a.sentAt && a.sentAt.toMillis) ? a.sentAt.toMillis() : 0;
+        var tb = (b.sentAt && b.sentAt.toMillis) ? b.sentAt.toMillis() : 0;
+        return tb - ta;
+      });
+      rows = rows.slice(0, 50);
       ctx.docs = rows;
       if (!rows.length) { box.innerHTML = '<div style="color:#94A3B8;font-size:.85rem;">No system emails found for ' + rsEscape(ctx.emails.join(', ')) + '.</div>'; return; }
       box.innerHTML = rows.map(function(r, i){
@@ -18073,7 +18110,10 @@ var _photoPendingByIsland = {};
       // Emails chevron — collapsible; lazy-loads this contact's system emails.
       var _ctRaw = (c.email || '').split(/[;,]/).map(function(s){ return s.trim(); }).filter(Boolean);
       var _ctSet = {}; _ctRaw.forEach(function(e){ _ctSet[e] = 1; _ctSet[e.toLowerCase()] = 1; });
-      window._ctEmailsCtx = { contactId: contactId, emails: Object.keys(_ctSet).slice(0, 10), loaded: false, docs: [] };
+      // The display name is carried so the lookup can also find emails logged
+      // under a different CAPITALISATION of the same address — see ctLoadEmails.
+      window._ctEmailsCtx = { contactId: contactId, emails: Object.keys(_ctSet).slice(0, 10),
+                              name: (c.displayName || '').trim(), loaded: false, docs: [] };
       body.insertAdjacentHTML('beforeend',
         '<div style="margin:14px 20px 10px;border-top:1px solid #e2e8f0;padding-top:12px;">' +
           '<div style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;color:#0891B2;user-select:none;" onclick="ctToggleEmails()">' +
