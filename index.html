@@ -5227,7 +5227,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.85.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.86.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -33722,6 +33722,20 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
 
   html += '<div class="es-section-title" style="margin-top:14px;">Attendance Totals <span style="font-size:.74rem;font-weight:500;color:var(--text-soft);">(matches pink sheet)</span></div>';
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.88rem;background:#FFF7FA;border:1px solid #FCE7F3;border-radius:8px;overflow:hidden;">';
+  /* Row 0 — Dissemination Reach. Its own pink-sheet column, sitting immediately
+     BEFORE Head Count in the OSEP export, and deliberately NOT part of the
+     attendance maths: reach is how many people a post or a table reached, not
+     how many attended. The export has always had this column and the historical
+     pink-sheet import filled it (80 events, incl. "Facebook Analytics" 9,499),
+     but nothing in this dashboard ever wrote it — so every event created since
+     has exported a blank. That is the gap this row closes. */
+  var _dissemReachVal = (typeof summary.dissemReach === 'number') ? summary.dissemReach : '';
+  var _dissemSrcVal = summary.dissemReachSource || '';
+  html += '<tr style="background:#FFFBEB;"><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;width:55%;">Dissemination Reach'
+    + '<div style="font-weight:400;font-size:.72rem;color:var(--text-soft);line-height:1.4;margin-top:2px;">People reached, not attendees &mdash; e.g. Facebook views, booth traffic. Reported separately; never added to Attendance.</div></td>';
+  html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;white-space:nowrap;">'
+    + '<input type="text" id="esDissemReachSource" placeholder="source, e.g. FB views" value="' + rsEscape(_dissemSrcVal) + '" style="width:150px;padding:4px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;margin-right:6px;">'
+    + '<input type="number" id="esDissemReach" min="0" value="' + _dissemReachVal + '" style="' + _numStyle + '"></td></tr>';
   // Row 1 — Attendance Total (editable; auto = signups attended + walk-ins)
   html += '<tr><td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;font-weight:600;color:#475569;width:55%;">Attendance Total</td>';
   html += '<td style="padding:8px 12px;border-bottom:1px solid #FBCFE8;text-align:right;"><input type="number" id="esAttTotal" min="0" value="' + _rTot.value + '" data-auto="' + attTotalAuto2 + '" style="' + _numStyle + '">' + _attHintR('esAttTotal', attTotalAuto2, _rTot) + '</td></tr>';
@@ -34333,6 +34347,14 @@ window.cmsSaveEventSummary = async function() {
   var _matSlugFn = (window.LDAHFormat && LDAHFormat.materialSlug) ? LDAHFormat.materialSlug : function(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); };
   var _matKeys = (Array.isArray(_lookupLists.materials) ? _lookupLists.materials : []).map(_matSlugFn).filter(Boolean);
   var newMaterialsPacked = {};
+  /* Dissemination Reach. Blank must stay null, not 0 — the export prints an
+     empty cell for "no figure recorded" and a real 0 would be a claim. */
+  var _drEl = document.getElementById('esDissemReach');
+  var _drRaw = _drEl ? String(_drEl.value).trim() : '';
+  var _newDissemReach = _drRaw === '' ? null : (parseInt(_drRaw, 10) || 0);
+  var _drsEl = document.getElementById('esDissemReachSource');
+  var _newDissemReachSource = _drsEl ? String(_drsEl.value).trim().slice(0, 80) : '';
+
   var newMaterialsDisseminated = {};
   _matKeys.forEach(function(k) {
     var pEl = document.getElementById('esMatPacked_' + k);
@@ -34507,6 +34529,17 @@ window.cmsSaveEventSummary = async function() {
     attendanceMilitaryActiveDuty: attendanceMilitaryActiveDuty,
     // Intentional overrides only (rows otherwise track live auto). Display reads this.
     attendanceOverrides: attendanceOverrides,
+    // Dissemination Reach — its own OSEP column, never folded into Head Count.
+    // Blank stays null rather than 0 so the export prints an empty cell for the
+    // vast majority of events that have no reach figure, exactly as before.
+    dissemReach: _newDissemReach,
+    dissemReachSource: _newDissemReachSource,
+    // NOTE: activityType (which drives the export's DISSEM/NETNEW Disposition)
+    // is deliberately NOT derived from reach. Historical data has real events
+    // carrying big reach numbers — Kauai TMC 13,845, a baby shower 674 — so
+    // "has reach" does not mean "is a dissemination activity". Preserved as-is
+    // until it gets a control of its own.
+    activityType: (oldSummary && oldSummary.activityType) || '',
     // Walk-ins (counted toward Attendance Total; contacts logged above).
     manualAttendees: _manualToStore,
     // Official resolved headcount = signups attended + walk-ins, or the typed override.
@@ -42578,6 +42611,9 @@ window.cmsBuildStaffActivityReport = async function() {
       presenter: presenter,
       tier: tier,
       totalAttended: totalAttended,
+      // Dissemination Reach — carried through for the card pill and the export.
+      // Kept separate from totalAttended by design; it is a different measure.
+      dissemReach: (summary && typeof summary.dissemReach === 'number') ? summary.dissemReach : null,
       evaluationCount: evalCount,
       newParentCount: newParentLiveCount,
       // Additional pink-sheet Attendance Totals auto-counts (v122.4.0)
@@ -42792,6 +42828,12 @@ window.cmsBuildStaffActivityReport = async function() {
     }
     html += '<div class="ea-card-pills" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">';
     html += '<span class="ea-pill">Attended: ' + (r.totalAttended || 0) + '</span>';
+    /* Reach sits beside attendance, never inside it, and only appears when a
+       figure was actually recorded — so the hundreds of events without one look
+       exactly as they did before. */
+    if (r.dissemReach != null && r.dissemReach !== '') {
+      html += '<span class="ea-pill" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A;" title="People reached (not attendees) — reported in its own OSEP column">Reach: ' + r.dissemReach + '</span>';
+    }
     html += '<span class="ea-pill">Evals: ' + (r.evaluationCount == null ? 0 : r.evaluationCount) + '</span>';
     html += '<span class="ea-pill">' + (r.tier ? _esc(r.tier) : 'Tier —') + '</span>';
     html += '</div>';
