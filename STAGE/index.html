@@ -5272,7 +5272,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5613,11 +5613,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                reached the payment step and stopped; they may still have paid by
                another route, so staff check PayPal before either button. */
             window.myDayMembershipPaid = async function(memberId, interactionId){
-              // Super Admin only, matching the Membership Report. Marking paid
-              // grants portal access and emails the member.
-              if(!(window.currentUserData && window.currentUserData.role === 'superAdmin')){
-                alert('Only a Super Admin can mark a membership paid.'); return; }
-              if(!confirm('Mark this membership PAID?\n\nOnly do this if you have SEEN the payment in PayPal.\n\nThis sends them the thank-you email with their member-portal login, and activates their membership.')) return;
+              if(!window._paidRequireSuperAdmin()) return;
+              if(!window._confirmReallyPaid('This membership will be marked PAID.')) return;
               try{
                 var now = firebase.firestore.FieldValue.serverTimestamp();
                 var snap = await db.collection('members').doc(memberId).get();
@@ -17590,9 +17587,32 @@ var _photoPendingByIsland = {};
   // Manually mark a membership PAID (clears the "pending" pill). Updates the
   // contact + any linked pending records in the members collection. Admin action;
   // interim until PayPal Smart Buttons/webhook auto-confirm payment.
+  /* ── Marking a membership paid: one gate, one question, every route ────────
+     Marking paid is not a status tidy-up. It emails the member a thank-you,
+     opens their member-portal login, and activates the membership — and there
+     is no undo. There are five ways to reach it (contact card, report row,
+     Mark all paid, PayPal-matched batch, My Day task), so both the permission
+     check and the question live in one place rather than being re-typed and
+     drifting apart. Defined on window so call order across script blocks does
+     not matter. */
+  window._paidRequireSuperAdmin = function() {
+    var ok = !!(window.currentUserData && window.currentUserData.role === 'superAdmin');
+    if (!ok) alert('Only a Super Admin can mark a membership paid.');
+    return ok;
+  };
+  window._confirmReallyPaid = function(what) {
+    return confirm(
+      'Are you sure they paid?\n\n' +
+      what + '\n\n' +
+      'Only continue if you have SEEN the payment in PayPal.\n\n' +
+      'This sends a thank-you email, opens their member portal, and cannot be undone.'
+    );
+  };
+
   window.markMembershipPaid = async function(contactId) {
     if (!contactId) return;
-    if (!confirm('Mark this membership as PAID? This clears the "pending" status.')) return;
+    if (!window._paidRequireSuperAdmin()) return;
+    if (!window._confirmReallyPaid('This membership will be marked PAID.')) return;
     var btn = document.getElementById('ctDetailMarkPaidBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     try {
@@ -45522,6 +45542,10 @@ window.cmsBuildMembershipReport = async function() {
     r.status = 'paid';
   }
   window.mrMarkPaid = async function(memberId) {
+    if (!window._paidRequireSuperAdmin()) return;
+    var _row = (_mrMembers || []).filter(function(r) { return r._id === memberId; })[0] || {};
+    if (!window._confirmReallyPaid((_row.name || 'This member') +
+        (_row.amount ? ' — $' + _row.amount : '') + ' will be marked PAID.')) return;
     try { await _mrMarkOnePaid(memberId); _mrRender(); if (typeof _showToast === 'function') _showToast('Marked paid.', '#16A34A'); }
     catch (e) { alert('Could not mark paid: ' + e.message); }
   };
@@ -45615,7 +45639,8 @@ window.cmsBuildMembershipReport = async function() {
   window.mrMarkAllPending = async function() {
     var pend = _mrMembers.filter(function(r) { return r.status !== 'paid'; });
     if (!pend.length) return;
-    if (!confirm('Mark all ' + pend.length + ' pending memberships as PAID?')) return;
+    if (!window._paidRequireSuperAdmin()) return;
+    if (!window._confirmReallyPaid('ALL ' + pend.length + ' pending membership(s) will be marked PAID.')) return;
     try { for (var i = 0; i < pend.length; i++) { await _mrMarkOnePaid(pend[i]._id); } _mrRender(); if (typeof _showToast === 'function') _showToast(pend.length + ' marked paid.', '#16A34A'); }
     catch (e) { alert('Error: ' + e.message); }
   };
@@ -45648,7 +45673,8 @@ window.cmsBuildMembershipReport = async function() {
   };
   window.mrMarkConfirmedPaid = async function() {
     var ids = window._mrConfirmedIds || []; if (!ids.length) return;
-    if (!confirm('Mark ' + ids.length + ' PayPal-matched memberships as PAID?')) return;
+    if (!window._paidRequireSuperAdmin()) return;
+    if (!window._confirmReallyPaid(ids.length + ' PayPal-matched membership(s) will be marked PAID.')) return;
     try { for (var i = 0; i < ids.length; i++) { await _mrMarkOnePaid(ids[i]); } _mrRender(); if (typeof _showToast === 'function') _showToast(ids.length + ' marked paid from PayPal.', '#16A34A'); }
     catch (e) { alert('Error: ' + e.message); }
   };
