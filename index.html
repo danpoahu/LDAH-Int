@@ -5247,7 +5247,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.90.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.91.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5656,6 +5656,31 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 if(typeof closeIxView==='function') closeIxView();
                 if(typeof loadContacts==='function') loadContacts(true);
               }catch(e){ alert('Could not save that: '+e.message); }
+            };
+            /* Resend the Connect-Gen consent form. Deliberately NOT capped by any
+               reminder limit — a human clicking has already decided — but it does
+               stamp consentRequiredEmailSentAt, so the readiness panel shows when
+               we last asked and any future automatic chaser counts from the same
+               field. The function refuses outright if they have already signed. */
+            window.cmsResendCgConsent = async function(btn, collection, eventId, signupId){
+              if(!eventId||!signupId){ alert('Missing event or signup id.'); return; }
+              if(!confirm('Resend the consent form to this family?\n\nThey will get the same "Action needed - consent form" email with a working link.')) return;
+              var old = btn ? btn.textContent : '';
+              if(btn){ btn.disabled = true; btn.textContent = 'Sending...'; }
+              try{
+                var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/resendCgConsentRequest',{
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ collection: collection, eventId: eventId, signupId: signupId,
+                    requestedBy: (window.currentUserData && window.currentUserData.displayName) || 'staff' })});
+                var j = {}; try{ j = await resp.json(); }catch(e){}
+                if(!resp.ok) throw new Error(j.error || ('HTTP ' + resp.status));
+                auditLog('Resent Connect-Gen consent form', (j.sentTo && j.sentTo.join(', ')) || signupId);
+                if(typeof _showToast==='function') _showToast('Consent form sent to ' + ((j.sentTo && j.sentTo[0]) || 'the family') + '.', '#16A34A');
+                if(btn){ btn.textContent = 'Sent'; }
+              }catch(e){
+                alert('Could not send it: ' + e.message);
+                if(btn){ btn.disabled = false; btn.textContent = old; }
+              }
             };
             window.myDayMembershipRemind = async function(memberId, interactionId){
               if(!confirm('Send the "you are one step away" reminder?\n\nOnly do this if you have checked PayPal and there is NO payment.\n\nThey get a link back to their own checkout with their details already filled in. Nothing is charged.')) return;
@@ -17393,7 +17418,17 @@ var _photoPendingByIsland = {};
             '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:' +
               (_wsDone ? '#0891B2' : '#94A3B8') + ';color:#fff;border:none;font-weight:600;" ' +
               'onclick="cmsCgWsOpen(' + _jsArg('recurringEvents') + ',' + _jsArg(cg.eventId) + ',' + _jsArg(cg.signupId) + ')">' +
-              rsEscape(_wsLabel) + '</button>' + _cgPill + '</div>';
+              rsEscape(_wsLabel) + '</button>' + _cgPill +
+            /* Resend the consent form from the contact card. The advocate works
+               from the person, not the event, so a button that only exists on
+               the signup sheet does not get used — the same reasoning that put
+               the worksheet button here. Only rendered while consent is
+               genuinely outstanding. */
+            ((!s.consentSignedAt && s.email)
+              ? '<button class="btn" style="font-size:.82rem;padding:6px 14px;background:#E0F2FE;color:#0C4A6E;border:1px solid #0891B2;border-radius:8px;font-weight:600;cursor:pointer;" ' +
+                'onclick="cmsResendCgConsent(this,' + _jsArg('recurringEvents') + ',' + _jsArg(cg.eventId) + ',' + _jsArg(cg.signupId) + ')">Resend Consent Form</button>'
+              : '') +
+            '</div>';
         }
       }
 
@@ -28897,10 +28932,21 @@ function cmsRegAdminNote(s) {
           if (_askedField.toDate) _asked = _askedField.toDate().toLocaleDateString();
           else if (_askedField.seconds) _asked = new Date(_askedField.seconds * 1000).toLocaleDateString();
         }
+        /* Resend the consent form. Until now the only manual resend was for the
+           worksheet, so re-asking for consent meant a one-off script — which is
+           what happened when a family was moved Thu->Mon and again when a move
+           email told a parent "no action needed" while consent was outstanding.
+           Only rendered while consent is actually outstanding. */
+        var _cgConsentBtn = '';
+        if ((_rd.outstanding || []).indexOf('consent') > -1 && s.email) {
+          _cgConsentBtn = '<button onclick="cmsResendCgConsent(this,\'' + rsEscape(s._collection || '') + '\',\'' + rsEscape(s._eventId || '') + '\',\'' + rsEscape(s.id) + '\')" '
+            + 'style="margin-left:10px;padding:4px 12px;border:1px solid #0891B2;background:#E0F2FE;color:#0C4A6E;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Resend Consent Form</button>';
+        }
         h += '<div style="background:#EFF6FF;border-left:4px solid #0891B2;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#0C4A6E;margin-top:8px;">'
           + 'Registration complete &mdash; awaiting ' + rsEscape(_phrase)
           + (_asked ? ' (requested ' + rsEscape(_asked) + ')' : '')
-          + '. Status will flip to Confirmed once ' + (_parts.length > 1 ? 'these are' : 'this is') + ' received.</div>';
+          + '. Status will flip to Confirmed once ' + (_parts.length > 1 ? 'these are' : 'this is') + ' received.'
+          + _cgConsentBtn + '</div>';
         return h;
       }
     }
