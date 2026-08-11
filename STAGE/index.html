@@ -5272,7 +5272,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.6-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.7-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6680,6 +6680,15 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <span class="profile-save-msg" id="profileSaveMsg"></span>
             </div>
 
+          </div>
+        </div>
+
+        <!-- Training history -->
+        <div class="profile-card collapsed" style="margin-top:20px;">
+          <div class="profile-card-header collapsible" onclick="this.parentElement.classList.toggle('collapsed');if(window.tsRenderHistory)tsRenderHistory();">What&rsquo;s New &mdash; training</div>
+          <div class="profile-card-body">
+            <div style="font-size:.85rem;color:var(--text-soft);margin-bottom:10px;">Short walkthroughs of new features. Anything you skip comes back next time you sign in.</div>
+            <div id="tsHistoryBody"><div style="color:var(--text-soft);font-size:.88rem;">Loading&hellip;</div></div>
           </div>
         </div>
 
@@ -12721,6 +12730,7 @@ var _photoPendingByIsland = {};
             alertSubs: roleDoc.data().alertSubs || {}
           };
           _setupSystemAlertBanner();
+          setTimeout(function(){ if (window.tsMaybeShow) tsMaybeShow(); }, 1200);
           // Real-time listener: keep currentUserData in sync with Firestore changes
           _userRolesUnsubscribe = db.collection('userRoles').doc(user.uid).onSnapshot(function(snap) {
             if (!snap.exists || !currentUserData) return;
@@ -39708,6 +39718,110 @@ window.pe2ShowSaved = function() {
 };
 
 // ── Audit Log ──
+/* ── Weekly training splash ──────────────────────────────────────────────────
+   Shows the newest published session a person has not completed, once per login.
+   Skip always works: this lands on someone who may be mid-call with a family,
+   and a modal you cannot dismiss is one people learn to resent. The skip is
+   recorded and the session returns next login, so persistence does the work
+   rather than coercion. Progress lives on the person's own userRoles doc — they
+   may update it, the rules only forbid changing their own role. */
+var _tsSession = null, _tsIdx = 0, _tsProgress = {};
+
+window.tsMaybeShow = async function() {
+  try {
+    if (!window.currentUserData || !currentUserData.uid) return;
+    var meSnap = await db.collection('userRoles').doc(currentUserData.uid).get();
+    _tsProgress = (meSnap.exists && (meSnap.data() || {}).trainingProgress) || {};
+    var snap = await db.collection('trainingSessions').where('active', '==', true).get();
+    var list = [];
+    snap.forEach(function(d) { list.push(Object.assign({ _id: d.id }, d.data() || {})); });
+    list.sort(function(a, b) { return String(b.publishedAt || '').localeCompare(String(a.publishedAt || '')); });
+    var next = list.filter(function(x) {
+      var pr = _tsProgress[x._id];
+      return !(pr && pr.status === 'completed');
+    })[0];
+    if (!next || !Array.isArray(next.slides) || !next.slides.length) return;
+    _tsSession = next; _tsIdx = 0;
+    document.getElementById('tsTitle').textContent = next.title || 'New this week';
+    _tsRender();
+    document.getElementById('tsSplash').style.display = 'flex';
+  } catch (e) { console.warn('training splash:', e && e.message); }
+};
+
+function _tsRender() {
+  var sl = _tsSession.slides[_tsIdx] || {};
+  document.getElementById('tsSlideTitle').textContent = sl.title || '';
+  document.getElementById('tsSlideBody').textContent = sl.body || '';
+  var tip = document.getElementById('tsSlideTip');
+  if (sl.tip) { tip.textContent = sl.tip; tip.style.display = 'block'; } else { tip.style.display = 'none'; }
+  document.getElementById('tsDots').innerHTML = _tsSession.slides.map(function(_, i) {
+    return '<span style="width:7px;height:7px;border-radius:50%;background:' +
+      (i === _tsIdx ? '#0891B2' : '#CBD5E1') + ';display:inline-block;"></span>';
+  }).join('');
+  document.getElementById('tsBackBtn').style.display = _tsIdx > 0 ? 'inline-block' : 'none';
+  var last = _tsIdx >= _tsSession.slides.length - 1;
+  document.getElementById('tsNextBtn').textContent = last ? 'Done' : (_tsIdx === 0 ? 'Start' : 'Next');
+}
+
+window.tsPrev = function() { if (_tsIdx > 0) { _tsIdx--; _tsRender(); } };
+window.tsNext = async function() {
+  if (_tsIdx < _tsSession.slides.length - 1) { _tsIdx++; _tsRender(); return; }
+  await _tsWrite('completed');
+  _tsClose();
+  if (typeof _showToast === 'function') _showToast('Nice — that one is marked as watched.', '#16A34A');
+};
+window.tsSkip = async function() { await _tsWrite('skipped'); _tsClose(); };
+function _tsClose() { var el = document.getElementById('tsSplash'); if (el) el.style.display = 'none'; }
+
+/* Skips accumulate rather than overwrite: "skipped four times" is the signal
+   worth keeping, not merely the last thing they did. */
+async function _tsWrite(status) {
+  try {
+    var uid = window.currentUserData && currentUserData.uid;
+    if (!uid || !_tsSession) return;
+    var prev = _tsProgress[_tsSession._id] || {};
+    var entry = { status: status, title: _tsSession.title || '', at: new Date().toISOString(),
+                  skips: (prev.skips || 0) + (status === 'skipped' ? 1 : 0) };
+    var patch = {}; patch['trainingProgress.' + _tsSession._id] = entry;
+    await db.collection('userRoles').doc(uid).update(patch);
+    _tsProgress[_tsSession._id] = entry;
+  } catch (e) { console.warn('training progress write:', e && e.message); }
+}
+
+/* Profile panel. Showing the skipped ones is the point — a tidy list of
+   completions would hide the thing the person still owes. */
+window.tsRenderHistory = async function() {
+  var host = document.getElementById('tsHistoryBody'); if (!host) return;
+  try {
+    var uid = window.currentUserData && currentUserData.uid; if (!uid) return;
+    var meSnap = await db.collection('userRoles').doc(uid).get();
+    var prog = (meSnap.exists && (meSnap.data() || {}).trainingProgress) || {};
+    var snap = await db.collection('trainingSessions').where('active', '==', true).get();
+    var rows = [];
+    snap.forEach(function(d) {
+      var v = d.data() || {}; var pr = prog[d.id] || null;
+      rows.push({ title: v.title || d.id, published: v.publishedAt || '',
+                  status: pr ? pr.status : 'not started', at: pr ? pr.at : '', skips: (pr && pr.skips) || 0 });
+    });
+    if (!rows.length) { host.innerHTML = '<div style="color:var(--text-soft);font-size:.88rem;">No training sessions published yet.</div>'; return; }
+    rows.sort(function(a, b) { return String(b.published).localeCompare(String(a.published)); });
+    host.innerHTML = rows.map(function(r) {
+      var col = r.status === 'completed' ? '#16A34A' : (r.status === 'skipped' ? '#B45309' : '#94A3B8');
+      var label = r.status === 'completed' ? 'Watched' : (r.status === 'skipped' ? 'Skipped' : 'Not started');
+      var when = '';
+      try { if (r.at) when = new Date(r.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) {}
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F1F5F9;">' +
+        '<span style="flex:1;font-size:.9rem;color:#0f172a;">' + rsEscape(r.title) + '</span>' +
+        (r.skips > 1 ? '<span style="font-size:.75rem;color:#B45309;">skipped ' + r.skips + '&times;</span>' : '') +
+        '<span style="font-size:.78rem;font-weight:700;color:' + col + ';">' + label + '</span>' +
+        (when ? '<span style="font-size:.75rem;color:#94A3B8;min-width:74px;text-align:right;">' + when + '</span>' : '') +
+        '</div>';
+    }).join('');
+  } catch (e) {
+    host.innerHTML = '<div style="color:#DC2626;font-size:.85rem;">Could not load training history.</div>';
+  }
+};
+
 window.auditLog = async function(action, details) {
   try {
     await firebase.firestore().collection('auditLog').add({
@@ -47090,6 +47204,29 @@ window._ctAccToggle = function(head, panelId){
   if (opening){ panel.style.display = 'block'; var ar = head.querySelector('.ct-acc-arrow'); if (ar) ar.textContent = '▼'; }
 };
 </script>
+
+<!-- Weekly training splash. STAGE only for now. -->
+<div id="tsSplash" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.55);
+     align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;box-shadow:0 20px 50px rgba(15,23,42,.3);overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#0e7490,#0891B2);padding:16px 22px;color:#fff;">
+      <div style="font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.85;">New this week</div>
+      <div id="tsTitle" style="font-size:1.15rem;font-weight:700;margin-top:2px;"></div>
+    </div>
+    <div style="padding:22px 24px;min-height:170px;">
+      <div id="tsSlideTitle" style="font-size:1rem;font-weight:700;color:#0f172a;margin-bottom:8px;"></div>
+      <div id="tsSlideBody" style="font-size:.94rem;line-height:1.6;color:#334155;white-space:pre-wrap;"></div>
+      <div id="tsSlideTip" style="display:none;margin-top:12px;padding:10px 12px;background:#F0FDFF;border:1px solid #A5F3FC;
+           border-radius:8px;font-size:.85rem;color:#155E75;"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 22px;border-top:1px solid #e2e8f0;background:#F8FAFC;">
+      <div id="tsDots" style="display:flex;gap:5px;flex:1;"></div>
+      <button type="button" id="tsSkipBtn" class="btn btn-ghost" style="font-size:.82rem;" onclick="tsSkip()">Skip for now</button>
+      <button type="button" id="tsBackBtn" class="btn btn-ghost" style="font-size:.82rem;display:none;" onclick="tsPrev()">Back</button>
+      <button type="button" id="tsNextBtn" class="btn btn-primary" style="font-size:.85rem;" onclick="tsNext()">Start</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
