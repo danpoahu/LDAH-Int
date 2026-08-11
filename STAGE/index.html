@@ -6388,6 +6388,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseMembershipReport()">&larr; Back to Reports</button>
             <h2 style="font-family:'Outfit',sans-serif;color:#B45309;margin:0;">Membership Reports</h2>
+            <button class="btn btn-ghost" id="mrPayPalBtn" style="font-size:.82rem;color:#0891B2;" onclick="cmsCheckPayPalPayments()" title="Ask PayPal whether any pending membership has in fact been paid">Check PayPal</button>
+            <span id="mrPayPalResult" style="font-size:.8rem;color:var(--text-soft);"></span>
             <span id="mrGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
           </div>
           <div id="mrBody"><div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading membership data…</div></div>
@@ -45267,7 +45269,56 @@ window.cmsBuildStaffActivityReport = async function() {
     if (el) el.style.display = 'none';
     if (rg) rg.style.display = 'block';
   };
-  window.cmsBuildMembershipReport = async function() {
+  /* Ask PayPal whether any pending membership has actually been paid, and mark
+   the ones that have. The webhook (paypalWebhook) does this in real time; this
+   button is the manual safety net for anything a webhook delivery missed.
+
+   The report is client-side, so the PayPal secret cannot live here — the work
+   happens in the reconcileMembershipPayments function. Marking paid there fires
+   onMembershipPaid, which sends the member their thank-you and portal login,
+   so this button DOES send donor email when it finds something. It is worded
+   and confirmed accordingly. */
+window.cmsCheckPayPalPayments = async function() {
+  var btn = document.getElementById('mrPayPalBtn');
+  var out = document.getElementById('mrPayPalResult');
+  var setOut = function(t, c) { if (out) { out.textContent = t; out.style.color = c || 'var(--text-soft)'; } };
+  if (btn) { btn.disabled = true; }
+  setOut('Checking PayPal…', '#0891B2');
+  try {
+    // Look first, so staff see what would happen before any donor is emailed.
+    var look = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/reconcileMembershipPayments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: true, days: 400 })
+    }).then(function(r) { return r.json(); });
+    if (look.error) throw new Error(look.error);
+
+    if (!look.matchedPending) {
+      setOut('PayPal checked — ' + look.pendingMembers + ' pending, none paid.', '#16A34A');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    var names = (look.found || []).map(function(f) { return (f.name || f.memberId) + ' $' + f.amount; }).join(', ');
+    if (!confirm('PayPal shows payment for ' + look.matchedPending + ' pending membership(s):\n\n' + names +
+                 '\n\nMark them paid? Each one is sent their thank-you email with portal login.')) {
+      setOut('No changes made.', '#B45309');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    var run = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/reconcileMembershipPayments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dryRun: false, days: 400 })
+    }).then(function(r) { return r.json(); });
+    if (run.error) throw new Error(run.error);
+    setOut('Marked ' + (run.marked || []).length + ' paid.', '#16A34A');
+    if (typeof auditLog === 'function') auditLog('Membership reconciled from PayPal', names);
+    if (typeof cmsBuildMembershipReport === 'function') cmsBuildMembershipReport();
+  } catch (e) {
+    setOut('PayPal check failed: ' + e.message, '#DC2626');
+  }
+  if (btn) btn.disabled = false;
+};
+
+window.cmsBuildMembershipReport = async function() {
     var el = document.getElementById('membershipReportInGrid');
     var rg = document.getElementById('reportsInGrid');
     if (el) el.style.display = 'block';

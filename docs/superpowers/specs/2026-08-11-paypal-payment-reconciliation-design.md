@@ -30,7 +30,7 @@ engineering against.
 
 | Question | Decision |
 |---|---|
-| Nudge cron checks PayPal before each send? | **Yes** — look up, mark paid and cancel rather than send |
+| Nudge cron checks PayPal before each send? | **Superseded 2026-08-11 — no check.** The email copy now says a payment made in the last three hours may not have reached us yet. An analog answer to a timing problem, and a better one: it costs no API call per send and is honest about a lag no code can remove |
 | PayPal says paid, record says pending | **Mark paid automatically**, `paidMarkedBy: 'paypal-reconcile'` |
 | Refunds | **Flag on the report only.** No status change, no access revoked |
 
@@ -67,15 +67,20 @@ Three writers, one field, all idempotent (no-op when status is already paid).
 member id can grant portal access and trigger a donor email. An unverified webhook is not
 shippable.
 
-### 2. Nudge guard — inside `_runMembershipNudges`
+### 2. Nudge copy — inside `buildMembershipNudgeEmail`  (built, live)
 
-Immediately before each send, look the member up in PayPal by `custom_id`. If a completed capture
-exists: mark paid, skip the nudge, count it in `skipReasons` as `paidFoundAtSendTime`.
+No PayPal call. All four variants shared an identical "if you believe you have already paid"
+sentence; that is now one `alreadyPaidNote` constant reading:
 
-⚠ **Honest limitation:** the only way to search by `custom_id` is Transaction Search, which lags
-up to ~3 hours. A payment made minutes before a nudge will not be visible. That is why the webhook
-is primary — the guard is a second line, not a perfect one. There is no real-time PayPal endpoint
-that searches orders by `custom_id`.
+> If you have already paid, please ignore this. Payments can take up to three hours to show in our
+> records, so a recent one may not have reached us yet — and if it has been longer than that, reply
+> and we will sort it out rather than take a second payment.
+
+This replaces the pre-send lookup. Transaction Search lags ~3 hours and nothing can remove that,
+so the copy tells the truth about it instead of pretending the data is live.
+
+The staff-triggered `sendMembershipResumeEmail` still carries the older sentence. Left alone: staff
+send it only after checking PayPal themselves, in the dashboard, which is real time.
 
 ### 3. Report sweep — `cmsBuildMembershipReport`
 
@@ -86,9 +91,10 @@ renders — plus anything in `paypalUnmatched` and any refunds, for staff to act
 
 ## Deployment prerequisites — do these first
 
-1. 🔴 **Rotate the PayPal credentials before wiring anything.** The current live client id and
-   secret were emailed in plaintext and are still in two Gmail threads. Wiring them into Firebase
-   secrets deploys a known-leaked credential. Rotate, then store.
+1. ~~Rotate before wiring~~ — **overridden 2026-08-11.** La'a leaves in days and he is the only
+   one who can reach the 2FA-protected PayPal dashboard, so the existing keys were deployed as-is
+   and the emails are being deleted instead. ⚠ **Consequence: the keys cannot be rotated at all
+   once he goes, unless Daniel is added to that 2FA first.** That window is closing.
 2. Set Firebase secrets `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`, `PAYPAL_WEBHOOK_ID`. The Keychain
    entry (`LDAH PayPal REST (live)`) is local to Daniel's Mac and does **not** reach the functions.
 3. Create the webhook in the PayPal dashboard against the deployed function URL, subscribed to
