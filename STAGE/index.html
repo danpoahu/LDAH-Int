@@ -5263,7 +5263,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.94.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.95.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -45936,19 +45936,45 @@ window.cmsBuildStaffActivityReport = async function() {
   function _warFillPeriodSelect(sel, months) {
     if (!sel) return (months && months[0]) || 'all';
     var wanted = sel.value || '';
-    var opts = ['<option value="all">All time</option>'].concat(months.map(function(m){
+    var yr = _warHstToday().slice(0, 4);
+    var opts = ['<option value="ytd">Year to date (' + yr + ')</option>',
+                '<option value="all">All time</option>'].concat(months.map(function(m){
       return '<option value="' + m + '">' + _warEsc(_warMonthLabel(m)) + '</option>';
     })).join('');
     sel.innerHTML = opts;
-    var valid = (wanted === 'all') || months.indexOf(wanted) >= 0;
-    sel.value = valid ? wanted : ((months && months[0]) || 'all');
+    // Landing is always YTD — that is the figure admin reports against. A month
+    // is a deliberate choice, never the default.
+    var valid = (wanted === 'all' || wanted === 'ytd') || months.indexOf(wanted) >= 0;
+    sel.value = valid ? wanted : 'ytd';
     return sel.value;
   }
   function _warFilterByPeriod(docs, period) {
     if (!period || period === 'all') return docs || [];
+    if (period === 'ytd') {
+      var y = String(_warHstToday()).slice(0, 4);
+      return (docs || []).filter(function(d){ return String(d.date || d.id || '').slice(0, 4) === y; });
+    }
     return (docs || []).filter(function(d){
       return String(d.date || d.id || '').slice(0, 7) === period;
     });
+  }
+  // Today in HST as YYYY-MM-DD. The whole dashboard is Hawaii-time; using the
+  // browser's local date would roll the day over at the wrong moment.
+  function _warHstToday() {
+    var n = new Date();
+    var h = new Date(n.getTime() - (n.getTimezoneOffset() + 600) * 60000);
+    return h.toISOString().slice(0, 10);
+  }
+  // Every calendar day in a YYYY-MM, stopping at today for the current month so
+  // a part-month does not trail a run of false zeroes.
+  function _warDaysInPeriod(ym) {
+    var p = String(ym).split('-'), yr = Number(p[0]), mo = Number(p[1]);
+    var last = new Date(yr, mo, 0).getDate();
+    var today = _warHstToday();
+    if (today.slice(0, 7) === ym) last = Math.min(last, Number(today.slice(8, 10)));
+    var out = [];
+    for (var d = 1; d <= last; d++) out.push(ym + '-' + String(d).padStart(2, '0'));
+    return out;
   }
   // "+27%" / "-4%" / "+3" for small counts. Returns '' when there is no basis.
   function _warDelta(now, prev) {
@@ -45964,6 +45990,11 @@ window.cmsBuildStaffActivityReport = async function() {
     var totalPV = 0, donation = 0, phone = 0, email = 0, outbound = 0, modal = 0, forms = 0, docViews = 0;
     var docByName = {}, formByType = {}, pageByName = {};
     var monthPV = new Map(), monthVisitors = new Map();
+    // Per-day series for the daily trend. Keyed YYYY-MM-DD; the renderer
+    // generates the calendar itself and defaults gaps to 0, because a quiet day
+    // writes NO siteAnalytics doc at all — plotting the raw docs would silently
+    // compress quiet stretches and overstate activity.
+    var dayPV = new Map(), dayVis = new Map();
     var minDate = null, maxDate = null, dayCount = 0;
 
     docs.forEach(function(day) {
@@ -45985,6 +46016,10 @@ window.cmsBuildStaffActivityReport = async function() {
 
       totalPV += (day.totalPageviews || 0);
       if (ym) monthPV.set(ym, (monthPV.get(ym) || 0) + (day.totalPageviews || 0));
+      if (/^\d{4}-\d{2}-\d{2}/.test(date)) {
+        dayPV.set(date.slice(0, 10), (dayPV.get(date.slice(0, 10)) || 0) + (day.totalPageviews || 0));
+        dayVis.set(date.slice(0, 10), dayVisitors.length);
+      }
 
       if (day.pageviews && typeof day.pageviews === 'object') {
         Object.keys(day.pageviews).forEach(function(p){ pageByName[p] = (pageByName[p] || 0) + (day.pageviews[p] || 0); });
@@ -46032,6 +46067,7 @@ window.cmsBuildStaffActivityReport = async function() {
       documentViews: docViews, totalInteractions: phone + email + outbound + modal + docViews + forms,
       documentViewsByDoc: docByName, formSubmitsByType: formByType, pageviewsByPage: pageByName,
       months: months, monthlyPV: monthlyPV, monthlyVis: monthlyVis,
+      dayPV: dayPV, dayVis: dayVis,
       minDate: minDate, maxDate: maxDate, dayCount: dayCount, docCount: docs.length
     };
   }
@@ -46130,9 +46166,32 @@ window.cmsBuildStaffActivityReport = async function() {
       summaryTable + '</div>';
 
     // ── Detail tab ──
-    var totRows = agg.months.map(function(m, i){ return [_warEsc(_warMonthLabel(m)), _warNum(agg.monthlyPV[i][1]), _warNum(agg.monthlyVis[i][1])]; });
+    /* A single month plotted monthly is one dot, which reads as a broken chart.
+       When a specific month is selected the trend switches to a point per DAY,
+       generated from the calendar so quiet days show as a genuine 0 rather than
+       being skipped (no siteAnalytics doc is written on a quiet day). YTD and
+       All time stay monthly. */
+    var isDaily = !!(period && period !== 'all' && period !== 'ytd');
+    var trendLabels, trendPV, trendVis, totRows, trendUnit;
+    if (isDaily) {
+      var dayKeys = _warDaysInPeriod(period);
+      trendUnit = 'Day';
+      trendLabels = dayKeys.map(function(k){ return Number(k.slice(8, 10)); });
+      trendPV  = dayKeys.map(function(k){ return (agg.dayPV  && agg.dayPV.get(k))  || 0; });
+      trendVis = dayKeys.map(function(k){ return (agg.dayVis && agg.dayVis.get(k)) || 0; });
+      totRows = dayKeys.map(function(k, i){ return [_warEsc(_warDateLabel(k)), _warNum(trendPV[i]), _warNum(trendVis[i])]; });
+    } else {
+      trendUnit = 'Month';
+      trendLabels = agg.months.map(_warMonthLabel);
+      trendPV  = agg.monthlyPV.map(function(e){ return e[1]; });
+      trendVis = agg.monthlyVis.map(function(e){ return e[1]; });
+      totRows = agg.months.map(function(m, i){ return [_warEsc(_warMonthLabel(m)), _warNum(agg.monthlyPV[i][1]), _warNum(agg.monthlyVis[i][1])]; });
+    }
     if (!totRows.length) totRows = [['No data yet', '0', '0']];
-    var trafficCard = '<div class="cd-chart-card"><h3>Traffic Over Time</h3><div class="cd-chart-wrap"><canvas id="warTrendChart"></canvas></div><div class="war-table-wrap">' + _warTable(['Month','Page Views','Unique Visitors'], totRows) + '</div></div>';
+    var trafficCard = '<div class="cd-chart-card"><h3>Traffic Over Time</h3>' +
+      (isDaily ? '<div class="war-caption" style="margin:-4px 0 8px;">Each point is one day of ' + _warEsc(_warMonthLabel(period)) + '.</div>' : '') +
+      '<div class="cd-chart-wrap"><canvas id="warTrendChart"></canvas></div><div class="war-table-wrap">' +
+      _warTable([trendUnit,'Page Views','Unique Visitors'], totRows) + '</div></div>';
 
     var pagesSorted = Object.entries(agg.pageviewsByPage).sort(function(a, b){ return b[1] - a[1]; });
     var pageRows = pagesSorted.map(function(e){
@@ -46183,9 +46242,9 @@ window.cmsBuildStaffActivityReport = async function() {
       '</div>' + summaryHtml + detailHtml;
 
     _warDestroyCharts();
-    var mLabels = agg.months.map(_warMonthLabel);
-    var pvSeries = agg.monthlyPV.map(function(e){ return e[1]; });
-    var visSeries = agg.monthlyVis.map(function(e){ return e[1]; });
+    var mLabels = trendLabels;
+    var pvSeries = trendPV;
+    var visSeries = trendVis;
     var twoLine = [
       { label:'Page Views', data:pvSeries, borderColor:'#0891B2', backgroundColor:'rgba(8,145,178,0.15)', fill:true, tension:0.3, pointBackgroundColor:'#0891B2' },
       { label:'Unique Visitors', data:visSeries, borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.12)', fill:true, tension:0.3, pointBackgroundColor:'#F59E0B' }
