@@ -3150,7 +3150,17 @@
 .ed-cell{ background:#fff; min-height:118px; padding:6px 7px; }
 .ed-cell.out{ background:#FAFBFC; }
 .ed-cell.today{ background:#F0F9FF; }
-.ed-daynum{ font-size:.78rem; font-weight:700; color:#334155; margin-bottom:4px; }
+.ed-daynum{ font-size:.78rem; font-weight:700; color:#334155; margin-bottom:4px; display:flex; align-items:center; justify-content:space-between; }
+    /* Per-day add button. Hidden until the cell is hovered so a month with 30
+       plus signs does not read as clutter; always visible on touch, where there
+       is no hover to reveal it. */
+    .ed-add{ opacity:0; transition:opacity .12s; border:none; background:#E0F2FE; color:#0369A1;
+             width:18px; height:18px; line-height:16px; border-radius:5px; font-size:13px; font-weight:800;
+             cursor:pointer; padding:0; }
+    .ed-add:hover{ background:#0891B2; color:#fff; }
+    .ed-cell:hover .ed-add{ opacity:1; }
+    .ed-cell.out .ed-add{ display:none; }
+    @media(hover:none){ .ed-add{ opacity:.65; } }
 .ed-cell.out .ed-daynum{ color:#CBD5E1; }
 .ed-cell.today .ed-daynum{ color:#0369A1; }
 .ed-ev{ border-left:3px solid #94A3B8; background:#F8FAFC; border-radius:0 6px 6px 0; padding:4px 6px; margin-bottom:5px; }
@@ -5263,7 +5273,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.96.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v146.97.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27707,6 +27717,30 @@ function _cmsApplyRemoteVisibility(on) {
 }
 window._cmsApplyRemoteVisibility = _cmsApplyRemoteVisibility;
 
+/* Add an event straight from a calendar cell on the Events Dashboard.
+   The dashboard lives under Admin and the event modal under CMS Events, so we
+   switch sections first and open on a tick — the same shape the dashboard
+   shortcut tile already uses. The clicked date is then written into the modal's
+   date field so the day you pressed is the day you get. */
+window.edAddOnDate = async function(iso) {
+  try {
+    var nav = document.querySelector('[data-section="cmsEvents"]');
+    if (nav) nav.click();
+    setTimeout(async function() {
+      try {
+        await cmsOpenEventModal(null, false);
+        var d = document.getElementById('cmsEventDate');
+        if (d && iso) {
+          d.value = iso;
+          // Fire the same hook typing would, so the signup-date autofill runs.
+          if (typeof _cmsMaybeAutoFillSignupDate === 'function') _cmsMaybeAutoFillSignupDate();
+          d.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } catch (e) { console.warn('edAddOnDate open failed:', e && e.message); }
+    }, 320);
+  } catch (e) { console.warn('edAddOnDate:', e && e.message); }
+};
+
 window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer) {
   var isRec = !!isRecurring;
   var isSpec = !!isSpecial; // may also be turned on below after the doc loads
@@ -28512,7 +28546,13 @@ window.edRender = async function() {
     cells.forEach(function(c) {
       var iso = edIso(c.d);
       var cls = 'ed-cell' + (c.out ? ' out' : '') + (iso === todayIso ? ' today' : '');
-      html += '<div class="' + cls + '"><div class="ed-daynum">' + c.d.getDate() + '</div>';
+      /* The + prefills the clicked date, so "add something on the 14th" is one
+         click rather than open-modal-then-find-the-date-field. Out-of-month
+         cells get no button (CSS hides it) — adding to a greyed-out day from a
+         neighbouring month is almost always a misclick. */
+      html += '<div class="' + cls + '"><div class="ed-daynum"><span>' + c.d.getDate() + '</span>'
+        + (c.out ? '' : '<button class="ed-add" title="Add an event on this date" onclick="edAddOnDate(\'' + iso + '\')">+</button>')
+        + '</div>';
       (byDate[iso] || []).forEach(function(idx) {
         var ev = _edEvents[idx];
         var meta = [ev.when, ev.where].filter(Boolean).join(' · ');
