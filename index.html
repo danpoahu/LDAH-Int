@@ -5257,7 +5257,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.92.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.93.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25672,6 +25672,10 @@ var _cmsFunnelStep = 1;
 var _cmsFunnelType = '';
 var _cmsFunnelExtract = null;
 var _cmsFunnelFlyerFile = null;
+// Optional restrictions set by the caller of cmsOpenFunnel. null / '' means
+// "no restriction" — the CMS "+ Add Event" path, unchanged.
+var _cmsFunnelAllowed = null;      // array of eventType keys, or null for all 7
+var _cmsFunnelSeedDate = '';       // 'YYYY-MM-DD' to pre-fill, or '' for none
 var _cmsPendingEventType = null;
 var _cmsPendingRemoteSignup = false;
 var _cmsSpecialConfig = null; // Form Builder state for the currently-open special-event modal
@@ -26158,7 +26162,13 @@ window.cmsToggleShowHidden = function() {
 // + guesses the type), (2) pick the type (7 cards, AI guess highlighted), (3)
 // hand off to the EXISTING editor pre-filled. No new save path — the editor's
 // own Save runs cmsSaveEvent (same task/email/reminder pipeline).
-window.cmsOpenFunnel = function() {
+window.cmsOpenFunnel = function(opts) {
+  // opts is optional: { types: [...], date: 'YYYY-MM-DD' }. Called bare — the CMS
+  // "+ Add Event" button — this behaves exactly as it always has: all 7 cards and
+  // no date. The Events Dashboard "+" passes a restricted list and the day clicked.
+  opts = opts || {};
+  _cmsFunnelAllowed  = (Array.isArray(opts.types) && opts.types.length) ? opts.types : null;
+  _cmsFunnelSeedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.date || '')) ? opts.date : '';
   _cmsFunnelStep = 1;
   _cmsFunnelType = '';
   _cmsFunnelExtract = null;
@@ -26227,7 +26237,10 @@ window.cmsFunnelExtractFlyer = async function(arg) {
     _cmsFunnelExtract = data.event || null;
     _cmsFunnelFlyerFile = file;
     var st = (data.event && data.event.suggestedType) || data.suggestedType;   // suggestedType is nested under event
-    _cmsFunnelType = (st && _CMS_TYPE_META[st]) ? st : '';
+    // Drop a guess the caller filtered out — an "AI guess" badge must never point
+    // at a card that is not on screen.
+    var _stOk = st && _CMS_TYPE_META[st] && (!_cmsFunnelAllowed || _cmsFunnelAllowed.indexOf(st) !== -1);
+    _cmsFunnelType = _stOk ? st : '';
     _cmsFunnelGoto(2);
   } catch (e) {
     if (status) status.innerHTML = '<span style="color:#B45309;">Couldn\'t read that flyer automatically — pick the type below (you can still upload the flyer in the editor).</span>';
@@ -26239,7 +26252,10 @@ window.cmsFunnelExtractFlyer = async function(arg) {
 var _CMS_FUNNEL_ORDER = ['learning_labs','parent_talk_cafe','connect_gen','screening','remote_signup','outreach_booth','flyer'];
 function cmsFunnelRenderTypeCards() {
   var host = document.getElementById('cmsFunnelTypeCards'); if (!host) return;
-  host.innerHTML = _CMS_FUNNEL_ORDER.map(function(t){
+  var order = _cmsFunnelAllowed
+    ? _CMS_FUNNEL_ORDER.filter(function(t){ return _cmsFunnelAllowed.indexOf(t) !== -1; })
+    : _CMS_FUNNEL_ORDER;
+  host.innerHTML = order.map(function(t){
     var m = _CMS_TYPE_META[t]; if (!m) return '';
     var isGuess = _cmsFunnelType === t;
     return '<button type="button" onclick="cmsFunnelPickType(\'' + t + '\')" style="text-align:left;border:2px solid ' + (isGuess ? m.color : '#e2e8f0') + ';border-radius:12px;padding:12px;background:' + (isGuess ? '#F0FDFF' : '#fff') + ';cursor:pointer;position:relative;">' +
@@ -26334,6 +26350,18 @@ window.cmsFunnelRoute = async function() {
         // remoteSignup:true, maxCapacity, and forces in-person sessions.
         _cmsPendingRemoteSignup = true;
         if (typeof _cmsApplyRemoteVisibility === 'function') _cmsApplyRemoteVisibility(true);
+      }
+    }
+    // Seed date from the Events Dashboard "+". Fills only an empty field, so a
+    // date the flyer extraction found beats the day cell that was clicked — the
+    // flyer is the more authoritative source once one has been uploaded.
+    if (_cmsFunnelSeedDate) {
+      var _seed = document.getElementById('cmsEventDate');
+      if (_seed && !_seed.value) {
+        _seed.value = _cmsFunnelSeedDate;
+        // Fire the same hook typing would, so the signup-date autofill runs.
+        if (typeof _cmsMaybeAutoFillSignupDate === 'function') _cmsMaybeAutoFillSignupDate();
+        _seed.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }
     _cmsFunnelSetImage();
@@ -27342,25 +27370,25 @@ function _cmsApplyRemoteVisibility(on) {
 }
 window._cmsApplyRemoteVisibility = _cmsApplyRemoteVisibility;
 
+/* Types offered when adding from a calendar day cell. A staffer working the
+   calendar is scheduling something that happens on a day at a place — a booth,
+   a table, an off-site signup — not a Zoom programme or a flyer, so the picker
+   is narrowed to those three. Everything else is still added from CMS Events. */
+var ED_ADD_TYPES = ['screening', 'remote_signup', 'outreach_booth'];
+
 /* Add an event straight from a calendar cell on the Events Dashboard.
    The dashboard lives under Admin and the event modal under CMS Events, so we
    switch sections first and open on a tick — the same shape the dashboard
-   shortcut tile already uses. The clicked date is then written into the modal's
-   date field so the day you pressed is the day you get. */
+   shortcut tile already uses. Opens the Add-Event funnel (flyer -> type -> the
+   right editor) restricted to ED_ADD_TYPES, carrying the day you pressed so it
+   is the day you get. */
 window.edAddOnDate = async function(iso) {
   try {
     var nav = document.querySelector('[data-section="cmsEvents"]');
     if (nav) nav.click();
-    setTimeout(async function() {
+    setTimeout(function() {
       try {
-        await cmsOpenEventModal(null, false);
-        var d = document.getElementById('cmsEventDate');
-        if (d && iso) {
-          d.value = iso;
-          // Fire the same hook typing would, so the signup-date autofill runs.
-          if (typeof _cmsMaybeAutoFillSignupDate === 'function') _cmsMaybeAutoFillSignupDate();
-          d.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+        cmsOpenFunnel({ types: ED_ADD_TYPES, date: iso });
       } catch (e) { console.warn('edAddOnDate open failed:', e && e.message); }
     }, 320);
   } catch (e) { console.warn('edAddOnDate:', e && e.message); }
