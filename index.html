@@ -5247,7 +5247,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.88.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.89.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6406,6 +6406,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="btn btn-ghost cd-back-print-hide" style="font-size:.85rem;" onclick="cmsCloseWebsiteAppAnalyticsReport()">&larr; Back to Reports</button>
             <h2 style="font-family:'Outfit',sans-serif;color:var(--ocean-deep);margin:0;flex:1;">Website &amp; App Analytics</h2>
             <span id="warGeneratedAt" style="font-size:.82rem;color:var(--text-soft);"></span>
+            <label id="warPeriodWrap" class="cd-back-print-hide" style="font-size:.85rem;color:var(--text-soft);display:flex;align-items:center;gap:6px;">Period
+              <select id="warPeriod" onchange="cmsBuildWebsiteAppAnalyticsReport()" style="padding:6px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:.85rem;font-family:inherit;background:#fff;"></select>
+            </label>
             <button id="warRefreshBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildWebsiteAppAnalyticsReport()" title="Refresh">&#x21bb; Refresh</button>
             <button id="warCsvBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsExportWebsiteAppAnalyticsCSV()" title="Download detailed CSV (raw data, no charts)">&#x2913; CSV</button>
             <button id="warPrintBtn" class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsPrintWebsiteAppAnalyticsReport()" title="Print / Save as PDF">Print / Save as PDF</button>
@@ -45348,6 +45351,45 @@ window.cmsBuildStaffActivityReport = async function() {
 
   // Aggregate raw siteAnalytics daily docs. Tolerates both nested objects
   // (pageviews{}, events{}) and the older dotted-path flat keys.
+  /* ---- Month division helpers (2026-08-10) ---------------------------- */
+  // Newest-first list of YYYY-MM that actually have data. Derived from the docs
+  // rather than a calendar range, so empty months never appear in the picker.
+  function _warMonthsFromDocs(docs) {
+    var set = {};
+    (docs || []).forEach(function(d){
+      var ym = String(d.date || d.id || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(ym)) set[ym] = 1;
+    });
+    return Object.keys(set).sort().reverse();
+  }
+  // Fills the picker and returns the period to render. Preserves the user's
+  // choice across a Refresh; otherwise defaults to the newest month with data.
+  function _warFillPeriodSelect(sel, months) {
+    if (!sel) return (months && months[0]) || 'all';
+    var wanted = sel.value || '';
+    var opts = ['<option value="all">All time</option>'].concat(months.map(function(m){
+      return '<option value="' + m + '">' + _warEsc(_warMonthLabel(m)) + '</option>';
+    })).join('');
+    sel.innerHTML = opts;
+    var valid = (wanted === 'all') || months.indexOf(wanted) >= 0;
+    sel.value = valid ? wanted : ((months && months[0]) || 'all');
+    return sel.value;
+  }
+  function _warFilterByPeriod(docs, period) {
+    if (!period || period === 'all') return docs || [];
+    return (docs || []).filter(function(d){
+      return String(d.date || d.id || '').slice(0, 7) === period;
+    });
+  }
+  // "+27%" / "-4%" / "+3" for small counts. Returns '' when there is no basis.
+  function _warDelta(now, prev) {
+    now = Number(now || 0); prev = Number(prev || 0);
+    if (!prev) return now ? 'new' : '';
+    var d = now - prev;
+    var pct = Math.round((d / prev) * 100);
+    return (d >= 0 ? '+' : '') + (Math.abs(prev) >= 20 ? pct + '%' : String(d));
+  }
+
   function _warAggregate(docs) {
     var uniq = new Set();
     var totalPV = 0, donation = 0, phone = 0, email = 0, outbound = 0, modal = 0, forms = 0, docViews = 0;
@@ -45445,14 +45487,30 @@ window.cmsBuildStaffActivityReport = async function() {
     }
   }
 
-  function _warRender(agg) {
+  function _warRender(agg, prevAgg, prevLabel, period) {
     var body = document.getElementById('warBody');
     if (!body) return;
     var rangeStr = (agg.minDate && agg.maxDate) ? (_warDateLabel(agg.minDate) + ' – ' + _warDateLabel(agg.maxDate)) : 'No data yet';
 
+    /* Period banner. A printed page must never be mistakable for a different
+       month, and a part-month must say so out loud — otherwise August's 11 days
+       get read as a full month and compared against July's 31. */
+    var periodBanner = '';
+    if (period && period !== 'all') {
+      var pm = String(period).split('-');
+      var lastDay = new Date(Number(pm[0]), Number(pm[1]), 0).getDate();
+      var endDay = agg.maxDate ? Number(String(agg.maxDate).slice(8, 10)) : 0;
+      var partial = endDay && endDay < lastDay;
+      periodBanner = '<div class="war-summary-note" style="background:linear-gradient(135deg,var(--ocean-deep),var(--ocean-mid));color:#fff;">' +
+        '<div style="font-family:\'Outfit\',sans-serif;font-size:1.25rem;font-weight:700;">' + _warEsc(_warMonthLabel(period)) + '</div>' +
+        '<div style="font-size:.85rem;opacity:.92;margin-top:2px;">' + _warEsc(rangeStr) +
+        (partial ? ' &middot; month in progress (' + endDay + ' of ' + lastDay + ' days)' : '') +
+        ' &middot; website and app combined</div></div>';
+    }
+
     var para;
     if (!agg.docCount) {
-      para = 'No analytics data has been recorded yet.';
+      para = 'No analytics data has been recorded yet for this period.';
     } else {
       para = 'Between <strong>' + _warEsc(_warDateLabel(agg.minDate)) + '</strong> and <strong>' + _warEsc(_warDateLabel(agg.maxDate)) +
         '</strong>, LDAH\'s website and mobile app together drew <strong>' + _warNum(agg.totalPageviews) + '</strong> page views from <strong>' +
@@ -45469,8 +45527,21 @@ window.cmsBuildStaffActivityReport = async function() {
       ['Document Views', agg.documentViews],
       ['Donation Clicks', agg.donationClicks]
     ];
+    // Comparison against the previous month, shown beneath each figure.
+    var prevMap = prevAgg ? {
+      'Unique Visitors': prevAgg.uniqueVisitors, 'Page Views': prevAgg.totalPageviews,
+      'Total Engagements': prevAgg.totalInteractions, 'Form Submissions': prevAgg.formSubmits,
+      'Document Views': prevAgg.documentViews, 'Donation Clicks': prevAgg.donationClicks
+    } : null;
     var kpiHtml = '<div class="cd-kpi-strip">' + kpis.map(function(k){
-      return '<div class="cd-kpi"><div class="cd-kpi-label">' + _warEsc(k[0]) + '</div><div class="cd-kpi-value">' + _warNum(k[1]) + '</div></div>';
+      var cmp = '';
+      if (prevMap && prevLabel) {
+        var pv = prevMap[k[0]];
+        var dl = _warDelta(k[1], pv);
+        cmp = '<div style="font-size:.7rem;opacity:.85;margin-top:3px;">' + _warEsc(prevLabel) + ': ' + _warNum(pv) +
+              (dl ? ' &middot; ' + _warEsc(dl) : '') + '</div>';
+      }
+      return '<div class="cd-kpi"><div class="cd-kpi-label">' + _warEsc(k[0]) + '</div><div class="cd-kpi-value">' + _warNum(k[1]) + '</div>' + cmp + '</div>';
     }).join('') + '</div>';
 
     var sumRows = kpis.concat([
@@ -45536,7 +45607,7 @@ window.cmsBuildStaffActivityReport = async function() {
       '<div class="cd-grid">' + formsCard + docsCard + '</div>' +
       '</div>';
 
-    body.innerHTML =
+    body.innerHTML = periodBanner +
       '<div class="war-tabs">' +
         '<button id="warTabSummary" class="war-tab-btn active" onclick="warSwitchTab(\'summary\')">Executive Summary</button>' +
         '<button id="warTabDetail" class="war-tab-btn" onclick="warSwitchTab(\'detail\')">Detailed Breakdown</button>' +
@@ -45576,11 +45647,32 @@ window.cmsBuildStaffActivityReport = async function() {
       // Full collection — "since tracking began". Daily docs are small and
       // few (one per active day), so an unfiltered get() is cheap.
       var snap = await db.collection('siteAnalytics').get();
-      var docs = [];
-      snap.forEach(function(d){ docs.push(Object.assign({ id:d.id }, d.data() || {})); });
+      var allDocs = [];
+      snap.forEach(function(d){ allDocs.push(Object.assign({ id:d.id }, d.data() || {})); });
+
+      /* Month division (2026-08-10). The report used to cover every day since
+         tracking began, which is useless for a monthly return — a month was one
+         bar in a trend. The picker scopes the WHOLE report (KPIs, charts,
+         tables, print and CSV) to one month, and defaults to the current one so
+         the routine is: open, print. "All time" is still there, first item. */
+      var months = _warMonthsFromDocs(allDocs);
+      var sel = document.getElementById('warPeriod');
+      var period = _warFillPeriodSelect(sel, months);
+      var docs = _warFilterByPeriod(allDocs, period);
+
       var agg = _warAggregate(docs);
-      _warLastDocs = docs; _warLastAgg = agg;
-      _warRender(agg);
+      // Previous month, for the comparison line. A bare number tells the reader
+      // nothing; the delta is what makes it a report. Null on "all" / no prior.
+      var prevAgg = null, prevLabel = '';
+      if (period !== 'all') {
+        var pi = months.indexOf(period);
+        if (pi >= 0 && months[pi + 1]) {
+          prevLabel = _warMonthLabel(months[pi + 1]);
+          prevAgg = _warAggregate(_warFilterByPeriod(allDocs, months[pi + 1]));
+        }
+      }
+      _warLastDocs = docs; _warLastAgg = agg;   // CSV scopes to the selection
+      _warRender(agg, prevAgg, prevLabel, period);
 
       var now = new Date();
       var hst = new Date(now.getTime() - (now.getTimezoneOffset() + 600) * 60000);
