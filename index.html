@@ -5257,7 +5257,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.98</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v145.99</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17578,7 +17578,16 @@ var _photoPendingByIsland = {};
      not matter. */
   window._paidRequireSuperAdmin = function() {
     var ok = !!(window.currentUserData && window.currentUserData.role === 'superAdmin');
-    if (!ok) alert('Only a Super Admin can mark a membership paid.');
+    if (!ok) {
+      alert('Only a Super Admin can mark a membership paid.');
+      // Logged deliberately. The buttons are hidden for non-superAdmins, so
+      // reaching this means either a stale page or someone calling the function
+      // directly — both worth a row with a name against them.
+      if (typeof auditLog === 'function') {
+        auditLog('Mark paid REFUSED — not a Super Admin',
+          (window.currentUserData && window.currentUserData.email) || 'unknown');
+      }
+    }
     return ok;
   };
   window._confirmReallyPaid = function(what) {
@@ -17601,6 +17610,14 @@ var _photoPendingByIsland = {};
         membershipStatus: 'paid',
         membershipPaidAt: firebase.firestore.FieldValue.serverTimestamp()
       });
+      if (typeof auditLog === 'function') {
+        // The open detail modal's title is the contact's display name; there is
+        // no cached contact object in this scope, only the id.
+        var _t = document.getElementById('ctDetailTitle');
+        var _ctName = (_t && _t.textContent && _t.textContent !== 'Contact Detail')
+          ? _t.textContent : contactId;
+        auditLog('Membership marked paid from contact card', _ctName + ' (' + contactId + ')');
+      }
       // Keep the contributor DB accurate — flip any linked pending member records.
       try {
         var ms = await db.collection('members').where('linkedContactId', '==', contactId).get();
@@ -45115,6 +45132,10 @@ window.cmsCheckPayPalPayments = async function() {
     }).then(function(r) { return r.json(); });
     if (look.error) throw new Error(look.error);
 
+    if (typeof auditLog === 'function') {
+      auditLog('Checked PayPal for pending memberships',
+        look.pendingMembers + ' pending · ' + look.matchedPending + ' with a PayPal payment');
+    }
     if (!look.pendingMembers) {
       setOut('Nothing pending to check.', 'var(--text-soft)');
       if (btn) btn.disabled = false;
@@ -45329,7 +45350,18 @@ window.cmsBuildMembershipReport = async function() {
   async function _mrMarkOnePaid(memberId) {
     var r = _mrMembers.find(function(x) { return x._id === memberId; }); if (!r) return;
     var now = firebase.firestore.FieldValue.serverTimestamp();
-    await db.collection('members').doc(memberId).update({ status: 'paid', paidAt: now });
+    // paidMarkedBy matches what the task button and the webhook write, so the
+    // record says how it became paid however it got there.
+    await db.collection('members').doc(memberId).update({
+      status: 'paid', paidAt: now, paidMarkedBy: 'staff (report)'
+    });
+    // One audit row per member, written here rather than in each caller — all
+    // three report paths (single, Mark all paid, PayPal-matched) funnel through
+    // this, so logging here cannot be forgotten by a new caller.
+    if (typeof auditLog === 'function') {
+      auditLog('Membership marked paid', (r.name || memberId) +
+        (r.amount ? ' — $' + r.amount : '') + (r.email ? ' · ' + r.email : ''));
+    }
     if (r.linkedContactId) { try { await db.collection('contacts').doc(r.linkedContactId).update({ membershipStatus: 'paid', membershipPaidAt: now }); var cc = (_allContacts || []).find(function(x) { return x.id === r.linkedContactId; }); if (cc) cc.membershipStatus = 'paid'; } catch (e) {} }
     r.status = 'paid';
   }
