@@ -5276,7 +5276,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.17-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.18-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -37325,7 +37325,8 @@ window.cmsLoadDisseminate = async function() {
             date: iso, session: lbl,
             label: (typeof evSessionLabel === 'function' && evSessionLabel(lbl)) || lbl,
             image: v.imageUrl || '', special: v.specialEvent === true,
-            on: picked.indexOf(lbl) !== -1
+            on: picked.indexOf(lbl) !== -1,
+            pinned: String(v.homePinned || '') === lbl
           });
         });
         return;
@@ -37338,7 +37339,7 @@ window.cmsLoadDisseminate = async function() {
         id: d.id, coll: 'events', title: v.title || '(untitled)', type: type,
         date: one || '', session: null, label: '',
         image: v.imageUrl || '', special: v.specialEvent === true,
-        on: v.homeRotation === true
+        on: v.homeRotation === true, pinned: v.homePinned === true
       });
     });
 
@@ -37349,7 +37350,7 @@ window.cmsLoadDisseminate = async function() {
       items.push({
         id: d.id, coll: 'recurringEvents', title: v.title || '(untitled)', type: type,
         date: '', session: null, label: '', image: v.imageUrl || '',
-        special: false, on: v.homeRotation === true
+        special: false, on: v.homeRotation === true, pinned: v.homePinned === true
       });
     });
 
@@ -37390,6 +37391,18 @@ function _cmsRenderDisseminate() {
       '</span>' +
       '<span style="font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:999px;flex:0 0 auto;background:' +
         ((m.color || '#94A3B8') + '22') + ';color:' + (m.color || '#64748B') + ';">' + rsEscape(m.label || it.type) + '</span>' +
+      /* Pin = "put this in front of everyone now". Rosie announces something and
+         it should not wait its turn behind seven other flyers. A pinned item is
+         shown to every visitor on every visit until it is unpinned, and is
+         exempt from the already-seen rule — that IS the point of pinning.
+         Only offered on rows that are already in the rotation. */
+      (it.on
+        ? '<button type="button" title="' + (it.pinned ? 'Pinned — shown to everyone, every visit' : 'Pin to the top: shown to everyone until unpinned') + '" ' +
+            'style="border:1px solid ' + (it.pinned ? '#B45309' : '#E2E8F0') + ';background:' + (it.pinned ? '#FEF3C7' : '#fff') + ';' +
+            'color:' + (it.pinned ? '#92400E' : '#94A3B8') + ';border-radius:999px;font-size:.68rem;font-weight:700;padding:2px 10px;cursor:pointer;flex:0 0 auto;" ' +
+            'onclick="event.preventDefault();cmsPinDisseminate(decodeURIComponent(\'' + _attrJsArg(it.coll) + '\'),decodeURIComponent(\'' + _attrJsArg(it.id) + '\'),decodeURIComponent(\'' + _attrJsArg(it.session || '') + '\'),' + (it.pinned ? 'false' : 'true') + ')">' +
+            (it.pinned ? 'PINNED' : 'Pin') + '</button>'
+        : '') +
       (it.special ? '<span title="Screening and Outreach Booth events are calendar-only by design. Ticking this puts it on the home page anyway." style="font-size:.68rem;color:#B45309;flex:0 0 auto;">calendar-only</span>' : '') +
       (!it.image ? '<span title="Without a flyer image there is nothing to show in the rotation." style="font-size:.68rem;color:#DC2626;flex:0 0 auto;">needs a flyer</span>' : '') +
     '</label>';
@@ -37397,6 +37410,40 @@ function _cmsRenderDisseminate() {
   html += '</div>';
   host.innerHTML = html;
 }
+
+/* Only ONE item is ever pinned. "Plaster it everywhere" means one thing at the
+   top, not a second queue — so pinning something clears whatever was pinned
+   before, across both collections. */
+window.cmsPinDisseminate = async function(coll, id, session, on) {
+  try {
+    if (on) {
+      var snaps = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
+      var clears = [];
+      snaps.forEach(function(snap, i) {
+        var cname = i === 0 ? 'events' : 'recurringEvents';
+        snap.forEach(function(d) {
+          var v = d.data() || {};
+          if (v.homePinned !== undefined && v.homePinned !== false && d.id !== id) {
+            clears.push(db.collection(cname).doc(d.id).update({ homePinned: false }));
+          }
+        });
+      });
+      await Promise.all(clears);
+    }
+    // A session pin stores the session label, so the right one of two Learning
+    // Labs sessions is pinned rather than the whole event.
+    await db.collection(coll).doc(id).update({ homePinned: on ? (session || true) : false });
+    if (typeof auditLog === 'function') {
+      auditLog(on ? 'Pinned to top of home rotation' : 'Unpinned from home rotation', id + (session ? ' — ' + session : ''));
+    }
+    if (typeof _showToast === 'function') {
+      _showToast(on ? 'Pinned — every visitor sees this until you unpin it.' : 'Unpinned. Back to the normal rotation.', on ? '#B45309' : '#16A34A');
+    }
+    cmsLoadDisseminate();
+  } catch (e) {
+    if (typeof _showToast === 'function') _showToast('Could not pin: ' + e.message, '#DC2626');
+  }
+};
 
 window.cmsToggleDisseminate = async function(coll, id, on, session) {
   try {
