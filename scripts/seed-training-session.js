@@ -23,38 +23,56 @@ const PROJECT = 'ldah-932d5';
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
 const COMMIT = process.argv.includes('--commit');
 
-const DOC_ID = 'session-2026-08-profile';
+const DOC_ID = '2026-08-12-home-rotation';
 
 // Slide images are files in the repo under img/training/. Store the path WITHOUT
 // any ../ prefix — the page prepends what it needs for where it is served from.
 const SESSION = {
-  title: 'New this week',
-  publishedAt: '2026-08-12T00:00:00.000Z',
+  title: 'Home Rotation — you choose what the public sees',
+  publishedAt: '2026-08-12',
   active: true,
   slides: [
     {
-      title: 'Fill in your profile',
-      body: 'Your profile is what the rest of the team sees when they need to reach you, and it is what drives your island weather and the partner time zones below. Open the menu at the top right and choose Profile.',
-      tip: 'Your island matters most — it decides which weather alerts you see.',
+      title: 'Home Rotation: you choose what the public sees',
+      body: "Aloha! Here's a one-minute tour of Home Rotation — the new way you choose exactly what the public sees on the website home page and the app's opening splash.",
+      tip: 'One list, a few checkboxes, and both places update for everyone.',
       image: ''
     },
     {
-      title: 'Weather for your island',
-      body: 'Once your island is set, the dashboard shows the forecast and any active alerts for where you actually are, rather than for the whole state.',
+      title: 'Tick it — it goes public, in two places',
+      body: "This screen lists everything currently available to put in front of the public. Tick the ones you want in the rotation, and they appear in two places at once: the website home page, and the app's opening splash. Visitors are shown two at a time — and nobody sees the same ones again until they have seen the rest, so everything you tick gets its turn.",
       tip: '',
-      image: 'img/training/weather-chip.png'
+      image: ''
     },
     {
-      title: 'Weather alerts',
-      body: 'Watches and warnings for your island appear at the top of the dashboard so you know before a family calls to ask whether a session is still on.',
+      title: 'CMS \u2192 Home Rotation',
+      body: "You will find it under the CMS tab: Home Rotation. The green counter near the top always tells you how many items are in the rotation right now — here, five.",
       tip: '',
-      image: 'img/training/weather-alerts.png'
+      image: 'img/training/home-rotation-nav.jpg'
     },
     {
-      title: 'Partner time zones',
-      body: 'Our Pacific Basin partners are hours ahead or behind, and some are across the date line. The clock strip shows their local time so you are not working it out in your head before you dial.',
-      tip: 'Guam and Palau are a day ahead of Hawaiʻi.',
-      image: 'img/training/partner-times.png'
+      title: 'Ticked = in the rotation. One click either way.',
+      body: "Ticked means in. This Learning Labs session is in the rotation; Village Hui below it is not — one click on its checkbox puts it in front of the public. Untick anything to pull it back out. That is the entire job.",
+      tip: '',
+      image: 'img/training/home-rotation-tick.jpg'
+    },
+    {
+      title: 'Two at a time — and everything gets its turn',
+      body: "How visitors experience it: two items at a time, on the website home page and on the app splash. And the rotation is fair — a visitor is not shown the same ones again until they have seen the rest. So there is no fighting over the top spot; everything ticked gets seen.",
+      tip: 'Need something in front of everyone now? Pin it — a pinned item shows on every visit until you unpin it.',
+      image: ''
+    },
+    {
+      title: 'Types on the right, dates or ongoing on the left',
+      body: "Each row tells you what it is. The tag on the right shows the type — Learning Labs, flyer, remote signup. Dated items carry their date; standing items like Membership just say ongoing, and they stay available until you untick them.",
+      tip: '',
+      image: 'img/training/home-rotation-types.jpg'
+    },
+    {
+      title: 'The whole job in three lines',
+      body: "CMS, Home Rotation. The green counter says what is live. Tick in, untick out — it reaches the website home page and the app splash, two at a time, rotated fairly, so everything gets seen. Questions, ask Daniel. Mahalo!",
+      tip: '',
+      image: ''
     }
   ]
 };
