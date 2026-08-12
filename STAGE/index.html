@@ -5137,6 +5137,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="contacts" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Contacts</a>
             <a href="javascript:void(0)" data-section="changes" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Change Requests <span class="pill" id="crBadge" style="display:none;">0</span></a>
             <a href="javascript:void(0)" data-section="reports" data-roles="superAdmin,admin">Reports</a>
+            <a href="javascript:void(0)" data-section="cmsDisseminate">Home Rotation</a>
             <a href="javascript:void(0)" data-section="cmsTrainingVideos">Training Videos</a>
           </div>
         </div>
@@ -5275,7 +5276,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.14-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.15-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8619,6 +8620,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     </section>
 
     <!-- ── CMS: Training Videos ── -->
+    <!-- ── Home Rotation ── Everything public we could put in front of a visitor,
+         with a tick box for the ones that should rotate on the home page and in
+         the app splash. Internal-only material never appears here. -->
+    <section id="cmsDisseminateSection" style="display:none;">
+      <div class="cms-sticky-header">
+        <h2>Home Rotation</h2>
+      </div>
+      <p style="color:var(--text-soft);font-size:.9rem;margin:0 0 14px;max-width:760px;">
+        Everything currently available to put in front of the public. Tick the ones you want in the
+        rotation and they will appear on the website home page and in the app&rsquo;s splash. Visitors
+        are shown two at a time and are not shown the same ones again until they have seen the rest.
+      </p>
+      <div id="cmsDissemBody"><div style="padding:20px;color:var(--text-soft);">Loading&hellip;</div></div>
+    </section>
+
     <section id="cmsTrainingVideosSection" style="display:none;">
       <div class="cms-sticky-header">
       <h2>Training Videos <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Training videos help staff learn how to use the dashboard, log interactions, manage events, and more.<br><br><b>To add a video:</b><br>1. Upload your video to Google Drive<br>2. In Google Drive, right-click the file, choose <b>Share</b>, and set it to &quot;Anyone with the link&quot;. Copy the link.<br>3. Back here, click Add Video and paste the link<br>4. Give it a title and one-sentence description, pick a category<br>5. Click Save')">i</span></h2>
@@ -13202,6 +13218,7 @@ var _photoPendingByIsland = {};
       var cmsFaqsSec = document.getElementById('cmsFaqsSection'); if (cmsFaqsSec) cmsFaqsSec.style.display = 'none';
       var cmsEventsSec = document.getElementById('cmsEventsSection'); if (cmsEventsSec) cmsEventsSec.style.display = 'none';
       var cmsVolunteersSec = document.getElementById('cmsVolunteersSection'); if (cmsVolunteersSec) cmsVolunteersSec.style.display = 'none';
+      var cmsDissemSec = document.getElementById('cmsDisseminateSection'); if (cmsDissemSec) cmsDissemSec.style.display = 'none';
       var cmsTrainingVideosSec = document.getElementById('cmsTrainingVideosSection'); if (cmsTrainingVideosSec) cmsTrainingVideosSec.style.display = 'none';
       var cmsWebDataSec = document.getElementById('cmsWebDataSection'); if (cmsWebDataSec) cmsWebDataSec.style.display = 'none';
       var cmsPageEditorSec = document.getElementById('cmsPageEditorSection'); if (cmsPageEditorSec) cmsPageEditorSec.style.display = 'none';
@@ -13325,6 +13342,9 @@ var _photoPendingByIsland = {};
       } else if (section === 'cmsVolunteers') {
         _showFullWidth(document.getElementById('cmsVolunteersSection'), cmsLoadVolunteers);
         cmsShowAiHelper('Volunteers');
+      } else if (section === 'cmsDisseminate') {
+        _showFullWidth(document.getElementById('cmsDisseminateSection'), cmsLoadDisseminate);
+        cmsShowAiHelper('Home Rotation');
       } else if (section === 'cmsTrainingVideos') {
         _showFullWidth(document.getElementById('cmsTrainingVideosSection'), cmsLoadVideos);
         cmsShowAiHelper('Training Videos');
@@ -37251,6 +37271,108 @@ var _cmsVideoCategoryColors = {
   'Reports & Data': '#D97706',
   'Contacts & Resources': '#DC2626',
   'General': '#64748B'
+};
+
+/* ── Home Rotation ────────────────────────────────────────────────────────────
+   One list of everything public we could show a visitor, with a tick box per
+   item. Ticking sets homeRotation:true on the doc; the W2 home page and the app
+   splash both read that flag, so this is the single place the choice is made.
+
+   Deliberately shows type badges rather than hiding anything: a Screening or
+   Outreach Booth is calendar-only by design (2026-08-11), so if you tick one you
+   are knowingly overriding that, and the badge says so. Archived and internal
+   material never appears. */
+window.cmsLoadDisseminate = async function() {
+  var host = document.getElementById('cmsDissemBody'); if (!host) return;
+  host.innerHTML = '<div style="padding:20px;color:var(--text-soft);">Loading…</div>';
+  try {
+    var res = await Promise.all([
+      db.collection('events').get(),
+      db.collection('recurringEvents').get()
+    ]);
+    var today = _localToday();
+    var items = [];
+
+    res[0].forEach(function(d) {
+      var v = d.data() || {};
+      if (v.archived === true) return;
+      if (v.isOneOff === true) return;                    // a logged past activity, not something to show
+      // Past its remove date: no longer public anywhere.
+      if (v.removeDate && String(v.removeDate) < today) return;
+      var type = (typeof _cmsDeriveEventType === 'function') ? _cmsDeriveEventType(v, 'events') : 'learning_labs';
+      items.push({
+        id: d.id, coll: 'events', title: v.title || '(untitled)', type: type,
+        date: v.eventDate || '', image: v.imageUrl || '',
+        special: v.specialEvent === true, on: v.homeRotation === true
+      });
+    });
+
+    res[1].forEach(function(d) {
+      var v = d.data() || {};
+      if (v.archived === true || v.active === false) return;
+      var type = (typeof _cmsDeriveEventType === 'function') ? _cmsDeriveEventType(v, 'recurringEvents') : 'connect_gen';
+      items.push({
+        id: d.id, coll: 'recurringEvents', title: v.title || '(untitled)', type: type,
+        date: '', image: v.imageUrl || '', special: false, on: v.homeRotation === true
+      });
+    });
+
+    if (!items.length) { host.innerHTML = '<div style="padding:20px;color:var(--text-soft);">Nothing available to show right now.</div>'; return; }
+    items.sort(function(a, b) { return (a.title || '').localeCompare(b.title || ''); });
+    _cmsDissemItems = items;
+    _cmsRenderDisseminate();
+  } catch (e) {
+    host.innerHTML = '<div style="padding:20px;color:#DC2626;">Could not load: ' + rsEscape(e.message) + '</div>';
+  }
+};
+
+var _cmsDissemItems = [];
+
+function _cmsRenderDisseminate() {
+  var host = document.getElementById('cmsDissemBody'); if (!host) return;
+  var meta = (typeof _CMS_TYPE_META !== 'undefined') ? _CMS_TYPE_META : {};
+  var picked = _cmsDissemItems.filter(function(i) { return i.on; }).length;
+
+  var html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">' +
+    '<span style="font-weight:700;color:' + (picked ? '#16A34A' : '#B45309') + ';">' +
+      (picked ? picked + ' in the rotation' : 'Nothing ticked — the home page falls back to its usual two newest') +
+    '</span></div>';
+
+  html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow:hidden;">';
+  _cmsDissemItems.forEach(function(it) {
+    var m = meta[it.type] || {};
+    html += '<label style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #F1F5F9;cursor:pointer;">' +
+      '<input type="checkbox" ' + (it.on ? 'checked' : '') + ' style="width:17px;height:17px;cursor:pointer;flex:0 0 auto;" ' +
+        'onchange="cmsToggleDisseminate(decodeURIComponent(\'' + _attrJsArg(it.coll) + '\'),decodeURIComponent(\'' + _attrJsArg(it.id) + '\'),this.checked)">' +
+      (it.image
+        ? '<img src="' + rsEscape(it.image) + '" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:6px;flex:0 0 auto;">'
+        : '<span style="width:38px;height:38px;border-radius:6px;background:#F1F5F9;display:grid;place-items:center;font-size:.65rem;color:#94A3B8;flex:0 0 auto;">no<br>flyer</span>') +
+      '<span style="flex:1;min-width:0;">' +
+        '<span style="display:block;font-weight:600;font-size:.88rem;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + rsEscape(it.title) + '</span>' +
+        '<span style="display:block;font-size:.75rem;color:var(--text-soft);">' + rsEscape(it.date || 'ongoing') + '</span>' +
+      '</span>' +
+      '<span style="font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:999px;flex:0 0 auto;background:' +
+        ((m.color || '#94A3B8') + '22') + ';color:' + (m.color || '#64748B') + ';">' + rsEscape(m.label || it.type) + '</span>' +
+      (it.special ? '<span title="Screening and Outreach Booth events are calendar-only by design. Ticking this puts it on the home page anyway." style="font-size:.68rem;color:#B45309;flex:0 0 auto;">calendar-only</span>' : '') +
+      (!it.image ? '<span title="Without a flyer image there is nothing to show in the rotation." style="font-size:.68rem;color:#DC2626;flex:0 0 auto;">needs a flyer</span>' : '') +
+    '</label>';
+  });
+  html += '</div>';
+  host.innerHTML = html;
+}
+
+window.cmsToggleDisseminate = async function(coll, id, on) {
+  try {
+    await db.collection(coll).doc(id).update({ homeRotation: !!on });
+    var it = _cmsDissemItems.filter(function(x) { return x.id === id && x.coll === coll; })[0];
+    if (it) it.on = !!on;
+    _cmsRenderDisseminate();
+    if (typeof auditLog === 'function') {
+      auditLog(on ? 'Added to home rotation' : 'Removed from home rotation', (it && it.title) || id);
+    }
+  } catch (e) {
+    if (typeof _showToast === 'function') _showToast('Could not save: ' + e.message, '#DC2626');
+  }
 };
 
 window.cmsLoadVideos = async function() {
