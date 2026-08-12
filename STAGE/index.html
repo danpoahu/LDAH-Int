@@ -5275,7 +5275,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.13-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.14-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9842,6 +9842,94 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     }
 
     // ── Populate Client Dropdown ──
+    /* ── "Is this about a family?" nudge ─────────────────────────────────────
+       Staff work remotely and chat is properly full of chit-chat; that is fine
+       and it is not going anywhere. But when a message DOES name a family, the
+       client link almost never gets set — 3 messages out of 804 — so the
+       auto-log to that family's interactions never fires.
+
+       So: suggest, never assume. Nothing is linked or recorded automatically.
+       A toast offers the link, the person decides, and a decline is remembered
+       for that conversation so it does not ask twice. Banter stays banter. */
+    var _chatNudgeDismissed = {};   // convId|contactId -> true, for this session
+
+    function _chatFindClientMention(text) {
+      if (!text || !_chatContacts || !_chatContacts.length) return null;
+      var hay = ' ' + String(text).toLowerCase().replace(/[^a-z0-9\s']/g, ' ') + ' ';
+      var best = null;
+      for (var i = 0; i < _chatContacts.length; i++) {
+        var c = _chatContacts[i];
+        var nm = String(c.displayName || '').trim();
+        if (!nm) continue;
+        // Colleagues are contacts too. Someone saying "ask Leilani" is not a
+        // client note, so anyone on an LDAH address is skipped.
+        if (/@ldahawaii\.org/i.test(String(c.email || ''))) continue;
+        var low = nm.toLowerCase();
+        var parts = low.split(/\s+/).filter(Boolean);
+        var hit = false;
+        // Couples are stored as one contact ("Erica & Kenji Au"), but staff write
+        // "Erica Au" — so first-plus-last also counts, which is distinctive even
+        // when the surname is short. A short surname ALONE never is: "Au" and
+        // "Lee" match far too much ordinary prose.
+        var toks = parts.filter(function(w) { return w !== '&' && w !== 'and'; });
+        var first = toks[0], last = toks[toks.length - 1];
+        if (parts.length >= 2 && hay.indexOf(' ' + low + ' ') !== -1) hit = true;
+        else if (first && last && first !== last &&
+                 hay.indexOf(' ' + first + ' ') !== -1 && hay.indexOf(' ' + last + ' ') !== -1) hit = true;
+        else if (last && last.length >= 6 && hay.indexOf(' ' + last + ' ') !== -1) hit = true;
+        if (hit && (!best || nm.length > best.displayName.length)) best = c;
+      }
+      return best;
+    }
+
+    function _chatMaybeSuggestClient(text, sentClientId) {
+      try {
+        if (sentClientId) return;                       // already linked, nothing to ask
+        var match = _chatFindClientMention(text);
+        if (!match) return;
+        var key = _chatActiveConvId + '|' + match.id;
+        if (_chatNudgeDismissed[key]) return;
+        _chatShowClientNudge(match, key);
+      } catch (e) { console.warn('chat client nudge:', e && e.message); }
+    }
+
+    function _chatShowClientNudge(contact, key) {
+      var old = document.getElementById('chatClientNudge');
+      if (old) old.remove();
+      var box = document.createElement('div');
+      box.id = 'chatClientNudge';
+      box.style.cssText = 'position:fixed;bottom:96px;left:24px;z-index:4200;max-width:330px;' +
+        'background:#fff;border:1px solid #C4B5FD;border-left:4px solid #7C3AED;border-radius:12px;' +
+        'box-shadow:0 8px 28px rgba(15,23,42,.18);padding:14px 16px;font-size:.86rem;color:#0f172a;';
+      box.innerHTML =
+        '<div style="font-weight:700;margin-bottom:4px;color:#5B21B6;">Is this about ' + rsEscape(contact.displayName) + '?</div>' +
+        '<div style="color:#475569;line-height:1.45;margin-bottom:10px;">Link this chat to them and it will be saved to their record. ' +
+          'Leave it if you are just talking.</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button type="button" class="btn btn-primary" style="font-size:.8rem;padding:5px 12px;background:#7C3AED;border-color:#6D28D9;" ' +
+            'id="chatNudgeYes">Link to ' + rsEscape(String(contact.displayName).split(/\s+/)[0]) + '</button>' +
+          '<button type="button" class="btn btn-ghost" style="font-size:.8rem;padding:5px 10px;" id="chatNudgeNo">No thanks</button>' +
+        '</div>';
+      document.body.appendChild(box);
+
+      var close = function() { if (box && box.parentNode) box.remove(); };
+      box.querySelector('#chatNudgeNo').onclick = function() { _chatNudgeDismissed[key] = true; close(); };
+      box.querySelector('#chatNudgeYes').onclick = function() {
+        _chatNudgeDismissed[key] = true;
+        try {
+          if (chatClientSelect) chatClientSelect.value = contact.id;   // future messages log too
+          db().collection('chatConversations').doc(_chatActiveConvId)
+            .update({ clientId: contact.id, clientName: contact.displayName });
+          if (typeof _showToast === 'function') {
+            _showToast('Linked to ' + contact.displayName + '. Messages here now save to their record.', '#16A34A');
+          }
+        } catch (e) { console.warn('chat link failed:', e && e.message); }
+        close();
+      };
+      // Never sit there forever — it is a suggestion, not a task.
+      setTimeout(close, 20000);
+    }
+
     var _chatContacts = []; // local cache for chat dropdown
     function populateChatClientSelect() {
       if (!chatClientSelect) return;
@@ -10530,6 +10618,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           if (clientId && clientName) {
             logChatToInteraction(text, clientId, clientName, myName, myUid);
           }
+          // Not linked, but the message names a family? Offer the link.
+          _chatMaybeSuggestClient(text, clientId);
         })
         .catch(function(err) {
           console.error('Chat send error:', err);
