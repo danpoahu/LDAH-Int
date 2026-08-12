@@ -5272,7 +5272,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.7-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.8-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -39754,6 +39754,12 @@ function _tsRender() {
   document.getElementById('tsSlideBody').textContent = sl.body || '';
   var tip = document.getElementById('tsSlideTip');
   if (sl.tip) { tip.textContent = sl.tip; tip.style.display = 'block'; } else { tip.style.display = 'none'; }
+  // Screenshots are stored in the repo (img/training/) and referenced relatively,
+  // so STAGE serves STAGE's copy and live would serve its own. Deliberately only
+  // PII-free crops of the UI — no filled-in profile, no contact list.
+  var img = document.getElementById('tsSlideImg');
+  if (sl.image) { img.src = '../' + sl.image; img.alt = sl.title || ''; img.style.display = 'block'; }
+  else { img.removeAttribute('src'); img.style.display = 'none'; }
   document.getElementById('tsDots').innerHTML = _tsSession.slides.map(function(_, i) {
     return '<span style="width:7px;height:7px;border-radius:50%;background:' +
       (i === _tsIdx ? '#0891B2' : '#CBD5E1') + ';display:inline-block;"></span>';
@@ -39763,14 +39769,38 @@ function _tsRender() {
   document.getElementById('tsNextBtn').textContent = last ? 'Done' : (_tsIdx === 0 ? 'Start' : 'Next');
 }
 
+/* Open any session from the profile list, watched or not. Replaying a completed
+   session must never demote it — closing a replay is not "skipping" something
+   you already did — so _tsReplayMode suppresses the skip write. */
+var _tsReplayMode = false;
+window.tsReplay = async function(sessionId) {
+  try {
+    var d = await db.collection('trainingSessions').doc(sessionId).get();
+    if (!d.exists) return;
+    _tsSession = Object.assign({ _id: d.id }, d.data() || {});
+    if (!Array.isArray(_tsSession.slides) || !_tsSession.slides.length) return;
+    _tsReplayMode = (function(){ var pr = _tsProgress[sessionId]; return !!(pr && pr.status === 'completed'); })();
+    _tsIdx = 0;
+    document.getElementById('tsTitle').textContent = _tsSession.title || 'Training';
+    _tsRender();
+    document.getElementById('tsSplash').style.display = 'flex';
+  } catch (e) { console.warn('training replay:', e && e.message); }
+};
+
 window.tsPrev = function() { if (_tsIdx > 0) { _tsIdx--; _tsRender(); } };
 window.tsNext = async function() {
   if (_tsIdx < _tsSession.slides.length - 1) { _tsIdx++; _tsRender(); return; }
   await _tsWrite('completed');
+  _tsReplayMode = false;
   _tsClose();
   if (typeof _showToast === 'function') _showToast('Nice — that one is marked as watched.', '#16A34A');
+  if (document.getElementById('tsHistoryBody') && window.tsRenderHistory) tsRenderHistory();
 };
-window.tsSkip = async function() { await _tsWrite('skipped'); _tsClose(); };
+window.tsSkip = async function() {
+  if (!_tsReplayMode) await _tsWrite('skipped');   // closing a replay is not a skip
+  _tsReplayMode = false;
+  _tsClose();
+};
 function _tsClose() { var el = document.getElementById('tsSplash'); if (el) el.style.display = 'none'; }
 
 /* Skips accumulate rather than overwrite: "skipped four times" is the signal
@@ -39800,7 +39830,7 @@ window.tsRenderHistory = async function() {
     var rows = [];
     snap.forEach(function(d) {
       var v = d.data() || {}; var pr = prog[d.id] || null;
-      rows.push({ title: v.title || d.id, published: v.publishedAt || '',
+      rows.push({ id: d.id, title: v.title || d.id, published: v.publishedAt || '',
                   status: pr ? pr.status : 'not started', at: pr ? pr.at : '', skips: (pr && pr.skips) || 0 });
     });
     if (!rows.length) { host.innerHTML = '<div style="color:var(--text-soft);font-size:.88rem;">No training sessions published yet.</div>'; return; }
@@ -39815,6 +39845,9 @@ window.tsRenderHistory = async function() {
         (r.skips > 1 ? '<span style="font-size:.75rem;color:#B45309;">skipped ' + r.skips + '&times;</span>' : '') +
         '<span style="font-size:.78rem;font-weight:700;color:' + col + ';">' + label + '</span>' +
         (when ? '<span style="font-size:.75rem;color:#94A3B8;min-width:74px;text-align:right;">' + when + '</span>' : '') +
+        '<button type="button" class="btn btn-ghost" style="font-size:.75rem;padding:3px 10px;color:#0891B2;" ' +
+          'onclick="tsReplay(decodeURIComponent(\'' + _attrJsArg(r.id) + '\'))">' +
+          (r.status === 'completed' ? 'Watch it again' : 'Watch now') + '</button>' +
         '</div>';
     }).join('');
   } catch (e) {
@@ -47216,6 +47249,7 @@ window._ctAccToggle = function(head, panelId){
     <div style="padding:22px 24px;min-height:170px;">
       <div id="tsSlideTitle" style="font-size:1rem;font-weight:700;color:#0f172a;margin-bottom:8px;"></div>
       <div id="tsSlideBody" style="font-size:.94rem;line-height:1.6;color:#334155;white-space:pre-wrap;"></div>
+      <img id="tsSlideImg" alt="" style="display:none;margin-top:12px;max-width:100%;border:1px solid #E2E8F0;border-radius:8px;box-shadow:0 2px 8px rgba(15,23,42,.08);">
       <div id="tsSlideTip" style="display:none;margin-top:12px;padding:10px 12px;background:#F0FDFF;border:1px solid #A5F3FC;
            border-radius:8px;font-size:.85rem;color:#155E75;"></div>
     </div>
