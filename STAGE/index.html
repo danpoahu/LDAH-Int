@@ -5137,7 +5137,6 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="contacts" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Contacts</a>
             <a href="javascript:void(0)" data-section="changes" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Change Requests <span class="pill" id="crBadge" style="display:none;">0</span></a>
             <a href="javascript:void(0)" data-section="reports" data-roles="superAdmin,admin">Reports</a>
-            <a href="javascript:void(0)" data-section="cmsDisseminate">Home Rotation</a>
             <a href="javascript:void(0)" data-section="cmsTrainingVideos">Training Videos</a>
           </div>
         </div>
@@ -5165,6 +5164,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <a href="javascript:void(0)" data-section="cmsResources" data-roles="superAdmin,admin,webAdmin,appAdmin">Resources <span class="cms-badge-count" id="resBadge" style="display:none;">0</span></a>
             <a href="javascript:void(0)" data-section="cmsFaqs" data-roles="superAdmin,admin,webAdmin,appAdmin">FAQs</a>
             <a href="javascript:void(0)" data-section="cmsEvents" data-roles="superAdmin,admin,webAdmin,appAdmin">Events &amp; Programs</a>
+            <a href="javascript:void(0)" data-section="cmsDisseminate" data-roles="superAdmin,admin,webAdmin,appAdmin">Home Rotation</a>
             <a href="javascript:void(0)" data-section="cmsVolunteers" data-roles="superAdmin,admin,webAdmin,appAdmin">Volunteers</a>
             <a href="javascript:void(0)" data-section="cmsWebData" data-roles="superAdmin,admin,webAdmin,appAdmin">Website Data</a>
             <!-- <a href="javascript:void(0)" data-section="cmsPageEditor" data-roles="superAdmin,admin,webAdmin,appAdmin">Page Editor</a> -->
@@ -5276,7 +5276,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.15-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.16-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -37296,14 +37296,41 @@ window.cmsLoadDisseminate = async function() {
     res[0].forEach(function(d) {
       var v = d.data() || {};
       if (v.archived === true) return;
-      if (v.isOneOff === true) return;                    // a logged past activity, not something to show
-      // Past its remove date: no longer public anywhere.
-      if (v.removeDate && String(v.removeDate) < today) return;
+      if (v.isOneOff === true) return;                       // a logged past activity
+      if (v.removeDate && String(v.removeDate) < today) return;   // expired
+
       var type = (typeof _cmsDeriveEventType === 'function') ? _cmsDeriveEventType(v, 'events') : 'learning_labs';
+      var picked = Array.isArray(v.homeRotationDates) ? v.homeRotationDates : [];
+      var sd = Array.isArray(v.signupDates) ? v.signupDates.filter(Boolean) : [];
+
+      if (sd.length > 1) {
+        /* A multi-session event is ONE doc but several things a visitor could be
+           shown — August Learning Labs is IDEA/Chapter 60 on the 12th and
+           Understanding Evaluations on the 26th. Listing the doc once made it
+           impossible to choose between them, so each future session gets its own
+           row and its own tick, stored in homeRotationDates. */
+        sd.forEach(function(lbl) {
+          var iso = (typeof window._cmsSigDateKey === 'function') ? window._cmsSigDateKey(lbl) : '';
+          if (!iso || iso < today) return;                   // past session — drop it
+          items.push({
+            id: d.id, coll: 'events', title: v.title || '(untitled)', type: type,
+            date: iso, session: lbl,
+            label: (typeof evSessionLabel === 'function' && evSessionLabel(lbl)) || lbl,
+            image: v.imageUrl || '', special: v.specialEvent === true,
+            on: picked.indexOf(lbl) !== -1
+          });
+        });
+        return;
+      }
+
+      // Single-date (or dateless flyer): keep only if it still has a future date.
+      var one = sd.length ? ((typeof window._cmsSigDateKey === 'function') ? window._cmsSigDateKey(sd[0]) : '') : (v.eventDate || '');
+      if (one && String(one) < today) return;
       items.push({
         id: d.id, coll: 'events', title: v.title || '(untitled)', type: type,
-        date: v.eventDate || '', image: v.imageUrl || '',
-        special: v.specialEvent === true, on: v.homeRotation === true
+        date: one || '', session: null, label: '',
+        image: v.imageUrl || '', special: v.specialEvent === true,
+        on: v.homeRotation === true
       });
     });
 
@@ -37313,12 +37340,13 @@ window.cmsLoadDisseminate = async function() {
       var type = (typeof _cmsDeriveEventType === 'function') ? _cmsDeriveEventType(v, 'recurringEvents') : 'connect_gen';
       items.push({
         id: d.id, coll: 'recurringEvents', title: v.title || '(untitled)', type: type,
-        date: '', image: v.imageUrl || '', special: false, on: v.homeRotation === true
+        date: '', session: null, label: '', image: v.imageUrl || '',
+        special: false, on: v.homeRotation === true
       });
     });
 
-    if (!items.length) { host.innerHTML = '<div style="padding:20px;color:var(--text-soft);">Nothing available to show right now.</div>'; return; }
-    items.sort(function(a, b) { return (a.title || '').localeCompare(b.title || ''); });
+    if (!items.length) { host.innerHTML = '<div style="padding:20px;color:var(--text-soft);">Nothing upcoming to show right now.</div>'; return; }
+    items.sort(function(a, b) { return String(a.date || '9999').localeCompare(String(b.date || '9999')); });
     _cmsDissemItems = items;
     _cmsRenderDisseminate();
   } catch (e) {
@@ -37343,12 +37371,13 @@ function _cmsRenderDisseminate() {
     var m = meta[it.type] || {};
     html += '<label style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #F1F5F9;cursor:pointer;">' +
       '<input type="checkbox" ' + (it.on ? 'checked' : '') + ' style="width:17px;height:17px;cursor:pointer;flex:0 0 auto;" ' +
-        'onchange="cmsToggleDisseminate(decodeURIComponent(\'' + _attrJsArg(it.coll) + '\'),decodeURIComponent(\'' + _attrJsArg(it.id) + '\'),this.checked)">' +
+        'onchange="cmsToggleDisseminate(decodeURIComponent(\'' + _attrJsArg(it.coll) + '\'),decodeURIComponent(\'' + _attrJsArg(it.id) + '\'),this.checked,decodeURIComponent(\'' + _attrJsArg(it.session || '') + '\'))">' +
       (it.image
         ? '<img src="' + rsEscape(it.image) + '" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:6px;flex:0 0 auto;">'
         : '<span style="width:38px;height:38px;border-radius:6px;background:#F1F5F9;display:grid;place-items:center;font-size:.65rem;color:#94A3B8;flex:0 0 auto;">no<br>flyer</span>') +
       '<span style="flex:1;min-width:0;">' +
-        '<span style="display:block;font-weight:600;font-size:.88rem;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + rsEscape(it.title) + '</span>' +
+        '<span style="display:block;font-weight:600;font-size:.88rem;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+          rsEscape(it.title) + (it.label ? ' <span style="color:#0891B2;">&middot; ' + rsEscape(it.label) + '</span>' : '') + '</span>' +
         '<span style="display:block;font-size:.75rem;color:var(--text-soft);">' + rsEscape(it.date || 'ongoing') + '</span>' +
       '</span>' +
       '<span style="font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:999px;flex:0 0 auto;background:' +
@@ -37361,14 +37390,28 @@ function _cmsRenderDisseminate() {
   host.innerHTML = html;
 }
 
-window.cmsToggleDisseminate = async function(coll, id, on) {
+window.cmsToggleDisseminate = async function(coll, id, on, session) {
   try {
-    await db.collection(coll).doc(id).update({ homeRotation: !!on });
-    var it = _cmsDissemItems.filter(function(x) { return x.id === id && x.coll === coll; })[0];
+    if (session) {
+      /* Multi-session events store WHICH sessions are picked, not a single
+         boolean — two sessions of one Learning Labs doc must be independently
+         tickable. arrayUnion/arrayRemove so two people ticking different
+         sessions at once cannot overwrite each other. */
+      var FV = firebase.firestore.FieldValue;
+      await db.collection(coll).doc(id).update({
+        homeRotationDates: on ? FV.arrayUnion(session) : FV.arrayRemove(session)
+      });
+    } else {
+      await db.collection(coll).doc(id).update({ homeRotation: !!on });
+    }
+    var it = _cmsDissemItems.filter(function(x) {
+      return x.id === id && x.coll === coll && (x.session || '') === (session || '');
+    })[0];
     if (it) it.on = !!on;
     _cmsRenderDisseminate();
     if (typeof auditLog === 'function') {
-      auditLog(on ? 'Added to home rotation' : 'Removed from home rotation', (it && it.title) || id);
+      auditLog(on ? 'Added to home rotation' : 'Removed from home rotation',
+        ((it && it.title) || id) + (session ? ' — ' + session : ''));
     }
   } catch (e) {
     if (typeof _showToast === 'function') _showToast('Could not save: ' + e.message, '#DC2626');
