@@ -753,12 +753,12 @@ window.LDAHChat = (function () {
                 shouldChime = true;
               }
             });
-            if (shouldChime) playNotifSound();
+            if (shouldChime && _ownsChime) playNotifSound();
           }
           _chatUnreadCount = unread;
           _chatUnreadByUser = unreadByUser;
           updateChatBadge();
-          if (typeof window._ldahChatTitleSignal === 'function') window._ldahChatTitleSignal(unread);
+          if (_ownsChime && typeof window._ldahChatTitleSignal === 'function') window._ldahChatTitleSignal(unread);
           // Refresh roster to show/hide unread badges
           if (typeof window._refreshRoster === 'function') window._refreshRoster();
         }, function(err) {
@@ -1175,6 +1175,56 @@ window.LDAHChat = (function () {
       _chime();
     }
 
+    // ══════════════════════════════════════════════════════
+    // Single-chimer ownership — exactly one open window (dashboard
+    // modal or pop-out) owns the audible chime + unread title flash.
+    // localStorage heartbeat; pop-out outranks the dashboard while both
+    // are alive; a stale (>10s) heartbeat is reclaimed by whoever polls next.
+    // ══════════════════════════════════════════════════════
+    var _winId = 'w' + Math.random().toString(36).slice(2) + Date.now();
+    var _ownsChime = false;
+    var _ownHeartbeat = null;
+    var CHIME_KEY = 'ldahChatActiveWindow';
+    var STALE_MS = 10000;
+
+    function readOwner() {
+      try { return JSON.parse(localStorage.getItem(CHIME_KEY) || 'null'); }
+      catch (e) { return null; }
+    }
+
+    function claimChime() {
+      try { localStorage.setItem(CHIME_KEY, JSON.stringify({ id: _winId, ts: Date.now() })); } catch (e) {}
+      _ownsChime = true;
+    }
+
+    function releaseChime() {
+      var o = readOwner();
+      if (o && o.id === _winId) { try { localStorage.removeItem(CHIME_KEY); } catch (e) {} }
+      _ownsChime = false;
+    }
+
+    function evaluateOwnership() {
+      var o = readOwner();
+      if (!o) { claimChime(); return; }
+      if (o.id === _winId) { _ownsChime = true; claimChime(); return; }   // refresh ts
+      // Someone else owns it. Take over only if their heartbeat is stale.
+      if (Date.now() - (o.ts || 0) > STALE_MS) { claimChime(); return; }
+      // The pop-out outranks the dashboard while both are alive.
+      _ownsChime = (_mode === 'window');
+      if (_ownsChime) claimChime();
+    }
+
+    function startOwnership() {
+      evaluateOwnership();
+      if (_ownHeartbeat) clearInterval(_ownHeartbeat);
+      _ownHeartbeat = setInterval(evaluateOwnership, 3000);
+      window.addEventListener('storage', function (e) {
+        if (e.key === CHIME_KEY) evaluateOwnership();
+      });
+      // pagehide fires reliably where beforeunload does not (see the DM resume-email work)
+      window.addEventListener('pagehide', releaseChime);
+    }
+
     // ── Initialize Chat on Login ──
     // Called from showApp() indirectly — we hook into the existing flow
     var _chatInitDone = false;
@@ -1321,6 +1371,7 @@ window.LDAHChat = (function () {
       if (po) po.style.display = 'none';
     }
     setTimeout(tryInitChat, _mode === 'window' ? 200 : 1000);
+    startOwnership();
     return { open: openChatModal, close: closeChatModal, destroy: teardown };
   }
 
@@ -1330,6 +1381,7 @@ window.LDAHChat = (function () {
     if (_chatConvsUnsub) _chatConvsUnsub();
     if (_chatHeaderPresenceUnsub) _chatHeaderPresenceUnsub();
     if (_chatLocalTimeInterval) clearInterval(_chatLocalTimeInterval);
+    if (_ownHeartbeat) clearInterval(_ownHeartbeat);
   }
 
   return { mount: mount, MARKUP: MODAL_MARKUP };
