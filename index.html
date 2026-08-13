@@ -5261,7 +5261,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -19033,6 +19033,46 @@ var _photoPendingByIsland = {};
       return '';
     }
   };
+  // ── Case-advocacy coordinator (2026-08-12) ──────────────────────────────────
+  // All case advocacy at LDAH is allocated by one person. When advocacy is
+  // turned on without an advocate chosen, the task goes to her to assign the
+  // parent consultant, rather than evaporating.
+  var CASE_ADVOCACY_COORDINATOR = { email: 'ndelavega@ldahawaii.org', name: 'Noelani Dela Vega' };
+
+  // Resolve a staff uid by EMAIL. Display names get retyped and drift (userRoles
+  // holds "Kailawa" for Kailiawa), so anything the code has to find on its own
+  // is looked up by the one field nobody rekeys. Two passes: the assignable-
+  // owners bridge first, then a direct userRoles scan, because that bridge is
+  // Oahu-scoped and would filter out a coordinator based elsewhere. Email
+  // casing in userRoles is inconsistent, so compare lowercased rather than
+  // relying on a Firestore equality match.
+  window._resolveStaffUidByEmail = async function(email) {
+    var target = String(email || '').trim().toLowerCase();
+    if (!target) return '';
+    try {
+      var owners = (typeof _getAssignableOwners === 'function') ? await _getAssignableOwners() : [];
+      var hit = (owners || []).find(function(o) {
+        return String(o.email || '').trim().toLowerCase() === target;
+      });
+      if (hit) return hit.uid;
+    } catch (e) {
+      console.warn('_resolveStaffUidByEmail (owners) failed:', e && e.message);
+    }
+    try {
+      var snap = await db.collection('userRoles').get();
+      var found = '';
+      snap.forEach(function(doc) {
+        if (found) return;
+        var d = doc.data() || {};
+        if (d.isArchived === true) return;
+        if (String(d.email || '').trim().toLowerCase() === target) found = doc.id;
+      });
+      return found;
+    } catch (e) {
+      console.warn('_resolveStaffUidByEmail (userRoles) failed:', e && e.message);
+      return '';
+    }
+  };
 
   // Core: create or reassign the advocate interaction for a source interaction.
   //   sourceData    — the saved source interaction data (post-write).
@@ -19063,11 +19103,24 @@ var _photoPendingByIsland = {};
     } catch (e) { console.warn('retain CG docs on advocacy failed:', e.message); }
   }
 
-  window.spawnOrReassignCaseAdvocacy = async function(sourceData, sourceId, advocateName) {
+  window.spawnOrReassignCaseAdvocacy = async function(sourceData, sourceId, advocateName, wantOn) {
     sourceData = sourceData || {};
+    advocateName = advocateName || '';
+
+    // 2026-08-12 — `wantOn` is the checkbox state, passed explicitly by the caller.
+    // Until now an empty advocateName was the ONLY signal for "turn advocacy
+    // off", so ticking "Case advocacy" and leaving the picker on
+    // "— Select advocate —" stamped caseAdvocacy:FALSE and returned silently:
+    // no task, no flag, no warning, and the staff member believing the family
+    // was flagged. Blank is exactly what staff leave when they do not know who
+    // should take the case — which is the coordinator's call, not theirs. So
+    // advocacy-on-with-no-advocate is now a real state: caseAdvocacy stays
+    // TRUE and the canonical task is raised against the coordinator to assign
+    // a parent consultant. Three-argument callers keep the old meaning.
+    if (typeof wantOn === 'undefined') wantOn = !!advocateName;
 
     // Toggle OFF → stamp caseAdvocacy:false; leave any existing advocate task in place.
-    if (!advocateName) {
+    if (!wantOn) {
       await db.collection('interactions').doc(sourceId).update({ caseAdvocacy: false });
       return null;
     }
@@ -19082,9 +19135,15 @@ var _photoPendingByIsland = {};
     // advocacy is turned on, before the 24h auto-destruct can fire.
     await _retainCgDocsForCaseAdvocacy(sourceData.contactId);
 
-    var uid = await _resolveStaffUidByName(advocateName);
+    // No advocate chosen → the task belongs to the coordinator, who allocates
+    // the parent consultant. Resolved by email, not display name.
+    var unassigned = !advocateName;
+    var ownerName = unassigned ? CASE_ADVOCACY_COORDINATOR.name : advocateName;
+    var uid = unassigned
+      ? await _resolveStaffUidByEmail(CASE_ADVOCACY_COORDINATOR.email)
+      : await _resolveStaffUidByName(advocateName);
 
-    // Per-contact idempotency (v145.0.2). A case-advocacy task is unique per
+    // Per-contact idempotency (v146.0.2). A case-advocacy task is unique per
     // CONTACT, not per source interaction. The old guard keyed only on the
     // source interaction's caseAdvocacyInteractionId, so flagging advocacy on a
     // second interaction for the same family spawned a duplicate "advocating
@@ -19126,24 +19185,42 @@ var _photoPendingByIsland = {};
       var existingId = existingTask.id;
       var currentOwnerUid = existingTask.data.ownerUid || existingTask.data.caseAdvocateUid || '';
       // Always (re)link the source interaction to the canonical task so future
-      // re-toggles from this interaction also resolve to the same task.
-      await db.collection('interactions').doc(sourceId).update({
-        caseAdvocacy: true,
-        caseAdvocateName: advocateName,
-        caseAdvocateUid: uid || '',
-        caseAdvocacyInteractionId: existingId
-      });
+      // re-toggles from this interaction also resolve to the same task. Only
+      // stamp the advocate fields when one was actually named — re-ticking the
+      // box with a blank picker must not wipe a known advocate off the source.
+      var srcUpdate = { caseAdvocacy: true, caseAdvocacyInteractionId: existingId };
+      if (!unassigned) {
+        srcUpdate.caseAdvocateName = advocateName;
+        srcUpdate.caseAdvocateUid = uid || '';
+      }
+      await db.collection('interactions').doc(sourceId).update(srcUpdate);
+      // Turning advocacy on with no advocate while a task already exists →
+      // leave the task and its owner alone. A re-tick must never demote a real
+      // advocate back to the coordinator.
+      if (unassigned) {
+        return { interactionId: existingId, uid: currentOwnerUid, reassigned: false };
+      }
       // Same advocate already on the task → idempotent no-op (beyond the relink).
       if (uid && uid === currentOwnerUid) {
         return { interactionId: existingId, uid: uid, reassigned: false };
       }
       // Different advocate → reassign the existing task + notify.
-      await db.collection('interactions').doc(existingId).update({
+      var reassignUpdate = {
         owner: advocateName,
         ownerUid: uid || '',
         lastEditedAt: firebase.firestore.FieldValue.serverTimestamp(),
         lastEditedBy: (currentUserData && currentUserData.displayName) || ''
-      });
+      };
+      // If this was the coordinator's "assign a parent consultant" placeholder,
+      // it now becomes the advocate's real 3-month follow-up: retitle it and
+      // push the follow-up out, or her wording would sit in their My Day
+      // still reading as an assignment request that is already done.
+      if (existingTask.data.needsAdvocateAssignment === true) {
+        reassignUpdate.needsAdvocateAssignment = false;
+        reassignUpdate.summary = 'Case advocacy — advocating for ' + (sourceData.contactName || 'contact');
+        reassignUpdate.followUpDate = _addMonthsHst(_todayHst(), 3);
+      }
+      await db.collection('interactions').doc(existingId).update(reassignUpdate);
       if (uid && typeof createNotification === 'function') {
         var rFollow = '';
         try {
@@ -19154,24 +19231,30 @@ var _photoPendingByIsland = {};
           recipientUid: uid,
           recipientName: advocateName,
           type: 'case-advocacy-assigned',
-          title: 'You’re the case advocate for ' + (sourceData.contactName || 'a contact'),
+          title: 'You\u2019re the case advocate for ' + (sourceData.contactName || 'a contact'),
           message: ((currentUserData && currentUserData.displayName) || 'A staff member') +
             ' made you case advocate for ' + (sourceData.contactName || 'a contact') + '.' +
             (rFollow ? ' 3-month follow-up ' + rFollow + '.' : ''),
           interactionId: existingId
         });
       } else if (!uid) {
-        _showToast('Saved, but "' + advocateName + '" has no LDAH-Int login — the task won’t reach a My Day until reassigned.', '#D97706');
+        _showToast('Saved, but "' + advocateName + '" has no LDAH-Int login — the task won\u2019t reach a My Day until reassigned.', '#D97706');
       }
       return { interactionId: existingId, uid: uid, reassigned: true };
     }
 
-    // No existing task → create a new advocate interaction.
-    var followUpDate = _addMonthsHst(_todayHst(), 3);
+    // No existing task → create a new advocate interaction. An unassigned case
+    // is due today (the coordinator should allocate it now); an assigned one
+    // carries the advocate's 3-month follow-up.
+    var followUpDate = unassigned ? _todayHst() : _addMonthsHst(_todayHst(), 3);
     var srcType = sourceData.interactionType || sourceData.type || 'interaction';
     var creator = (currentUserData && currentUserData.displayName) || 'Unknown';
     var provenance = 'Case advocacy started from ' + srcType + ' by ' + creator +
       ' on ' + _todayHst() + '.';
+    if (unassigned) {
+      provenance += '\nNo advocate was chosen at logging — raised to ' +
+        CASE_ADVOCACY_COORDINATOR.name + ' to assign a parent consultant.';
+    }
     if (sourceData.summary) provenance += '\nOriginal summary: ' + sourceData.summary;
 
     var advData = {
@@ -19182,12 +19265,15 @@ var _photoPendingByIsland = {};
       contactName: sourceData.contactName || '',
       contactType: sourceData.contactType || '',
       grantProgram: sourceData.grantProgram || '',
-      summary: 'Case advocacy — advocating for ' + (sourceData.contactName || 'contact'),
+      summary: unassigned
+        ? 'Case advocacy — assign a parent consultant for ' + (sourceData.contactName || 'contact')
+        : 'Case advocacy — advocating for ' + (sourceData.contactName || 'contact'),
       notes: provenance,
       followUpDate: followUpDate,
       status: 'Open',
-      owner: advocateName,
+      owner: ownerName,
       ownerUid: uid || '',
+      needsAdvocateAssignment: unassigned,
       caseAdvocacySourceId: sourceId,
       createdBy: creator,
       createdByUid: (currentUserData && currentUserData.uid) || '',
@@ -19195,29 +19281,39 @@ var _photoPendingByIsland = {};
     };
     var newRef = await db.collection('interactions').add(advData);
 
-    await db.collection('interactions').doc(sourceId).update({
+    var srcNewUpdate = {
       caseAdvocacy: true,
-      caseAdvocateName: advocateName,
-      caseAdvocateUid: uid || '',
       caseAdvocacyStartedAt: firebase.firestore.FieldValue.serverTimestamp(),
       caseAdvocacyInteractionId: newRef.id
-    });
+    };
+    if (!unassigned) {
+      srcNewUpdate.caseAdvocateName = advocateName;
+      srcNewUpdate.caseAdvocateUid = uid || '';
+    }
+    await db.collection('interactions').doc(sourceId).update(srcNewUpdate);
 
     if (uid && typeof createNotification === 'function') {
       await createNotification({
         recipientUid: uid,
-        recipientName: advocateName,
-        type: 'case-advocacy-assigned',
-        title: 'You’re the case advocate for ' + (sourceData.contactName || 'a contact'),
-        message: creator + ' made you case advocate for ' +
-          (sourceData.contactName || 'a contact') + '. 3-month follow-up ' + followUpDate + '.',
+        recipientName: ownerName,
+        type: unassigned ? 'case-advocacy-needs-advocate' : 'case-advocacy-assigned',
+        title: unassigned
+          ? 'Assign a parent consultant for ' + (sourceData.contactName || 'a contact')
+          : 'You\u2019re the case advocate for ' + (sourceData.contactName || 'a contact'),
+        message: unassigned
+          ? creator + ' turned on case advocacy for ' + (sourceData.contactName || 'a contact') +
+            ' without choosing an advocate. Please assign a parent consultant.'
+          : creator + ' made you case advocate for ' +
+            (sourceData.contactName || 'a contact') + '. 3-month follow-up ' + followUpDate + '.',
         interactionId: newRef.id
       });
     } else if (!uid) {
-      _showToast('Saved, but "' + advocateName + '" has no LDAH-Int login — the task won’t reach a My Day until reassigned.', '#D97706');
+      _showToast(unassigned
+        ? 'Case advocacy is ON, but ' + CASE_ADVOCACY_COORDINATOR.name +
+          ' has no LDAH-Int login — the task was created unassigned.'
+        : 'Saved, but "' + advocateName + '" has no LDAH-Int login — the task won\u2019t reach a My Day until reassigned.', '#D97706');
     }
-
-    return { interactionId: newRef.id, uid: uid, reassigned: false };
+    return { interactionId: newRef.id, uid: uid, reassigned: false, unassigned: unassigned };
   };
 
   // ── Interactions — Save to Firestore ──
@@ -19357,7 +19453,10 @@ var _photoPendingByIsland = {};
         var caCb = document.getElementById('intCaseAdvocacy');
         if (caCb && caCb.checked) {
           var caName = (document.getElementById('intCaseAdvocate') || {}).value || '';
-          await spawnOrReassignCaseAdvocacy(data, newIxRef.id, caName);
+          // wantOn is true: this branch only runs when the box is checked. A
+          // blank caName now means "advocacy on, coordinator to assign" rather
+          // than silently turning advocacy back off (2026-08-12).
+          await spawnOrReassignCaseAdvocacy(data, newIxRef.id, caName, true);
         }
       } catch (caErr) {
         console.error('Case advocacy (new interaction) failed:', caErr);
@@ -20665,10 +20764,16 @@ var _photoPendingByIsland = {};
   // advocate's 3-month follow-up task. Its guards (contact attached, advocate
   // chosen) are pre-checked by saveInteractionDetail so nothing is written when
   // they fail. `data` is the freshly-fetched interaction doc. Throws on failure.
-  window._applyCaseAdvocacy = async function(data, advocateName) {
+  window._applyCaseAdvocacy = async function(data, advocateName, wantOn) {
     if (!_ixViewDocId) return;
-    await spawnOrReassignCaseAdvocacy(data, _ixViewDocId, advocateName);
-    _showToast(advocateName ? 'Case advocacy on — advocate task created/updated.' : 'Case advocacy turned off.', '#0891B2');
+    if (typeof wantOn === 'undefined') wantOn = !!advocateName;
+    await spawnOrReassignCaseAdvocacy(data, _ixViewDocId, advocateName, wantOn);
+    var toast = !wantOn
+      ? 'Case advocacy turned off.'
+      : (advocateName
+          ? 'Case advocacy on — advocate task created/updated.'
+          : 'Case advocacy on — task raised to ' + CASE_ADVOCACY_COORDINATOR.name + ' to assign a parent consultant.');
+    _showToast(toast, '#0891B2');
   };
 
   // ── One Save for the whole Interaction Detail card (v145.6.0) ──────────────
@@ -20738,7 +20843,10 @@ var _photoPendingByIsland = {};
           fail('Case advocacy needs a contact.');
           return;
         }
-        if (!advName) { fail('Select an advocate.'); return; }
+        // 2026-08-12 — an advocate is no longer required here. Leaving the picker
+        // blank raises the task to the coordinator to assign, which is how
+        // advocacy is actually allocated; blocking the save just meant staff
+        // guessed an advocate or gave up.
       }
 
       // ── Apply only what changed ──
@@ -20753,7 +20861,7 @@ var _photoPendingByIsland = {};
         await window._applyStatusChange(newStatus, presUid, presName);
       }
 
-      if (advDirty) await window._applyCaseAdvocacy(data, advName);
+      if (advDirty) await window._applyCaseAdvocacy(data, advName, advWantOn);
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
 
