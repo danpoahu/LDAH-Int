@@ -5276,7 +5276,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.27-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.28-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12206,6 +12206,22 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
       // ═══════════════════════════════════════════════════
       // SECTION 2: What Changed Since Yesterday (detailed)
+      // Internal and test records, kept out of the daily activity feed.
+      // Mirrors the Membership Report's exclusions, except the name test matches
+      // "test" only as a WHOLE WORD (first or last), so a real family called
+      // Testa is not silently dropped. Catches the word, not typos of it — a
+      // test account saved as "Text Geni Wong" needs renaming (2026-08-13).
+      var _RPT_INTERNAL_EMAILS = ['danpellegrini63@gmail.com', 'info@discovermore.app'];
+      var _BULK_NEW_CONTACT_THRESHOLD = 10;
+      function _isInternalOrTest(name, email) {
+        var e = String(email || '').trim().toLowerCase();
+        if (e) {
+          if (/@ldahawaii\.org$/.test(e)) return true;
+          if (_RPT_INTERNAL_EMAILS.indexOf(e) !== -1) return true;
+        }
+        return /\btest\b/i.test(String(name || ''));
+      }
+
       // ═══════════════════════════════════════════════════
       var changelog = [];
 
@@ -12217,6 +12233,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           var parentRef = ns.ref.parent.parent;
           var parentDoc = await parentRef.get();
           var evTitle = (parentDoc.data()||{}).title || 'Unknown Event';
+          if (_isInternalOrTest(nd.name, nd.email)) continue;
           changelog.push({ icon: '&#128221;', text: '<strong>' + _escR(nd.name||'Someone') + '</strong> signed up for <em>' + _escR(evTitle) + '</em>', time: fmtTs(nd.timestamp), sort: nd.timestamp ? (nd.timestamp.seconds||0) : 0 });
         }
       } catch(e){ console.warn('Changelog signups:', e.message); }
@@ -12229,6 +12246,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           var pRef = cr.ref.parent.parent;
           var pDoc = await pRef.get();
           var pTitle = (pDoc.data()||{}).title || 'Unknown Event';
+          if (_isInternalOrTest(cd.name, cd.email)) continue;
           changelog.push({ icon: '&#9989;', text: '<strong>' + _escR(cd.name||'Someone') + '</strong> completed registration for <em>' + _escR(pTitle) + '</em>', time: fmtTs(cd.registrationCompletedAt), sort: cd.registrationCompletedAt ? (cd.registrationCompletedAt.seconds||0) : 0 });
         }
       } catch(e){ console.warn('Changelog regs:', e.message); }
@@ -12245,10 +12263,27 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       // New contacts
       try {
         var ctSnap2 = await db.collection('contacts').where('createdAt','>=',cutoff).get();
+        var _newContacts = [];
         ctSnap2.forEach(function(c) {
           var cdata = c.data();
-          changelog.push({ icon: '&#128100;', text: 'New contact created: <strong>' + _escR(cdata.displayName||cdata.firstName||'Unknown') + '</strong>' + (cdata.source ? ' (from ' + _escR(cdata.source) + ')' : ''), time: fmtTs(cdata.createdAt), sort: cdata.createdAt ? (cdata.createdAt.seconds||0) : 0 });
+          if (_isInternalOrTest(cdata.displayName || cdata.firstName, cdata.email)) return;
+          _newContacts.push({ name: cdata.displayName||cdata.firstName||'Unknown', source: cdata.source || '',
+                              time: fmtTs(cdata.createdAt), sort: cdata.createdAt ? (cdata.createdAt.seconds||0) : 0 });
         });
+        // A bulk import would bury the day's real activity under hundreds of
+        // lines, so past the threshold they collapse to one.
+        if (_newContacts.length > _BULK_NEW_CONTACT_THRESHOLD) {
+          var _srcs = []; _newContacts.forEach(function(n){ if (n.source && _srcs.indexOf(n.source) === -1) _srcs.push(n.source); });
+          var _newest = _newContacts.reduce(function(a,b){ return (b.sort||0) > (a.sort||0) ? b : a; }, _newContacts[0]);
+          changelog.push({ icon: '&#128100;', text: '<strong>' + _newContacts.length + ' new contacts created</strong>'
+            + (_srcs.length ? ' (from ' + _escR(_srcs.join(', ')) + ')' : '')
+            + ' <span style="color:#999;">&mdash; bulk import, individual lines hidden</span>',
+            time: _newest.time, sort: _newest.sort || 0 });
+        } else {
+          _newContacts.forEach(function(n) {
+            changelog.push({ icon: '&#128100;', text: 'New contact created: <strong>' + _escR(n.name) + '</strong>' + (n.source ? ' (from ' + _escR(n.source) + ')' : ''), time: n.time, sort: n.sort });
+          });
+        }
       } catch(e){}
 
       // New memberships — keyed on paidAt (the moment the membership actually
@@ -12301,15 +12336,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           m = details.match(/^(.*?)\s+—\s+from\s+(.*?)\s+to\s+(.*)$/);
           if (m) return { icon: '&#128197;', text: '<strong>' + _escR(m[1]) + '</strong> was rescheduled from ' + _escR(m[2]) + ' to ' + _escR(m[3]) };
         }
-        if (action === 'Saved attendance') return { icon: '&#9989;', text: 'Attendance saved — <em>' + _escR(details) + '</em>' };
+        // Admin bookkeeping — not client activity, so not in this feed
+        // (2026-08-13, Daniel). Still in the Audit Log.
+        if (action === 'Saved attendance') return null;
+        if (action === 'Saved event summary') return null;
+        if (action === 'Updated signup notes') return null;
         if (action === 'Cancelled session') return { icon: '&#10060;', text: 'Session cancelled — <em>' + _escR(details) + '</em>' };
         if (action === 'Restored session') return { icon: '&#9200;', text: 'Session restored — <em>' + _escR(details) + '</em>' };
         if (action === 'Sent no-show re-invites') return { icon: '&#128231;', text: 'No-show re-invites sent — <em>' + _escR(details) + '</em>' };
-        if (action === 'Saved event summary') return { icon: '&#128203;', text: 'Event summary saved — <em>' + _escR(details) + '</em>' };
-        if (action === 'Updated signup notes') {
-          m = details.match(/^(.*?)\s+—\s+(.*)$/);
-          if (m) return { icon: '&#9999;', text: 'Admin notes updated for <strong>' + _escR(m[1]) + '</strong> on <em>' + _escR(m[2]) + '</em>' };
-        }
         return null;
       }
 
