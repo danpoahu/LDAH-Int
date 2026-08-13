@@ -64,6 +64,7 @@ window.LDAHChat = (function () {
     '              <svg viewBox="0 0 24 24"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5zm3 14h12v2H6v-2z"/></svg>' +
     '              <span class="chat-zoom-label">Request Screen Sharing</span>' +
     '            </button>' +
+    '            <button class="chat-popout-btn" id="chatPopOut" type="button" title="Open chat in its own window (drag it to another monitor)">&#9082;</button>' +
     '            <button class="chat-modal-close" id="chatModalClose" type="button" aria-label="Close chat">×</button>' +
     '          </div>' +
     '        </div>' +
@@ -313,9 +314,62 @@ window.LDAHChat = (function () {
       updateChatBadge();
     }
 
+    // ── Pop-out window: opens chat.html in its own resizable window and
+    // remembers the monitor/size it was left on. saveGeom() is polled from
+    // here (the opener) once a second while the popup is open — a popup
+    // cannot reliably write its own geometry as it closes. ──
+    var _popWin = null;
+    var _popPoll = null;
+
+    function readGeom() {
+      try {
+        var g = JSON.parse(localStorage.getItem('ldahChatWindow') || 'null');
+        if (g && g.w > 300 && g.h > 300) return g;
+      } catch (e) {}
+      return { w: 1180, h: 820, x: 120, y: 80 };
+    }
+
+    function saveGeom() {
+      if (!_popWin || _popWin.closed) return;
+      try {
+        localStorage.setItem('ldahChatWindow', JSON.stringify({
+          w: _popWin.outerWidth, h: _popWin.outerHeight,
+          x: _popWin.screenX,    y: _popWin.screenY
+        }));
+      } catch (e) {}
+    }
+
+    function openPopOut() {
+      if (_popWin && !_popWin.closed) { _popWin.focus(); return; }
+      var g = readGeom();
+      _popWin = window.open('chat.html', 'ldahChat',
+        'width=' + g.w + ',height=' + g.h + ',left=' + g.x + ',top=' + g.y +
+        ',resizable=yes,scrollbars=yes');
+      if (!_popWin) { hostToast('Allow pop-ups for this site to use the chat window.', '#D97706'); return; }
+      closeChatModal();
+      setPoppedOutState(true);
+      if (_popPoll) clearInterval(_popPoll);
+      _popPoll = setInterval(function () {
+        if (!_popWin || _popWin.closed) {
+          clearInterval(_popPoll); _popPoll = null; _popWin = null;
+          setPoppedOutState(false);
+        } else {
+          saveGeom();   // poll-save; the popup cannot write its own geometry on close
+        }
+      }, 1000);
+    }
+
+    function setPoppedOutState(on) {
+      if (!chatOpen) return;
+      chatOpen.classList.toggle('popped-out', on);
+      chatOpen.title = on ? 'Chat is open in its own window — click to focus it'
+                          : 'Open internal chat';
+    }
+
     // Attach FAB button click — auto-open first unread conversation
     function handleFabClick(e) {
       e.stopPropagation();
+      if (_popWin && !_popWin.closed) { _popWin.focus(); return; }
       openChatModal();
       // If there are unread messages, jump straight to the first unread conversation
       if (_chatUnreadCount > 0 && _chatConvsList.length > 0) {
@@ -1181,6 +1235,8 @@ window.LDAHChat = (function () {
       chatOpen.addEventListener('click', handleFabClick);
       chatOpen.onclick = handleFabClick;
     }
+    var popBtn = document.getElementById('chatPopOut');
+    if (popBtn) popBtn.addEventListener('click', openPopOut);
     if (chatModalClose) chatModalClose.addEventListener('click', closeChatModal);
     if (chatModalOverlay) chatModalOverlay.addEventListener('click', function(e) {
       if (e.target === chatModalOverlay) closeChatModal();
@@ -1257,7 +1313,11 @@ window.LDAHChat = (function () {
     el.innerHTML = MODAL_MARKUP + (_mode === 'modal' ? FAB_MARKUP : '');
     bindElements();
     wireEvents();
-    if (_mode === 'window') { document.body.classList.add('chat-window-mode'); }
+    if (_mode === 'window') {
+      document.body.classList.add('chat-window-mode');
+      var po = document.getElementById('chatPopOut');
+      if (po) po.style.display = 'none';
+    }
     setTimeout(tryInitChat, _mode === 'window' ? 200 : 1000);
     return { open: openChatModal, close: closeChatModal, destroy: teardown };
   }
