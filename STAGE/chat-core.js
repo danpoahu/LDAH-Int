@@ -1,39 +1,217 @@
 /**
  * LDAH-Int — internal chat. THE single implementation.
  * Loaded by index.html (in-app modal) and chat.html (pop-out window).
- * Moved verbatim from index.html on 2026-08-13.
+ * Moved verbatim from index.html on 2026-08-13; given its own markup +
+ * host contract on 2026-08-13 (window.LDAHChat.mount(el, opts)) so a
+ * second host page can run this exact module with no globals required.
  *
  * Do not fork this file. If chat behaviour needs to change, change it here.
  */
+window.LDAHChat = (function () {
+  'use strict';
+  var _host = {};
+  var _mode = 'modal';
+
+  // ── markup, moved verbatim out of index.html ──
+  var MODAL_MARKUP = '' +
+    '  <div class="chat-modal-overlay" id="chatModalOverlay">' +
+    '    <div class="chat-modal">' +
+    '      <!-- Sidebar with roster + conversations -->' +
+    '      <div class="chat-modal-sidebar">' +
+    '        <div class="chat-modal-sidebar-header">' +
+    '          <h3>Team Messages</h3>' +
+    '          <p>Internal staff communications</p>' +
+    '        </div>' +
+    '        <div class="chat-sidebar-search">' +
+    '          <input id="chatSearchInput" placeholder="Search conversations…" />' +
+    '        </div>' +
+    '        <div class="chat-sidebar-scroll">' +
+    '          <!-- Online users -->' +
+    '          <div class="chat-roster-section">' +
+    '            <div class="chat-roster-label">🟢 Online</div>' +
+    '            <div id="chatOnlineList" class="chat-roster-list"></div>' +
+    '          </div>' +
+    '          <div class="chat-roster-divider"></div>' +
+    '          <!-- Offline users -->' +
+    '          <div class="chat-roster-section">' +
+    '            <div class="chat-roster-label">⚫ Offline</div>' +
+    '            <div id="chatOfflineList" class="chat-roster-list"></div>' +
+    '            <button id="chatShowMoreOffline" class="chat-show-more" style="display:none;">▼ Show more</button>' +
+    '          </div>' +
+    '          <div class="chat-roster-divider"></div>' +
+    '          <!-- Recent conversations -->' +
+    '          <div class="chat-roster-section">' +
+    '            <div class="chat-roster-label">💬 Recent Chats</div>' +
+    '            <div id="chatConversationsList" class="chat-conversations"></div>' +
+    '          </div>' +
+    '        </div>' +
+    '      </div>' +
+    '' +
+    '      <!-- Main chat area -->' +
+    '      <div class="chat-modal-main">' +
+    '        <div class="chat-modal-header">' +
+    '          <div class="chat-modal-header-left">' +
+    '            <div class="chat-modal-avatar" id="chatHeaderAvatar">💬</div>' +
+    '            <div class="chat-modal-header-info">' +
+    '              <h4 id="chatHeaderName">Team Messages</h4>' +
+    '              <p id="chatHeaderStatus">Select a conversation</p>' +
+    '              <p id="chatHeaderLocalTime" style="font-size:.75rem;opacity:.85;margin:0;display:none;"></p>' +
+    '            </div>' +
+    '          </div>' +
+    '          <div class="chat-modal-header-actions">' +
+    '            <button class="chat-sidebar-toggle" id="chatSidebarToggle" type="button" aria-label="Toggle roster" title="Show roster">☰</button>' +
+    '            <button class="chat-zoom-btn" id="chatZoomBtn" type="button" title="Ask this person to share their screen with you (no download needed)">' +
+    '              <svg viewBox="0 0 24 24"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5zm3 14h12v2H6v-2z"/></svg>' +
+    '              <span class="chat-zoom-label">Request Screen Sharing</span>' +
+    '            </button>' +
+    '            <button class="chat-modal-close" id="chatModalClose" type="button" aria-label="Close chat">×</button>' +
+    '          </div>' +
+    '        </div>' +
+    '' +
+    '        <div class="chat-modal-messages" id="chatModalMessages">' +
+    '          <div class="chat-empty-state" id="chatEmptyState">' +
+    '            <div style="font-size:2.5rem;margin-bottom:8px;">💬</div>' +
+    '            <div style="font-weight:800;font-size:1.1rem;color:var(--text-dark);margin-bottom:4px;">Select a team member to start chatting</div>' +
+    '            <div style="font-weight:600;font-size:.88rem;color:var(--text-soft);">Choose someone from the roster on the left</div>' +
+    '          </div>' +
+    '        </div>' +
+    '' +
+    '        <div class="chat-modal-footer">' +
+    '          <div class="chat-modal-audit">' +
+    '            <div class="chat-modal-audit-icon">🔒</div>' +
+    '            <div class="chat-modal-audit-text">All messages are logged with timestamps for audit compliance.</div>' +
+    '          </div>' +
+    '          <div class="chat-client-link">' +
+    '            <label for="chatClientSelect">📎 Link to client:</label>' +
+    '            <select id="chatClientSelect">' +
+    '              <option value="">None (general chat)</option>' +
+    '            </select>' +
+    '          </div>' +
+    '          <div class="chat-modal-input-area">' +
+    '            <input class="chat-modal-input" id="chatModalInput" placeholder="Type your message…" maxlength="500" />' +
+    '            <span class="chat-char-count" id="chatCharCount">0 / 500</span>' +
+    '            <button class="chat-modal-send" id="chatModalSend" type="button">Send</button>' +
+    '          </div>' +
+    '        </div>' +
+    '      </div>' +
+    '    </div>' +
+    '  </div>';
+
+  var FAB_MARKUP = '' +
+    '  <div class="chat-launch">' +
+    '    <div style="position:relative;">' +
+    '      <button class="chat-fab" id="chatOpen" type="button" title="Open internal chat">💬</button>' +
+    '      <div class="chat-badge" id="chatBadge" style="display:none;"></div>' +
+    '    </div>' +
+    '  </div>';
+
+  // ── host capability accessors — fall back to our own reads ──
+  function hostContacts() {
+    if (_host.getContacts) {
+      var list = _host.getContacts();
+      if (list && list.length) return Promise.resolve(list);
+    }
+    return db().collection('contacts').orderBy('displayName').get().then(function (snap) {
+      var out = []; snap.forEach(function (d) {
+        out.push({ id: d.id, displayName: d.data().displayName || '' });
+      }); return out;
+    });
+  }
+  function hostToast(msg, color) {
+    if (_host.toast) return _host.toast(msg, color);
+    if (typeof window._showToast === 'function') return window._showToast(msg, color);
+    console.log('[chat]', msg);
+  }
+  function hostWeather(uid) {
+    return _host.getWeatherForUid ? _host.getWeatherForUid(uid) : null;
+  }
+  function hostLogInteraction(payload) {
+    if (_host.logInteraction) return _host.logInteraction(payload);
+    return db().collection('interactions').add(payload);
+  }
+
+  // ── private formatter fallbacks — prefer the host's copy when present ──
+  function _escHTML(s) {
+    if (typeof window.escHTML === 'function') return window.escHTML(s);
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+  function _rsEscape(str) {
+    if (typeof window.rsEscape === 'function') return window.rsEscape(str);
+    var d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+  function _getInitials(name) {
+    if (typeof window.getInitials === 'function') return window.getInitials(name);
+    if (!name) return '??';
+    var parts = name.trim().split(/\s+/);
+    return ((parts[0] || '')[0] || '') + ((parts[1] || '')[0] || '');
+  }
+  function _formatTime(ts) {
+    if (typeof window.formatTime === 'function') return window.formatTime(ts);
+    if (!ts) return '';
+    var d = ts.toDate ? ts.toDate() : new Date(ts);
+    var now = new Date();
+    var diffMs = now - d;
+    var diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays === 0) {
+      var hh = d.getHours() % 12 || 12;
+      var mm = String(d.getMinutes()).padStart(2, '0');
+      var ampm = d.getHours() >= 12 ? 'PM' : 'AM';
+      return hh + ':' + mm + ' ' + ampm;
+    } else if (diffDays === 1) {
+      return 'Yesterday';
+    } else if (diffDays < 7) {
+      return d.toLocaleDateString('en-US', { weekday: 'short' });
+    } else {
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  }
+  function _formatRole(role) {
+    if (typeof window.formatRole === 'function') return window.formatRole(role);
+    if (!role) return '';
+    return role.replace(/([A-Z])/g, ' $1').replace(/^./, function(s){ return s.toUpperCase(); }).trim();
+  }
+  function _linkifyURLs(escapedText) {
+    if (typeof window.linkifyURLs === 'function') return window.linkifyURLs(escapedText);
+    escapedText = escapedText.replace(/anydesk:(\d+)/g, '<a href="anydesk:$1" style="color:#004E7C;text-decoration:underline;font-weight:800;">Click here to connect via AnyDesk</a>');
+    escapedText = escapedText.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ocean-deep);text-decoration:underline;font-weight:700;">$1</a>');
+    return escapedText;
+  }
+
+  // ── private chime fallback — index.html's sounds block (not moved) defines
+  //    window._playChatChime; use it when present, else synthesize our own ──
+  function _chime() {
+    if (typeof window._playChatChime === 'function') { window._playChatChime(); return; }
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(880, ctx.currentTime);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + 0.36);
+    } catch (e) {}
+  }
 
   // ══════════════════════════════════════════════════════
   // Real-Time Chat System (Firestore-backed)
   // ══════════════════════════════════════════════════════
-  (function(){
     // Lazy-init db — Firebase config loads in a later script block
     var _db = null;
     function db() {
       if (!_db) _db = firebase.firestore();
       return _db;
     }
-    var chatModalOverlay = document.getElementById('chatModalOverlay');
-    var chatModalClose = document.getElementById('chatModalClose');
-    var chatModalSend = document.getElementById('chatModalSend');
-    var chatModalInput = document.getElementById('chatModalInput');
-    var chatModalMessages = document.getElementById('chatModalMessages');
-    var chatBadge = document.getElementById('chatBadge');
-    var chatOpen = document.getElementById('chatOpen');
-    var chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
-    var chatHeaderName = document.getElementById('chatHeaderName');
-    var chatHeaderStatus = document.getElementById('chatHeaderStatus');
-    var chatOnlineList = document.getElementById('chatOnlineList');
-    var chatOfflineList = document.getElementById('chatOfflineList');
-    var chatShowMoreBtn = document.getElementById('chatShowMoreOffline');
-    var chatConversationsList = document.getElementById('chatConversationsList');
-    var chatClientSelect = document.getElementById('chatClientSelect');
-    var chatCharCount = document.getElementById('chatCharCount');
-    var chatSearchInput = document.getElementById('chatSearchInput');
-    var chatEmptyState = document.getElementById('chatEmptyState');
+    // DOM refs — looked up by bindElements() once mount() has injected the markup
+    var chatModalOverlay, chatModalClose, chatModalSend, chatModalInput, chatModalMessages,
+        chatBadge, chatOpen, chatHeaderAvatar, chatHeaderName, chatHeaderStatus,
+        chatOnlineList, chatOfflineList, chatShowMoreBtn, chatConversationsList,
+        chatClientSelect, chatCharCount, chatSearchInput, chatEmptyState,
+        chatSidebarToggle, chatSidebar, chatZoomBtn;
 
     // ── State ──
     var _chatActiveConvId = null;
@@ -74,30 +252,8 @@
     function getMyName() {
       return window.currentUserData ? window.currentUserData.displayName : 'Unknown';
     }
-    function getInitials(name) {
-      if (!name) return '??';
-      var parts = name.trim().split(/\s+/);
-      return ((parts[0] || '')[0] || '') + ((parts[1] || '')[0] || '');
-    }
-    function formatTime(ts) {
-      if (!ts) return '';
-      var d = ts.toDate ? ts.toDate() : new Date(ts);
-      var now = new Date();
-      var diffMs = now - d;
-      var diffDays = Math.floor(diffMs / 86400000);
-      if (diffDays === 0) {
-        var hh = d.getHours() % 12 || 12;
-        var mm = String(d.getMinutes()).padStart(2, '0');
-        var ampm = d.getHours() >= 12 ? 'PM' : 'AM';
-        return hh + ':' + mm + ' ' + ampm;
-      } else if (diffDays === 1) {
-        return 'Yesterday';
-      } else if (diffDays < 7) {
-        return d.toLocaleDateString('en-US', { weekday: 'short' });
-      } else {
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      }
-    }
+    // getInitials/formatTime now live at module scope as _getInitials/_formatTime
+    // (private fallbacks that prefer the host's copy when present).
 
     // ── Header Local Time ──
     function updateChatHeaderLocalTime() {
@@ -172,30 +328,10 @@
         }
       }
     }
-    if (chatOpen) {
-      chatOpen.addEventListener('click', handleFabClick);
-      chatOpen.onclick = handleFabClick;
-    }
-    if (chatModalClose) chatModalClose.addEventListener('click', closeChatModal);
-    if (chatModalOverlay) chatModalOverlay.addEventListener('click', function(e) {
-      if (e.target === chatModalOverlay) closeChatModal();
-    });
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && chatModalOverlay && chatModalOverlay.classList.contains('active')) {
-        closeChatModal();
-      }
-    });
+    // FAB / close / overlay / keydown / sidebar-toggle / zoom-btn / char-counter
+    // listeners are wired from wireEvents(), called by mount() once bindElements()
+    // has resolved the DOM refs above.
 
-    // ── Sidebar Toggle (tablet/mobile) ──
-    var chatSidebarToggle = document.getElementById('chatSidebarToggle');
-    var chatSidebar = document.querySelector('.chat-modal-sidebar');
-    if (chatSidebarToggle && chatSidebar) {
-      chatSidebarToggle.addEventListener('click', function() {
-        chatSidebar.classList.toggle('hidden');
-        chatSidebarToggle.textContent = chatSidebar.classList.contains('hidden') ? '☰' : '✕';
-        chatSidebarToggle.title = chatSidebar.classList.contains('hidden') ? 'Show roster' : 'Hide roster';
-      });
-    }
     // On mobile, hide sidebar when a conversation is opened
     var _origOpenConversation = typeof openConversation === 'function' ? openConversation : null;
     function _wrapConvOpen() {
@@ -203,30 +339,6 @@
         chatSidebar.classList.add('hidden');
         if (chatSidebarToggle) { chatSidebarToggle.textContent = '☰'; chatSidebarToggle.title = 'Show roster'; }
       }
-    }
-
-    // ── Zoom Screen Share Button ──
-    var chatZoomBtn = document.getElementById('chatZoomBtn');
-    if (chatZoomBtn) {
-      chatZoomBtn.addEventListener('click', function() {
-        if (!_chatActiveOtherUid || !_chatActiveConvId) {
-          alert('Select a conversation first, then click Request Screen Sharing.');
-          return;
-        }
-        if (!confirm('Request this person to share their screen with you?')) return;
-        // Use WebRTC screen share
-        window.rtcRequestScreenShare(_chatActiveConvId, _chatActiveOtherUid,
-          document.getElementById('chatHeaderName') ? document.getElementById('chatHeaderName').textContent : 'User');
-      });
-    }
-
-    // ── Character Counter ──
-    if (chatModalInput && chatCharCount) {
-      chatModalInput.addEventListener('input', function() {
-        var len = chatModalInput.value.length;
-        chatCharCount.textContent = len + ' / 500';
-        chatCharCount.className = 'chat-char-count' + (len >= 490 ? ' danger' : len >= 450 ? ' warn' : '');
-      });
     }
 
     // ── Populate Client Dropdown ──
@@ -290,12 +402,12 @@
         'background:#fff;border:1px solid #C4B5FD;border-left:4px solid #7C3AED;border-radius:12px;' +
         'box-shadow:0 8px 28px rgba(15,23,42,.18);padding:14px 16px;font-size:.86rem;color:#0f172a;';
       box.innerHTML =
-        '<div style="font-weight:700;margin-bottom:4px;color:#5B21B6;">Is this about ' + rsEscape(contact.displayName) + '?</div>' +
+        '<div style="font-weight:700;margin-bottom:4px;color:#5B21B6;">Is this about ' + _rsEscape(contact.displayName) + '?</div>' +
         '<div style="color:#475569;line-height:1.45;margin-bottom:10px;">Link this chat to them and it will be saved to their record. ' +
           'Leave it if you are just talking.</div>' +
         '<div style="display:flex;gap:8px;">' +
           '<button type="button" class="btn btn-primary" style="font-size:.8rem;padding:5px 12px;background:#7C3AED;border-color:#6D28D9;" ' +
-            'id="chatNudgeYes">Link to ' + rsEscape(String(contact.displayName).split(/\s+/)[0]) + '</button>' +
+            'id="chatNudgeYes">Link to ' + _rsEscape(String(contact.displayName).split(/\s+/)[0]) + '</button>' +
           '<button type="button" class="btn btn-ghost" style="font-size:.8rem;padding:5px 10px;" id="chatNudgeNo">No thanks</button>' +
         '</div>';
       document.body.appendChild(box);
@@ -308,9 +420,7 @@
           if (chatClientSelect) chatClientSelect.value = contact.id;   // future messages log too
           db().collection('chatConversations').doc(_chatActiveConvId)
             .update({ clientId: contact.id, clientName: contact.displayName });
-          if (typeof _showToast === 'function') {
-            _showToast('Linked to ' + contact.displayName + '. Messages here now save to their record.', '#16A34A');
-          }
+          hostToast('Linked to ' + contact.displayName + '. Messages here now save to their record.', '#16A34A');
         } catch (e) { console.warn('chat link failed:', e && e.message); }
         close();
       };
@@ -326,18 +436,10 @@
         renderChatClientOptions();
         return;
       }
-      // Try global _allContacts first (from contacts IIFE)
-      if (typeof _allContacts !== 'undefined' && _allContacts.length) {
-        _chatContacts = _allContacts;
-        renderChatClientOptions();
-        return;
-      }
-      // Fallback: load directly from Firestore
-      db().collection('contacts').orderBy('displayName').get().then(function(snap) {
-        _chatContacts = [];
-        snap.forEach(function(doc) {
-          _chatContacts.push({ id: doc.id, displayName: doc.data().displayName || '' });
-        });
+      // hostContacts() tries the host's live list first (e.g. index.html's
+      // _allContacts cache), falling back to a direct Firestore read.
+      hostContacts().then(function(list) {
+        _chatContacts = list || [];
         renderChatClientOptions();
       }).catch(function(err) {
         console.warn('Could not load contacts for chat dropdown:', err.message);
@@ -421,7 +523,7 @@
         var starCls = 'roster-star' + (isFav ? ' fav' : '');
         // Weather snippet
         var weatherHtml = '';
-        var w = getWeatherForUid(u.uid);
+        var w = hostWeather(u.uid);
         if (w) {
           weatherHtml = '<span class="roster-weather">' + w.icon + ' ' + w.temp + '°</span>';
         }
@@ -433,7 +535,7 @@
         }
         return '<div class="chat-roster-item' + activeClass + '" data-uid="' + u.uid + '" data-name="' + (u.displayName || '').replace(/"/g, '&quot;') + '">'
           + '<div class="roster-dot ' + dotClass + '"></div>'
-          + '<span class="roster-name">' + escHTML(u.displayName || 'Unknown') + '</span>'
+          + '<span class="roster-name">' + _escHTML(u.displayName || 'Unknown') + '</span>'
           + weatherHtml
           + unreadBadge
           + '<span class="roster-role">' + rightText + '</span>'
@@ -465,7 +567,7 @@
               html += '<div class="chat-roster-divider"></div>';
               hasRegHeader = true;
             }
-            html += rosterItemHtml(u, 'online', escHTML(formatRole(u.role)));
+            html += rosterItemHtml(u, 'online', _escHTML(_formatRole(u.role)));
           });
           chatOnlineList.innerHTML = html;
         }
@@ -493,8 +595,8 @@
             html += '<div class="chat-roster-divider"></div>';
             hasRegHeader = true;
           }
-          var lastSeenStr = u.lastSeen ? formatTime(u.lastSeen) : '';
-          html += rosterItemHtml(u, 'offline', lastSeenStr ? lastSeenStr : escHTML(formatRole(u.role)));
+          var lastSeenStr = u.lastSeen ? _formatTime(u.lastSeen) : '';
+          html += rosterItemHtml(u, 'offline', lastSeenStr ? lastSeenStr : _escHTML(_formatRole(u.role)));
         }
         chatOfflineList.innerHTML = html || '<div style="padding:6px 10px;font-size:.82rem;color:var(--text-soft);font-weight:600;">No offline users</div>';
 
@@ -527,44 +629,12 @@
       });
     }
 
-    function formatRole(role) {
-      if (!role) return '';
-      return role.replace(/([A-Z])/g, ' $1').replace(/^./, function(s){ return s.toUpperCase(); }).trim();
-    }
-    function escHTML(s) {
-      var d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
-    }
+    // formatRole/escHTML/linkifyURLs now live at module scope as
+    // _formatRole/_escHTML/_linkifyURLs (private fallbacks that prefer the
+    // host's copy when present).
 
-    // Turn URLs and anydesk: links in already-escaped text into clickable links
-    function linkifyURLs(escapedText) {
-      // anydesk: protocol links
-      escapedText = escapedText.replace(/anydesk:(\d+)/g, '<a href="anydesk:$1" style="color:#004E7C;text-decoration:underline;font-weight:800;">Click here to connect via AnyDesk</a>');
-      // http/https links
-      escapedText = escapedText.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ocean-deep);text-decoration:underline;font-weight:700;">$1</a>');
-      return escapedText;
-    }
-
-    // Show more offline toggle
-    if (chatShowMoreBtn) {
-      chatShowMoreBtn.addEventListener('click', function() {
-        _chatShowAllOffline = !_chatShowAllOffline;
-        // Re-trigger roster render
-        if (_chatRosterUnsub) {
-          // Quick way: just re-init
-          window.initChatRoster();
-        }
-      });
-    }
-
-    // Search filter
-    if (chatSearchInput) {
-      chatSearchInput.addEventListener('input', function() {
-        // Re-trigger roster render by re-initing
-        if (_chatRosterUnsub) window.initChatRoster();
-      });
-    }
+    // Show-more-offline toggle and search-filter click/input listeners are
+    // now wired from wireEvents(), called by mount().
 
     // ── Tab title: persistent unread prefix (Gmail-style, fires regardless of tab focus) ──
     (function() {
@@ -653,9 +723,9 @@
         var isUnread = c.lastReadBy && !c.lastReadBy.includes(myUid) && c.lastSenderId !== myUid;
         html += '<div class="conversation-item' + activeClass + '" data-convid="' + c._id + '" data-otheruid="' + otherUid + '" data-othername="' + otherName.replace(/"/g, '&quot;') + '">'
           + (isUnread ? '<div class="conv-unread"></div>' : '')
-          + '<div class="name">' + escHTML(otherName) + '</div>'
-          + '<div class="preview">' + escHTML(c.lastMessage || '') + '</div>'
-          + '<div class="time">' + formatTime(c.lastMessageAt) + '</div>'
+          + '<div class="name">' + _escHTML(otherName) + '</div>'
+          + '<div class="preview">' + _escHTML(c.lastMessage || '') + '</div>'
+          + '<div class="time">' + _formatTime(c.lastMessageAt) + '</div>'
           + '</div>';
       });
       chatConversationsList.innerHTML = html;
@@ -705,7 +775,7 @@
       }
 
       // Update header
-      if (chatHeaderAvatar) chatHeaderAvatar.textContent = getInitials(otherName);
+      if (chatHeaderAvatar) chatHeaderAvatar.textContent = _getInitials(otherName);
       if (chatHeaderName) chatHeaderName.textContent = otherName;
       if (chatHeaderStatus) chatHeaderStatus.textContent = 'Loading…';
       if (chatEmptyState) chatEmptyState.style.display = 'none';
@@ -757,7 +827,7 @@
     function loadConversationMessages(convId, otherName, otherUid) {
       var myUid = getMyUid();
       // Update header
-      if (chatHeaderAvatar) chatHeaderAvatar.textContent = getInitials(otherName);
+      if (chatHeaderAvatar) chatHeaderAvatar.textContent = _getInitials(otherName);
       if (chatHeaderName) chatHeaderName.textContent = otherName;
       startChatLocalTimeTicker();
 
@@ -771,7 +841,7 @@
         if (d.online && !isStale) {
           if (chatHeaderStatus) chatHeaderStatus.textContent = '🟢 Online';
         } else {
-          var ls = d.lastSeen ? formatTime(d.lastSeen) : '';
+          var ls = d.lastSeen ? _formatTime(d.lastSeen) : '';
           if (chatHeaderStatus) chatHeaderStatus.textContent = ls ? 'Last seen ' + ls : 'Offline';
         }
       });
@@ -857,21 +927,21 @@
       messages.forEach(function(m) {
         var isMe = m.senderId === myUid;
         var cls = isMe ? 'chat-message me' : 'chat-message them';
-        var nameDisplay = isMe ? 'You' : escHTML(m.senderName || 'Unknown');
-        var timeStr = m.createdAt ? formatTime(m.createdAt) : '';
-        var clientTag = m.clientId && m.clientName ? '<span style="font-size:.72rem;background:rgba(8,145,178,.12);color:var(--ocean-deep);padding:2px 6px;border-radius:6px;font-weight:700;margin-left:8px;">📎 ' + escHTML(m.clientName) + '</span>' : '';
+        var nameDisplay = isMe ? 'You' : _escHTML(m.senderName || 'Unknown');
+        var timeStr = m.createdAt ? _formatTime(m.createdAt) : '';
+        var clientTag = m.clientId && m.clientName ? '<span style="font-size:.72rem;background:rgba(8,145,178,.12);color:var(--ocean-deep);padding:2px 6px;border-radius:6px;font-weight:700;margin-left:8px;">📎 ' + _escHTML(m.clientName) + '</span>' : '';
 
-        var textHtml = linkifyURLs(escHTML(m.text || ''));
+        var textHtml = _linkifyURLs(_escHTML(m.text || ''));
 
         // If this is a screen share request message (sent by other person, not me),
         // add the "Share My Screen" button
         var shareBtn = '';
         if (!isMe && m.text && m.text.indexOf('📺') === 0 && m.text.indexOf('Share My Screen') > -1 && m.screenShareSession) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(m.screenShareConvId || _chatActiveConvId) + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(m.screenShareConvId || _chatActiveConvId) + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
         // Also detect the standard request message pattern and show button
         if (!isMe && m.screenShareSession && m.text && m.text.indexOf('would like to see your screen') > -1) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(_chatActiveConvId) + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(_chatActiveConvId) + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
 
         html += '<div class="' + cls + '">'
@@ -1021,16 +1091,12 @@
       }
     }
 
-    // Send button + Enter key
-    if (chatModalSend) chatModalSend.addEventListener('click', sendChatMessage);
-    if (chatModalInput) chatModalInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
-    });
+    // Send button + Enter key listeners are wired from wireEvents().
 
     // ── Auto-Log Client-Linked Chat to Interactions ──
     function logChatToInteraction(text, clientId, clientName, createdBy, createdByUid) {
       var preview = text.length > 120 ? text.substring(0, 120) + '…' : text;
-      db().collection('interactions').add({
+      hostLogInteraction({
         clientName: clientName,
         clientId: clientId,
         type: 'Chat Note',
@@ -1048,9 +1114,7 @@
 
     // ── Notification Sound ──
     function playNotifSound() {
-      if (typeof window._playChatChime === 'function') {
-        window._playChatChime();
-      }
+      _chime();
     }
 
     // ── Initialize Chat on Login ──
@@ -1081,9 +1145,128 @@
       tryInitChat();
     };
 
-    // Start polling after a short delay to let auth complete
-    setTimeout(tryInitChat, 1000);
+    // Mount-time polling start (setTimeout(tryInitChat, …)) now lives in mount().
 
     // Re-init if auth state changes (handled by presence code in auth block)
 
-  })();
+  // ── DOM binding + event wiring — called from mount(), once the markup exists ──
+  function bindElements() {
+    chatModalOverlay = document.getElementById('chatModalOverlay');
+    chatModalClose = document.getElementById('chatModalClose');
+    chatModalSend = document.getElementById('chatModalSend');
+    chatModalInput = document.getElementById('chatModalInput');
+    chatModalMessages = document.getElementById('chatModalMessages');
+    chatBadge = document.getElementById('chatBadge');
+    chatOpen = document.getElementById('chatOpen');
+    chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
+    chatHeaderName = document.getElementById('chatHeaderName');
+    chatHeaderStatus = document.getElementById('chatHeaderStatus');
+    chatOnlineList = document.getElementById('chatOnlineList');
+    chatOfflineList = document.getElementById('chatOfflineList');
+    chatShowMoreBtn = document.getElementById('chatShowMoreOffline');
+    chatConversationsList = document.getElementById('chatConversationsList');
+    chatClientSelect = document.getElementById('chatClientSelect');
+    chatCharCount = document.getElementById('chatCharCount');
+    chatSearchInput = document.getElementById('chatSearchInput');
+    chatEmptyState = document.getElementById('chatEmptyState');
+    chatSidebarToggle = document.getElementById('chatSidebarToggle');
+    chatSidebar = document.querySelector('.chat-modal-sidebar');
+    chatZoomBtn = document.getElementById('chatZoomBtn');
+  }
+
+  function wireEvents() {
+    if (chatOpen) {
+      chatOpen.addEventListener('click', handleFabClick);
+      chatOpen.onclick = handleFabClick;
+    }
+    if (chatModalClose) chatModalClose.addEventListener('click', closeChatModal);
+    if (chatModalOverlay) chatModalOverlay.addEventListener('click', function(e) {
+      if (e.target === chatModalOverlay) closeChatModal();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && chatModalOverlay && chatModalOverlay.classList.contains('active')) {
+        closeChatModal();
+      }
+    });
+
+    // ── Sidebar Toggle (tablet/mobile) ──
+    if (chatSidebarToggle && chatSidebar) {
+      chatSidebarToggle.addEventListener('click', function() {
+        chatSidebar.classList.toggle('hidden');
+        chatSidebarToggle.textContent = chatSidebar.classList.contains('hidden') ? '☰' : '✕';
+        chatSidebarToggle.title = chatSidebar.classList.contains('hidden') ? 'Show roster' : 'Hide roster';
+      });
+    }
+
+    // ── Zoom Screen Share Button ──
+    if (chatZoomBtn) {
+      chatZoomBtn.addEventListener('click', function() {
+        if (!_chatActiveOtherUid || !_chatActiveConvId) {
+          alert('Select a conversation first, then click Request Screen Sharing.');
+          return;
+        }
+        if (!confirm('Request this person to share their screen with you?')) return;
+        // Use WebRTC screen share
+        window.rtcRequestScreenShare(_chatActiveConvId, _chatActiveOtherUid,
+          document.getElementById('chatHeaderName') ? document.getElementById('chatHeaderName').textContent : 'User');
+      });
+    }
+
+    // ── Character Counter ──
+    if (chatModalInput && chatCharCount) {
+      chatModalInput.addEventListener('input', function() {
+        var len = chatModalInput.value.length;
+        chatCharCount.textContent = len + ' / 500';
+        chatCharCount.className = 'chat-char-count' + (len >= 490 ? ' danger' : len >= 450 ? ' warn' : '');
+      });
+    }
+
+    // Show more offline toggle
+    if (chatShowMoreBtn) {
+      chatShowMoreBtn.addEventListener('click', function() {
+        _chatShowAllOffline = !_chatShowAllOffline;
+        // Re-trigger roster render
+        if (_chatRosterUnsub) {
+          // Quick way: just re-init
+          window.initChatRoster();
+        }
+      });
+    }
+
+    // Search filter
+    if (chatSearchInput) {
+      chatSearchInput.addEventListener('input', function() {
+        // Re-trigger roster render by re-initing
+        if (_chatRosterUnsub) window.initChatRoster();
+      });
+    }
+
+    // Send button + Enter key
+    if (chatModalSend) chatModalSend.addEventListener('click', sendChatMessage);
+    if (chatModalInput) chatModalInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
+    });
+  }
+
+  function mount(el, opts) {
+    opts = opts || {};
+    _mode = opts.mode || 'modal';
+    _host = opts.host || {};
+    el.innerHTML = MODAL_MARKUP + (_mode === 'modal' ? FAB_MARKUP : '');
+    bindElements();
+    wireEvents();
+    if (_mode === 'window') { document.body.classList.add('chat-window-mode'); }
+    setTimeout(tryInitChat, _mode === 'window' ? 200 : 1000);
+    return { open: openChatModal, close: closeChatModal, destroy: teardown };
+  }
+
+  function teardown() {
+    if (_chatMessagesUnsub) _chatMessagesUnsub();
+    if (_chatRosterUnsub) _chatRosterUnsub();
+    if (_chatConvsUnsub) _chatConvsUnsub();
+    if (_chatHeaderPresenceUnsub) _chatHeaderPresenceUnsub();
+    if (_chatLocalTimeInterval) clearInterval(_chatLocalTimeInterval);
+  }
+
+  return { mount: mount, MARKUP: MODAL_MARKUP };
+})();
