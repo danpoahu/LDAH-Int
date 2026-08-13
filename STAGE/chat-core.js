@@ -230,6 +230,8 @@ window.LDAHChat = (function () {
     var _chatLoadedOlderMessages = []; // messages fetched via pagination (older than the live listener window)
     var _chatHasMoreOlder = true; // flips false when a paginated fetch returns < 50
     var _chatPaginating = false; // guard against double-click while a fetch is in flight
+    var _lastRosterOnline = []; // cached roster (online) for _refreshRoster() re-renders
+    var _lastRosterOffline = []; // cached roster (offline) for _refreshRoster() re-renders
 
     // ── Favorites (localStorage, zero Firestore cost) ──
     var _chatFavorites = new Set(JSON.parse(localStorage.getItem('chatFavorites') || '[]'));
