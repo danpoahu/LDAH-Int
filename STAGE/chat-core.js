@@ -64,7 +64,9 @@ window.LDAHChat = (function () {
     '              <svg viewBox="0 0 24 24"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5zm3 14h12v2H6v-2z"/></svg>' +
     '              <span class="chat-zoom-label">Request Screen Sharing</span>' +
     '            </button>' +
-    '            <button class="chat-popout-btn" id="chatPopOut" type="button" title="Open chat in its own window (drag it to another monitor)">&#9082;</button>' +
+    '            <button class="chat-popout-btn" id="chatPopOut" type="button" title="Open chat in its own window (drag it to another monitor)">' +
+    '              <svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>' +
+    '            </button>' +
     '            <button class="chat-modal-close" id="chatModalClose" type="button" aria-label="Close chat">×</button>' +
     '          </div>' +
     '        </div>' +
