@@ -753,12 +753,12 @@ window.LDAHChat = (function () {
                 shouldChime = true;
               }
             });
-            if (shouldChime && _ownsChime) playNotifSound();
+            if (shouldChime && ownsChimeNow()) playNotifSound();
           }
           _chatUnreadCount = unread;
           _chatUnreadByUser = unreadByUser;
           updateChatBadge();
-          if (_ownsChime && typeof window._ldahChatTitleSignal === 'function') window._ldahChatTitleSignal(unread);
+          if (ownsChimeNow() && typeof window._ldahChatTitleSignal === 'function') window._ldahChatTitleSignal(unread);
           // Refresh roster to show/hide unread badges
           if (typeof window._refreshRoster === 'function') window._refreshRoster();
         }, function(err) {
@@ -1193,6 +1193,10 @@ window.LDAHChat = (function () {
     }
 
     function claimChime() {
+      // If setItem throws (private browsing, full quota), _ownsChime still
+      // flips true — readOwner() will then always see null and every window
+      // will self-claim. That degrades to a double chime, not silence, which
+      // is the safer failure direction.
       try { localStorage.setItem(CHIME_KEY, JSON.stringify({ id: _winId, ts: Date.now() })); } catch (e) {}
       _ownsChime = true;
     }
@@ -1203,6 +1207,11 @@ window.LDAHChat = (function () {
       _ownsChime = false;
     }
 
+    // Heartbeat bookkeeping only — keeps the localStorage key fresh and hands
+    // ownership over promptly in the normal (unfrozen) case. Do NOT gate a
+    // chime on the _ownsChime flag this sets: backgrounded tabs get their
+    // timers throttled/frozen by the browser, so a cached flag can go stale
+    // for an unbounded time. Use ownsChimeNow() at chime time instead.
     function evaluateOwnership() {
       var o = readOwner();
       if (!o) { claimChime(); return; }
@@ -1214,15 +1223,37 @@ window.LDAHChat = (function () {
       if (_ownsChime) claimChime();
     }
 
+    // The authoritative check, read fresh from localStorage at the moment a
+    // chime decision actually needs to be made. A message arriving is rare
+    // enough that a synchronous read here is cheap, and unlike the cached
+    // _ownsChime flag it can't be stale because a backgrounded tab's timers
+    // got frozen.
+    function ownsChimeNow() {
+      var o = readOwner();
+      if (!o) { claimChime(); return true; }                              // nobody owns it — take it
+      if (o.id === _winId) { return true; }                               // we own it
+      if (Date.now() - (o.ts || 0) > STALE_MS) { claimChime(); return true; }  // owner went stale — take over
+      return false;                                                        // someone else owns it, stay quiet
+    }
+
+    function _onChimeStorage(e) {
+      if (e.key === CHIME_KEY) evaluateOwnership();
+    }
+
     function startOwnership() {
       evaluateOwnership();
       if (_ownHeartbeat) clearInterval(_ownHeartbeat);
       _ownHeartbeat = setInterval(evaluateOwnership, 3000);
-      window.addEventListener('storage', function (e) {
-        if (e.key === CHIME_KEY) evaluateOwnership();
-      });
+      window.addEventListener('storage', _onChimeStorage);
       // pagehide fires reliably where beforeunload does not (see the DM resume-email work)
       window.addEventListener('pagehide', releaseChime);
+    }
+
+    function stopOwnership() {
+      if (_ownHeartbeat) { clearInterval(_ownHeartbeat); _ownHeartbeat = null; }
+      window.removeEventListener('storage', _onChimeStorage);
+      window.removeEventListener('pagehide', releaseChime);
+      releaseChime();
     }
 
     // ── Initialize Chat on Login ──
@@ -1381,7 +1412,7 @@ window.LDAHChat = (function () {
     if (_chatConvsUnsub) _chatConvsUnsub();
     if (_chatHeaderPresenceUnsub) _chatHeaderPresenceUnsub();
     if (_chatLocalTimeInterval) clearInterval(_chatLocalTimeInterval);
-    if (_ownHeartbeat) clearInterval(_ownHeartbeat);
+    stopOwnership();
   }
 
   return { mount: mount, MARKUP: MODAL_MARKUP };
