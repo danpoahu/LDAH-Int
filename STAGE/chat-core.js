@@ -90,6 +90,15 @@ window.LDAHChat = (function () {
     '              <option value="">None (general chat)</option>' +
     '            </select>' +
     '          </div>' +
+    '          <div class="chat-img-preview" id="chatImgPreview" style="display:none;">' +
+    '            <img id="chatImgPreviewThumb" alt="Screenshot to send">' +
+    '            <div class="chat-img-preview-meta">' +
+    '              <div class="chat-img-preview-name">Screenshot</div>' +
+    '              <div class="chat-img-preview-size" id="chatImgPreviewSize"></div>' +
+    '            </div>' +
+    '            <button type="button" class="chat-img-preview-x" id="chatImgPreviewX"' +
+    '                    aria-label="Remove screenshot">&times;</button>' +
+    '          </div>' +
     '          <div class="chat-modal-input-area">' +
     '            <input class="chat-modal-input" id="chatModalInput" placeholder="Type your message…" maxlength="500" />' +
     '            <span class="chat-char-count" id="chatCharCount">0 / 500</span>' +
@@ -1090,15 +1099,82 @@ window.LDAHChat = (function () {
     // Holds the latest listener batch so loadOlderMessages can re-render without waiting for a listener tick
     var _lastListenerMessages = [];
 
-    // ── Send Message ──
-    function sendChatMessage() {
-      var text = (chatModalInput ? chatModalInput.value : '').trim();
-      if (!text || !_chatActiveConvId) return;
-      if (text.length > 500) text = text.substring(0, 500);
+    // ── Screenshot Paste (Task 8) ──
+    // Clipboard paste only — no file picker, no drag-and-drop, no capture button.
+    // That is an explicit product decision, not an oversight.
+    var _pendingImage = null;   // { blob, w, h, previewUrl }
+    var MAX_RAW_BYTES = 10 * 1024 * 1024;
+    var MAX_EDGE = 1600;
+    var JPEG_QUALITY = 0.82;
 
+    function handleImagePaste(e) {
+      var items = (e.clipboardData && e.clipboardData.items) || [];
+      var file = null;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+          file = items[i].getAsFile(); break;
+        }
+      }
+      if (!file) return;                       // plain text paste — leave it alone
+      e.preventDefault();
+      if (file.size > MAX_RAW_BYTES) {
+        hostToast('That image is too large (max 10MB).', '#DC2626');
+        return;
+      }
+      downscaleImage(file).then(setPendingImage).catch(function (err) {
+        console.warn('chat image paste:', err && err.message);
+        hostToast('Could not read that image.', '#DC2626');
+      });
+    }
+
+    function downscaleImage(file) {
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          var scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+          var tw = Math.round(w * scale), th = Math.round(h * scale);
+          var cv = document.createElement('canvas');
+          cv.width = tw; cv.height = th;
+          cv.getContext('2d').drawImage(img, 0, 0, tw, th);
+          cv.toBlob(function (blob) {
+            URL.revokeObjectURL(url);
+            if (!blob) { reject(new Error('toBlob failed')); return; }
+            resolve({ blob: blob, w: tw, h: th, previewUrl: cv.toDataURL('image/jpeg', 0.5) });
+          }, 'image/jpeg', JPEG_QUALITY);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+        img.src = url;
+      });
+    }
+
+    function setPendingImage(pi) {
+      _pendingImage = pi;
+      var box = document.getElementById('chatImgPreview');
+      document.getElementById('chatImgPreviewThumb').src = pi.previewUrl;
+      document.getElementById('chatImgPreviewSize').textContent =
+        pi.w + '×' + pi.h + ' · ' + Math.round(pi.blob.size / 1024) + ' KB';
+      box.style.display = 'flex';
+      if (chatModalInput) chatModalInput.focus();
+    }
+
+    function clearPendingImage() {
+      _pendingImage = null;
+      var box = document.getElementById('chatImgPreview');
+      if (box) box.style.display = 'none';
+    }
+
+    // ── Send Message ──
+    // writeMessage() is the single write path shared by the text-only send and the
+    // screenshot send (sendWithImage). `extra` is merged into the message document;
+    // when extra.hasImage is set the conversation preview + Interactions log text
+    // switch to the screenshot wording instead of the raw message text.
+    function writeMessage(text, extra) {
+      extra = extra || {};
       var myUid = getMyUid();
       var myName = getMyName();
-      if (!myUid) return;
+      if (!myUid) return Promise.reject(new Error('not signed in'));
 
       var clientId = chatClientSelect ? chatClientSelect.value : '';
       var clientName = '';
@@ -1110,36 +1186,54 @@ window.LDAHChat = (function () {
       var msgData = {
         senderId: myUid,
         senderName: myName,
-        text: text,
+        text: text || '',
         clientId: clientId || null,
         clientName: clientName || null,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         readBy: [myUid]
       };
+      var k;
+      for (k in extra) { if (extra.hasOwnProperty(k)) msgData[k] = extra[k]; }
+
+      var convId = _chatActiveConvId;
+      var preview = extra.hasImage
+        ? '📷 Screenshot'
+        : (text.length > 80 ? text.substring(0, 80) + '…' : text);
 
       // Write message to subcollection
-      db().collection('chatConversations').doc(_chatActiveConvId)
+      return db().collection('chatConversations').doc(convId)
         .collection('messages').add(msgData)
         .then(function() {
           // Update conversation metadata
           var convUpdate = {
-            lastMessage: text.length > 80 ? text.substring(0, 80) + '…' : text,
+            lastMessage: preview,
             lastMessageAt: firebase.firestore.FieldValue.serverTimestamp(),
             lastSenderId: myUid,
             lastReadBy: [myUid]
           };
-          db().collection('chatConversations').doc(_chatActiveConvId).update(convUpdate);
+          db().collection('chatConversations').doc(convId).update(convUpdate);
 
           // Auto-log to interactions if client-linked
           if (clientId && clientName) {
-            logChatToInteraction(text, clientId, clientName, myName, myUid);
+            var interactionText = extra.hasImage ? ('[screenshot]' + (text ? ' ' + text : '')) : text;
+            logChatToInteraction(interactionText, clientId, clientName, myName, myUid);
           }
           // Not linked, but the message names a family? Offer the link.
           _chatMaybeSuggestClient(text, clientId);
-        })
-        .catch(function(err) {
-          console.error('Chat send error:', err);
         });
+    }
+
+    function sendChatMessage() {
+      var text = (chatModalInput ? chatModalInput.value : '').trim();
+      if ((!text && !_pendingImage) || !_chatActiveConvId) return;
+      if (_pendingImage) { sendWithImage(text); return; }
+
+      if (text.length > 500) text = text.substring(0, 500);
+      if (!getMyUid()) return;
+
+      writeMessage(text, {}).catch(function(err) {
+        console.error('Chat send error:', err);
+      });
 
       // Clear input
       chatModalInput.value = '';
@@ -1147,6 +1241,40 @@ window.LDAHChat = (function () {
         chatCharCount.textContent = '0 / 500';
         chatCharCount.className = 'chat-char-count';
       }
+    }
+
+    function sendWithImage(caption) {
+      var pi = _pendingImage;
+      var convId = _chatActiveConvId;
+      setSendBusy(true);
+      var id = db().collection('chatConversations').doc(convId)
+                 .collection('messages').doc().id;
+      var path = 'chatImages/' + convId + '/' + id + '.jpg';
+      firebase.storage().ref(path).put(pi.blob, { contentType: 'image/jpeg' })
+        .then(function (snap) { return snap.ref.getDownloadURL(); })
+        .then(function (url) {
+          clearPendingImage();
+          if (chatModalInput) chatModalInput.value = '';
+          if (chatCharCount) {
+            chatCharCount.textContent = '0 / 500';
+            chatCharCount.className = 'chat-char-count';
+          }
+          return writeMessage(caption, {
+            hasImage: true, imageUrl: url, imagePath: path,
+            imageW: pi.w, imageH: pi.h, imageBytes: pi.blob.size
+          });
+        })
+        .catch(function (err) {
+          console.error('Chat image send error:', err);
+          hostToast('Could not send that screenshot: ' + (err && err.message), '#DC2626');
+        })
+        .finally(function () { setSendBusy(false); });
+    }
+
+    function setSendBusy(busy) {
+      if (!chatModalSend) return;
+      chatModalSend.disabled = busy;
+      chatModalSend.textContent = busy ? 'Sending…' : 'Send';
     }
 
     // Send button + Enter key listeners are wired from wireEvents().
@@ -1387,6 +1515,12 @@ window.LDAHChat = (function () {
     if (chatModalInput) chatModalInput.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
     });
+
+    // ── Screenshot paste (Task 8) ──
+    if (chatModalInput)    chatModalInput.addEventListener('paste', handleImagePaste);
+    if (chatModalMessages) chatModalMessages.addEventListener('paste', handleImagePaste);
+    var xBtn = document.getElementById('chatImgPreviewX');
+    if (xBtn) xBtn.addEventListener('click', clearPendingImage);
   }
 
   function mount(el, opts) {
