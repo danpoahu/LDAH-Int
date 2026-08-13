@@ -5276,7 +5276,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.26-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.27-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -18999,20 +18999,18 @@ window.openContactDetail = async function(contactId) {
     return html;
   }
 
-  // Send e-sign authorization link
+  // Manually send the case opening letter + consent link. Same CF as the
+  // automatic send, so the once-per-family rule is shared: if it has already
+  // gone out this asks before forcing a second copy.
   window.ctCaSendAuthLink = async function(contactId) {
-    try {
-      var idToken = await firebase.auth().currentUser.getIdToken();
-      var res = await fetch(CA_BASE + 'sendCaseAdvocacyAuthorizationLink', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: idToken, contactId: contactId })
-      });
-      var j = {};
-      try { j = await res.json(); } catch (_) {}
-      if (!res.ok) { _showToast(j.error || 'Failed to send authorization link (HTTP ' + res.status + ').', '#DC2626'); return; }
-      _showToast('Authorization link sent.', '#16A34A');
-    } catch (e) { _showToast('Error: ' + e.message, '#DC2626'); }
+    var j = await window._caSendOpeningLetter(contactId, '', { quiet: false });
+    if (j && j.skipped === 'already-sent') {
+      var when = j.sentAt ? ' on ' + j.sentAt : '';
+      if (confirm('The case opening letter was already emailed to this family' + when +
+                  '.\n\nSend it again?')) {
+        await window._caSendOpeningLetter(contactId, '', { force: true });
+      }
+    }
   };
 
   // Upload a paper/scanned signed release (3-step: request → PUT → confirmPaper)
@@ -19509,6 +19507,44 @@ window.openContactDetail = async function(contactId) {
     } catch (e) { console.warn('retain CG docs on advocacy failed:', e.message); }
   }
 
+
+  // ── Case opening letter (2026-08-12) ───────────────────────────────────────
+  // Noe's Case Opening Letter, emailed to the family with the consent-form link.
+  // Fires automatically once an advocate is named. The CF decides whether to
+  // actually send: it sends once per family and returns skipped:"already-sent"
+  // after that, so a re-tick, a reassignment or a second click cannot mail a
+  // family twice. Never blocks or fails the advocacy save — a letter that did
+  // not go out is reported in a toast, not by losing the case.
+  window._caSendOpeningLetter = async function(contactId, advocateName, opts) {
+    opts = opts || {};
+    if (!contactId) return null;
+    try {
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var payload = { idToken: idToken, contactId: contactId };
+      if (advocateName) payload.advocateName = advocateName;
+      if (opts.force) payload.force = true;
+      var res = await fetch(CA_BASE + 'sendCaseAdvocacyAuthorizationLink', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var j = {}; try { j = await res.json(); } catch (_) {}
+      if (!res.ok) {
+        _showToast(j.error || ('Case opening letter NOT sent (HTTP ' + res.status + ').'), '#DC2626');
+        return j;
+      }
+      if (j.skipped === 'already-sent') {
+        if (!opts.quiet) {
+          _showToast('Case opening letter was already sent' + (j.sentAt ? ' on ' + j.sentAt : '') + ' — not sent again.', '#D97706');
+        }
+        return j;
+      }
+      _showToast('Case opening letter emailed to ' + (j.sentTo || 'the family') + '.', '#16A34A');
+      return j;
+    } catch (e) {
+      _showToast('Case opening letter NOT sent: ' + e.message, '#DC2626');
+      return null;
+    }
+  };
   window.spawnOrReassignCaseAdvocacy = async function(sourceData, sourceId, advocateName, wantOn) {
     sourceData = sourceData || {};
     advocateName = advocateName || '';
@@ -19646,6 +19682,9 @@ window.openContactDetail = async function(contactId) {
       } else if (!uid) {
         _showToast('Saved, but "' + advocateName + '" has no LDAH-Int login — the task won\u2019t reach a My Day until reassigned.', '#D97706');
       }
+      // Advocate now named on this family → send the opening letter (the CF
+      // no-ops if it already went out for them).
+      await window._caSendOpeningLetter(sourceData.contactId, advocateName, { quiet: true });
       return { interactionId: existingId, uid: uid, reassigned: true };
     }
 
@@ -19718,6 +19757,11 @@ window.openContactDetail = async function(contactId) {
         ? 'Case advocacy is ON, but ' + CASE_ADVOCACY_COORDINATOR.name +
           ' has no LDAH-Int login — the task was created unassigned.'
         : 'Saved, but "' + advocateName + '" has no LDAH-Int login — the task won\u2019t reach a My Day until reassigned.', '#D97706');
+    }
+    // Only once a consultant is named — the letter is signed by them, so an
+    // unassigned case waits for the coordinator to allocate it.
+    if (!unassigned) {
+      await window._caSendOpeningLetter(sourceData.contactId, advocateName, { quiet: true });
     }
     return { interactionId: newRef.id, uid: uid, reassigned: false, unassigned: unassigned };
   };
