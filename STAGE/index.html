@@ -4663,8 +4663,15 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 }
 .tv-row:hover .tv-more, .tv-more:focus-visible, .tv-more[aria-expanded="true"] { opacity: 1; }
 .tv-more:hover { background: var(--sand-light); border-color: #E2E8F0; color: var(--text-dark); }
+/* FIXED, not absolute (2026-08-13). .tv-group sets overflow:hidden for its
+   rounded corners, which clipped this menu on the LAST row of every group —
+   the actions were rendered but unreachable, so an item could not be archived.
+   z-index cannot beat overflow clipping, so the menu is taken out of the
+   clipping context entirely and positioned from the button's screen rect by
+   cmsToggleVideoMenu (which also flips it above the button near the bottom of
+   the viewport). */
 .tv-menu {
-  position: absolute; right: 0; top: 34px; z-index: 20;
+  position: fixed; z-index: 200;
   background: #fff; border: 1px solid #E2E8F0; border-radius: 8px;
   box-shadow: 0 6px 20px rgba(15,23,42,.14);
   min-width: 130px; padding: 4px; display: none;
@@ -5276,7 +5283,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.29-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.30-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -37842,8 +37849,26 @@ window.cmsToggleVideoMenu = function(e, btn) {
   var menu = btn.nextElementSibling;
   var wasOpen = menu.classList.contains('open');
   cmsCloseVideoMenus();
-  if (!wasOpen) { menu.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); }
+  if (wasOpen) return;
+  menu.classList.add('open');
+  btn.setAttribute('aria-expanded', 'true');
+  // The menu is position:fixed, so place it against the button's viewport rect.
+  // Measure only after it is displayed, or offsetHeight is 0 and it never flips.
+  var r = btn.getBoundingClientRect();
+  var mh = menu.offsetHeight, mw = menu.offsetWidth;
+  var top = r.bottom + 4;
+  if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4); // flip above
+  var left = r.right - mw;                                   // right-aligned to the button
+  if (left < 8) left = 8;
+  if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
 };
+
+// A fixed menu does not travel with the page, so close it rather than let it
+// hang over unrelated rows. Capture phase catches scrolling inside the list too.
+window.addEventListener('scroll', function() { cmsCloseVideoMenus(); }, true);
+window.addEventListener('resize', function() { cmsCloseVideoMenus(); });
 
 document.addEventListener('click', function() { cmsCloseVideoMenus(); });
 document.addEventListener('keydown', function(e) {
