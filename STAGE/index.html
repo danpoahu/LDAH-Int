@@ -5283,7 +5283,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.30-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.31-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -28577,6 +28577,61 @@ function _cmsShowEventForm() {
 }
 window._cmsShowFlyerFirst = _cmsShowFlyerFirst;
 window._cmsShowEventForm = _cmsShowEventForm;
+
+/* ── Dropped files must never navigate the browser (2026-08-13) ─────────────
+   The flyer drop zone lives inside #cmsFlyerFirstPanel, which only appears for
+   a NEW one-time event. Every other route into Add Event — an edit, a program,
+   a special event, and the Events Funnel path in the Admin dashboard, which
+   calls _cmsShowEventForm() explicitly to skip the panel — leaves the modal
+   with no drop target at all. A file dropped there hit the document instead,
+   so the browser navigated to it and threw away whatever was half-typed in the
+   form. That is what happened in training.
+
+   Two parts:
+     1. A document-level guard so a dropped file NEVER navigates, wherever it
+        lands. Zones handle their own drops and stopPropagation, so this only
+        ever sees the misses.
+     2. When the flyer panel IS open, the whole modal accepts the drop, not
+        just the dashed box — a near miss now works instead of losing the form.
+   Anything else gets told where the flyer actually goes, rather than the drop
+   silently doing nothing. */
+(function _cmsGuardStrayFileDrops() {
+  var ZONES = '#cmsFlyerDropZone, #cmsFunnelFlyerZone, .rs-upload-area, [data-dropzone]';
+  function inZone(e) { return e.target && e.target.closest && e.target.closest(ZONES); }
+  function hasFiles(e) {
+    var dt = e.dataTransfer;
+    if (!dt) return false;
+    if (dt.types && Array.prototype.indexOf.call(dt.types, 'Files') !== -1) return true;
+    return !!(dt.files && dt.files.length);
+  }
+  function flyerPanelOpen() {
+    var p = document.getElementById('cmsFlyerFirstPanel');
+    return !!(p && p.style.display !== 'none' && p.offsetParent !== null);
+  }
+  document.addEventListener('dragover', function(e) {
+    if (!hasFiles(e) || inZone(e)) return;
+    e.preventDefault();                       // required, or 'drop' never fires
+    if (e.dataTransfer) e.dataTransfer.dropEffect = flyerPanelOpen() ? 'copy' : 'none';
+  });
+  document.addEventListener('drop', function(e) {
+    if (!hasFiles(e) || inZone(e)) return;
+    e.preventDefault();                       // the whole point: do not open the file
+    // Dropped inside the Add Event modal while the flyer uploader is showing →
+    // treat it as if they had hit the dashed box.
+    var overlay = document.getElementById('cmsEventOverlay');
+    var inEventModal = overlay && overlay.classList.contains('active') &&
+                       e.target && e.target.closest && e.target.closest('#cmsEventOverlay');
+    if (inEventModal && flyerPanelOpen() && typeof window.cmsFlyerDrop === 'function') {
+      window.cmsFlyerDrop(e);
+      return;
+    }
+    if (typeof _showToast === 'function') {
+      _showToast(inEventModal
+        ? 'To read a flyer, add a NEW one-time event and drop it on the upload box — or use the flyer step in the Events Funnel.'
+        : 'Nothing here accepts a dropped file.', '#D97706');
+    }
+  });
+})();
 
 function _cmsSetField(id, val, highlight) {
   var el = document.getElementById(id);
