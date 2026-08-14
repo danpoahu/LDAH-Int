@@ -4381,7 +4381,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
   .gr-handled-toggle { background: none; border: none; color: #1f6feb; cursor: pointer; padding: 0; }
 
 </style>
-<link rel="stylesheet" href="chat.css?v=147.44">
+<link rel="stylesheet" href="chat.css?v=147.45">
 </head>
 
 <body class="with-stage-banner">
@@ -4585,7 +4585,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.44-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.45-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8855,7 +8855,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- Internal chat — see chat-core.js -->
-<script src="chat-core.js?v=147.44"></script>
+<script src="chat-core.js?v=147.45"></script>
 <script>
   LDAHChat.mount(document.getElementById('chatMount'), {
     mode: 'modal',
@@ -8870,7 +8870,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- WebRTC screen share — see rtc-screenshare.js -->
-<script src="rtc-screenshare.js?v=147.44"></script>
+<script src="rtc-screenshare.js?v=147.45"></script>
 
 <!-- ── Recipient List CMS ── -->
 <script>
@@ -11628,8 +11628,9 @@ var _photoPendingByIsland = {};
         return s;
       };
 
-      var csvRows = ['Conversation ID,Participant 1,Participant 2,Message Date,Sender,Text'];
+      var csvRows = ['Conversation ID,Participant 1,Participant 2,Message Date,Sender,Text,Images Deleted'];
       var totalMessages = 0;
+      var totalImagesDeleted = 0;
       var oldestDate = null, newestDate = null;
 
       for (var i = 0; i < eligible.length; i++) {
@@ -11639,6 +11640,40 @@ var _photoPendingByIsland = {};
         var p2 = names[1] || 'Unknown';
 
         var msgSnap = await db.collection('chatConversations').doc(conv.id).collection('messages').orderBy('createdAt', 'asc').get();
+
+        // Collect this conversation's screenshot paths while the message docs
+        // still exist — imagePath lives on the message, so it must be read
+        // before those docs are deleted below.
+        var imagePaths = [];
+        msgSnap.forEach(function (mDoc) {
+          var m = mDoc.data();
+          if (m.imagePath) imagePaths.push(m.imagePath);
+        });
+
+        // Delete the Storage objects BEFORE the Firestore documents that
+        // reference them. Once the message docs are gone, imagePath is gone
+        // with them and any surviving object becomes an unreachable orphan.
+        // A Storage failure must never block the Firestore purge: each
+        // delete is isolated in its own try/catch and the loop always
+        // continues. A missing object (already deleted by hand, or aged out
+        // by the 90-day bucket lifecycle rule) is the normal case, not a
+        // failure, so it is counted as handled rather than logged as an error.
+        var convImagesDeleted = 0;
+        for (var ip = 0; ip < imagePaths.length; ip++) {
+          try {
+            await firebase.storage().ref(imagePaths[ip]).delete();
+            convImagesDeleted++;
+          } catch (x) {
+            var errCode = x && x.code;
+            if (errCode === 'storage/object-not-found') {
+              convImagesDeleted++;
+            } else {
+              console.warn('purgeOldChats: failed to delete chat image', imagePaths[ip], errCode || x);
+            }
+          }
+        }
+        totalImagesDeleted += convImagesDeleted;
+
         msgSnap.forEach(function(doc) {
           var m = doc.data();
           var ts = m.createdAt ? m.createdAt.toDate() : null;
@@ -11647,7 +11682,7 @@ var _photoPendingByIsland = {};
             if (!oldestDate || ts < oldestDate) oldestDate = ts;
             if (!newestDate || ts > newestDate) newestDate = ts;
           }
-          csvRows.push(esc(conv.id) + ',' + esc(p1) + ',' + esc(p2) + ',' + esc(tsStr) + ',' + esc(m.senderName || '') + ',' + esc(m.text || ''));
+          csvRows.push(esc(conv.id) + ',' + esc(p1) + ',' + esc(p2) + ',' + esc(tsStr) + ',' + esc(m.senderName || '') + ',' + esc(m.text || '') + ',' + esc(convImagesDeleted));
           totalMessages++;
         });
 
@@ -11687,11 +11722,11 @@ var _photoPendingByIsland = {};
         status: 'Closed',
         owner: (currentUserData && currentUserData.displayName) || 'Unknown',
         ownerUid: (currentUserData && currentUserData.uid) || '',
-        notes: 'CSV audit file downloaded at time of purge. Conversations dated from ' + oldestStr + ' to ' + newestStr + '.',
+        notes: 'CSV audit file downloaded at time of purge. Conversations dated from ' + oldestStr + ' to ' + newestStr + '. Images deleted: ' + totalImagesDeleted + '.',
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
 
-      _showToast('Purged ' + eligible.length + ' conversation(s), ' + totalMessages + ' messages. CSV downloaded.', '#16a34a');
+      _showToast('Purged ' + eligible.length + ' conversation(s), ' + totalMessages + ' messages, ' + totalImagesDeleted + ' image(s). CSV downloaded.', '#16a34a');
       _chatLogsExpanded = {};
       loadChatLogs();
     } catch (err) {
