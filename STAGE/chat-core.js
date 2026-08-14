@@ -877,6 +877,13 @@ window.LDAHChat = (function () {
           if (!snap.empty) {
             var convDoc = snap.docs[0];
             _chatActiveConvId = convDoc.id;
+            // A paste that landed in the gap between clearPendingImage() above and this
+            // resolving was stamped with whatever conversation was active before the user
+            // clicked — stale, not wrong-in-the-leak sense (nothing has been sent yet), but
+            // it would falsely trip the pi.convId mismatch guard in sendWithImage() and
+            // reject a legitimate "open conversation, paste, send" sequence. Re-stamp it to
+            // the conversation the user is now actually looking at.
+            if (_pendingImage) _pendingImage.convId = _chatActiveConvId;
             _chatLoadedOlderMessages = [];
             _chatOldestMessageTs = null;
             _chatHasMoreOlder = true;
@@ -899,6 +906,8 @@ window.LDAHChat = (function () {
             convData.participantNames[otherUid] = otherName;
             db().collection('chatConversations').add(convData).then(function(docRef) {
               _chatActiveConvId = docRef.id;
+              // Same re-stamp as the existing-conversation branch above.
+              if (_pendingImage) _pendingImage.convId = _chatActiveConvId;
               _chatLoadedOlderMessages = [];
               _chatOldestMessageTs = null;
               _chatHasMoreOlder = true;
@@ -1218,11 +1227,18 @@ window.LDAHChat = (function () {
     // screenshot send (sendWithImage). `extra` is merged into the message document;
     // when extra.hasImage is set the conversation preview + Interactions log text
     // switch to the screenshot wording instead of the raw message text.
-    function writeMessage(text, extra) {
+    // convId is passed explicitly rather than read from _chatActiveConvId at write time.
+    // sendWithImage() awaits a Storage upload before calling this, and the live global can
+    // change mid-upload (user clicks another conversation while a screenshot is uploading) —
+    // reading the global here would write the message into whatever conversation happens to
+    // be active when the write fires, not the one the send was actually for. Callers pass the
+    // convId they captured at send time so the target conversation is fixed for the whole call.
+    function writeMessage(text, extra, convId) {
       extra = extra || {};
       var myUid = getMyUid();
       var myName = getMyName();
       if (!myUid) return Promise.reject(new Error('not signed in'));
+      if (!convId) return Promise.reject(new Error('no target conversation'));
 
       var clientId = chatClientSelect ? chatClientSelect.value : '';
       var clientName = '';
@@ -1243,7 +1259,6 @@ window.LDAHChat = (function () {
       var k;
       for (k in extra) { if (extra.hasOwnProperty(k)) msgData[k] = extra[k]; }
 
-      var convId = _chatActiveConvId;
       var preview = extra.hasImage
         ? '📷 Screenshot'
         : (text.length > 80 ? text.substring(0, 80) + '…' : text);
@@ -1280,7 +1295,11 @@ window.LDAHChat = (function () {
       if (text.length > 500) text = text.substring(0, 500);
       if (!getMyUid()) return;
 
-      writeMessage(text, {}).catch(function(err) {
+      // Text-only send is synchronous (no await between "user pressed Send" and this call),
+      // so _chatActiveConvId can't drift underneath it — but it still passes convId
+      // explicitly, the same as sendWithImage(), so writeMessage() has one signature used
+      // consistently rather than one caller being the odd one out.
+      writeMessage(text, {}, _chatActiveConvId).catch(function(err) {
         console.error('Chat send error:', err);
       });
 
@@ -1317,10 +1336,25 @@ window.LDAHChat = (function () {
       storageRef.put(pi.blob, { contentType: 'image/jpeg' })
         .then(function (snap) { return snap.ref.getDownloadURL(); })
         .then(function (url) {
+          // Re-check immediately before the write too, not only before the upload started.
+          // The real fix is that writeMessage() below is handed `convId` — the value
+          // captured at the top of this function — explicitly, so the write always targets
+          // the conversation this send was for regardless of what _chatActiveConvId has
+          // drifted to during the upload. This check is the belt to that parameter's braces:
+          // pi/convId are locals that can't actually change within one call, so it should
+          // never trip, but it costs nothing and it means a future edit that reintroduces a
+          // mutable convId here fails safe instead of leaking.
+          if (pi.convId !== convId) {
+            return storageRef.delete().catch(function (delErr) {
+              console.warn('Chat image cleanup delete failed:', delErr && delErr.message);
+            }).then(function () {
+              throw new Error('conversation changed during upload — screenshot not sent');
+            });
+          }
           return writeMessage(caption, {
             hasImage: true, imageUrl: url, imagePath: path,
             imageW: pi.w, imageH: pi.h, imageBytes: pi.blob.size
-          }).catch(function (writeErr) {
+          }, convId).catch(function (writeErr) {
             // Upload succeeded but the message doc failed to write — the Storage object
             // would otherwise be an orphan no message ever references. Clean it up so the
             // 13-month purge isn't the only thing standing between us and a leaked image.
