@@ -461,18 +461,22 @@ window.LDAHChat = (function () {
       return best;
     }
 
-    function _chatMaybeSuggestClient(text, sentClientId) {
+    // convId is the conversation this send was actually for (passed in from writeMessage(),
+    // which received it as an explicit parameter) — NOT read from _chatActiveConvId here,
+    // because the user can switch conversations while this nudge sits on screen waiting for
+    // a click. The nudge must act on the conversation it was raised for.
+    function _chatMaybeSuggestClient(text, sentClientId, convId) {
       try {
         if (sentClientId) return;                       // already linked, nothing to ask
         var match = _chatFindClientMention(text);
         if (!match) return;
-        var key = _chatActiveConvId + '|' + match.id;
+        var key = convId + '|' + match.id;
         if (_chatNudgeDismissed[key]) return;
-        _chatShowClientNudge(match, key);
+        _chatShowClientNudge(match, key, convId);
       } catch (e) { console.warn('chat client nudge:', e && e.message); }
     }
 
-    function _chatShowClientNudge(contact, key) {
+    function _chatShowClientNudge(contact, key, convId) {
       var old = document.getElementById('chatClientNudge');
       if (old) old.remove();
       var box = document.createElement('div');
@@ -496,8 +500,14 @@ window.LDAHChat = (function () {
       box.querySelector('#chatNudgeYes').onclick = function() {
         _chatNudgeDismissed[key] = true;
         try {
-          if (chatClientSelect) chatClientSelect.value = contact.id;   // future messages log too
-          db().collection('chatConversations').doc(_chatActiveConvId)
+          // Always update the conversation this nudge was raised for (convId) — that is the
+          // correct target even if a different conversation is on screen now. But
+          // chatClientSelect is the dropdown for whatever conversation is CURRENTLY
+          // displayed, so only sync it when that still happens to be the same conversation;
+          // otherwise setting it would silently point the on-screen conversation's future
+          // messages at a client that was actually mentioned in a different thread.
+          if (chatClientSelect && convId === _chatActiveConvId) chatClientSelect.value = contact.id;
+          db().collection('chatConversations').doc(convId)
             .update({ clientId: contact.id, clientName: contact.displayName });
           hostToast('Linked to ' + contact.displayName + '. Messages here now save to their record.', '#16A34A');
         } catch (e) { console.warn('chat link failed:', e && e.message); }
@@ -1279,10 +1289,11 @@ window.LDAHChat = (function () {
           // Auto-log to interactions if client-linked
           if (clientId && clientName) {
             var interactionText = extra.hasImage ? ('[screenshot]' + (text ? ' ' + text : '')) : text;
-            logChatToInteraction(interactionText, clientId, clientName, myName, myUid);
+            logChatToInteraction(interactionText, clientId, clientName, myName, myUid, convId);
           }
-          // Not linked, but the message names a family? Offer the link.
-          _chatMaybeSuggestClient(text, clientId);
+          // Not linked, but the message names a family? Offer the link. Pass convId
+          // explicitly — same reasoning as above, this also runs after the write await.
+          _chatMaybeSuggestClient(text, clientId, convId);
         });
     }
 
@@ -1395,7 +1406,11 @@ window.LDAHChat = (function () {
     // Send button + Enter key listeners are wired from wireEvents().
 
     // ── Auto-Log Client-Linked Chat to Interactions ──
-    function logChatToInteraction(text, clientId, clientName, createdBy, createdByUid) {
+    // convId is passed explicitly (same principle as writeMessage()) rather than read from
+    // _chatActiveConvId — this runs inside writeMessage()'s post-write .then(), after the
+    // Firestore add() await, so the live global can have moved on to a different
+    // conversation by the time this fires if the user clicked the roster in between.
+    function logChatToInteraction(text, clientId, clientName, createdBy, createdByUid, convId) {
       var preview = text.length > 120 ? text.substring(0, 120) + '…' : text;
       hostLogInteraction({
         clientName: clientName,
@@ -1407,7 +1422,7 @@ window.LDAHChat = (function () {
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         createdBy: createdBy,
         createdByUid: createdByUid,
-        chatConversationId: _chatActiveConvId
+        chatConversationId: convId
       }).catch(function(err) {
         console.error('Chat interaction log error:', err);
       });
