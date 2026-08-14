@@ -370,13 +370,19 @@ window.LDAHChat = (function () {
       } catch (e) {}
     }
 
-    function openPopOut() {
-      if (_popWin && !_popWin.closed) { _popWin.focus(); return; }
+    // Returns true when the window ends up open — freshly opened, or already open
+    // and now focused — and false when the browser blocked it. Pass silent=true when
+    // the caller has its own fallback and does not want the "allow pop-ups" toast.
+    function openPopOut(silent) {
+      if (_popWin && !_popWin.closed) { _popWin.focus(); return true; }
       var g = readGeom();
       _popWin = window.open('chat.html', 'ldahChat',
         'width=' + g.w + ',height=' + g.h + ',left=' + g.x + ',top=' + g.y +
         ',resizable=yes,scrollbars=yes');
-      if (!_popWin) { hostToast('Allow pop-ups for this site to use the chat window.', '#D97706'); return; }
+      if (!_popWin) {
+        if (!silent) hostToast('Allow pop-ups for this site to use the chat window.', '#D97706');
+        return false;
+      }
       closeChatModal();
       setPoppedOutState(true);
       if (_popPoll) clearInterval(_popPoll);
@@ -388,6 +394,7 @@ window.LDAHChat = (function () {
           saveGeom();   // poll-save; the popup cannot write its own geometry on close
         }
       }, 1000);
+      return true;
     }
 
     function setPoppedOutState(on) {
@@ -397,10 +404,11 @@ window.LDAHChat = (function () {
                           : 'Open internal chat';
     }
 
-    // Attach FAB button click — auto-open first unread conversation
-    function handleFabClick(e) {
-      e.stopPropagation();
-      if (_popWin && !_popWin.closed) { _popWin.focus(); return; }
+    // Opens the in-app modal and, when anything is unread, jumps straight to the
+    // first unread conversation. This is the fallback path for the FAB now that the
+    // button goes to the pop-out window; the Pop Out button in the modal header is
+    // the way back out to a window from here.
+    function openChatModalToUnread() {
       openChatModal();
       // If there are unread messages, jump straight to the first unread conversation
       if (_chatUnreadCount > 0 && _chatConvsList.length > 0) {
@@ -414,6 +422,36 @@ window.LDAHChat = (function () {
           openConversation(otherUid, otherName);
         }
       }
+    }
+
+    // Below this width a separate window is meaningless — a phone or an iPad gets
+    // the modal instead. Same value as @media(max-width:768px) in chat.css, which
+    // is what reflows the modal to full-screen; keep the two in step.
+    var CHAT_MOBILE_BREAKPOINT = 768;
+
+    var _lastFabEvent = null;
+
+    // FAB click. The chat button opens the pop-out window DIRECTLY — one click, no
+    // modal in between. The modal is still reachable, but only as a fallback for the
+    // two cases where a separate window cannot serve: a small screen, and pop-ups
+    // being blocked. Neither may leave the button doing nothing.
+    function handleFabClick(e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      // The FAB is wired twice on purpose (addEventListener AND .onclick), so a single
+      // click runs this handler twice with the same Event object. That was harmless
+      // while it only re-opened the modal; now it would attempt the window twice and
+      // double the toast below. Same event, second pass: drop it.
+      if (e) { if (e === _lastFabEvent) return; _lastFabEvent = e; }
+      // 1. Already popped out — focus that window, never open a second one.
+      if (_popWin && !_popWin.closed) { _popWin.focus(); return; }
+      // 2. Small screen — the modal is the only sensible surface.
+      if (window.innerWidth <= CHAT_MOBILE_BREAKPOINT) { openChatModalToUnread(); return; }
+      // 3. The normal path: straight to the window.
+      if (openPopOut(true)) return;
+      // 4. window.open returned null — pop-ups are blocked. Open the modal rather
+      //    than leaving a dead button, and say why chat landed in the page.
+      openChatModalToUnread();
+      hostToast('Pop-ups are blocked, so chat opened here in the page.', '#D97706');
     }
     // FAB / close / overlay / keydown / sidebar-toggle / zoom-btn / char-counter
     // listeners are wired from wireEvents(), called by mount() once bindElements()
@@ -1675,7 +1713,9 @@ window.LDAHChat = (function () {
       chatOpen.onclick = handleFabClick;
     }
     var popBtn = document.getElementById('chatPopOut');
-    if (popBtn) popBtn.addEventListener('click', openPopOut);
+    // Wrapped, not passed by reference: addEventListener would hand the click Event
+    // in as the silent flag and suppress the blocked-pop-ups toast this button relies on.
+    if (popBtn) popBtn.addEventListener('click', function () { openPopOut(); });
     if (chatModalClose) chatModalClose.addEventListener('click', closeChatModal);
     if (chatModalOverlay) chatModalOverlay.addEventListener('click', function(e) {
       if (e.target === chatModalOverlay) closeChatModal();
