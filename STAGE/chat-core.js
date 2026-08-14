@@ -314,15 +314,6 @@ window.LDAHChat = (function () {
     // ── Open / Close Modal ──
     function openChatModal() {
       if (!chatModalOverlay) return;
-      // The overlay and modal are position:fixed, but #chatMount is nested deep in
-      // the dashboard. Any ancestor with a transform, filter or backdrop-filter
-      // becomes the containing block for fixed descendants, so the modal anchors to
-      // THAT element instead of the viewport — and once the page is scrolled, the
-      // header scrolls off the top and the X cannot be reached (reported 2026-08-13).
-      // Reparenting to <body> makes it immune to whatever anyone styles upstream.
-      if (chatModalOverlay.parentNode !== document.body) {
-        document.body.appendChild(chatModalOverlay);
-      }
       chatModalOverlay.classList.add('active');
       _chatModalOpen = true;
       // Populate client dropdown from contacts cache
@@ -421,17 +412,6 @@ window.LDAHChat = (function () {
           var otherUid = (firstUnread.participants || []).find(function(p) { return p !== myUid; });
           var otherName = (firstUnread.participantNames && firstUnread.participantNames[otherUid]) || 'Unknown';
           openConversation(otherUid, otherName);
-        }
-      } else if (_chatConvsList.length > 0) {
-        // Nothing unread: open the most recent conversation rather than the empty
-        // "select a team member" state. Opening the chat and then having to pick
-        // someone was a second click for the same intent (Daniel, 2026-08-13).
-        var myUid2 = getMyUid();
-        var recent = _chatConvsList[0];
-        var ruid = (recent.participants || []).find(function(p) { return p !== myUid2; });
-        if (ruid) {
-          var rname = (recent.participantNames && recent.participantNames[ruid]) || 'Unknown';
-          openConversation(ruid, rname);
         }
       }
     }
