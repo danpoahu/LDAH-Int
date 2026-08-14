@@ -326,6 +326,9 @@ window.LDAHChat = (function () {
     function closeChatModal() {
       if (chatModalOverlay) chatModalOverlay.classList.remove('active');
       _chatModalOpen = false;
+      // A pending screenshot is tied to the conversation you paste it into — it must not
+      // survive to be posted somewhere else after the modal is reopened.
+      clearPendingImage();
       // Stop listening to messages and header presence
       if (_chatMessagesUnsub) { _chatMessagesUnsub(); _chatMessagesUnsub = null; }
       if (_chatHeaderPresenceUnsub) { _chatHeaderPresenceUnsub(); _chatHeaderPresenceUnsub = null; }
@@ -812,6 +815,9 @@ window.LDAHChat = (function () {
           var convId = el.getAttribute('data-convid');
           var otherUid = el.getAttribute('data-otheruid');
           var otherName = el.getAttribute('data-othername');
+          // Leaving whatever conversation was active — a pending screenshot belongs
+          // to that one, not this one.
+          clearPendingImage();
           _chatActiveConvId = convId;
           _chatActiveOtherUid = otherUid;
           _chatLoadedOlderMessages = [];
@@ -839,6 +845,10 @@ window.LDAHChat = (function () {
     function openConversation(otherUid, otherName) {
       var myUid = getMyUid();
       if (!myUid || !otherUid) return;
+
+      // Leaving whatever conversation was active — a pending screenshot belongs
+      // to that one, not this one.
+      clearPendingImage();
 
       _chatActiveOtherUid = otherUid;
 
@@ -1134,7 +1144,9 @@ window.LDAHChat = (function () {
     // ── Screenshot Paste (Task 8) ──
     // Clipboard paste only — no file picker, no drag-and-drop, no capture button.
     // That is an explicit product decision, not an oversight.
-    var _pendingImage = null;   // { blob, w, h, previewUrl }
+    var _pendingImage = null;   // { blob, w, h, previewUrl, convId }
+    var _sendingImage = false;  // in-flight guard — separate from setSendBusy()'s visual state,
+                                 // because the Enter-key handler bypasses the disabled button.
     var MAX_RAW_BYTES = 10 * 1024 * 1024;
     var MAX_EDGE = 1600;
     var JPEG_QUALITY = 0.82;
@@ -1182,6 +1194,10 @@ window.LDAHChat = (function () {
     }
 
     function setPendingImage(pi) {
+      // Stamp the conversation the screenshot was pasted into. sendWithImage() re-checks
+      // this against the active conversation before uploading, as a second line of defense
+      // behind the clearPendingImage() calls on every leave-conversation path.
+      pi.convId = _chatActiveConvId;
       _pendingImage = pi;
       var box = document.getElementById('chatImgPreview');
       document.getElementById('chatImgPreviewThumb').src = pi.previewUrl;
@@ -1256,6 +1272,7 @@ window.LDAHChat = (function () {
     }
 
     function sendChatMessage() {
+      if (_sendingImage) return;   // an upload is already in flight — Enter-key double-fire guard
       var text = (chatModalInput ? chatModalInput.value : '').trim();
       if ((!text && !_pendingImage) || !_chatActiveConvId) return;
       if (_pendingImage) { sendWithImage(text); return; }
@@ -1276,31 +1293,63 @@ window.LDAHChat = (function () {
     }
 
     function sendWithImage(caption) {
+      if (_sendingImage) return;   // in-flight guard — setSendBusy()'s disabled state alone
+                                    // doesn't stop the Enter-key handler from firing again
       var pi = _pendingImage;
       var convId = _chatActiveConvId;
+
+      // Belt-and-braces: clearPendingImage() runs on every path that changes or leaves
+      // the conversation (closeChatModal, roster click, openConversation), so this should
+      // be unreachable. It exists so a future code path that forgets to clear the pending
+      // image cannot post a screenshot into the wrong, client-linked thread.
+      if (!pi || pi.convId !== convId) {
+        clearPendingImage();
+        hostToast('That screenshot was for a different conversation — please paste it again.', '#DC2626');
+        return;
+      }
+
+      _sendingImage = true;
       setSendBusy(true);
       var id = db().collection('chatConversations').doc(convId)
                  .collection('messages').doc().id;
       var path = 'chatImages/' + convId + '/' + id + '.jpg';
-      firebase.storage().ref(path).put(pi.blob, { contentType: 'image/jpeg' })
+      var storageRef = firebase.storage().ref(path);
+      storageRef.put(pi.blob, { contentType: 'image/jpeg' })
         .then(function (snap) { return snap.ref.getDownloadURL(); })
         .then(function (url) {
+          return writeMessage(caption, {
+            hasImage: true, imageUrl: url, imagePath: path,
+            imageW: pi.w, imageH: pi.h, imageBytes: pi.blob.size
+          }).catch(function (writeErr) {
+            // Upload succeeded but the message doc failed to write — the Storage object
+            // would otherwise be an orphan no message ever references. Clean it up so the
+            // 13-month purge isn't the only thing standing between us and a leaked image.
+            // Guarded in its own catch so a failed cleanup can't mask the original error.
+            return storageRef.delete().catch(function (delErr) {
+              console.warn('Chat image cleanup delete failed:', delErr && delErr.message);
+            }).then(function () {
+              throw writeErr;
+            });
+          });
+        })
+        .then(function () {
+          // Only clear the UI once the message document is actually written. A failed
+          // send must leave the screenshot + caption in place so the user can retry.
           clearPendingImage();
           if (chatModalInput) chatModalInput.value = '';
           if (chatCharCount) {
             chatCharCount.textContent = '0 / 500';
             chatCharCount.className = 'chat-char-count';
           }
-          return writeMessage(caption, {
-            hasImage: true, imageUrl: url, imagePath: path,
-            imageW: pi.w, imageH: pi.h, imageBytes: pi.blob.size
-          });
         })
         .catch(function (err) {
           console.error('Chat image send error:', err);
           hostToast('Could not send that screenshot: ' + (err && err.message), '#DC2626');
         })
-        .finally(function () { setSendBusy(false); });
+        .finally(function () {
+          _sendingImage = false;
+          setSendBusy(false);
+        });
     }
 
     function setSendBusy(busy) {
@@ -1441,6 +1490,7 @@ window.LDAHChat = (function () {
       _chatUnreadByUser = {};
       _chatActiveConvId = null;
       _chatActiveOtherUid = null;
+      clearPendingImage();
       tryInitChat();
     };
 
