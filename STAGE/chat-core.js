@@ -331,8 +331,10 @@ window.LDAHChat = (function () {
       if (chatModalOverlay) chatModalOverlay.classList.remove('active');
       _chatModalOpen = false;
       // A pending screenshot is tied to the conversation you paste it into — it must not
-      // survive to be posted somewhere else after the modal is reopened.
+      // survive to be posted somewhere else after the modal is reopened. The client link
+      // is tied to the conversation the same way.
       clearPendingImage();
+      resetClientLink();
       // Stop listening to messages and header presence
       if (_chatMessagesUnsub) { _chatMessagesUnsub(); _chatMessagesUnsub = null; }
       if (_chatHeaderPresenceUnsub) { _chatHeaderPresenceUnsub(); _chatHeaderPresenceUnsub = null; }
@@ -343,6 +345,38 @@ window.LDAHChat = (function () {
       // _chatActiveConvId and re-subscribes a messages listener for a closed modal.
       _chatConvOpenSeq++;
       updateChatBadge();
+    }
+
+    // ── Is the chat surface actually in front of the person right now? ──
+    // Modal mode: the overlay IS the surface, so _chatModalOpen answers it.
+    // Window mode: the pop-out is the whole document, and openChatModal() never
+    // runs there — which is why _chatModalOpen was permanently false and the
+    // pop-out never marked anything read and chimed at the thread you were reading.
+    // A pop-out can be minimised, on another desktop, or buried behind the
+    // dashboard, so it must ASK the browser rather than assume it is being looked
+    // at. Both conditions are required: page visible AND window focused. Visibility
+    // alone would mark messages read while the window sits behind another one —
+    // telling a colleague their message was seen when nobody saw it. Read receipts
+    // are a claim about a human, so they fail closed.
+    function chatIsVisible() {
+      if (_mode !== 'window') return _chatModalOpen;
+      if (typeof document.visibilityState === 'string' &&
+          document.visibilityState !== 'visible') return false;
+      return (typeof document.hasFocus === 'function') ? document.hasFocus() : true;
+    }
+
+    // Marks whatever conversation is on screen as read, if the surface is really
+    // visible. Called from the messages listener AND on focus/visibility changes:
+    // in window mode a message routinely lands while the pop-out is behind
+    // something else, and no snapshot fires again when the person brings it
+    // forward, so without these the unread state would never clear.
+    function markActiveConversationRead() {
+      var myUid = getMyUid();
+      var convId = _chatActiveConvId;   // read synchronously, never across an await
+      if (!myUid || !convId || !chatIsVisible()) return;
+      db().collection('chatConversations').doc(convId).update({
+        lastReadBy: firebase.firestore.FieldValue.arrayUnion(myUid)
+      }).catch(function () {});
     }
 
     // ── Pop-out window: opens chat.html in its own resizable window and
@@ -636,6 +670,28 @@ window.LDAHChat = (function () {
         console.warn('Could not load contacts for chat dropdown:', err.message);
       });
     }
+    // The client link is a property of the conversation it was chosen in — but the
+    // <select> is a single shared control, and nothing used to reset it. Two helpers
+    // make that explicit: capture the choice at SEND time (never at write time, which
+    // is after a Storage upload has been awaited), and clear it whenever the
+    // conversation changes.
+    function currentClientLink() {
+      var id = chatClientSelect ? chatClientSelect.value : '';
+      var name = '';
+      if (id && chatClientSelect) {
+        var opt = chatClientSelect.options[chatClientSelect.selectedIndex];
+        name = opt ? opt.textContent : '';
+      }
+      return { id: id || '', name: name || '' };
+    }
+    // Leaving a conversation with a client still selected silently tagged the NEXT
+    // conversation's messages — and the Interactions records auto-logged from them —
+    // with the previous family. Called from exactly the paths that clear a pending
+    // screenshot, for exactly the same reason.
+    function resetClientLink() {
+      if (chatClientSelect) chatClientSelect.value = '';
+    }
+
     function renderChatClientOptions() {
       if (!chatClientSelect) return;
       var current = chatClientSelect.value;
@@ -829,11 +885,20 @@ window.LDAHChat = (function () {
 
     // ── Tab title: persistent unread prefix (Gmail-style, fires regardless of tab focus) ──
     (function() {
-      var originalTitle = document.title;
+      // Each host owns its own base title: the dashboard's, and the pop-out's
+      // "Name — LDAH Chat", which chat.html only sets once auth resolves — AFTER
+      // this file has loaded. Capturing document.title once at load time therefore
+      // froze the pop-out on its pre-auth title and then stamped the dashboard's
+      // "— LDAH-Int" suffix over it. Instead: remember the last title WE wrote, and
+      // treat any title that is not that as the host's current base. A host is then
+      // free to rename its own window at any time and the unread prefix follows.
+      var lastSignalled = null;
+      var baseTitle = document.title;
       window._ldahChatTitleSignal = function(unread) {
-        document.title = unread > 0
-          ? '(' + unread + ') New Message — LDAH-Int'
-          : originalTitle;
+        if (document.title !== lastSignalled) baseTitle = document.title;
+        var next = unread > 0 ? '(' + unread + ') ' + baseTitle : baseTitle;
+        document.title = next;
+        lastSignalled = next;
       };
     })();
 
@@ -880,7 +945,7 @@ window.LDAHChat = (function () {
               // Skip if I sent this message
               if (d.lastSenderId === myUid) return;
               // Skip if I'm viewing this exact conversation right now
-              if (_chatModalOpen && _chatActiveConvId === change.doc.id) return;
+              if (chatIsVisible() && _chatActiveConvId === change.doc.id) return;
               // This is an incoming message in a conversation I'm not looking at
               if (d.lastReadBy && !d.lastReadBy.includes(myUid)) {
                 shouldChime = true;
@@ -927,9 +992,10 @@ window.LDAHChat = (function () {
           var convId = el.getAttribute('data-convid');
           var otherUid = el.getAttribute('data-otheruid');
           var otherName = el.getAttribute('data-othername');
-          // Leaving whatever conversation was active — a pending screenshot belongs
-          // to that one, not this one.
+          // Leaving whatever conversation was active — a pending screenshot and a
+          // client link both belong to that one, not this one.
           clearPendingImage();
+          resetClientLink();
           // This sets the active conversation directly rather than going through
           // openConversation(), so invalidate any openConversation() lookup still in
           // flight — otherwise it resolves a moment later and overwrites this choice.
@@ -947,7 +1013,7 @@ window.LDAHChat = (function () {
 
     function updateChatBadge() {
       if (!chatBadge) return;
-      if (_chatUnreadCount > 0 && !_chatModalOpen) {
+      if (_chatUnreadCount > 0 && !chatIsVisible()) {
         chatBadge.textContent = _chatUnreadCount;
         chatBadge.style.display = 'block';
         if (chatOpen) chatOpen.classList.add('has-unread');
@@ -962,9 +1028,10 @@ window.LDAHChat = (function () {
       var myUid = getMyUid();
       if (!myUid || !otherUid) return;
 
-      // Leaving whatever conversation was active — a pending screenshot belongs
-      // to that one, not this one.
+      // Leaving whatever conversation was active — a pending screenshot and a
+      // client link both belong to that one, not this one.
       clearPendingImage();
+      resetClientLink();
 
       // Captured at the START of this operation. Two clicks in quick succession start two
       // lookups; they can resolve out of order, and the LAST one the user clicked is the
@@ -1109,8 +1176,10 @@ window.LDAHChat = (function () {
           _lastListenerMessages = messages; // cache for pagination re-renders
           renderMessages(messages);
 
-          // Mark conversation as read only if modal is open and this is the active conversation
-          if (_chatModalOpen && _chatActiveConvId === convId) {
+          // Mark as read only when the chat surface is genuinely in front of the
+          // person AND this is the conversation on screen. chatIsVisible() answers
+          // that for both hosts; see its comment.
+          if (chatIsVisible() && _chatActiveConvId === convId) {
             db().collection('chatConversations').doc(convId).update({
               lastReadBy: firebase.firestore.FieldValue.arrayUnion(myUid)
             }).catch(function(){});
@@ -1202,13 +1271,19 @@ window.LDAHChat = (function () {
 
         // If this is a screen share request message (sent by other person, not me),
         // add the "Share My Screen" button
+        // The button's data-convid comes ONLY from the message that carries the
+        // request. It used to fall back to _chatActiveConvId, which is the
+        // conversation on screen at RENDER time — not necessarily the one this
+        // message belongs to. A stale id there would open a screen-share signalling
+        // channel under the wrong conversation. No id on the message means the
+        // message is malformed, so no button: fail closed.
         var shareBtn = '';
-        if (!isMe && m.text && m.text.indexOf('📺') === 0 && m.text.indexOf('Share My Screen') > -1 && m.screenShareSession) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(m.screenShareConvId || _chatActiveConvId || '') + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
-        }
-        // Also detect the standard request message pattern and show button
-        if (!isMe && m.screenShareSession && m.text && m.text.indexOf('would like to see your screen') > -1) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(m.screenShareConvId || _chatActiveConvId || '') + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+        var shareConvId = m.screenShareConvId || '';
+        var isShareReq = !isMe && m.screenShareSession && m.text &&
+          ((m.text.indexOf('📺') === 0 && m.text.indexOf('Share My Screen') > -1) ||
+           m.text.indexOf('would like to see your screen') > -1);
+        if (isShareReq && shareConvId) {
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(shareConvId) + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
 
         html += '<div class="' + cls + '">'
@@ -1416,19 +1491,23 @@ window.LDAHChat = (function () {
     // reading the global here would write the message into whatever conversation happens to
     // be active when the write fires, not the one the send was actually for. Callers pass the
     // convId they captured at send time so the target conversation is fixed for the whole call.
-    function writeMessage(text, extra, convId) {
+    function writeMessage(text, extra, convId, client) {
       extra = extra || {};
       var myUid = getMyUid();
       var myName = getMyName();
       if (!myUid) return Promise.reject(new Error('not signed in'));
       if (!convId) return Promise.reject(new Error('no target conversation'));
 
-      var clientId = chatClientSelect ? chatClientSelect.value : '';
-      var clientName = '';
-      if (clientId && chatClientSelect) {
-        var selectedOpt = chatClientSelect.options[chatClientSelect.selectedIndex];
-        clientName = selectedOpt ? selectedOpt.textContent : '';
-      }
+      // `client` is captured by the CALLER at send time and passed in, for exactly the
+      // same reason convId is. sendWithImage() awaits a Storage upload before reaching
+      // here, and during that upload the user can switch conversations (which now
+      // resets the dropdown) or pick a different family. Reading chatClientSelect at
+      // write time tagged the message AND the auto-logged Interaction with whichever
+      // family happened to be selected when the write finally fired — the wrong
+      // family's file.
+      client = client || { id: '', name: '' };
+      var clientId = client.id || '';
+      var clientName = client.name || '';
 
       var msgData = {
         senderId: myUid,
@@ -1483,7 +1562,7 @@ window.LDAHChat = (function () {
       // so _chatActiveConvId can't drift underneath it — but it still passes convId
       // explicitly, the same as sendWithImage(), so writeMessage() has one signature used
       // consistently rather than one caller being the odd one out.
-      writeMessage(text, {}, _chatActiveConvId).catch(function(err) {
+      writeMessage(text, {}, _chatActiveConvId, currentClientLink()).catch(function(err) {
         console.error('Chat send error:', err);
       });
 
@@ -1500,6 +1579,8 @@ window.LDAHChat = (function () {
                                     // doesn't stop the Enter-key handler from firing again
       var pi = _pendingImage;
       var convId = _chatActiveConvId;
+      // Captured here, beside convId, and carried through the upload — see writeMessage().
+      var client = currentClientLink();
 
       // Belt-and-braces: clearPendingImage() runs on every path that changes or leaves
       // the conversation (closeChatModal, roster click, openConversation), so this should
@@ -1538,7 +1619,7 @@ window.LDAHChat = (function () {
           return writeMessage(caption, {
             hasImage: true, imageUrl: url, imagePath: path,
             imageW: pi.w, imageH: pi.h, imageBytes: pi.blob.size
-          }, convId).catch(function (writeErr) {
+          }, convId, client).catch(function (writeErr) {
             // Upload succeeded but the message doc failed to write — the Storage object
             // would otherwise be an orphan no message ever references. Clean it up so the
             // 13-month purge isn't the only thing standing between us and a leaked image.
@@ -1671,20 +1752,62 @@ window.LDAHChat = (function () {
       if (e.key === CHIME_KEY) evaluateOwnership();
     }
 
+    // ══════════════════════════════════════════════════════
+    // Pop-out liveness beacon.
+    // The dashboard marks the user offline from DASHBOARD activity — a 10-minute
+    // idle timer and a beforeunload handler. Working in the pop-out is precisely
+    // what makes that activity stop, so colleagues watched an actively-typing
+    // person flap offline. The pop-out stamps this key while it lives; the
+    // dashboard asks window.ldahChatPopoutAlive() before writing online:false.
+    // Same localStorage channel as the single-chimer rule above, same origin.
+    // ══════════════════════════════════════════════════════
+    var POPOUT_ALIVE_KEY = 'ldahChatPopoutAlive';
+    // Five missed beats. Generous enough that a throttled background timer does
+    // not read as death, short enough that a closed window frees presence fast.
+    var POPOUT_ALIVE_STALE_MS = 15000;
+
+    function beatPopoutAlive() {
+      if (_mode !== 'window') return;
+      try { localStorage.setItem(POPOUT_ALIVE_KEY, String(Date.now())); } catch (e) {}
+    }
+    function clearPopoutAlive() {
+      if (_mode !== 'window') return;
+      try { localStorage.removeItem(POPOUT_ALIVE_KEY); } catch (e) {}
+    }
+    // Read fresh from localStorage on every call, deliberately — never a cached
+    // flag. A backgrounded dashboard tab has its timers throttled, so anything it
+    // cached about the pop-out could be arbitrarily stale.
+    window.ldahChatPopoutAlive = function () {
+      try {
+        var ts = Number(localStorage.getItem(POPOUT_ALIVE_KEY) || 0);
+        return !!ts && (Date.now() - ts) < POPOUT_ALIVE_STALE_MS;
+      } catch (e) { return false; }
+    };
+
+    function _onChatPagehide() {
+      releaseChime();
+      clearPopoutAlive();
+    }
+
     function startOwnership() {
       evaluateOwnership();
+      beatPopoutAlive();
       if (_ownHeartbeat) clearInterval(_ownHeartbeat);
-      _ownHeartbeat = setInterval(evaluateOwnership, 3000);
+      _ownHeartbeat = setInterval(function () {
+        evaluateOwnership();
+        beatPopoutAlive();
+      }, 3000);
       window.addEventListener('storage', _onChimeStorage);
       // pagehide fires reliably where beforeunload does not (see the DM resume-email work)
-      window.addEventListener('pagehide', releaseChime);
+      window.addEventListener('pagehide', _onChatPagehide);
     }
 
     function stopOwnership() {
       if (_ownHeartbeat) { clearInterval(_ownHeartbeat); _ownHeartbeat = null; }
       window.removeEventListener('storage', _onChimeStorage);
-      window.removeEventListener('pagehide', releaseChime);
+      window.removeEventListener('pagehide', _onChatPagehide);
       releaseChime();
+      clearPopoutAlive();
     }
 
     // ── Initialize Chat on Login ──
@@ -1715,6 +1838,7 @@ window.LDAHChat = (function () {
       // Auth changed — nothing started under the previous user may land.
       _chatConvOpenSeq++;
       clearPendingImage();
+      resetClientLink();
       tryInitChat();
     };
 
@@ -1881,6 +2005,17 @@ window.LDAHChat = (function () {
     if (lbClose) lbClose.addEventListener('click', function () {
       document.getElementById('chatLightbox').classList.remove('active');
     });
+
+    // ── Read receipts follow real attention ──
+    // chatIsVisible() can be false when a message arrives (pop-out minimised or
+    // behind the dashboard) and true a moment later when the person brings the
+    // window forward. No Firestore snapshot fires on that transition, so these two
+    // listeners are the only thing that clears the unread state — without them the
+    // count, the title prefix and the roster badges would stick until the next
+    // inbound message. Harmless in modal mode: markActiveConversationRead() is a
+    // no-op unless a conversation is open and the surface is visible.
+    window.addEventListener('focus', markActiveConversationRead);
+    document.addEventListener('visibilitychange', markActiveConversationRead);
   }
 
   function mount(el, opts) {
@@ -1894,6 +2029,12 @@ window.LDAHChat = (function () {
       document.body.classList.add('chat-window-mode');
       var po = document.getElementById('chatPopOut');
       if (po) po.style.display = 'none';
+      // openChatModal() is what populates the "Link to client" dropdown, and it never
+      // runs in window mode — so the pop-out, which is the surface staff actually use,
+      // shipped with nothing in it but the placeholder and no way to link a chat to a
+      // family. Same host-capability path as the modal (hostContacts, host cache first,
+      // Firestore fallback) — no second fetch mechanism.
+      populateChatClientSelect();
     }
     setTimeout(tryInitChat, _mode === 'window' ? 200 : 1000);
     startOwnership();

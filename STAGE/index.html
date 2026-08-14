@@ -4381,7 +4381,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
   .gr-handled-toggle { background: none; border: none; color: #1f6feb; cursor: pointer; padding: 0; }
 
 </style>
-<link rel="stylesheet" href="chat.css?v=147.52">
+<link rel="stylesheet" href="chat.css?v=147.53">
 </head>
 
 <body class="with-stage-banner">
@@ -4585,7 +4585,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.52-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.53-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8855,7 +8855,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- Internal chat — see chat-core.js -->
-<script src="chat-core.js?v=147.52"></script>
+<script src="chat-core.js?v=147.53"></script>
 <script>
   LDAHChat.mount(document.getElementById('chatMount'), {
     mode: 'modal',
@@ -8870,7 +8870,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- WebRTC screen share — see rtc-screenshare.js -->
-<script src="rtc-screenshare.js?v=147.52"></script>
+<script src="rtc-screenshare.js?v=147.53"></script>
 
 <!-- ── Recipient List CMS ── -->
 <script>
@@ -10731,6 +10731,10 @@ var _photoPendingByIsland = {};
 
   // ── Set offline on page close / tab close ──
   window.addEventListener('beforeunload', function() {
+    // The chat pop-out is another window of THIS user, and it keeps its own Firestore
+    // presence heartbeat. Closing the dashboard while that window is open does not
+    // take the person offline, so do not say it does.
+    if (typeof window.ldahChatPopoutAlive === 'function' && window.ldahChatPopoutAlive()) return;
     if (currentUserData && currentUserData.uid) {
       // Use navigator.sendBeacon for reliability on tab close
       // Fallback: synchronous update
@@ -10749,6 +10753,17 @@ var _photoPendingByIsland = {};
 
     function setIdle() {
       if (_isIdle) return;
+      // Dashboard inactivity is the wrong question when the person has moved into the
+      // chat pop-out — working there is exactly what stops mouse and key events here.
+      // While that window is alive and heartbeating (the localStorage beacon written
+      // by chat-core.js), they are demonstrably at their desk. Re-check in a minute
+      // rather than lengthening the idle timeout, which would only make a genuinely
+      // absent person linger green.
+      if (typeof window.ldahChatPopoutAlive === 'function' && window.ldahChatPopoutAlive()) {
+        clearTimeout(_idleTimer);
+        _idleTimer = setTimeout(setIdle, 60 * 1000);
+        return;
+      }
       _isIdle = true;
       if (currentUserData && currentUserData.uid) {
         db.collection('chatPresence').doc(currentUserData.uid).update({
@@ -11619,6 +11634,40 @@ var _photoPendingByIsland = {};
     var purgeBtn = document.getElementById('purgeOldChatsBtn');
     if (purgeBtn) { purgeBtn.disabled = true; purgeBtn.textContent = 'Purging...'; }
 
+    // Set the moment ANYTHING is destroyed — the first Storage object or the first
+    // batch commit. The confirm dialog promises the admin an audit file; if this is
+    // true and we leave without emitting one, that promise is broken and there is no
+    // record of what went. See the catch block.
+    var anyDeleted = false;
+    // Hoisted so the catch block can emit whatever audit exists at the point of
+    // failure. Rows for a conversation are pushed BEFORE that conversation's
+    // documents are deleted, so a partial file always covers everything destroyed.
+    var csvRows = ['Conversation ID,Participant 1,Participant 2,Message Date,Sender,Text,Images Deleted'];
+    var totalMessages = 0;
+    var totalImagesDeleted = 0;
+
+    // Hands the CSV to the browser. Split out of the success path so the failure
+    // path can call it too — that is the whole fix: an audit reaches the admin
+    // whenever anything was deleted, not only when everything succeeded.
+    function downloadAuditCsv(rows, partial) {
+      try {
+        var blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'chat_purge_audit' + (partial ? '_PARTIAL' : '') + '_' +
+                     new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return true;
+      } catch (e) {
+        console.error('Purge audit download failed:', e);
+        return false;
+      }
+    }
+
     try {
       // CSV escape helper
       var esc = function(val) {
@@ -11628,9 +11677,6 @@ var _photoPendingByIsland = {};
         return s;
       };
 
-      var csvRows = ['Conversation ID,Participant 1,Participant 2,Message Date,Sender,Text,Images Deleted'];
-      var totalMessages = 0;
-      var totalImagesDeleted = 0;
       var oldestDate = null, newestDate = null;
 
       for (var i = 0; i < eligible.length; i++) {
@@ -11663,6 +11709,7 @@ var _photoPendingByIsland = {};
           try {
             await firebase.storage().ref(imagePaths[ip]).delete();
             convImagesDeleted++;
+            anyDeleted = true;
           } catch (x) {
             var errCode = x && x.code;
             if (errCode === 'storage/object-not-found') {
@@ -11686,30 +11733,34 @@ var _photoPendingByIsland = {};
           totalMessages++;
         });
 
-        // Delete all messages in subcollection
+        // Delete all messages in the subcollection.
+        // A plain indexed loop, NOT msgSnap.forEach: the intermediate commit has to be
+        // awaited, and an async callback inside forEach cannot be. Previously that
+        // commit was fired and forgotten with its rejection unhandled, so a
+        // conversation of more than 400 messages could lose its parent document while
+        // the overflow messages survived as orphans nothing can reach. Awaiting it
+        // here also routes any failure into the same catch as the final commit.
         var batch = db.batch();
         var count = 0;
-        msgSnap.forEach(function(doc) {
-          batch.delete(doc.ref);
+        var msgDocs = msgSnap.docs;
+        for (var md = 0; md < msgDocs.length; md++) {
+          batch.delete(msgDocs[md].ref);
           count++;
-          if (count >= 400) { batch.commit(); batch = db.batch(); count = 0; }
-        });
+          if (count >= 400) {
+            await batch.commit();
+            anyDeleted = true;
+            batch = db.batch();
+            count = 0;
+          }
+        }
         // Delete the conversation document itself
         batch.delete(db.collection('chatConversations').doc(conv.id));
         await batch.commit();
+        anyDeleted = true;
       }
 
       // Download CSV
-      var csvContent = csvRows.join('\n');
-      var blob = new Blob([csvContent], { type: 'text/csv' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = 'chat_purge_audit_' + new Date().toISOString().slice(0, 10) + '.csv';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadAuditCsv(csvRows, false);
 
       // Log audit interaction
       var oldestStr = oldestDate ? oldestDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
@@ -11727,11 +11778,44 @@ var _photoPendingByIsland = {};
       });
 
       _showToast('Purged ' + eligible.length + ' conversation(s), ' + totalMessages + ' messages, ' + totalImagesDeleted + ' image(s). CSV downloaded.', '#16a34a');
+      // loadChatLogs() relabels this button but never re-enables it, so a SUCCESSFUL
+      // purge used to leave it dead until a page reload.
+      if (purgeBtn) { purgeBtn.disabled = false; purgeBtn.textContent = 'Purge Old Chats'; }
       _chatLogsExpanded = {};
       loadChatLogs();
     } catch (err) {
       console.error('Purge error:', err);
-      alert('Purge error: ' + err.message);
+      // Something failed mid-purge. Conversations may already be gone, and the admin
+      // was promised an audit file — emit whatever the run got through before the
+      // failure. Its rows always cover everything deleted, because each conversation's
+      // rows are pushed before its documents are.
+      var partialSent = false;
+      if (anyDeleted || csvRows.length > 1) partialSent = downloadAuditCsv(csvRows, true);
+      if (anyDeleted) {
+        // Best effort, in its own catch: the Interactions record must never be the
+        // reason the admin does not get told what happened.
+        try {
+          await db.collection('interactions').add({
+            channel: 'Internal Chat',
+            interactionType: 'Chat Purge Audit',
+            contactName: 'System — Chat Purge',
+            summary: 'PARTIAL purge — failed after deleting ' + totalMessages + ' message(s) and ' + totalImagesDeleted + ' image(s)',
+            status: 'Open',
+            owner: (currentUserData && currentUserData.displayName) || 'Unknown',
+            ownerUid: (currentUserData && currentUserData.uid) || '',
+            notes: 'Purge aborted: ' + (err && err.message) + '. Partial CSV audit ' +
+                   (partialSent ? 'downloaded' : 'COULD NOT BE DOWNLOADED') +
+                   '. Re-run the purge to finish the remaining conversations.',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (logErr) { console.error('Partial purge audit log failed:', logErr); }
+      }
+      alert('Purge error: ' + err.message +
+            (anyDeleted
+              ? (partialSent
+                  ? '\n\nSome conversations were already deleted. A PARTIAL audit CSV covering everything deleted has been downloaded — keep it.'
+                  : '\n\nSome conversations were already deleted and the partial audit CSV could NOT be downloaded. Check the browser console before doing anything else.')
+              : '\n\nNothing was deleted.'));
       if (purgeBtn) { purgeBtn.disabled = false; purgeBtn.textContent = 'Purge Old Chats'; }
     }
   };
