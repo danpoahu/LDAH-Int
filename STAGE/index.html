@@ -17435,6 +17435,79 @@ window.openContactDetail = async function(contactId) {
         reassignUpdate.followUpDate = _addMonthsHst(_todayHst(), 3);
       }
       await db.collection('interactions').doc(existingId).update(reassignUpdate);
+
+      // ── Advocate CHANGED → raise it to the coordinator (2026-08-13) ──────────
+      // All advocacy runs through her, so a reassignment is not something she
+      // should discover later: she is the approver. This is a genuine CHANGE
+      // only — a first assignment off her own "assign a parent consultant"
+      // placeholder is her own doing and raises nothing.
+      //
+      // The reason is asked for at the moment of the change because it is
+      // recorded nowhere else. Without it she gets who/what/when and no idea
+      // whom to talk to, which was the whole point of the request.
+      if (existingTask.data.needsAdvocateAssignment !== true) {
+        var _priorAdvocate = existingTask.data.owner || 'someone';
+        var _actor = (currentUserData && (currentUserData.displayName || currentUserData.email)) || 'A staff member';
+        var _reason = '';
+        try {
+          _reason = window.prompt(
+            'Why is the advocate changing from ' + _priorAdvocate + ' to ' + advocateName + '?\n\n' +
+            CASE_ADVOCACY_COORDINATOR.name + ' will see this so she knows who to follow up with.', '') || '';
+        } catch (e) {}
+        _reason = String(_reason).trim();
+
+        try {
+          var _coordUid = await _resolveStaffUidByEmail(CASE_ADVOCACY_COORDINATOR.email);
+          var _who = sourceData.contactName || 'a family';
+          var _when = _todayHst();
+          var _detail =
+            'WHO changed it: ' + _actor + '\n' +
+            'WHAT changed:   advocate for ' + _who + ' — ' + _priorAdvocate + ' → ' + advocateName + '\n' +
+            'WHEN:           ' + _when + '\n' +
+            'WHY:            ' + (_reason || 'no reason given at the time — ask ' + _actor);
+
+          // A distinct workflowStep: the per-contact dedup in this function looks
+          // for OPEN 'caseAdvocacy' tasks, and reusing that step here would make
+          // the next toggle mistake this review for the family's canonical task.
+          var _chgRef = await db.collection('interactions').add({
+            channel: 'Case Advocacy',
+            interactionType: 'Case Advocacy',
+            workflowStep: 'caseAdvocacyChange',
+            contactId: sourceData.contactId || '',
+            contactName: sourceData.contactName || '',
+            contactType: sourceData.contactType || '',
+            summary: 'Advocate changed for ' + _who + ' — ' + _priorAdvocate + ' → ' + advocateName,
+            notes: _detail,
+            followUpDate: _when,
+            status: 'Open',
+            owner: CASE_ADVOCACY_COORDINATOR.name,
+            ownerUid: _coordUid || '',
+            caseAdvocacyInteractionId: existingId,
+            caseAdvocacyPriorAdvocate: _priorAdvocate,
+            caseAdvocacyNewAdvocate: advocateName,
+            caseAdvocacyChangedBy: _actor,
+            caseAdvocacyChangeReason: _reason,
+            createdBy: _actor,
+            createdByUid: (currentUserData && currentUserData.uid) || '',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          if (_coordUid && typeof createNotification === 'function') {
+            await createNotification({
+              recipientUid: _coordUid,
+              recipientName: CASE_ADVOCACY_COORDINATOR.name,
+              type: 'case-advocacy-advocate-changed',
+              title: 'Advocate changed for ' + _who,
+              message: _actor + ' moved ' + _who + ' from ' + _priorAdvocate + ' to ' + advocateName +
+                ' on ' + _when + '. ' + (_reason ? 'Reason: ' + _reason : 'No reason was given — ask ' + _actor + '.'),
+              interactionId: _chgRef.id
+            });
+          }
+        } catch (e) {
+          // Never let the review task block the reassignment itself.
+          console.warn('advocate-change task failed:', e && e.message);
+        }
+      }
       if (uid && typeof createNotification === 'function') {
         var rFollow = '';
         try {
