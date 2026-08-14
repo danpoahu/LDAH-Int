@@ -237,6 +237,10 @@ window.LDAHChat = (function () {
     // ── State ──
     var _chatActiveConvId = null;
     var _chatActiveOtherUid = null;
+    // Monotonic "which conversation-open is current" counter. Bumped at the top of
+    // openConversation(); every one of its async resolutions compares against it and
+    // discards itself if a newer open has started. See openConversation().
+    var _chatConvOpenSeq = 0;
     var _chatMessagesUnsub = null;
     var _chatRosterUnsub = null;
     var _chatHeaderPresenceUnsub = null;
@@ -334,6 +338,10 @@ window.LDAHChat = (function () {
       if (_chatHeaderPresenceUnsub) { _chatHeaderPresenceUnsub(); _chatHeaderPresenceUnsub = null; }
       _chatActiveConvId = null;
       _chatActiveOtherUid = null;
+      // Invalidate any openConversation() lookup still in flight. Without this, a lookup
+      // started just before the modal was closed resolves afterwards, re-sets
+      // _chatActiveConvId and re-subscribes a messages listener for a closed modal.
+      _chatConvOpenSeq++;
       updateChatBadge();
     }
 
@@ -828,6 +836,10 @@ window.LDAHChat = (function () {
           // Leaving whatever conversation was active — a pending screenshot belongs
           // to that one, not this one.
           clearPendingImage();
+          // This sets the active conversation directly rather than going through
+          // openConversation(), so invalidate any openConversation() lookup still in
+          // flight — otherwise it resolves a moment later and overwrites this choice.
+          _chatConvOpenSeq++;
           _chatActiveConvId = convId;
           _chatActiveOtherUid = otherUid;
           _chatLoadedOlderMessages = [];
@@ -860,6 +872,24 @@ window.LDAHChat = (function () {
       // to that one, not this one.
       clearPendingImage();
 
+      // Captured at the START of this operation. Two clicks in quick succession start two
+      // lookups; they can resolve out of order, and the LAST one the user clicked is the
+      // one they are looking at. Each resolution checks this before touching any state, and
+      // DISCARDS itself if a newer open has begun. (Discard, not complete: everything the
+      // resolution does — set the active conversation, reset the pagination cache, swap the
+      // message listener — paints into the current view.)
+      var openSeq = ++_chatConvOpenSeq;
+
+      // There is NO active conversation until the lookup below resolves. Leaving the
+      // PREVIOUS conversation's id sitting in _chatActiveConvId across that await is the
+      // same stale-global defect as the screenshot leak, and it is reachable with plain
+      // typing: the header already shows the new person, but sendChatMessage() and the Zoom
+      // screen-share button both read _chatActiveConvId, so pressing Send in that window
+      // posted the message into the PREVIOUS conversation — a different family's thread.
+      // Nulling it makes every consumer fail safe (Send no-ops and leaves the text in the
+      // box, Zoom says "select a conversation first") until the real id is known.
+      _chatActiveConvId = null;
+
       _chatActiveOtherUid = otherUid;
 
       // On mobile, auto-hide sidebar when opening a conversation
@@ -884,6 +914,10 @@ window.LDAHChat = (function () {
         .limit(1)
         .get()
         .then(function(snap) {
+          // A newer openConversation() started while this lookup was in flight — the user
+          // has already moved on. DISCARD this resolution rather than letting it overwrite
+          // the conversation they actually ended up on.
+          if (openSeq !== _chatConvOpenSeq) return;
           if (!snap.empty) {
             var convDoc = snap.docs[0];
             _chatActiveConvId = convDoc.id;
@@ -914,7 +948,10 @@ window.LDAHChat = (function () {
             };
             convData.participantNames[myUid] = getMyName();
             convData.participantNames[otherUid] = otherName;
-            db().collection('chatConversations').add(convData).then(function(docRef) {
+            return db().collection('chatConversations').add(convData).then(function(docRef) {
+              // Same superseded-open discard as the branch above — this add() is a second
+              // await, so the user has had even longer to click somewhere else.
+              if (openSeq !== _chatConvOpenSeq) return;
               _chatActiveConvId = docRef.id;
               // Same re-stamp as the existing-conversation branch above.
               if (_pendingImage) _pendingImage.convId = _chatActiveConvId;
@@ -925,6 +962,14 @@ window.LDAHChat = (function () {
               loadConversationMessages(docRef.id, otherName, otherUid);
             });
           }
+        })
+        .catch(function(err) {
+          // The lookup/create failed. _chatActiveConvId is null, which is the safe state
+          // (nothing can be sent into the wrong thread), but the header would otherwise sit
+          // on "Loading…" forever with no explanation.
+          if (openSeq !== _chatConvOpenSeq) return;
+          console.warn('Chat open conversation failed:', err && err.message);
+          if (chatHeaderStatus) chatHeaderStatus.textContent = 'Could not open';
         });
     }
 
@@ -1065,11 +1110,11 @@ window.LDAHChat = (function () {
         // add the "Share My Screen" button
         var shareBtn = '';
         if (!isMe && m.text && m.text.indexOf('📺') === 0 && m.text.indexOf('Share My Screen') > -1 && m.screenShareSession) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(m.screenShareConvId || _chatActiveConvId) + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(m.screenShareConvId || _chatActiveConvId || '') + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
         // Also detect the standard request message pattern and show button
         if (!isMe && m.screenShareSession && m.text && m.text.indexOf('would like to see your screen') > -1) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(_chatActiveConvId) + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(m.screenShareConvId || _chatActiveConvId || '') + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
 
         html += '<div class="' + cls + '">'
@@ -1101,17 +1146,29 @@ window.LDAHChat = (function () {
       if (!_chatHasMoreOlder) return;
       _chatPaginating = true;
 
+      // Captured at the START of this operation and used for every decision below —
+      // never re-read from the global after the .get() await.
+      var convId = _chatActiveConvId;
+
       // Capture scroll state before re-render so we can preserve the user's visual position
       var prevScrollHeight = chatModalMessages ? chatModalMessages.scrollHeight : 0;
       var prevScrollTop = chatModalMessages ? chatModalMessages.scrollTop : 0;
 
-      db().collection('chatConversations').doc(_chatActiveConvId)
+      db().collection('chatConversations').doc(convId)
         .collection('messages')
         .where('createdAt', '<', _chatOldestMessageTs)
         .orderBy('createdAt', 'desc')
         .limit(50)
         .get()
         .then(function(snap) {
+          // DISCARD, not complete. Everything below paints into the message pane and
+          // mutates shared view state (_chatLoadedOlderMessages, _chatHasMoreOlder, the
+          // scroll position) that the conversation switch has already reset for the NEW
+          // conversation. Merging this page in would show one family's older messages
+          // inside another family's visible thread. The page is read-only — nothing is
+          // lost by dropping it; clicking "Load older" again in the original conversation
+          // re-fetches it.
+          if (convId !== _chatActiveConvId) return;
           var older = [];
           snap.forEach(function(doc) {
             var d = doc.data();
@@ -1164,6 +1221,15 @@ window.LDAHChat = (function () {
     // Clipboard paste only — no file picker, no drag-and-drop, no capture button.
     // That is an explicit product decision, not an oversight.
     var _pendingImage = null;   // { blob, w, h, previewUrl, convId }
+    // Monotonic generation counter for the pending-image slot. Bumped on every paste and
+    // by clearPendingImage() — which already runs on every path that leaves or changes the
+    // active conversation (closeChatModal, the roster click handler, openConversation,
+    // reinitChat), on the ✕ button, and after a successful send. handleImagePaste()
+    // captures it BEFORE the decode await; setPendingImage() discards the decoded image if
+    // it no longer matches. Without this there is nothing to clear during the decode, so a
+    // paste in conversation A followed by a switch to B before the decode resolved got
+    // stamped for B and would have been sent there.
+    var _pendingImageGen = 0;
     var _sendingImage = false;  // in-flight guard — separate from setSendBusy()'s visual state,
                                  // because the Enter-key handler bypasses the disabled button.
     var MAX_RAW_BYTES = 10 * 1024 * 1024;
@@ -1184,7 +1250,10 @@ window.LDAHChat = (function () {
         hostToast('That image is too large (max 10MB).', '#DC2626');
         return;
       }
-      downscaleImage(file).then(setPendingImage).catch(function (err) {
+      // Captured at the START — before the decode await — so the resolution below can tell
+      // whether this paste is still the one the user is waiting on.
+      var gen = ++_pendingImageGen;
+      downscaleImage(file).then(function (pi) { setPendingImage(pi, gen); }).catch(function (err) {
         console.warn('chat image paste:', err && err.message);
         hostToast('Could not read that image.', '#DC2626');
       });
@@ -1212,7 +1281,15 @@ window.LDAHChat = (function () {
       });
     }
 
-    function setPendingImage(pi) {
+    function setPendingImage(pi, gen) {
+      // DISCARD, not complete. This runs after the image-decode/canvas-resize await, and
+      // the preview strip it paints belongs to the composer of whatever conversation is on
+      // screen NOW. A generation bump means the user switched conversations, hit ✕, or
+      // pasted something newer while this image was decoding — in the switch case,
+      // stamping and showing it here would put one family's screenshot into another
+      // family's composer, ready to send. Dropping a decoded blob costs nothing; the user
+      // can paste again.
+      if (gen !== _pendingImageGen) return;
       // Stamp the conversation the screenshot was pasted into. sendWithImage() re-checks
       // this against the active conversation before uploading, as a second line of defense
       // behind the clearPendingImage() calls on every leave-conversation path.
@@ -1228,6 +1305,8 @@ window.LDAHChat = (function () {
 
     function clearPendingImage() {
       _pendingImage = null;
+      // Invalidate any paste whose decode is still in flight — see _pendingImageGen.
+      _pendingImageGen++;
       var box = document.getElementById('chatImgPreview');
       if (box) box.style.display = 'none';
     }
@@ -1332,7 +1411,7 @@ window.LDAHChat = (function () {
       // the conversation (closeChatModal, roster click, openConversation), so this should
       // be unreachable. It exists so a future code path that forgets to clear the pending
       // image cannot post a screenshot into the wrong, client-linked thread.
-      if (!pi || pi.convId !== convId) {
+      if (!pi || !convId || pi.convId !== convId) {
         clearPendingImage();
         hostToast('That screenshot was for a different conversation — please paste it again.', '#DC2626');
         return;
@@ -1539,6 +1618,8 @@ window.LDAHChat = (function () {
       _chatUnreadByUser = {};
       _chatActiveConvId = null;
       _chatActiveOtherUid = null;
+      // Auth changed — nothing started under the previous user may land.
+      _chatConvOpenSeq++;
       clearPendingImage();
       tryInitChat();
     };
