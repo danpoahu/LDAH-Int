@@ -107,6 +107,15 @@ window.LDAHChat = (function () {
     '        </div>' +
     '      </div>' +
     '    </div>' +
+    '  </div>' +
+    '' +
+    '  <!-- Screenshot lightbox (Task 9) -->' +
+    '  <div class="chat-lightbox" id="chatLightbox">' +
+    '    <div class="chat-lightbox-bar">' +
+    '      <a id="chatLightboxOpen" href="#" target="_blank" rel="noopener">Open original</a>' +
+    '      <button type="button" id="chatLightboxClose">Close</button>' +
+    '    </div>' +
+    '    <img id="chatLightboxImg" alt="Screenshot">' +
     '  </div>';
 
   var FAB_MARKUP = '' +
@@ -1000,6 +1009,29 @@ window.LDAHChat = (function () {
 
         var textHtml = _linkifyURLs(_escHTML(m.text || ''));
 
+        // ── Screenshot rendering (Task 9) ──
+        // Expiry is decided by message age (90 days), not by a failed image fetch —
+        // that avoids a broken-image flash for messages we already know are gone.
+        // The onerror handler wired below (event delegation) is only a backstop for
+        // edge cases (deleted object, network blip) inside the 90-day window.
+        var imgHtml = '';
+        if (m.hasImage) {
+          var ageMs = m.createdAt && m.createdAt.toMillis
+            ? (Date.now() - m.createdAt.toMillis()) : 0;
+          if (ageMs > 90 * 24 * 60 * 60 * 1000) {
+            imgHtml = '<div class="chat-msg-img-gone">[screenshot expired]</div>';
+          } else {
+            var rawW = Number(m.imageW), rawH = Number(m.imageH);
+            var hasDims = rawW > 0 && rawH > 0;
+            var tw = Math.min(320, hasDims ? rawW : 320);
+            var th = hasDims ? Math.round(tw * (rawH / rawW)) : Math.round(tw * 0.6);
+            imgHtml = '<img class="chat-msg-img" loading="lazy"' +
+              ' src="' + _escHTML(m.imageUrl || '') + '"' +
+              ' width="' + tw + '" height="' + th + '"' +
+              ' alt="Screenshot">';
+          }
+        }
+
         // If this is a screen share request message (sent by other person, not me),
         // add the "Share My Screen" button
         var shareBtn = '';
@@ -1016,7 +1048,7 @@ window.LDAHChat = (function () {
           + '<div class="chat-message-name">' + nameDisplay + clientTag + '</div>'
           + '<div class="chat-message-time">' + timeStr + '</div>'
           + '</div>'
-          + '<div class="chat-message-text">' + textHtml + shareBtn + '</div>'
+          + '<div class="chat-message-text">' + imgHtml + textHtml + shareBtn + '</div>'
           + '</div>';
       });
       chatModalMessages.innerHTML = html;
@@ -1442,6 +1474,22 @@ window.LDAHChat = (function () {
   }
 
   function wireEvents() {
+    // ── Lightbox Escape handler (Task 9) ──
+    // Registered FIRST, before the modal-closing Escape handler below. Both listeners
+    // are bound to `document`; stopImmediatePropagation (NOT stopPropagation) is required
+    // to stop the modal-closing handler from also firing on the same keydown, because
+    // stopPropagation only stops the event travelling to OTHER elements — it does nothing
+    // to sibling listeners already registered on the same element. stopImmediatePropagation
+    // stops those too, but only ones registered after this one, hence the ordering here.
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Escape') return;
+      var lb = document.getElementById('chatLightbox');
+      if (lb && lb.classList.contains('active')) {
+        e.stopImmediatePropagation();
+        lb.classList.remove('active');
+      }
+    });
+
     if (chatOpen) {
       chatOpen.addEventListener('click', handleFabClick);
       chatOpen.onclick = handleFabClick;
@@ -1521,6 +1569,42 @@ window.LDAHChat = (function () {
     if (chatModalMessages) chatModalMessages.addEventListener('paste', handleImagePaste);
     var xBtn = document.getElementById('chatImgPreviewX');
     if (xBtn) xBtn.addEventListener('click', clearPendingImage);
+
+    // ── Screenshot rendering: lightbox (Task 9) ──
+    // Click-to-zoom via event delegation on the messages container (messages are
+    // re-rendered wholesale, so binding to individual <img> elements would leak).
+    if (chatModalMessages) {
+      chatModalMessages.addEventListener('click', function (e) {
+        var img = e.target.closest ? e.target.closest('.chat-msg-img') : null;
+        if (!img) return;
+        var lb = document.getElementById('chatLightbox');
+        document.getElementById('chatLightboxImg').src = img.src;
+        document.getElementById('chatLightboxOpen').href = img.src;
+        if (lb) lb.classList.add('active');
+      });
+
+      // Backstop for a thumbnail that fails to load inside the 90-day window
+      // (e.g. the underlying Storage object was deleted out of band). Expiry is
+      // normally decided by message age in renderMessages, not by this handler —
+      // see the ageMs check there. The 'error' event does not bubble, so this is
+      // registered on the CAPTURE phase to still observe it from an ancestor;
+      // deliberately not an inline onerror="" attribute so nothing in message
+      // data (imageUrl included) is ever concatenated into an HTML attribute
+      // value that a script parser has to re-decode.
+      chatModalMessages.addEventListener('error', function (e) {
+        var img = e.target;
+        if (!img || !img.classList || !img.classList.contains('chat-msg-img')) return;
+        var gone = document.createElement('div');
+        gone.className = 'chat-msg-img-gone';
+        gone.textContent = '[screenshot expired]';
+        if (img.parentNode) img.parentNode.replaceChild(gone, img);
+      }, true);
+    }
+
+    var lbClose = document.getElementById('chatLightboxClose');
+    if (lbClose) lbClose.addEventListener('click', function () {
+      document.getElementById('chatLightbox').classList.remove('active');
+    });
   }
 
   function mount(el, opts) {
