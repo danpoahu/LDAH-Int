@@ -5268,7 +5268,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.12</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.13</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9655,6 +9655,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     // ── State ──
     var _chatActiveConvId = null;
     var _chatActiveOtherUid = null;
+    // Monotonic "which conversation-open is current" counter. Bumped at the top of
+    // openConversation() and by every other site that changes the active conversation.
+    // openConversation()'s async resolutions compare against it and discard themselves if
+    // a newer open has started in the meantime. See openConversation().
+    var _chatConvOpenSeq = 0;
     var _chatMessagesUnsub = null;
     var _chatRosterUnsub = null;
     var _chatHeaderPresenceUnsub = null;
@@ -9769,6 +9774,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       if (_chatHeaderPresenceUnsub) { _chatHeaderPresenceUnsub(); _chatHeaderPresenceUnsub = null; }
       _chatActiveConvId = null;
       _chatActiveOtherUid = null;
+      // Invalidate any openConversation() lookup still in flight. Without this, a lookup
+      // started just before the modal was closed resolves afterwards, re-sets
+      // _chatActiveConvId and re-subscribes a messages listener for a closed modal.
+      _chatConvOpenSeq++;
       updateChatBadge();
     }
 
@@ -10195,6 +10204,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           var convId = el.getAttribute('data-convid');
           var otherUid = el.getAttribute('data-otheruid');
           var otherName = el.getAttribute('data-othername');
+          // This sets the active conversation directly rather than going through
+          // openConversation(), so invalidate any openConversation() lookup still in
+          // flight — otherwise it resolves a moment later and overwrites this choice.
+          _chatConvOpenSeq++;
           _chatActiveConvId = convId;
           _chatActiveOtherUid = otherUid;
           _chatLoadedOlderMessages = [];
@@ -10223,6 +10236,22 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       var myUid = getMyUid();
       if (!myUid || !otherUid) return;
 
+      // Captured at the START of this operation. Two clicks in quick succession start two
+      // lookups; they can resolve out of order, and the LAST one the user clicked is the one
+      // they are looking at. Each resolution below checks this before touching any state and
+      // DISCARDS itself if a newer open has begun.
+      var openSeq = ++_chatConvOpenSeq;
+
+      // There is NO active conversation until the lookup below resolves. Leaving the
+      // PREVIOUS conversation's id sitting in _chatActiveConvId across that await is
+      // reachable with plain typing — no screenshot needed: the header already shows the new
+      // person, but sendChatMessage() and the Zoom screen-share button both read
+      // _chatActiveConvId, so pressing Send inside that window posted the message into the
+      // PREVIOUS conversation — a different family's thread. Nulling it makes every consumer
+      // fail safe (Send no-ops and leaves the text in the box, Zoom says "select a
+      // conversation first") until the real id is known.
+      _chatActiveConvId = null;
+
       _chatActiveOtherUid = otherUid;
 
       // On mobile, auto-hide sidebar when opening a conversation
@@ -10247,6 +10276,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         .limit(1)
         .get()
         .then(function(snap) {
+          // A newer openConversation() started while this lookup was in flight — the user
+          // has already moved on. DISCARD this resolution rather than letting it overwrite
+          // the conversation they actually ended up on.
+          if (openSeq !== _chatConvOpenSeq) return;
           if (!snap.empty) {
             var convDoc = snap.docs[0];
             _chatActiveConvId = convDoc.id;
@@ -10270,7 +10303,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             };
             convData.participantNames[myUid] = getMyName();
             convData.participantNames[otherUid] = otherName;
-            db().collection('chatConversations').add(convData).then(function(docRef) {
+            return db().collection('chatConversations').add(convData).then(function(docRef) {
+              // Same superseded-open discard as the branch above — this add() is a second
+              // await, so the user has had even longer to click somewhere else.
+              if (openSeq !== _chatConvOpenSeq) return;
               _chatActiveConvId = docRef.id;
               _chatLoadedOlderMessages = [];
               _chatOldestMessageTs = null;
@@ -10279,6 +10315,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               loadConversationMessages(docRef.id, otherName, otherUid);
             });
           }
+        })
+        .catch(function(err) {
+          // The lookup/create failed. _chatActiveConvId is null, which is the safe state —
+          // nothing can be sent into the wrong thread — but the header would otherwise sit
+          // on "Loading…" forever with no explanation.
+          if (openSeq !== _chatConvOpenSeq) return;
+          console.warn('Chat open conversation failed:', err && err.message);
+          if (chatHeaderStatus) chatHeaderStatus.textContent = 'Could not open';
         });
     }
 
@@ -10396,11 +10440,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         // add the "Share My Screen" button
         var shareBtn = '';
         if (!isMe && m.text && m.text.indexOf('📺') === 0 && m.text.indexOf('Share My Screen') > -1 && m.screenShareSession) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(m.screenShareConvId || _chatActiveConvId) + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(m.screenShareConvId || _chatActiveConvId || '') + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
         // Also detect the standard request message pattern and show button
         if (!isMe && m.screenShareSession && m.text && m.text.indexOf('would like to see your screen') > -1) {
-          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(_chatActiveConvId) + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
+          shareBtn = '<br><button class="chat-share-btn" data-convid="' + escHTML(m.screenShareConvId || _chatActiveConvId || '') + '" data-sessionid="' + escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
 
         html += '<div class="' + cls + '">'
@@ -10432,17 +10476,28 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       if (!_chatHasMoreOlder) return;
       _chatPaginating = true;
 
+      // Captured at the START of this operation and used for every decision below — never
+      // re-read from the global after the .get() await.
+      var convId = _chatActiveConvId;
+
       // Capture scroll state before re-render so we can preserve the user's visual position
       var prevScrollHeight = chatModalMessages ? chatModalMessages.scrollHeight : 0;
       var prevScrollTop = chatModalMessages ? chatModalMessages.scrollTop : 0;
 
-      db().collection('chatConversations').doc(_chatActiveConvId)
+      db().collection('chatConversations').doc(convId)
         .collection('messages')
         .where('createdAt', '<', _chatOldestMessageTs)
         .orderBy('createdAt', 'desc')
         .limit(50)
         .get()
         .then(function(snap) {
+          // DISCARD, not complete. Everything below paints into the message pane and mutates
+          // shared view state (_chatLoadedOlderMessages, _chatHasMoreOlder, the scroll
+          // position) that the conversation switch has already reset for the NEW
+          // conversation. Merging this page in would show one family's older messages inside
+          // another family's visible thread. The page is read-only — nothing is lost by
+          // dropping it; clicking "Load older" again re-fetches it.
+          if (convId !== _chatActiveConvId) return;
           var older = [];
           snap.forEach(function(doc) {
             var d = doc.data();
@@ -10495,6 +10550,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     function sendChatMessage() {
       var text = (chatModalInput ? chatModalInput.value : '').trim();
       if (!text || !_chatActiveConvId) return;
+
+      // Captured once, here, and used for every write below. The metadata update and the
+      // interaction log both run AFTER the message add() resolves, and re-reading the global
+      // there meant a conversation switch in that window pointed them at the NEW
+      // conversation: one family's message text was written into another family's roster
+      // preview, and the interaction was filed against the wrong thread.
+      var convId = _chatActiveConvId;
       if (text.length > 500) text = text.substring(0, 500);
 
       var myUid = getMyUid();
@@ -10519,7 +10581,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       };
 
       // Write message to subcollection
-      db().collection('chatConversations').doc(_chatActiveConvId)
+      db().collection('chatConversations').doc(convId)
         .collection('messages').add(msgData)
         .then(function() {
           // Update conversation metadata
@@ -10529,11 +10591,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             lastSenderId: myUid,
             lastReadBy: [myUid]
           };
-          db().collection('chatConversations').doc(_chatActiveConvId).update(convUpdate);
+          // COMPLETE against the captured id, not DISCARD — this metadata belongs to the
+          // conversation the message was actually sent to, whatever is on screen now.
+          db().collection('chatConversations').doc(convId).update(convUpdate);
 
           // Auto-log to interactions if client-linked
           if (clientId && clientName) {
-            logChatToInteraction(text, clientId, clientName, myName, myUid);
+            logChatToInteraction(text, clientId, clientName, myName, myUid, convId);
           }
         })
         .catch(function(err) {
@@ -10555,7 +10619,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     });
 
     // ── Auto-Log Client-Linked Chat to Interactions ──
-    function logChatToInteraction(text, clientId, clientName, createdBy, createdByUid) {
+    // convId is passed in explicitly rather than read from _chatActiveConvId — this runs
+    // inside sendChatMessage()'s post-write .then(), after the Firestore add() await, so the
+    // live global can have moved to a different conversation by the time this fires.
+    function logChatToInteraction(text, clientId, clientName, createdBy, createdByUid, convId) {
       var preview = text.length > 120 ? text.substring(0, 120) + '…' : text;
       db().collection('interactions').add({
         clientName: clientName,
@@ -10567,7 +10634,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         createdBy: createdBy,
         createdByUid: createdByUid,
-        chatConversationId: _chatActiveConvId
+        chatConversationId: convId
       }).catch(function(err) {
         console.error('Chat interaction log error:', err);
       });
@@ -10605,6 +10672,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       _chatUnreadByUser = {};
       _chatActiveConvId = null;
       _chatActiveOtherUid = null;
+      // Auth changed — nothing started under the previous user may land.
+      _chatConvOpenSeq++;
       tryInitChat();
     };
 
