@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LDAH Chat</title>
+<link rel="icon" href="icon-512.png">
+<!-- Webfonts — copied verbatim from STAGE/index.html. chat.css asks for 'Outfit'
+     for headings and buttons; without this the pop-out fell back to system sans
+     while the dashboard beside it used Outfit — the same module in two typefaces. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="chat.css?v=147.56">
+<style>
+  :root{color-scheme:light}
+  html,body{height:100%;margin:0;background:#eef2f7;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  /* In window mode the modal fills the viewport instead of floating. */
+  body.chat-window-mode .chat-modal-overlay{display:block;position:static;background:none;}
+  body.chat-window-mode .chat-modal{
+    position:static;transform:none;width:100%;height:100vh;max-width:none;
+    border-radius:0;border:none;box-shadow:none;}
+  body.chat-window-mode .chat-modal-close{display:none;}
+  #chatSignedOut{display:none;padding:40px 24px;text-align:center;color:#334155;}
+  #chatSignedOut a{color:#0891B2;font-weight:700;}
+</style></head><body>
+  <div id="chatSignedOut">
+    <h2>Sign in to LDAH Internal first</h2>
+    <p>This window shares the sign-in from the main dashboard.</p>
+    <p><a href="index.html" target="_blank">Open LDAH Internal</a>, sign in, then reopen chat.</p>
+  </div>
+  <div id="chatMount"></div>
+
+  <!-- Screen share viewer overlay — required by rtc-screenshare.js -->
+  <div class="screenshare-overlay" id="screenshareOverlay">
+    <div class="screenshare-toolbar">
+      <div class="screenshare-toolbar-left">
+        <div class="screenshare-status" id="screenshareStatus"></div>
+        <span class="screenshare-label" id="screenshareLabel">Starting...</span>
+      </div>
+      <div class="screenshare-toolbar-right">
+        <button class="screenshare-btn fullscreen" id="screenshareFull" type="button">Fullscreen</button>
+        <button class="screenshare-btn stop" id="screenshareStop" type="button">End Session</button>
+      </div>
+    </div>
+    <div class="screenshare-video-wrap">
+      <video id="screenshareVideo" autoplay playsinline></video>
+      <div class="screenshare-msg" id="screenshareMsg"></div>
+    </div>
+  </div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey: "AIzaSyAU3CQ07bCVKlJ1qGak-150kaJEyPKldLk",
+    authDomain: "ldah-932d5.firebaseapp.com",
+    projectId: "ldah-932d5",
+    storageBucket: "ldah-932d5.firebasestorage.app",
+    messagingSenderId: "662130454003",
+    appId: "1:662130454003:web:437576d5a5811ecd8df686"
+  });
+</script>
+<script src="rtc-screenshare.js?v=147.56"></script>
+<script src="chat-core.js?v=147.56"></script>
+<script>
+  firebase.auth().onAuthStateChanged(function (user) {
+    if (!user) {
+      document.getElementById('chatSignedOut').style.display = 'block';
+      document.getElementById('chatMount').style.display = 'none';
+      return;
+    }
+    document.getElementById('chatSignedOut').style.display = 'none';
+    document.getElementById('chatMount').style.display = '';
+    firebase.firestore().collection('userRoles').doc(user.uid).get().then(function (doc) {
+      var d = doc.exists ? doc.data() : {};
+      window.currentUserData = {
+        uid: user.uid,
+        displayName: d.displayName || user.email || 'Unknown',
+        role: d.role || '', email: user.email
+      };
+      document.title = window.currentUserData.displayName + ' — LDAH Chat';
+      // Set chat presence online — the pop-out must keep heartbeating even if
+      // the main dashboard tab is closed, so this window writes its own.
+      firebase.firestore().collection('chatPresence').doc(user.uid).set({
+        uid: user.uid,
+        displayName: window.currentUserData.displayName,
+        email: user.email,
+        role: window.currentUserData.role,
+        online: true,
+        lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).catch(function(e){ console.warn('Chat presence write failed (update Firestore rules):', e.message); });
+      // Presence heartbeat — update lastSeen every 5 minutes to stay green
+      if (window._presenceHeartbeat) clearInterval(window._presenceHeartbeat);
+      window._presenceHeartbeat = setInterval(function() {
+        if (window.currentUserData && window.currentUserData.uid) {
+          firebase.firestore().collection('chatPresence').doc(window.currentUserData.uid).update({
+            online: true,
+            lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+          }).catch(function(){});
+        }
+      }, 5 * 60 * 1000);
+      LDAHChat.mount(document.getElementById('chatMount'), { mode: 'window' });
+    });
+  });
+</script>
+</body></html>
