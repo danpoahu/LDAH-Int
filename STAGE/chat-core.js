@@ -352,12 +352,68 @@ window.LDAHChat = (function () {
     var _popWin = null;
     var _popPoll = null;
 
+    // Roomy-screen default. Anything at 1920x1080 or larger comes out of readGeom()
+    // at exactly these numbers; the clamp below only bites on smaller screens.
+    var CHAT_WIN_DEFAULT_W = 1180;
+    var CHAT_WIN_DEFAULT_H = 820;
+    var CHAT_WIN_DEFAULT_X = 120;
+    var CHAT_WIN_DEFAULT_Y = 80;
+    // Never collapse to something unusable: below this the roster and the composer
+    // have nowhere to go.
+    var CHAT_WIN_MIN_W = 320;
+    var CHAT_WIN_MIN_H = 380;
+    // Breathing room so the window frame is never flush against the screen edge.
+    var CHAT_WIN_MARGIN = 40;
+
+    function _num(v, fallback) {
+      return (typeof v === 'number' && isFinite(v)) ? v : fallback;
+    }
+
+    // Fit a geometry inside the screen that is actually in front of the person.
+    // Most LDAH staff are on Dell laptops around 1366x768, where the old fixed
+    // 1180x820 default was TALLER THAN THE SCREEN and then pushed down another 80px —
+    // putting the message input and the Send button off the bottom edge and making
+    // the window unusable. Stored geometry had the same fault in reverse: a size set
+    // on a 27" desk monitor was replayed verbatim onto the laptop.
+    //
+    // Note availWidth/availHeight describe the CURRENT screen, not the whole
+    // multi-monitor desktop. A position remembered on a second monitor that is no
+    // longer attached therefore gets pulled back onto this one. That is the right
+    // trade: a visible window beats a perfectly restored invisible one.
+    function clampGeom(g) {
+      var sw = _num(window.screen && window.screen.availWidth, 1024);
+      var sh = _num(window.screen && window.screen.availHeight, 768);
+
+      var maxW = Math.max(CHAT_WIN_MIN_W, sw - CHAT_WIN_MARGIN);
+      var maxH = Math.max(CHAT_WIN_MIN_H, sh - CHAT_WIN_MARGIN);
+
+      var w = Math.max(CHAT_WIN_MIN_W, Math.min(_num(g.w, CHAT_WIN_DEFAULT_W), maxW));
+      var h = Math.max(CHAT_WIN_MIN_H, Math.min(_num(g.h, CHAT_WIN_DEFAULT_H), maxH));
+
+      // Position is clamped LAST, against the already-clamped size, so that x + w and
+      // y + h both still land on-screen. The bottom edge matters most — that is where
+      // the composer and Send button live.
+      var x = Math.max(0, Math.min(_num(g.x, CHAT_WIN_DEFAULT_X), sw - w));
+      var y = Math.max(0, Math.min(_num(g.y, CHAT_WIN_DEFAULT_Y), sh - h));
+
+      return { w: w, h: h, x: x, y: y };
+    }
+
+    // Both the stored geometry and the default go through clampGeom() — neither is
+    // trustworthy on its own.
     function readGeom() {
+      var g = null;
       try {
-        var g = JSON.parse(localStorage.getItem('ldahChatWindow') || 'null');
-        if (g && g.w > 300 && g.h > 300) return g;
+        var stored = JSON.parse(localStorage.getItem('ldahChatWindow') || 'null');
+        // Sanity gate on what was stored, kept from before: anything smaller than this
+        // is a garbage write rather than a window someone deliberately made small.
+        if (stored && stored.w > 300 && stored.h > 300) g = stored;
       } catch (e) {}
-      return { w: 1180, h: 820, x: 120, y: 80 };
+      if (!g) {
+        g = { w: CHAT_WIN_DEFAULT_W, h: CHAT_WIN_DEFAULT_H,
+              x: CHAT_WIN_DEFAULT_X, y: CHAT_WIN_DEFAULT_Y };
+      }
+      return clampGeom(g);
     }
 
     function saveGeom() {
