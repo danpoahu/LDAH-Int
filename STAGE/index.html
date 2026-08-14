@@ -4381,7 +4381,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
   .gr-handled-toggle { background: none; border: none; color: #1f6feb; cursor: pointer; padding: 0; }
 
 </style>
-<link rel="stylesheet" href="chat.css?v=147.54">
+<link rel="stylesheet" href="chat.css?v=147.55">
 </head>
 
 <body class="with-stage-banner">
@@ -4585,7 +4585,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.54-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.55-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8855,7 +8855,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- Internal chat — see chat-core.js -->
-<script src="chat-core.js?v=147.54"></script>
+<script src="chat-core.js?v=147.55"></script>
 <script>
   LDAHChat.mount(document.getElementById('chatMount'), {
     mode: 'modal',
@@ -8870,7 +8870,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- WebRTC screen share — see rtc-screenshare.js -->
-<script src="rtc-screenshare.js?v=147.54"></script>
+<script src="rtc-screenshare.js?v=147.55"></script>
 
 <!-- ── Recipient List CMS ── -->
 <script>
@@ -11639,19 +11639,43 @@ var _photoPendingByIsland = {};
     // true and we leave without emitting one, that promise is broken and there is no
     // record of what went. See the catch block.
     var anyDeleted = false;
-    // Hoisted so the catch block can emit whatever audit exists at the point of
-    // failure. Rows for a conversation are pushed BEFORE that conversation's
-    // documents are deleted, so a partial file always covers everything destroyed.
-    var csvRows = ['Conversation ID,Participant 1,Participant 2,Message Date,Sender,Text,Images Deleted'];
+
+    // Audit rows live here, and a row only reaches this array at the moment its
+    // conversation is about to be destroyed — see the MERGE POINT in the loop.
+    // Two things have to be true at once and they pull in opposite directions:
+    //   • a row must be in here BEFORE its conversation's deletes run, or a failure
+    //     mid-delete produces an audit missing the very conversation it destroyed;
+    //   • a conversation the run never touched must NOT be in here, or a partial
+    //     audit lists chats that are still on disk as though they were purged.
+    // Staging per conversation and merging at the last safe instant satisfies both.
+    //
+    // Rows are stored as { prefix, stats } rather than finished strings so the trailing
+    // "Images Deleted" column can be filled in by reference AFTER the row is staged —
+    // that is what lets the row be staged before the image deletes it reports on.
+    var auditRows = [];
     var totalMessages = 0;
     var totalImagesDeleted = 0;
+    var AUDIT_HEADER = 'Conversation ID,Participant 1,Participant 2,Message Date,Sender,Text,Images Deleted';
 
-    // Hands the CSV to the browser. Split out of the success path so the failure
-    // path can call it too — that is the whole fix: an audit reaches the admin
-    // whenever anything was deleted, not only when everything succeeded.
+    // CSV escape helper. Above the try because downloadAuditCsv() serialises rows.
+    var esc = function(val) {
+      if (val === null || val === undefined) return '';
+      var s = String(val);
+      if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+
+    // Hands the CSV to the browser. Returns TRUE only if the file actually reached the
+    // admin. Every caller — success path included — must check it: telling someone
+    // "audit downloaded" after an irreversible deletion, when no file arrived, leaves
+    // them no way to find out until they go looking for a file that never existed.
     function downloadAuditCsv(rows, partial) {
       try {
-        var blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+        var lines = [AUDIT_HEADER];
+        for (var r = 0; r < rows.length; r++) {
+          lines.push(rows[r].prefix + esc(rows[r].stats.imagesDeleted));
+        }
+        var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
@@ -11669,14 +11693,6 @@ var _photoPendingByIsland = {};
     }
 
     try {
-      // CSV escape helper
-      var esc = function(val) {
-        if (val === null || val === undefined) return '';
-        var s = String(val);
-        if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) return '"' + s.replace(/"/g, '""') + '"';
-        return s;
-      };
-
       var oldestDate = null, newestDate = null;
 
       for (var i = 0; i < eligible.length; i++) {
@@ -11704,6 +11720,34 @@ var _photoPendingByIsland = {};
         // continues. A missing object (already deleted by hand, or aged out
         // by the 90-day bucket lifecycle rule) is the normal case, not a
         // failure, so it is counted as handled rather than logged as an error.
+        // Build this conversation's audit rows BEFORE anything is destroyed. Nothing
+        // below this point can read the message documents again. The image count is
+        // shared by reference through convStats and filled in by the delete loop.
+        var convStats = { imagesDeleted: 0 };
+        var convRows = [];
+        msgSnap.forEach(function(doc) {
+          var m = doc.data();
+          var ts = m.createdAt ? m.createdAt.toDate() : null;
+          var tsStr = ts ? ts.toISOString() : '';
+          if (ts) {
+            if (!oldestDate || ts < oldestDate) oldestDate = ts;
+            if (!newestDate || ts > newestDate) newestDate = ts;
+          }
+          convRows.push({
+            prefix: esc(conv.id) + ',' + esc(p1) + ',' + esc(p2) + ',' + esc(tsStr) + ',' +
+                    esc(m.senderName || '') + ',' + esc(m.text || '') + ',',
+            stats: convStats
+          });
+        });
+
+        // ── MERGE POINT ──
+        // The last statement before ANY of this conversation is destroyed. From here
+        // on, whatever happens, a partial audit covers this conversation. Equally: a
+        // conversation the loop never reaches never gets here, so it can never appear
+        // in an audit as though it had been purged.
+        for (var ar = 0; ar < convRows.length; ar++) auditRows.push(convRows[ar]);
+        totalMessages += convRows.length;
+
         var convImagesDeleted = 0;
         for (var ip = 0; ip < imagePaths.length; ip++) {
           try {
@@ -11719,19 +11763,10 @@ var _photoPendingByIsland = {};
             }
           }
         }
+        // Written through the shared object, so the already-staged rows report the
+        // true count rather than a number frozen before the deletes ran.
+        convStats.imagesDeleted = convImagesDeleted;
         totalImagesDeleted += convImagesDeleted;
-
-        msgSnap.forEach(function(doc) {
-          var m = doc.data();
-          var ts = m.createdAt ? m.createdAt.toDate() : null;
-          var tsStr = ts ? ts.toISOString() : '';
-          if (ts) {
-            if (!oldestDate || ts < oldestDate) oldestDate = ts;
-            if (!newestDate || ts > newestDate) newestDate = ts;
-          }
-          csvRows.push(esc(conv.id) + ',' + esc(p1) + ',' + esc(p2) + ',' + esc(tsStr) + ',' + esc(m.senderName || '') + ',' + esc(m.text || '') + ',' + esc(convImagesDeleted));
-          totalMessages++;
-        });
 
         // Delete all messages in the subcollection.
         // A plain indexed loop, NOT msgSnap.forEach: the intermediate commit has to be
@@ -11759,8 +11794,11 @@ var _photoPendingByIsland = {};
         anyDeleted = true;
       }
 
-      // Download CSV
-      downloadAuditCsv(csvRows, false);
+      // Download CSV. The return value MATTERS here: this is the path on which every
+      // eligible conversation has definitely been deleted, so if the file did not
+      // reach the admin the Interactions record below is the only surviving audit and
+      // it has to say so rather than repeat the old "downloaded" boilerplate.
+      var auditSent = downloadAuditCsv(auditRows, false);
 
       // Log audit interaction
       var oldestStr = oldestDate ? oldestDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
@@ -11769,15 +11807,27 @@ var _photoPendingByIsland = {};
         channel: 'Internal Chat',
         interactionType: 'Chat Purge Audit',
         contactName: 'System — Chat Purge',
-        summary: 'Purged ' + eligible.length + ' conversation(s) (' + totalMessages + ' messages) older than 13 months',
-        status: 'Closed',
+        summary: 'Purged ' + eligible.length + ' conversation(s) (' + totalMessages + ' messages) older than 13 months' +
+                 (auditSent ? '' : ' — CSV AUDIT FILE FAILED TO DOWNLOAD'),
+        status: auditSent ? 'Closed' : 'Open',
         owner: (currentUserData && currentUserData.displayName) || 'Unknown',
         ownerUid: (currentUserData && currentUserData.uid) || '',
-        notes: 'CSV audit file downloaded at time of purge. Conversations dated from ' + oldestStr + ' to ' + newestStr + '. Images deleted: ' + totalImagesDeleted + '.',
+        notes: (auditSent
+                 ? 'CSV audit file downloaded at time of purge.'
+                 : 'WARNING: the CSV audit file could NOT be downloaded — the conversations were deleted anyway and this record is now the only audit of the purge.') +
+               ' Conversations dated from ' + oldestStr + ' to ' + newestStr + '. Images deleted: ' + totalImagesDeleted + '.',
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
 
-      _showToast('Purged ' + eligible.length + ' conversation(s), ' + totalMessages + ' messages, ' + totalImagesDeleted + ' image(s). CSV downloaded.', '#16a34a');
+      _showToast('Purged ' + eligible.length + ' conversation(s), ' + totalMessages + ' messages, ' + totalImagesDeleted + ' image(s). ' +
+                 (auditSent ? 'CSV downloaded.' : 'CSV AUDIT DOWNLOAD FAILED.'),
+                 auditSent ? '#16a34a' : '#dc2626');
+      // A toast is easy to miss and this one reports a missing audit for a deletion
+      // that already happened — that needs an acknowledgement, not a fade-out.
+      if (!auditSent) {
+        alert('The ' + eligible.length + ' conversation(s) were purged, but the CSV audit file could NOT be downloaded.\n\n' +
+              'An Interactions record has been written and is now the only audit of this purge. Check the browser console, and allow downloads for this site before purging again.');
+      }
       // loadChatLogs() relabels this button but never re-enables it, so a SUCCESSFUL
       // purge used to leave it dead until a page reload.
       if (purgeBtn) { purgeBtn.disabled = false; purgeBtn.textContent = 'Purge Old Chats'; }
@@ -11785,12 +11835,15 @@ var _photoPendingByIsland = {};
       loadChatLogs();
     } catch (err) {
       console.error('Purge error:', err);
-      // Something failed mid-purge. Conversations may already be gone, and the admin
-      // was promised an audit file — emit whatever the run got through before the
-      // failure. Its rows always cover everything deleted, because each conversation's
-      // rows are pushed before its documents are.
+      // Something failed mid-purge. Emit an audit only when something was actually
+      // destroyed — gated on anyDeleted, NOT on "are there any staged rows". Rows are
+      // staged one conversation ahead of its own deletes, so a run that failed on its
+      // very first delete has rows for a conversation that is still on disk; emitting
+      // that file would have handed the admin a list of purged chats alongside an
+      // alert saying nothing was purged. Now the file and the wording agree: no
+      // deletion, no file.
       var partialSent = false;
-      if (anyDeleted || csvRows.length > 1) partialSent = downloadAuditCsv(csvRows, true);
+      if (anyDeleted) partialSent = downloadAuditCsv(auditRows, true);
       if (anyDeleted) {
         // Best effort, in its own catch: the Interactions record must never be the
         // reason the admin does not get told what happened.
@@ -11805,7 +11858,9 @@ var _photoPendingByIsland = {};
             ownerUid: (currentUserData && currentUserData.uid) || '',
             notes: 'Purge aborted: ' + (err && err.message) + '. Partial CSV audit ' +
                    (partialSent ? 'downloaded' : 'COULD NOT BE DOWNLOADED') +
-                   '. Re-run the purge to finish the remaining conversations.',
+                   '. The CSV lists every conversation this run had begun destroying, which ' +
+                   'includes the one it failed on — that conversation may be only partly ' +
+                   'deleted. Re-run the purge to finish the remaining conversations.',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           });
         } catch (logErr) { console.error('Partial purge audit log failed:', logErr); }
@@ -11813,9 +11868,9 @@ var _photoPendingByIsland = {};
       alert('Purge error: ' + err.message +
             (anyDeleted
               ? (partialSent
-                  ? '\n\nSome conversations were already deleted. A PARTIAL audit CSV covering everything deleted has been downloaded — keep it.'
+                  ? '\n\nSome conversations were already deleted. A PARTIAL audit CSV has been downloaded — keep it. It lists every conversation this run had begun destroying, including the one it failed on, which may be only partly deleted.'
                   : '\n\nSome conversations were already deleted and the partial audit CSV could NOT be downloaded. Check the browser console before doing anything else.')
-              : '\n\nNothing was deleted.'));
+              : '\n\nNothing was deleted, and no audit file was produced.'));
       if (purgeBtn) { purgeBtn.disabled = false; purgeBtn.textContent = 'Purge Old Chats'; }
     }
   };
