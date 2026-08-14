@@ -17554,8 +17554,21 @@ window.openContactDetail = async function(contactId) {
         return { interactionId: existingId, uid: currentOwnerUid, reassigned: false };
       }
       // Same advocate already on the task → idempotent no-op (beyond the relink).
-      if (uid && uid === currentOwnerUid) {
-        return { interactionId: existingId, uid: uid, reassigned: false };
+      // Two ways to be "the same", because the uid comparison alone fails open.
+      // _resolveStaffUidByName() returns "" for any advocate whose name does not
+      // resolve to a staff account — a real case here, since staff names are not
+      // unique in userRoles (the coordinator herself matches two accounts, which
+      // is why she is resolved by EMAIL elsewhere). With a blank uid the old
+      // guard could not fire, so re-picking the SAME unresolvable advocate fell
+      // through to the reassign branch and raised a spurious "X → X" change task
+      // to the coordinator. Falling back to a name comparison ONLY when there is
+      // no uid keeps uid authoritative where it exists.
+      var _sameAdvocate = uid
+        ? (uid === currentOwnerUid)
+        : (String(existingTask.data.owner || "").trim().toLowerCase() ===
+           String(advocateName || "").trim().toLowerCase());
+      if (_sameAdvocate) {
+        return { interactionId: existingId, uid: uid || currentOwnerUid, reassigned: false };
       }
       // Different advocate → reassign the existing task + notify.
       var reassignUpdate = {
