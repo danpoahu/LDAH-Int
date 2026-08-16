@@ -4600,7 +4600,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.61</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.0</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5645,10 +5645,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-weight:700;font-size:.92rem;">Contact Demographics</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Breakdown of contacts by type, region, and engagement level.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;" onclick="_showToast('This report will be generated soon.','#64748b')">
-              <div style="font-size:1.4rem;margin-bottom:6px;">💰</div>
-              <div style="font-weight:700;font-size:.92rem;">Grant & Program Tracker</div>
-              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Active grants, funding amounts, deadlines, and deliverable status.</div>
+            <!-- Staff Training. Replaced the Grant & Program Tracker placeholder,
+                 which was never built — its onclick was a "coming soon" toast.
+                 No emoji: new work follows the house rule even though the older
+                 cards in this grid predate it. -->
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1D4ED8;" onclick="cmsBuildStaffTrainingReport()">
+              <div style="margin-bottom:6px;color:#1D4ED8;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg></div>
+              <div style="font-weight:700;font-size:.92rem;">Staff Training</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who has completed each sign-in training session, who is skipping, and how often. CSV export.</div>
             </div>
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildEventAttendanceReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📅</div>
@@ -5710,6 +5714,27 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
           <div id="ddSummary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
           <div id="ddBody"><div class="cms-empty"><p>Loading…</p></div></div>
+        </div>
+
+        <!-- Staff Training report (in-grid; toggled from Reports card).
+             READ ONLY — reads userRoles.trainingProgress and trainingSessions,
+             writes nothing. Covers the sign-in splash sessions only; the 19
+             items in the Training Videos vault have no per-user tracking, and
+             the panel says so rather than letting the reader assume otherwise. -->
+        <div id="staffTrainingReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseStaffTrainingReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#1D4ED8;margin:0;">Staff Training</h2>
+            <span id="stGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
+          </div>
+          <div style="font-size:.8rem;color:var(--text-soft);margin-bottom:14px;">Sign-in training sessions only. The Training Videos vault records no per-person views, so nothing here reflects it.</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <label style="font-size:.85rem;display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="stIncludePartners" onchange="cmsRenderStaffTrainingReport()"> Include partners
+            </label>
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="stExportCSV()">Export CSV</button>
+          </div>
+          <div id="stBody"><div class="cms-empty"><p>Loading&hellip;</p></div></div>
         </div>
 
         <!-- Membership Report (in-grid; toggled from Reports card) -->
@@ -44218,6 +44243,339 @@ window.cmsBuildStaffActivityReport = async function() {
     a.download = 'ldah-documents-downloaded-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
+  };
+
+  // ══ Staff Training ══════════════════════════════════════════════════
+  // READ ONLY. Two reads: trainingSessions (the denominator) and userRoles
+  // (each person's trainingProgress). Writes nothing.
+  //
+  // The denominator has to be read separately because "never seen" is the
+  // ABSENCE of a progress entry — you cannot infer who owes what from the
+  // progress map alone, only who has already engaged.
+  //
+  // Partners are split out rather than mixed in. Roughly half of userRoles are
+  // partner agencies on their own domains. They do get the splash — there are
+  // partner skips on record — but a completion rate that averages staff with
+  // partners answers nobody's question. Staff is the default; the checkbox
+  // widens it.
+  //
+  // Covers the sign-in splash only. trainingVideos records no per-person views,
+  // so the vault cannot appear here. The panel subtitle says so, rather than
+  // leaving a reader to assume three sessions is the whole of LDAH's training.
+  var _stRows = [];
+  var _stSessions = [];
+  var _stChartInstances = [];
+
+  /* The developer's two logins. Both are superAdmin, so no rule about roles can
+     drop them without dropping real staff — they have to be named. Listed by
+     uid rather than email because this repo is public and this file is served.
+     They are not LDAH staff and nobody is chasing their training. */
+  var _ST_EXCLUDE_UIDS = ['Lwz0SNVIRAcC68tVQdzE2BBCapt1', 'YmGV2TlBGqR01dVdxZ0rtFLEFCG3'];
+
+  // Every role the Admin dropdown can assign. Archiving blanks the role, which
+  // is how a departed staff member leaves this report.
+  var _ST_COUNTED_ROLES = { admin: 1, superAdmin: 1, dailyUser: 1, partner: 1 };
+
+  /* Status fills — deliberately NOT from _WA_PALETTE, which is the categorical
+     ramp. These three are states, not categories, and reusing a categorical hue
+     for a status is how "series 4" ends up looking like "completed".
+
+     Blue/orange rather than the app's usual green/amber: green against amber
+     measures dE 7.9 under protanopia, close enough that two stacked segments
+     read as one block. Blue against orange clears 15. The grey is a true
+     neutral on purpose — "never seen" is an absence, not a third outcome. */
+  var _ST_DONE = '#1D4ED8', _ST_SKIP = '#EA580C', _ST_NEVER = '#64748B';
+
+  function _stDestroyCharts() {
+    for (var i = 0; i < _stChartInstances.length; i++) {
+      try { _stChartInstances[i].destroy(); } catch (_) {}
+    }
+    _stChartInstances = [];
+  }
+
+  function _stChart(id, cfg) {
+    var ctx = document.getElementById(id);
+    if (!ctx || typeof Chart === 'undefined') return;
+    cfg.options = cfg.options || {};
+    cfg.options.responsive = true;
+    cfg.options.maintainAspectRatio = false;
+    _stChartInstances.push(new Chart(ctx, cfg));
+  }
+
+  function _stDay(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  window.cmsCloseStaffTrainingReport = function() {
+    _stDestroyCharts();
+    var el = document.getElementById('staffTrainingReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'none';
+    if (rg) rg.style.display = 'block';
+  };
+
+  window.cmsBuildStaffTrainingReport = async function() {
+    var el = document.getElementById('staffTrainingReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'block';
+    if (rg) rg.style.display = 'none';
+    var body = document.getElementById('stBody');
+    if (body) body.innerHTML = '<div class="cms-empty"><p>Loading training records&hellip;</p></div>';
+    try {
+      var sessSnap = await db.collection('trainingSessions').get();
+      var userSnap = await db.collection('userRoles').get();
+
+      /* A withdrawn session is not something anyone owes, so it leaves the
+         denominator. It stays in each person's history — retiring a session
+         must never erase the record of having watched it. */
+      _stSessions = [];
+      sessSnap.forEach(function(d) {
+        var s = d.data() || {};
+        if (s.active === false) return;
+        _stSessions.push({
+          id: d.id,
+          title: String(s.title || d.id),
+          publishedAt: String(s.publishedAt || ''),
+          slides: (s.slides || []).length
+        });
+      });
+      _stSessions.sort(function(a, b) { return a.publishedAt.localeCompare(b.publishedAt); });
+
+      _stRows = [];
+      userSnap.forEach(function(d) {
+        var u = d.data() || {};
+        var prog = u.trainingProgress || {};
+        var role = String(u.role || '');
+        /* A userRoles doc carrying no recognised role is a service or
+           integration login, not a person who owes training. Counting them
+           drags the completion rate down and pads the table with rows that are
+           dashes all the way across.
+
+           Archiving someone sets `role: ''` (see the archive handler), so a
+           departed staff member drops out of this report on their own — that is
+           the intended route, not a list of names here.
+
+           ⚠ `dailyUser` MUST stay in this list. It is the role the restore
+           handler assigns, and the one a newly added staff member can easily be
+           given; leaving it out would silently omit a real person from a report
+           whose whole job is to show who has been missed. */
+        if (!_ST_COUNTED_ROLES[role]) return;
+        if (_ST_EXCLUDE_UIDS.indexOf(d.id) !== -1) return;
+        var row = {
+          uid: d.id,
+          name: String(u.displayName || '').trim() || String(u.email || '').split('@')[0],
+          email: String(u.email || ''),
+          role: role,
+          isPartner: role === 'partner',
+          per: {}, completed: 0, skipped: 0, never: 0, totalSkips: 0, lastAt: ''
+        };
+        _stSessions.forEach(function(s) {
+          var p = prog[s.id];
+          var status = (p && p.status === 'completed') ? 'completed' : (p ? 'skipped' : 'never');
+          var skips = (p && Number(p.skips)) || 0;
+          row.per[s.id] = { status: status, at: String((p && p.at) || ''), skips: skips };
+          if (status === 'completed') row.completed++;
+          else if (status === 'skipped') row.skipped++;
+          else row.never++;
+          row.totalSkips += skips;
+          if (p && p.at && String(p.at) > row.lastAt) row.lastAt = String(p.at);
+        });
+        _stRows.push(row);
+      });
+
+      var stamp = document.getElementById('stGeneratedAt');
+      if (stamp) stamp.textContent = 'Generated ' + new Date().toLocaleString();
+      cmsRenderStaffTrainingReport();
+    } catch (err) {
+      if (body) body.innerHTML = '<div class="cms-empty"><p>Could not load training records: '
+        + rsEscape(err && err.message ? err.message : String(err)) + '</p></div>';
+    }
+  };
+
+  window.cmsRenderStaffTrainingReport = function() {
+    var body = document.getElementById('stBody');
+    if (!body) return;
+    _stDestroyCharts();
+
+    if (!_stSessions.length) {
+      body.innerHTML = '<div class="cms-empty"><p>No training session has been published yet.</p></div>';
+      return;
+    }
+
+    var incEl = document.getElementById('stIncludePartners');
+    var incPartners = !!(incEl && incEl.checked);
+    var rows = _stRows.filter(function(r) { return incPartners || !r.isPartner; });
+    if (!rows.length) {
+      body.innerHTML = '<div class="cms-empty"><p>No people to report on.</p></div>';
+      return;
+    }
+
+    // Worst first: fewest completed, then most skips. Rosie reads top-down and
+    // the people needing a nudge are the first thing on the page.
+    rows = rows.slice().sort(function(a, b) {
+      return (a.completed - b.completed) || (b.totalSkips - a.totalSkips) || a.name.localeCompare(b.name);
+    });
+
+    var nSess = _stSessions.length, people = rows.length;
+    var possible = people * nSess;
+    var done = rows.reduce(function(s, r) { return s + r.completed; }, 0);
+    var caughtUp = rows.filter(function(r) { return r.completed === nSess; }).length;
+    var skips = rows.reduce(function(s, r) { return s + r.totalSkips; }, 0);
+    var rate = possible ? Math.round((done / possible) * 100) : 0;
+
+    var card = function(label, val, color) {
+      return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;text-align:center;">'
+        + '<div style="font-size:1.6rem;font-weight:800;color:' + color + ';">' + val + '</div>'
+        + '<div style="font-size:.78rem;color:var(--text-soft);margin-top:2px;">' + label + '</div></div>';
+    };
+
+    var html = '';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px;">';
+    html += card('Fully caught up', caughtUp + ' / ' + people, caughtUp === people ? '#16A34A' : '#B45309');
+    html += card('Completion rate', rate + '%', _ST_DONE);
+    html += card('Sessions outstanding', possible - done, _ST_NEVER);
+    html += card('Repeat skips', skips, skips ? _ST_SKIP : '#16A34A');
+    html += '</div>';
+
+    var panel = function(title, inner) {
+      return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;">'
+        + '<div style="font-weight:700;font-size:.9rem;margin-bottom:10px;">' + title + '</div>' + inner + '</div>';
+    };
+
+    var skippers = rows.filter(function(r) { return r.totalSkips > 0; })
+                       .sort(function(a, b) { return b.totalSkips - a.totalSkips; });
+
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:16px;">';
+    html += panel('Where each session stands',
+      '<div style="height:' + (70 + nSess * 42) + 'px;"><canvas id="stSessionChart"></canvas></div>');
+    html += panel('Repeat skips by person', skippers.length
+      ? '<div style="height:' + Math.max(140, 50 + skippers.length * 30) + 'px;"><canvas id="stSkipChart"></canvas></div>'
+      : '<div class="cms-empty" style="padding:20px 0;"><p>Nobody has dismissed a session more than once.</p></div>');
+    html += '</div>';
+
+    // The matrix. This is the table view the charts lean on for exact numbers.
+    html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;overflow-x:auto;">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:.86rem;min-width:' + (320 + nSess * 150) + 'px;">';
+    html += '<thead><tr style="text-align:left;color:var(--text-soft);"><th style="padding:6px 4px;">Person</th>';
+    _stSessions.forEach(function(s) {
+      // Capped so a long session title cannot take the width the names need.
+      html += '<th style="padding:6px 4px;text-align:center;max-width:170px;">' + rsEscape(s.title)
+           +  '<div style="font-weight:400;font-size:.72rem;">' + rsEscape(s.publishedAt) + '</div></th>';
+    });
+    html += '<th style="padding:6px 4px;text-align:center;">Skips</th></tr></thead><tbody>';
+
+    var pill = function(bg, text) {
+      return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:.75rem;'
+        + 'font-weight:700;background:' + bg + ';color:#fff;">' + text + '</span>';
+    };
+
+    rows.forEach(function(r) {
+      html += '<tr style="border-top:1px solid #F1F5F9;">'
+           +  '<td style="padding:6px 4px;"><div style="font-weight:600;">' + rsEscape(r.name)
+           +    (r.isPartner ? ' <span style="font-weight:400;font-size:.72rem;color:var(--text-soft);">partner</span>' : '')
+           +    '</div><div style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(r.email) + '</div></td>';
+      _stSessions.forEach(function(s) {
+        var p = r.per[s.id] || { status: 'never', skips: 0, at: '' };
+        var cell;
+        if (p.status === 'completed') {
+          cell = pill(_ST_DONE, 'Completed') + (p.at ? '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">' + rsEscape(_stDay(p.at)) + '</div>' : '');
+        } else if (p.status === 'skipped') {
+          cell = pill(_ST_SKIP, 'Skipped' + (p.skips > 1 ? ' ×' + p.skips : ''));
+        } else {
+          cell = '<span style="color:var(--text-soft);">&mdash;</span>';
+        }
+        html += '<td style="padding:6px 4px;text-align:center;">' + cell + '</td>';
+      });
+      html += '<td style="padding:6px 4px;text-align:center;font-weight:700;color:' + (r.totalSkips ? _ST_SKIP : 'var(--text-soft)') + ';">'
+           +  (r.totalSkips || '—') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    body.innerHTML = html;
+
+    // Charts go in after the markup exists, or getElementById finds nothing.
+    var labels = _stSessions.map(function(s) {
+      return s.title.length > 34 ? s.title.slice(0, 33) + '…' : s.title;
+    });
+    var count = function(status) {
+      return _stSessions.map(function(s) {
+        return rows.filter(function(r) { return (r.per[s.id] || {}).status === status; }).length;
+      });
+    };
+    var seg = function(label, data, color) {
+      // 2px surface-coloured border is the gap between stacked segments.
+      return { label: label, data: data, backgroundColor: color, borderColor: '#fff', borderWidth: 2, borderRadius: 4 };
+    };
+    _stChart('stSessionChart', {
+      type: 'bar',
+      data: { labels: labels, datasets: [
+        seg('Completed', count('completed'), _ST_DONE),
+        seg('Skipped', count('skipped'), _ST_SKIP),
+        seg('Never seen', count('never'), _ST_NEVER)
+      ] },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+        scales: {
+          x: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#F1F5F9' } },
+          y: { stacked: true, grid: { display: false } }
+        }
+      }
+    });
+
+    if (skippers.length) {
+      _stChart('stSkipChart', {
+        type: 'bar',
+        data: {
+          labels: skippers.map(function(r) { return r.name; }),
+          datasets: [{ data: skippers.map(function(r) { return r.totalSkips; }),
+                       backgroundColor: _ST_SKIP, borderRadius: 4 }]
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#F1F5F9' } },
+            y: { grid: { display: false } }
+          }
+        }
+      });
+    }
+  };
+
+  window.stExportCSV = function() {
+    if (!_stRows.length) { alert('No training data loaded.'); return; }
+    var incEl = document.getElementById('stIncludePartners');
+    var incPartners = !!(incEl && incEl.checked);
+    var rows = _stRows.filter(function(r) { return incPartners || !r.isPartner; });
+
+    var head = ['Name', 'Email', 'Role'];
+    _stSessions.forEach(function(s) { head.push(s.title + ' — status'); head.push(s.title + ' — skips'); });
+    head.push('Completed', 'Skipped', 'Never seen', 'Total skips', 'Last activity');
+
+    var out = [head];
+    rows.forEach(function(r) {
+      var line = [r.name, r.email, r.role];
+      _stSessions.forEach(function(s) {
+        var p = r.per[s.id] || { status: 'never', skips: 0 };
+        line.push(p.status === 'never' ? 'never seen' : p.status);
+        line.push(p.skips || 0);
+      });
+      line.push(r.completed, r.skipped, r.never, r.totalSkips, r.lastAt);
+      out.push(line.map(function(v) {
+        var s = (v == null ? '' : String(v)).replace(/"/g, '""');
+        return '"' + s + '"';
+      }));
+    });
+    var csv = out.map(function(r) { return r.join(','); }).join('\r\n');
+    var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ldah-staff-training-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // ══ Membership Reports ══════════════════════════════════════════════
