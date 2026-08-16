@@ -4600,7 +4600,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.5-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.6-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16420,10 +16420,38 @@ window.openContactDetail = async function(contactId) {
             } else {
               statusLine = '<span style="font-weight:700;color:#64748B;">' + rsEscape(c.membershipStatus || '—') + '</span>';
             }
-            var portalLine = c.memberAuthUid ? 'Portal login: created' : 'Portal login: not yet created';
+            /* Portal line, three ways.
+               Once they are in, the dates are the useful thing — staff could
+               previously only see that we had emailed a link, never whether
+               anyone walked through the door. Both stamps live on the CONTACT,
+               written by getMemberProfile on each portal load.
+               If they are not in yet, offer to send the instructions — but only
+               to someone who has actually paid, because the portal turns
+               everyone else away and the email would be an invitation to a door
+               that will not open. "active" and "paid" both mean paid. */
+            var _portalHtml;
+            if (c.memberAuthUid || c.portalFirstLoginAt) {
+              var _first = _mFmt(c.portalFirstLoginAt);
+              var _last = _mFmt(c.portalLastLoginAt);
+              _portalHtml = 'Portal login: created'
+                + (_first ? ' &middot; first ' + rsEscape(_first) : '')
+                + (_last && _last !== _first ? ' &middot; last ' + rsEscape(_last) : '');
+            } else {
+              var _everPaid = c.membershipStatus === 'active' || c.membershipStatus === 'paid' || !!c.membershipPaidAt;
+              _portalHtml = 'Portal login: not yet created';
+              if (_everPaid) {
+                _portalHtml += ' <button id="portalInviteBtn" onclick="cmsSendPortalLoginEmail(this,' + _jsArg(cid) + ')"'
+                  + ' style="margin-left:8px;padding:3px 10px;border:1px solid #0891B2;background:#ECFEFF;color:#155E75;'
+                  + 'border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">Send login instructions</button>';
+                if (c.portalInviteSentAt) {
+                  _portalHtml += '<div style="color:#94A3B8;font-size:.72rem;margin-top:2px;">Instructions sent '
+                    + rsEscape(_mFmt(c.portalInviteSentAt)) + '</div>';
+                }
+              }
+            }
             _statusHtml = '<div style="padding:2px 0 8px;margin-bottom:6px;border-bottom:1px solid #F1F5F9;font-size:.8rem;line-height:1.5;color:#475569;">' +
               '<div>' + statusLine + '</div>' +
-              '<div style="color:#94A3B8;">' + rsEscape(portalLine) + '</div>' +
+              '<div style="color:#94A3B8;">' + _portalHtml + '</div>' +
             '</div>';
           })();
           db.collection('members').where('linkedContactId', '==', cid).get().then(function(snap) {
@@ -34187,6 +34215,40 @@ window.cmsExportEventSummaryCsv = function() {
   link.download = (title + (sessionDate ? '_' + sessionDate : '') + '_Summary.csv').replace(/[^a-zA-Z0-9_.-]/g, '_');
   link.click();
   _showToast('CSV exported.', '#059669');
+};
+
+/* Send a paid member the portal set-up instructions.
+ *
+ * The button only renders for someone who has paid and has never signed in, so
+ * the common mistakes are already designed out. The function still re-checks
+ * both server-side: this page can be open for hours, and by the time the button
+ * is clicked the member may have created a login in another tab. */
+window.cmsSendPortalLoginEmail = async function(btn, contactId) {
+  var c = (_allContacts || []).find(function(x) { return x.id === contactId; }) || {};
+  var who = c.name || c.email || 'this member';
+  if (!confirm('Email ' + who + ' instructions for setting up their member portal login?')) return;
+  var origText = btn.textContent;
+  btn.textContent = 'Sending…';
+  btn.disabled = true;
+  try {
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendPortalLoginInstructions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contactId: contactId,
+        requestedBy: (window.currentUserData && currentUserData.displayName) || 'Staff'
+      })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Unknown error');
+    auditLog('Sent member portal login instructions', who + ' (' + (data.to || '') + ')');
+    btn.outerHTML = '<span style="color:#16A34A;font-weight:700;">Instructions sent</span>';
+    _showToast('Login instructions sent to ' + (data.to || 'the member'), '#16A34A');
+  } catch (err) {
+    _showToast('Could not send: ' + err.message, '#DC2626');
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
 };
 
 window.cmsResendRegistrationEmail = async function(btn, collection, eventId, signupId) {
