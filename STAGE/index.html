@@ -4600,7 +4600,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v147.58-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5688,6 +5688,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-weight:700;font-size:.92rem;">Documents Downloaded</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Every confidential document taken off the system &mdash; who, which family, which file, when. CSV export.</div>
             </div>
+            <!-- Certification Program. No emoji on this card: the reports grid
+                 predates the house no-emoji rule and the rest will be tidied
+                 separately, but new work follows the rule. -->
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #B45309;" onclick="cmsBuildCertificationReport()">
+              <div style="margin-bottom:6px;color:#B45309;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg></div>
+              <div style="font-weight:700;font-size:.92rem;">Certification Program</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who has started and who has finished each tier, quiz scores, attempts, and certificate numbers. CSV export.</div>
+            </div>
           </div>
         </div>
 
@@ -5710,6 +5718,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
           <div id="ddSummary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
           <div id="ddBody"><div class="cms-empty"><p>Loading…</p></div></div>
+        </div>
+
+        <!-- Certification Program report (in-grid; toggled from Reports card).
+             READ ONLY — staff never write member progress or certificates. -->
+        <div id="certReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseCertificationReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#B45309;margin:0;">Certification Program</h2>
+            <span id="crGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <input type="search" id="crSearch" placeholder="Filter by name or email&hellip;" oninput="cmsRenderCertificationReport()" style="flex:1;min-width:200px;max-width:340px;padding:7px 12px;border:1px solid #CBD5E1;border-radius:8px;font-size:.88rem;">
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="crExportCSV()">Export CSV</button>
+          </div>
+          <div id="crBody"><div class="cms-empty"><p>Loading&hellip;</p></div></div>
         </div>
 
         <!-- Membership Report (in-grid; toggled from Reports card) -->
@@ -44142,6 +44165,228 @@ window.cmsBuildStaffActivityReport = async function() {
     a.download = 'ldah-documents-downloaded-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
+  };
+
+  // ══ Certification Program Report ═══════════════════════════════════
+  // READ ONLY. Staff never write member progress or certificates — the
+  // Firestore rules refuse it (`allow write: if false` on certificates, and
+  // progress is writable only by its owner).
+  //
+  // Two collectionGroup reads, neither with a where() or orderBy(), so no
+  // index is required. If you ever add a filter here, add the matching
+  // single-field COLLECTION_GROUP index FIRST — a missing one surfaces as a
+  // bare "9 FAILED_PRECONDITION" with no hint.
+  //
+  //   contacts/{id}/certification/progress   — lessons, quizzes, tiers
+  //   contacts/{id}/certificates/{tier}      — issued credentials
+  //
+  // Names come from the contact record, fetched by id for exactly the members
+  // who appear, rather than reading the whole contacts collection.
+  var _crRows = [];
+
+  var _CR_TIERS = ['bronze', 'silver', 'gold'];
+  var _CR_TIER_LESSONS = {
+    bronze: ['b1', 'b2', 'b2pq', 'b3', 'b4', 'bquiz'],
+    silver: ['s1', 's2', 's2pq', 's3', 's4', 'squiz'],
+    gold: ['g1', 'g2', 'g2pq', 'g3', 'g4', 'gquiz']
+  };
+  var _CR_TIER_QUIZ = { bronze: 'bquiz', silver: 'squiz', gold: 'gquiz' };
+
+  function _crMs(v) {
+    if (!v) return 0;
+    if (typeof v === 'number') return v;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    return 0;
+  }
+  function _crDate(v) {
+    var ms = _crMs(v);
+    return ms ? new Date(ms).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+  }
+
+  window.cmsCloseCertificationReport = function() {
+    var el = document.getElementById('certReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'none';
+    if (rg) rg.style.display = 'block';
+  };
+
+  window.cmsBuildCertificationReport = async function() {
+    var el = document.getElementById('certReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'block';
+    if (rg) rg.style.display = 'none';
+    var body = document.getElementById('crBody');
+    if (body) body.innerHTML = '<div class="cms-empty"><p>Loading certification data…</p></div>';
+    try {
+      var progSnap = await db.collectionGroup('certification').get();
+      var certSnap = await db.collectionGroup('certificates').get();
+
+      var byContact = {};
+      progSnap.forEach(function(d) {
+        if (d.id !== 'progress') return;                 // only the progress doc
+        var parent = d.ref.parent.parent;                // contacts/{id}
+        if (!parent) return;
+        byContact[parent.id] = { contactId: parent.id, progress: d.data() || {}, certs: {} };
+      });
+      certSnap.forEach(function(d) {
+        var parent = d.ref.parent.parent;
+        if (!parent) return;
+        if (!byContact[parent.id]) byContact[parent.id] = { contactId: parent.id, progress: {}, certs: {} };
+        byContact[parent.id].certs[d.id] = d.data() || {};
+      });
+
+      var ids = Object.keys(byContact);
+      // Names for exactly the members who appear. Cheaper and more current
+      // than reading every contact.
+      var contacts = await Promise.all(ids.map(function(cid) {
+        return db.collection('contacts').doc(cid).get()
+          .then(function(s) { return { id: cid, data: s.exists ? (s.data() || {}) : null }; })
+          .catch(function() { return { id: cid, data: null }; });
+      }));
+      var nameById = {};
+      contacts.forEach(function(c) {
+        var d = c.data || {};
+        nameById[c.id] = {
+          name: (d.displayName || [d.firstName, d.lastName].filter(Boolean).join(' ') || '').trim(),
+          email: String(d.email || '')
+        };
+      });
+
+      _crRows = ids.map(function(cid) {
+        var rec = byContact[cid];
+        var who = nameById[cid] || { name: '', email: '' };
+        var lessons = rec.progress.lessons || {};
+        var quizzes = rec.progress.quizzes || {};
+        var tiers = rec.progress.tiers || {};
+        var row = {
+          contactId: cid,
+          name: who.name || '(contact not found)',
+          email: who.email,
+          updatedAt: _crMs(rec.progress.updatedAt),
+          startedAt: 0,
+          tiers: {}
+        };
+        // "Started" is the earliest lesson completion on record.
+        Object.keys(lessons).forEach(function(k) {
+          var t = _crMs(lessons[k]);
+          if (t && (!row.startedAt || t < row.startedAt)) row.startedAt = t;
+        });
+        _CR_TIERS.forEach(function(tier) {
+          var need = _CR_TIER_LESSONS[tier];
+          var done = need.filter(function(k) { return !!lessons[k]; }).length;
+          var q = quizzes[_CR_TIER_QUIZ[tier]] || {};
+          var cert = rec.certs[tier] || null;
+          row.tiers[tier] = {
+            done: done, total: need.length,
+            complete: done === need.length,
+            quizPct: (typeof q.pct === 'number') ? q.pct : null,
+            quizScore: (typeof q.score === 'number') ? q.score : null,
+            quizTotal: (typeof q.total === 'number') ? q.total : null,
+            attempts: Number(q.attempts) || 0,
+            passed: !!q.passed,
+            markedAt: _crMs((tiers[tier] || {}).completedAt),
+            certNumber: cert ? String(cert.certNumber || '') : '',
+            certName: cert ? String(cert.memberName || '') : '',
+            certAt: cert ? _crMs(cert.issuedAt) : 0
+          };
+        });
+        return row;
+      });
+
+      _crRows.sort(function(a, b) { return (b.updatedAt || b.startedAt || 0) - (a.updatedAt || a.startedAt || 0); });
+      var st = document.getElementById('crGeneratedAt');
+      if (st) st.textContent = 'Generated ' + new Date().toLocaleString() + ' · ' + _crRows.length + ' member(s)';
+      cmsRenderCertificationReport();
+    } catch (e) {
+      if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load certification data: ' + rsEscape(e.message) + '</div>';
+    }
+  };
+
+  window.cmsRenderCertificationReport = function() {
+    var body = document.getElementById('crBody');
+    if (!body) return;
+    var qEl = document.getElementById('crSearch');
+    var q = String((qEl && qEl.value) || '').trim().toLowerCase();
+    var rows = q ? _crRows.filter(function(r) {
+      return (r.name + ' ' + r.email).toLowerCase().indexOf(q) !== -1;
+    }) : _crRows;
+
+    if (!rows.length) {
+      body.innerHTML = '<div class="cms-empty"><p>' + (_crRows.length ? 'No members match that filter.' : 'No member has started the certification program yet.') + '</p></div>';
+      return;
+    }
+
+    var started = _crRows.length;
+    var bronzeDone = _crRows.filter(function(r) { return r.tiers.bronze.complete; }).length;
+    var certified = _crRows.filter(function(r) { return !!r.tiers.bronze.certNumber; }).length;
+    var scored = _crRows.filter(function(r) { return typeof r.tiers.bronze.quizPct === 'number'; });
+    var avg = scored.length ? Math.round(scored.reduce(function(s, r) { return s + r.tiers.bronze.quizPct; }, 0) / scored.length) : 0;
+
+    var card = function(label, val, color) {
+      return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;text-align:center;">'
+        + '<div style="font-size:1.6rem;font-weight:800;color:' + color + ';">' + val + '</div>'
+        + '<div style="font-size:.78rem;color:var(--text-soft);margin-top:2px;">' + label + '</div></div>';
+    };
+    var html = '';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px;">';
+    html += card('Started', started, '#1a3c6e');
+    html += card('Bronze finished', bronzeDone, '#16A34A');
+    html += card('Certificates issued', certified, '#B45309');
+    html += card('Avg Bronze quiz', avg ? avg + '%' : '—', '#0891B2');
+    html += '</div>';
+
+    html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;overflow-x:auto;">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:.86rem;min-width:820px;"><thead><tr style="text-align:left;color:var(--text-soft);">'
+         +  '<th style="padding:6px 4px;">Member</th><th style="padding:6px 4px;">Started</th>'
+         +  '<th style="padding:6px 4px;text-align:center;">Bronze lessons</th>'
+         +  '<th style="padding:6px 4px;text-align:center;">Quiz</th>'
+         +  '<th style="padding:6px 4px;text-align:center;">Attempts</th>'
+         +  '<th style="padding:6px 4px;">Certificate</th><th style="padding:6px 4px;">Issued</th>'
+         +  '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var b = r.tiers.bronze;
+      var quizCell = (b.quizPct === null) ? '<span style="color:var(--text-soft);">—</span>'
+        : '<span style="font-weight:700;color:' + (b.passed ? '#16A34A' : '#D97706') + ';">' + b.quizPct + '%</span>'
+          + (b.quizTotal ? ' <span style="color:var(--text-soft);">(' + b.quizScore + '/' + b.quizTotal + ')</span>' : '');
+      html += '<tr style="border-top:1px solid #F1F5F9;">'
+           +  '<td style="padding:6px 4px;"><div style="font-weight:600;">' + rsEscape(r.name) + '</div>'
+           +    '<div style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(r.email) + '</div></td>'
+           +  '<td style="padding:6px 4px;">' + rsEscape(_crDate(r.startedAt)) + '</td>'
+           +  '<td style="padding:6px 4px;text-align:center;' + (b.complete ? 'color:#16A34A;font-weight:700;' : '') + '">' + b.done + ' / ' + b.total + '</td>'
+           +  '<td style="padding:6px 4px;text-align:center;">' + quizCell + '</td>'
+           +  '<td style="padding:6px 4px;text-align:center;">' + (b.attempts || '—') + '</td>'
+           +  '<td style="padding:6px 4px;font-variant-numeric:tabular-nums;">' + (b.certNumber ? rsEscape(b.certNumber) : '<span style="color:var(--text-soft);">not issued</span>') + '</td>'
+           +  '<td style="padding:6px 4px;">' + rsEscape(_crDate(b.certAt)) + '</td>'
+           +  '</tr>';
+    });
+    html += '</tbody></table></div>';
+    body.innerHTML = html;
+  };
+
+  window.crExportCSV = function() {
+    if (!_crRows.length) { alert('No certification data loaded.'); return; }
+    var out = [['Name', 'Email', 'Contact ID', 'Started',
+                'Bronze lessons done', 'Bronze lessons total', 'Bronze quiz %', 'Bronze quiz score',
+                'Bronze quiz attempts', 'Bronze passed', 'Certificate number', 'Certificate name', 'Certificate issued']];
+    _crRows.forEach(function(r) {
+      var b = r.tiers.bronze;
+      out.push([
+        r.name, r.email, r.contactId, _crDate(r.startedAt),
+        b.done, b.total,
+        (b.quizPct === null ? '' : b.quizPct),
+        (b.quizTotal ? b.quizScore + '/' + b.quizTotal : ''),
+        b.attempts, (b.passed ? 'Yes' : 'No'),
+        b.certNumber, b.certName, _crDate(b.certAt)
+      ].map(function(v) { var s = (v == null ? '' : String(v)).replace(/"/g, '""'); return '"' + s + '"'; }));
+    });
+    var csv = out.map(function(r) { return r.join(','); }).join('\r\n');
+    var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ldah-certification-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // ══ Membership Reports ══════════════════════════════════════════════
