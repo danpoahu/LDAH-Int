@@ -4,15 +4,18 @@
 // publishedAt that the person has not completed, and shows its slides. There is
 // no CMS screen for this yet, so this script is how a session gets published.
 //
-// Only ONE session should be active at a time — the splash shows the newest
-// incomplete one, so leaving old sessions active means someone who skipped an
-// old one keeps getting it instead of the new one. --commit deactivates any
-// other active session first.
+// Sessions ACCUMULATE — do not deactivate the old ones. The splash was changed
+// to show the OLDEST unwatched session first, which turns the active set into a
+// queue: someone with a backlog works forwards through it, and someone who is up
+// to date still gets each new session the day it lands, it being their only
+// unwatched one. Deactivating a session retires it for everyone who never saw it,
+// so `active: false` is for withdrawing something published in error, nothing else.
 //
-// TEMPLATE FOR THE NEXT SESSION — not yet run against production.
-// As of 2026-08-12 the live session is trainingSessions/2026-08-11-profile-weather-timezones
-// (5 slides, active). Running this with --commit would deactivate it and publish
-// the draft below in its place. Edit DOC_ID and SESSION first.
+// TEMPLATE FOR THE NEXT SESSION. Edit DOC_ID and SESSION, dry-run, then --commit.
+// As of 2026-08-15 there are three published sessions, all active:
+//   2026-08-11-profile-weather-timezones (5 slides)
+//   2026-08-12-home-rotation             (7 slides)
+//   2026-08-15-event-summary             (15 slides — the draft below)
 //
 // Usage: node scripts/seed-training-session.js            (dry run — prints what it would write)
 //        node scripts/seed-training-session.js --commit   (publish it)
@@ -23,56 +26,109 @@ const PROJECT = 'ldah-932d5';
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
 const COMMIT = process.argv.includes('--commit');
 
-const DOC_ID = '2026-08-12-home-rotation';
+const DOC_ID = '2026-08-15-event-summary';
 
 // Slide images are files in the repo under img/training/. Store the path WITHOUT
 // any ../ prefix — the page prepends what it needs for where it is served from.
+//
+// These crops come from the narrated walkthrough at training/completing-the-event-summary.html
+// and were cut to the region each step is actually about. The task-list shot is
+// cropped BELOW the accommodations rows on purpose: those rows name real families,
+// and img/training/ is served publicly from the repo.
 const SESSION = {
-  title: 'Home Rotation — you choose what the public sees',
-  publishedAt: '2026-08-12',
+  title: 'Completing the Event Summary',
+  publishedAt: '2026-08-15',
   active: true,
   slides: [
     {
-      title: 'Home Rotation: you choose what the public sees',
-      body: "Aloha! Here's a one-minute tour of Home Rotation — the new way you choose exactly what the public sees on the website home page and the app's opening splash.",
-      tip: 'One list, a few checkboxes, and both places update for everyone.',
-      image: ''
+      title: "Completing the Event Summary",
+      body: "Aloha. This is the form we complete after a session has happened. There are two ways to open it, and this covers both — along with which parts fill themselves in, and which parts only you can supply.",
+      tip: "",
+      image: ""
     },
     {
-      title: 'Tick it — it goes public, in two places',
-      body: "This screen lists everything currently available to put in front of the public. Tick the ones you want in the rotation, and they appear in two places at once: the website home page, and the app's opening splash. Visitors are shown two at a time — and nobody sees the same ones again until they have seen the rest, so everything you tick gets its turn.",
-      tip: '',
-      image: ''
+      title: "Three steps, every time",
+      body: "You open the summary, you fill in the parts only a person can know, and you save. The white and grey numbers are already counted from signups and surveys. The pink section is the part that needs you — if it is left blank, that information is simply lost.",
+      tip: "",
+      image: ""
     },
     {
-      title: 'CMS \u2192 Home Rotation',
-      body: "You will find it under the CMS tab: Home Rotation. The green counter near the top always tells you how many items are in the rotation right now — here, five.",
-      tip: '',
-      image: 'img/training/home-rotation-nav.jpg'
+      title: "Way one: from your task list",
+      body: "After an event finishes, a task called Event Summary appears on the home page under Things To Do Today, tagged Event Wrap-Up, with a follow-up date so it does not get forgotten. Click Open Event Summary and the form opens right there — you never leave the home page.",
+      tip: "Opens the form in place.",
+      image: "img/training/event-summary-task-list.png"
     },
     {
-      title: 'Ticked = in the rotation. One click either way.',
-      body: "Ticked means in. This Learning Labs session is in the rotation; Village Hui below it is not — one click on its checkbox puts it in front of the public. Untick anything to pull it back out. That is the entire job.",
-      tip: '',
-      image: 'img/training/home-rotation-tick.jpg'
+      title: "Check the session date first",
+      body: "Some events run more than once — different islands, different days. Each session gets its own summary. Check this dropdown before you type anything, because every number below it changes with your selection.",
+      tip: "",
+      image: "img/training/event-summary-session-date.png"
     },
     {
-      title: 'Two at a time — and everything gets its turn',
-      body: "How visitors experience it: two items at a time, on the website home page and on the app splash. And the rotation is fair — a visitor is not shown the same ones again until they have seen the rest. So there is no fighting over the top spot; everything ticked gets seen.",
-      tip: 'Need something in front of everyone now? Pin it — a pinned item shows on every visit until you unpin it.',
-      image: ''
+      title: "Attendance is already counted",
+      body: "Registered, Attended, No-Shows and the attendance rate come straight from signups and from who was checked in on the day. You do not type any of them. If they look wrong, the fix is in the signups list, not here.",
+      tip: "Read-only — comes from signups.",
+      image: "img/training/event-summary-attendance.png"
     },
     {
-      title: 'Types on the right, dates or ongoing on the left',
-      body: "Each row tells you what it is. The tag on the right shows the type — Learning Labs, flyer, remote signup. Dated items carry their date; standing items like Membership just say ongoing, and they stay available until you untick them.",
-      tip: '',
-      image: 'img/training/home-rotation-types.jpg'
+      title: "Attendance Totals — the pink sheet on screen",
+      body: "Each row has a box you can edit and, beside it, the figure the system counted. Leave it alone if it matches; type over it if the real count was different. One row is not like the others: Dissemination Reach is people reached, not people who attended — Facebook views, booth traffic, that sort of thing.",
+      tip: "Reach is reported separately and never added into attendance.",
+      image: "img/training/event-summary-totals.png"
     },
     {
-      title: 'The whole job in three lines',
-      body: "CMS, Home Rotation. The green counter says what is live. Tick in, untick out — it reaches the website home page and the app splash, two at a time, rotated fairly, so everything gets seen. Questions, ask Daniel. Mahalo!",
-      tip: '',
-      image: ''
+      title: "Walk-ins go here",
+      body: "For people who never signed up — someone who wandered up to the table at Parent Talk Cafe, for example. Add a name, an email if you have one, and click Add. Each walk-in counts toward the Attendance Total.",
+      tip: "On save they are added to Contacts, so we can follow up later.",
+      image: "img/training/event-summary-walkins.png"
+    },
+    {
+      title: "Feedback Summary — a status report",
+      body: "How many surveys went out, how many are still pending, how many came back, and the response rate. It updates itself as people respond, so there is nothing to edit here either.",
+      tip: "Read-only.",
+      image: "img/training/event-summary-feedback.png"
+    },
+    {
+      title: "The pink form is yours",
+      body: "Everything below the pink banner is filled in by you. These are the numbers our audit and our grant reporting are built from, and none of it can be worked out automatically. Set the Tier Model of Support, then the two follow-up counts — parents, and professionals.",
+      tip: "The survey figure underneath is only a hint. The real number is the one you know.",
+      image: "img/training/event-summary-pink.png"
+    },
+    {
+      title: "Materials: packed, and handed out",
+      body: "Confirm the presenter in the dropdown — it should already be right, but check it. Then the materials table: how many of each item you packed, and how many you actually handed out. The disseminated counts are the ones that matter for reporting.",
+      tip: "The last row is blank on purpose — type in anything you gave out that is not on the list.",
+      image: "img/training/event-summary-materials.png"
+    },
+    {
+      title: "Comments, then save",
+      body: "The Presenter Comments box takes anything worth remembering — turnout, questions that came up, a problem with the room. Then Save Summary. The line just above it records who saved it and when. Export CSV beside it pulls the numbers out into a spreadsheet.",
+      tip: "",
+      image: "img/training/event-summary-save.png"
+    },
+    {
+      title: "Way two: through Reports",
+      body: "Use this when the task has already been ticked off, or the event was weeks ago. Left menu, Reports, then Event Attendance Report. Every event date shows up as a card, color-coded by program, and the filters across the top narrow by year, program, tier or date range.",
+      tip: "",
+      image: "img/training/event-summary-reports.png"
+    },
+    {
+      title: "Open the card, then Edit Summary",
+      body: "The detail panel shows event details, attendance totals, follow-up support and age of children — a read-only view of what has been recorded so far. To change anything, click Edit Summary in the top corner; it opens the very same form.",
+      tip: "Print / Save as PDF beside it gives you a clean copy for a binder or a funder.",
+      image: "img/training/event-summary-detail.png"
+    },
+    {
+      title: "The short version",
+      body: "Two doors, one form. Check the session date before anything else. Leave the auto numbers alone unless you know better. The pink section is the part only you can complete. Add walk-ins so they are counted and kept. And finish with Save Summary — if you did not save it, it did not happen.",
+      tip: "",
+      image: ""
+    },
+    {
+      title: "Mahalo",
+      body: "If anything here does not match what you see on your screen, or a field is not behaving the way it should, send it to Daniel and it will get sorted.",
+      tip: "The full narrated walkthrough is on the Training Videos page whenever you want it again.",
+      image: ""
     }
   ]
 };
@@ -122,13 +178,10 @@ function val(v) {
     return;
   }
 
-  // Exactly one active session at a time.
-  for (const d of actives) {
-    const id = d.name.split('/').pop();
-    if (id === DOC_ID) continue;
-    api(`/trainingSessions/${id}?updateMask.fieldPaths=active`, 'PATCH', { fields: { active: val(false) } });
-    console.log(`  deactivated older session: ${id}`);
-  }
+  // Older sessions are LEFT ACTIVE on purpose — see the note at the top. The
+  // splash works oldest-unwatched-first, so they are a queue, not clutter.
+  actives.filter(d => d.name.split('/').pop() !== DOC_ID)
+    .forEach(d => console.log(`  leaving active (queue): ${d.name.split('/').pop()}`));
 
   const res = api(`/trainingSessions/${DOC_ID}`, 'PATCH', { fields });
   if (res.error) {
