@@ -4600,7 +4600,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.7-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.8-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25572,25 +25572,66 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
 }
 
 // ── Send Event Announcement (superAdmin only) ──
-/* Hawaiʻi County (Big Island) ZIPs. Zip is the reliable signal; the city
-   field is free text and inconsistent ("Hilo", "hilo", "Hilo, HI", "Kea’au",
-   "Keaau, HI"). City is only used as a fallback when no usable zip is on file.
+/* Which island a contact is on. ZIP is the reliable signal; the city field is
+   free text and inconsistent ("Hilo", "hilo", "Hilo, HI", "Kea’au", "Keaau, HI"),
+   so city is only a fallback.
 
-   Kilauea is deliberately NOT a Big Island city here: the volcano is on Hawaiʻi
-   island but the TOWN of Kilauea is on Kauaʻi (96754), and two real contacts
-   live there. Matching on the name alone would have mailed them a Hilo event. */
-var CMS_BIG_ISLAND_ZIPS = ['96704','96710','96718','96719','96720','96721','96725','96726','96727','96728',
-  '96737','96738','96739','96740','96743','96745','96749','96750','96755','96760','96764','96771','96772',
-  '96773','96774','96776','96777','96778','96780','96781','96783','96785'];
-var CMS_BIG_ISLAND_CITY = /\b(hilo|kailua[- ]kona|kona|kea.?au|waimea|kamuela|honoka.?a|pahoa|volcano|na.?alehu|captain cook|kealakekua|holualoa|honaunau|waikoloa|hawi|kapaau|papaikou|pepeekeo|mountain view|kurtistown|laupahoehoe|ookala|paauilo|pahala|ocean view|hakalau|ninole)\b/i;
+   Two traps are deliberately handled:
+   - Kilauea is NOT a Hawaiʻi-island city here. The volcano is on Hawaiʻi island
+     but the TOWN of Kilauea is on Kauaʻi (96754), and two real contacts live
+     there. Matching the name alone would have mailed them a Hilo event.
+   - Plain "Kailua" is Oʻahu (96734). Only "Kailua-Kona" is Hawaiʻi island, hence
+     the negative lookahead in the Oʻahu pattern.
 
-function cmsIsBigIsland(city, zip) {
+   Bucket counts verified against live contacts 2026-08-17 (see
+   LDAH_W2/functions/audit-contact-islands-2026-08-17.js): hawaii 302, oahu 86,
+   molokai 8, kauai 4, maui 4, lanai 1, no location 117. Zero city names were
+   ambiguous and zero ZIPs disagreed with their city. */
+var CMS_ISLAND_ZIPS = {
+  hawaii:  ['96704','96710','96718','96719','96720','96721','96725','96726','96727','96728',
+    '96737','96738','96739','96740','96743','96745','96749','96750','96755','96760','96764','96771','96772',
+    '96773','96774','96776','96777','96778','96780','96781','96783','96785'],
+  maui:    ['96708','96713','96732','96733','96753','96761','96767','96768','96779','96784','96788','96790','96793'],
+  molokai: ['96729','96742','96748','96757','96770'],
+  lanai:   ['96763'],
+  kauai:   ['96703','96705','96714','96715','96716','96722','96741','96746','96747','96751','96752','96754',
+    '96756','96765','96766','96769','96796'],
+  oahu:    ['96701','96706','96707','96709','96712','96717','96730','96731','96734','96744','96759','96762',
+    '96782','96786','96789','96791','96792','96795','96797']
+};
+var CMS_ISLAND_CITY = {
+  hawaii:  /\b(hilo|kailua[- ]?kona|kona|kea.?au|kamuela|honoka.?a|pahoa|volcano|na.?alehu|captain cook|kealakekua|holualoa|honaunau|waikoloa|hawi|kapaau|papaikou|pepeekeo|mountain view|kurtistown|laupahoehoe|ookala|paauilo|pahala|ocean view|hakalau|ninole|honomu|papaaloa|keauhou)\b/i,
+  maui:    /\b(kahului|wailuku|kihei|lahaina|kaanapali|napili|makawao|pukalani|kula|paia|haiku|hana|puunene|wailea|maui)\b/i,
+  molokai: /\b(moloka.?i|kaunakakai|hoolehua|kualapuu|maunaloa|kalaupapa)\b/i,
+  lanai:   /\b(lana.?i city|lana.?i)\b/i,
+  kauai:   /\b(kaua.?i|lihue|kapaa|princeville|hanalei|koloa|poipu|eleele|hanapepe|kalaheo|kekaha|anahola|wailua|kilauea|kaumakani|lawai|makaweli)\b/i,
+  oahu:    /\b(honolulu|o.?ahu|waipahu|pearl city|mililani|kaneohe|kailua(?![- ]?kona)|aiea|ewa beach|kapolei|waianae|wahiawa|waimanalo|haleiwa|laie|hauula|kahuku|kaaawa|waialua|kunia|makakilo|hawaii kai|manoa|kahala|salt lake|schofield|hickam|wheeler|pearl harbor)\b/i
+};
+// Hawaiʻi island first so "Kailua-Kona" is claimed before Oʻahu's "Kailua" ever runs.
+var CMS_ISLAND_ORDER = ['hawaii','maui','molokai','lanai','kauai','oahu'];
+var CMS_ISLAND_LABEL = { hawaii:"Hawaiʻi Island", oahu:"Oʻahu", maui:"Maui", molokai:"Molokaʻi", lanai:"Lānaʻi", kauai:"Kauaʻi" };
+var CMS_ISLAND_COLOR = { hawaii:'#B45309', oahu:'#1D4ED8', maui:'#7C3AED', molokai:'#0F766E', lanai:'#A21CAF', kauai:'#15803D' };
+
+function cmsIslandOf(city, zip) {
   var z = String(zip || '').trim().slice(0, 5);
-  if (z) return CMS_BIG_ISLAND_ZIPS.indexOf(z) !== -1;   // a zip on file settles it
+  if (/^\d{5}$/.test(z)) {
+    if (z.indexOf('968') === 0) return 'oahu';        // Honolulu + Oʻahu military
+    for (var i = 0; i < CMS_ISLAND_ORDER.length; i++) {
+      var k = CMS_ISLAND_ORDER[i];
+      if (CMS_ISLAND_ZIPS[k].indexOf(z) !== -1) return k;
+    }
+    // Unrecognised ZIP: fall through to city rather than give up. One real
+    // contact reads "Ewa beach 97706" (96706 mistyped) -- the city is plainly
+    // right and dropping her would exclude her from every island send. A
+    // genuine mainland ZIP has a mainland city, so it still ends up unassigned.
+  }
   var c = String(city || '').trim();
-  if (!c) return false;
-  if (/\bkilauea\b/i.test(c)) return false;               // Kilauea town is on Kauaʻi
-  return CMS_BIG_ISLAND_CITY.test(c);
+  if (!c) return '';
+  for (var j = 0; j < CMS_ISLAND_ORDER.length; j++) {
+    var kk = CMS_ISLAND_ORDER[j];
+    if (CMS_ISLAND_CITY[kk].test(c)) return kk;
+  }
+  return '';
 }
 
 window.cmsSendAnnouncement = async function(eventId, collection, title) {
@@ -25657,7 +25698,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
         } else {
           html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F5F9;">' +
             '<input type="checkbox" class="cmsAnnRecip" data-rid="' + rsEscape(r.id) + '"'
-              + ' data-bi="' + (cmsIsBigIsland(r.city, r.zipCode) ? '1' : '0') + '"'
+              + ' data-island="' + cmsIslandOf(r.city, r.zipCode) + '"'
               + ' data-sent="' + (r.alreadySent ? '1' : '0') + '"'
               // Already-sent rows start UNTICKED. They used to arrive ticked, so a
               // re-announce meant unticking them one by one — fine at 18 recipients,
@@ -25667,7 +25708,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
               + ' style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">' +
             '<div style="flex:1;min-width:0;"><span style="font-weight:600;font-size:.85rem;">' + nm + '</span>' +
             '<span style="font-size:.74rem;color:#64748B;margin-left:8px;">' + em + '</span>' +
-            (r.city ? '<span style="font-size:.72rem;color:' + (cmsIsBigIsland(r.city, r.zipCode) ? '#B45309' : '#94A3B8') + ';margin-left:8px;">' + rsEscape(r.city) + (r.zipCode ? ' ' + rsEscape(String(r.zipCode).slice(0,5)) : '') + '</span>' : '') +
+            (r.city ? '<span style="font-size:.72rem;color:' + (CMS_ISLAND_COLOR[cmsIslandOf(r.city, r.zipCode)] || '#94A3B8') + ';margin-left:8px;">' + rsEscape(r.city) + (r.zipCode ? ' ' + rsEscape(String(r.zipCode).slice(0,5)) : '') + '</span>' : '') +
             '</div>' +
             (r.alreadySent ? '<span style="font-size:.72rem;color:#92400E;flex-shrink:0;">already emailed</span>' : '') + '</div>';
         }
@@ -25676,6 +25717,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
     }
     Array.prototype.forEach.call(host.querySelectorAll('.cmsAnnRecip'), function(cb) { cb.addEventListener('change', _annUpdateSelCount); });
     _annUpdateSelCount();
+    if (typeof _annFilterRefresh === 'function') _annFilterRefresh();
   }
 
   // Step 1 — initial dry-run to get counts (default: all contacts)
@@ -25736,7 +25778,38 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
         '<div style="margin-bottom:14px;">' +
           '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
             '<strong style="color:#004E7C;font-size:.9rem;">Recipients</strong>' +
-            '<span style="font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" id="cmsAnnSelAll">Select all</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelNone">Select none</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelBigIsland" style="color:#B45309;font-weight:700;" title="Tick only contacts on Hawai&#8216;i Island who have not already been sent this — by ZIP, falling back to city">Big Island only</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelUnsent" style="color:#166534;font-weight:700;" title="Tick everyone who has not already received this announcement">Not yet sent</a></span>' +
+            '<span style="font-size:.78rem;color:#64748B;"><a href="javascript:void(0)" id="cmsAnnSelAll">Select all</a> &middot; <a href="javascript:void(0)" id="cmsAnnSelNone">Select none</a></span>' +
+          '</div>' +
+          // Island + status filter. The two combine (AND). Signed-up people are
+          // rendered without a checkbox at all, so every combination here is
+          // implicitly "and not signed up" -- there is no way to reach them.
+          '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">' +
+            '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
+              '<label style="flex:1;min-width:150px;font-size:.78rem;color:#475569;font-weight:600;">Island' +
+                '<select id="cmsAnnFilterIsland" style="width:100%;margin-top:3px;padding:6px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;font-weight:400;background:#fff;">' +
+                  '<option value="">All islands</option>' +
+                  '<option value="hawaii">Hawai&#699;i Island</option>' +
+                  '<option value="oahu">O&#699;ahu</option>' +
+                  '<option value="maui">Maui</option>' +
+                  '<option value="molokai">Moloka&#699;i</option>' +
+                  '<option value="lanai">L&#257;na&#699;i</option>' +
+                  '<option value="kauai">Kaua&#699;i</option>' +
+                  '<option value="none">No location on file</option>' +
+                '</select>' +
+              '</label>' +
+              '<label style="flex:1;min-width:170px;font-size:.78rem;color:#475569;font-weight:600;">Status' +
+                '<select id="cmsAnnFilterStatus" style="width:100%;margin-top:3px;padding:6px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:.84rem;font-weight:400;background:#fff;">' +
+                  '<option value="unsent">Not yet sent</option>' +
+                  '<option value="sent">Already sent, no signup</option>' +
+                  '<option value="any">Everyone not signed up</option>' +
+                '</select>' +
+              '</label>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:8px;">' +
+              '<span style="font-size:.8rem;color:#475569;">&rarr; <strong id="cmsAnnFilterCount">0</strong> match</span>' +
+              '<button id="cmsAnnFilterApply" style="background:#004E7C;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-weight:700;font-size:.82rem;cursor:pointer;">Tick these</button>' +
+            '</div>' +
+            '<div id="cmsAnnFilterWarn" style="display:none;margin-top:8px;font-size:.78rem;color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:6px 9px;line-height:1.45;"></div>' +
           '</div>' +
           '<div id="cmsAnnRecipientList" style="max-height:260px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:8px;"></div>' +
           '<div style="font-size:.78rem;color:#64748B;margin-top:6px;">Selected to send: <strong id="cmsAnnSelCount">0</strong> &middot; <span style="color:#16A34A;">&#10003;</span> = already signed up (skipped)</div>' +
@@ -25780,30 +25853,70 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
     Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) { cb.checked = false; });
     _annUpdateSelCount();
   });
-  // Ticks the Big Island and unticks everyone else, so one click gives the
-  // audience for a Hilo or Kona event. Nothing sends until Send is pressed.
-  // Both quick-selects skip anyone already sent — re-sending the same
-  // announcement to the same person is never the intent.
-  function _annPick(test, label, colour) {
-    var n = 0;
-    Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) {
-      var on = cb.getAttribute('data-sent') !== '1' && test(cb);
-      cb.checked = on;
-      if (on) n++;
-    });
-    _annUpdateSelCount();
-    if (typeof _showToast === 'function') {
-      _showToast(n ? n + ' ' + label + (n === 1 ? '' : 's') + ' selected.' : 'Nobody matches — everyone eligible may already have been sent this.', n ? colour : '#64748B');
+  // Island + status filter. The predecessor was two links ("Big Island only",
+  // "Not yet sent") that both hard-excluded anyone already emailed, which made
+  // the re-announce audience -- already emailed, still not signed up -- flatly
+  // unreachable. These two dropdowns AND together and every combination is
+  // reachable, including that one.
+  //
+  // Changing a dropdown only recounts. Ticking happens on the button, so a
+  // stray click cannot silently rewrite a 300-person selection.
+  function _annFilterEls() {
+    return {
+      isl:  document.getElementById('cmsAnnFilterIsland'),
+      st:   document.getElementById('cmsAnnFilterStatus'),
+      cnt:  document.getElementById('cmsAnnFilterCount'),
+      warn: document.getElementById('cmsAnnFilterWarn')
+    };
+  }
+  function _annFilterMatches() {
+    var e = _annFilterEls();
+    if (!e.isl || !e.st) return [];
+    var wantIsl = e.isl.value, wantSt = e.st.value;
+    return Array.prototype.filter.call(
+      document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'),
+      function(cb) {
+        var isl = cb.getAttribute('data-island') || '';
+        // '' = all islands. 'none' = the no-location-on-file bucket, which is
+        // 112 contacts with neither city nor ZIP; without an explicit choice
+        // they are invisible to every island filter and never get mailed.
+        if (wantIsl === 'none') { if (isl) return false; }
+        else if (wantIsl && isl !== wantIsl) return false;
+        var sent = cb.getAttribute('data-sent') === '1';
+        if (wantSt === 'unsent' && sent) return false;
+        if (wantSt === 'sent' && !sent) return false;
+        return true;
+      });
+  }
+  function _annFilterRefresh() {
+    var e = _annFilterEls();
+    if (!e.isl || !e.st) return;             // list can render before the controls exist
+    var m = _annFilterMatches();
+    if (e.cnt) e.cnt.textContent = m.length;
+    if (e.warn) {
+      var st = e.st.value, msg = '';
+      if (st === 'sent') msg = 'Everyone matching already received this announcement. Ticking them sends a <strong>second copy</strong> as a reminder.';
+      else if (st === 'any') msg = 'This includes people who already received this announcement \u2014 they would get a <strong>second copy</strong>.';
+      e.warn.innerHTML = msg;
+      e.warn.style.display = msg ? 'block' : 'none';
     }
   }
-  var _biLink = document.getElementById('cmsAnnSelBigIsland');
-  if (_biLink) _biLink.addEventListener('click', function() {
-    _annPick(function(cb) { return cb.getAttribute('data-bi') === '1'; }, 'Big Island recipient', '#B45309');
+  function _annFilterApply() {
+    var m = _annFilterMatches();
+    Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) { cb.checked = false; });
+    m.forEach(function(cb) { cb.checked = true; });
+    _annUpdateSelCount();
+    if (typeof _showToast === 'function') {
+      _showToast(m.length ? m.length + ' recipient' + (m.length === 1 ? '' : 's') + ' ticked.' : 'Nobody matches that combination \u2014 nothing ticked.', m.length ? '#004E7C' : '#64748B');
+    }
+  }
+  ['cmsAnnFilterIsland', 'cmsAnnFilterStatus'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', _annFilterRefresh);
   });
-  var _unsentLink = document.getElementById('cmsAnnSelUnsent');
-  if (_unsentLink) _unsentLink.addEventListener('click', function() {
-    _annPick(function() { return true; }, 'recipient', '#166534');
-  });
+  var _applyBtn = document.getElementById('cmsAnnFilterApply');
+  if (_applyBtn) _applyBtn.addEventListener('click', _annFilterApply);
+  _annFilterRefresh();
 
   // Audience radio — live-refresh recipient counts on change (v122.5.0)
   Array.prototype.forEach.call(
