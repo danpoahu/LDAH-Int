@@ -2038,6 +2038,39 @@ window.LDAHChat = (function () {
     document.addEventListener('visibilitychange', markActiveConversationRead);
   }
 
+  // ── Real viewport height ──────────────────────────────────────────────────
+  // iOS/iPadOS resolves 100vh — and a position:fixed `bottom` — against the LARGE
+  // viewport, i.e. the height the page WOULD have if Safari's URL and tab bars were
+  // hidden. They usually are not, so the bottom of the chat sat behind the browser
+  // chrome with the composer inside it, unreachable: the modal is not a scroll
+  // container, so there was nothing for the user to scroll back to. visualViewport
+  // reports what is genuinely on screen RIGHT NOW, which also shrinks when the
+  // on-screen keyboard opens — the case that matters most, because that is exactly
+  // when someone is trying to type.
+  var _vvRaf = 0;
+  function syncViewportHeight() {
+    if (_vvRaf) return;                       // collapse bursts of resize/scroll events
+    _vvRaf = requestAnimationFrame(function () {
+      _vvRaf = 0;
+      var vv = window.visualViewport;
+      var h = (vv && vv.height) ? vv.height : window.innerHeight;
+      if (!h) return;
+      document.documentElement.style.setProperty('--chat-vvh', Math.round(h) + 'px');
+    });
+  }
+  function watchViewportHeight() {
+    syncViewportHeight();
+    var vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', syncViewportHeight);
+      vv.addEventListener('scroll', syncViewportHeight);
+    }
+    window.addEventListener('resize', syncViewportHeight);
+    window.addEventListener('orientationchange', syncViewportHeight);
+    // Safari settles the keyboard animation after the resize event fires.
+    window.addEventListener('focusin', function () { setTimeout(syncViewportHeight, 300); });
+  }
+
   function mount(el, opts) {
     opts = opts || {};
     _mode = opts.mode || 'modal';
@@ -2056,6 +2089,7 @@ window.LDAHChat = (function () {
       // Firestore fallback) — no second fetch mechanism.
       populateChatClientSelect();
     }
+    watchViewportHeight();
     setTimeout(tryInitChat, _mode === 'window' ? 200 : 1000);
     startOwnership();
     return { open: openChatModal, close: closeChatModal, destroy: teardown };
