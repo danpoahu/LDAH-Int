@@ -39,10 +39,16 @@ window.LDAHChat = (function () {
     '            <button id="chatShowMoreOffline" class="chat-show-more" style="display:none;">▼ Show more</button>' +
     '          </div>' +
     '          <div class="chat-roster-divider"></div>' +
-    '          <!-- Recent conversations -->' +
+    '          <!-- Recent conversations. COLLAPSED BY DEFAULT, and deliberately not' +
+    '               persisted: an always-open list of every recent thread is what used' +
+    '               to give the sidebar an unbounded natural height, and the grid then' +
+    '               clipped the bottom of the OTHER column — which is where the message' +
+    '               composer lives. The roster above is the primary way in; the list' +
+    '               stays in the DOM (not deleted) so renderConversations, the unread' +
+    '               badges and the chime all keep working untouched. -->' +
     '          <div class="chat-roster-section">' +
-    '            <div class="chat-roster-label">💬 Recent Chats</div>' +
-    '            <div id="chatConversationsList" class="chat-conversations"></div>' +
+    '            <button id="chatRecentToggle" class="chat-show-more" type="button" aria-expanded="false" aria-controls="chatConversationsList">▶ Recent Chats</button>' +
+    '            <div id="chatConversationsList" class="chat-conversations" hidden></div>' +
     '          </div>' +
     '        </div>' +
     '      </div>' +
@@ -230,7 +236,7 @@ window.LDAHChat = (function () {
     // DOM refs — looked up by bindElements() once mount() has injected the markup
     var chatModalOverlay, chatModalClose, chatModalSend, chatModalInput, chatModalMessages,
         chatBadge, chatOpen, chatHeaderAvatar, chatHeaderName, chatHeaderStatus,
-        chatOnlineList, chatOfflineList, chatShowMoreBtn, chatConversationsList,
+        chatOnlineList, chatOfflineList, chatShowMoreBtn, chatConversationsList, chatRecentToggle,
         chatClientSelect, chatCharCount, chatSearchInput, chatEmptyState,
         chatSidebarToggle, chatSidebar, chatZoomBtn;
 
@@ -1861,6 +1867,7 @@ window.LDAHChat = (function () {
     chatOnlineList = document.getElementById('chatOnlineList');
     chatOfflineList = document.getElementById('chatOfflineList');
     chatShowMoreBtn = document.getElementById('chatShowMoreOffline');
+    chatRecentToggle = document.getElementById('chatRecentToggle');
     chatConversationsList = document.getElementById('chatConversationsList');
     chatClientSelect = document.getElementById('chatClientSelect');
     chatCharCount = document.getElementById('chatCharCount');
@@ -1947,6 +1954,19 @@ window.LDAHChat = (function () {
           // Quick way: just re-init
           window.initChatRoster();
         }
+      });
+    }
+
+    // Recent Chats disclosure. Starts closed on every mount by design — there is
+    // no saved preference, so a stale "open" state can never come back and grow the
+    // sidebar again on the next window.
+    if (chatRecentToggle && chatConversationsList) {
+      chatRecentToggle.addEventListener('click', function() {
+        var open = chatConversationsList.hasAttribute('hidden');
+        if (open) chatConversationsList.removeAttribute('hidden');
+        else chatConversationsList.setAttribute('hidden', '');
+        chatRecentToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        chatRecentToggle.textContent = (open ? '▼' : '▶') + ' Recent Chats';
       });
     }
 
