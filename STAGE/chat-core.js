@@ -106,7 +106,14 @@ window.LDAHChat = (function () {
     '                    aria-label="Remove screenshot">&times;</button>' +
     '          </div>' +
     '          <div class="chat-modal-input-area">' +
-    '            <input class="chat-modal-input" id="chatModalInput" placeholder="Type your message…" maxlength="500" />' +
+    '            <!-- name + autocomplete are here to stop iOS guessing. With no name and' +
+    '                 no autocomplete, Safari treats a lone text input as a possible username' +
+    '                 field and offers the passwords key in its AutoFill bar. Safari only' +
+    '                 sometimes honours autocomplete="off", so this reduces the prompt rather' +
+    '                 than guaranteeing it is gone — the bar itself is iPadOS system UI.' +
+    '                 enterkeyhint="send" is the real win: Return becomes Send on a tablet. -->' +
+    '            <input class="chat-modal-input" id="chatModalInput" placeholder="Type your message…" maxlength="500"' +
+    '                   name="message" autocomplete="off" autocorrect="on" spellcheck="true" enterkeyhint="send" />' +
     '            <span class="chat-char-count" id="chatCharCount">0 / 500</span>' +
     '            <button class="chat-modal-send" id="chatModalSend" type="button">Send</button>' +
     '          </div>' +
