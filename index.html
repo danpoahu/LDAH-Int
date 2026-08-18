@@ -4600,7 +4600,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6517,6 +6517,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div class="lm-add-row">
               <input id="lmInteractionTypesNew" placeholder="New interaction type" />
               <button onclick="addLookupItem('interactionTypes','lmInteractionTypesNew')">Add</button>
+            </div>
+          </div>
+        </div>
+<div class="lm-card collapsed">
+          <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed')">Tiers</div>
+          <div class="lm-card-body">
+            <ul id="lmTiersList" class="lm-list"></ul>
+            <div class="lm-add-row">
+              <input id="lmTiersNew" placeholder="e.g. Tier 5: Something" />
+              <button onclick="addLookupItem('tiers','lmTiersNew')">Add</button>
             </div>
           </div>
         </div>
@@ -13298,13 +13308,68 @@ var _photoPendingByIsland = {};
   // references there resolve to this global; the loader mutates it in place so
   // updates propagate. Without this, Event Summary throws
   // "_lookupLists is not defined". (2026-07-07)
-  var _lookupLists = window._lookupLists = { channels: [], interactionTypes: [], grants: [], tips: [], titles: [], departments: [], resourceTypes: [], materials: [] };
+  var _lookupLists = window._lookupLists = { channels: [], interactionTypes: [], grants: [], tips: [], titles: [], departments: [], resourceTypes: [], materials: [], tiers: [] };
+
+  /* ── Tier vocabulary — ONE managed list, five consumers ────────────────────
+     Tier used to be hardcoded in five places with THREE different wordings, and
+     two of them ran in opposite directions (old code called Tier 1 "Self-Service"
+     while List Management called it "Individual Assistance"). Tier is a column in
+     the EA grant export, so that was not cosmetic. Everything now reads
+     _lookupLists.tiers.
+
+     STORED VALUE vs LABEL: event summaries already hold `tierModel: "Tier 1"`.
+     The managed item is the full label ("Tier 1: Individual Assistance") but the
+     value written to Firestore stays the "Tier N" prefix, so existing records keep
+     matching and staff can reword a tier without a data migration.
+
+     Defined on window: this file has several script blocks and these are consumed
+     from more than one of them. */
+  window._tierValue = function(item) {
+    var m = String(item || '').match(/^\s*(Tier\s*\d+)/i);
+    return m ? m[1].replace(/\s+/g, ' ').trim() : String(item || '').trim();
+  };
+  /* Fallback matters: if the Firestore read fails or the seed write was refused by
+     rules, an empty managed list would render an EMPTY Tier dropdown and staff
+     would silently save events with no tier. Falling back to the known-good four
+     keeps the form usable; the managed list overrides it the moment it loads. */
+  window._TIER_FALLBACK = ['Tier 1: Individual Assistance', 'Tier 2: Training Workspaces', 'Tier 3: Workshops', 'Tier 4: Outreach'];
+  window._tierItems = function() {
+    var raw = (window._lookupLists && Array.isArray(window._lookupLists.tiers)) ? window._lookupLists.tiers : [];
+    raw = raw.filter(function(x) { return String(x || '').trim(); });
+    if (!raw.length) raw = window._TIER_FALLBACK;
+    return raw.map(function(x) { return { value: window._tierValue(x), label: String(x).trim() }; });
+  };
+  window._tierLabel = function(value) {
+    if (!value) return '';
+    var hit = window._tierItems().filter(function(i) { return i.value === value; })[0];
+    return hit ? hit.label : value;   /* a retired tier still renders on old records */
+  };
+  window._tierOptionsHtml = function(selected, placeholder) {
+    var html = '<option value="">' + (placeholder || '-- Select --') + '</option>';
+    window._tierItems().forEach(function(i) {
+      html += '<option value="' + i.value + '"' + (selected === i.value ? ' selected' : '') + '>' +
+              i.label.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</option>';
+    });
+    return html;
+  };
+  /* Refresh the two tier dropdowns that live in static markup rather than being
+     rebuilt on every render. Safe to call when neither is on screen. */
+  window.populateTierDropdowns = function() {
+    ['oneOffTier', 'eaFilterTier'].forEach(function(id) {
+      var sel = document.getElementById(id);
+      if (!sel) return;
+      var keep = sel.value;
+      sel.innerHTML = window._tierOptionsHtml(keep, id === 'eaFilterTier' ? 'All' : '\u2014 Select tier \u2014');
+      sel.value = keep;
+    });
+  };
 
   async function seedLookupListsIfNeeded() {
     var defaults = {
       channels: ['Phone', 'Web', 'Office', 'Email', 'Chat', 'Other'],
       interactionTypes: ['Consultation', 'Resource request', 'Training', 'Follow-up', 'Finding / corrective action', 'Case Advocacy'],
       grants: ['PTI', 'IDEA', 'OSEP'],
+      tiers: ['Tier 1: Individual Assistance', 'Tier 2: Training Workspaces', 'Tier 3: Workshops', 'Tier 4: Outreach'],
       titles: ['Program Coordinator', 'Case Manager', 'Director', 'Advocate', 'Specialist', 'Administrative Assistant'],
       departments: ['Education Services', 'Administration', 'Outreach', 'Training', 'Operations'],
       resourceTypes: ['Advocacy & Legal Services', 'Behavioral & Mental Health', 'Therapy & Medical Services', 'Testing & Evaluation', 'Schools & Tutoring', 'Early Childhood & Family Support', 'Independent Living & Disability Services', 'Transition & Vocational/Trades'],
@@ -13394,6 +13459,7 @@ var _photoPendingByIsland = {};
       populateTitleDropdown();
       populateDepartmentDropdown();
       populateResourceTypeDropdown();
+      window.populateTierDropdowns();
       if (window.initTipRotator) window.initTipRotator();
     } catch (e) {
       console.error('Error loading lookup lists:', e);
@@ -14402,7 +14468,8 @@ var _photoPendingByIsland = {};
     titles: 'lmTitlesList',
     departments: 'lmDepartmentsList',
     resourceTypes: 'lmResourceTypesList',
-    materials: 'lmMaterialsList'
+    materials: 'lmMaterialsList',
+    tiers: 'lmTiersList'
   };
 
   function renderLookupList(listKey) {
@@ -14431,6 +14498,7 @@ var _photoPendingByIsland = {};
     renderLookupList('resourceTypes');
     renderLookupList('materials');
     renderLookupList('tips');
+    renderLookupList('tiers');
     lmDecorateHeaders();
   };
 
@@ -14563,6 +14631,7 @@ var _photoPendingByIsland = {};
       if (listKey === 'titles') populateTitleDropdown();
       if (listKey === 'departments') populateDepartmentDropdown();
       if (listKey === 'resourceTypes') populateResourceTypeDropdown();
+      if (listKey === 'tiers') window.populateTierDropdowns();
       if (listKey === 'tips' && window.initTipRotator) window.initTipRotator();
     } catch (e) {
       alert('Error saving list: ' + e.message);
@@ -33030,9 +33099,7 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   html += '<div class="es-form-grid">';
   html += '<div class="es-form-field"><label>Tier Model of Support</label>';
   html += '<select id="esTierModel">';
-  ['', 'Tier 1', 'Tier 2', 'Tier 3', 'Tier 4'].forEach(function(t) {
-    html += '<option value="' + t + '"' + (summary.tierModel === t ? ' selected' : '') + '>' + (t || '-- Select --') + '</option>';
-  });
+  html += window._tierOptionsHtml(summary.tierModel || '', '-- Select --');
   html += '</select></div>';
   // Auto-populate from survey when summary has never been saved; once saved,
   // use the stored value (admin overrides preserved). typeof check distinguishes
@@ -42131,10 +42198,7 @@ window.cmsBuildStaffActivityReport = async function() {
     html += '</select></div>';
     html += '<div><label style="display:block;font-size:.72rem;color:var(--text-soft);font-weight:600;margin-bottom:3px;">TIER</label>';
     html += '<select id="eaFilterTier" style="width:100%;padding:7px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;">';
-    html += '<option value="">All</option>';
-    ['Tier 1','Tier 2','Tier 3','Tier 4'].forEach(function(t) {
-      html += '<option value="' + t + '"' + (f.tier === t ? ' selected' : '') + '>' + t + '</option>';
-    });
+    html += window._tierOptionsHtml(f.tier || '', 'All');
     html += '</select></div>';
     html += '<div><label style="display:block;font-size:.72rem;color:var(--text-soft);font-weight:600;margin-bottom:3px;">FROM</label>';
     html += '<input type="date" id="eaFilterFrom" value="' + _esc(f.from) + '" style="width:100%;padding:7px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;"></div>';
@@ -42431,13 +42495,7 @@ window.cmsBuildStaffActivityReport = async function() {
 
     // 6. Tier Model
     html += _section('Tier Model');
-    var tierMap = {
-      'Tier 1': 'Tier 1 - Self-Service / Information',
-      'Tier 2': 'Tier 2 - Brief Consultation',
-      'Tier 3': 'Tier 3 - Workshops',
-      'Tier 4': 'Tier 4 - Intensive 1:1 Support',
-    };
-    var tierLabel = r.tier ? (tierMap[r.tier] || r.tier) : 'Not yet entered';
+    var tierLabel = r.tier ? window._tierLabel(r.tier) : 'Not yet entered';
     html += '<div style="padding:8px 10px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;font-size:.88rem;margin-bottom:16px;">' + _esc(tierLabel) + '</div>';
 
     // 7. Federal Disability Categories
@@ -42939,13 +42997,7 @@ window.cmsBuildStaffActivityReport = async function() {
     var summary = row.summary || {};
     console.log('cmsEAPrintCard: computations complete, building HTML...');
 
-    var tierMap = {
-      'Tier 1': 'Tier 1 - Self-Service / Information',
-      'Tier 2': 'Tier 2 - Brief Consultation',
-      'Tier 3': 'Tier 3 - Workshops',
-      'Tier 4': 'Tier 4 - Intensive 1:1 Support',
-    };
-    var tierLabel = row.tier ? (tierMap[row.tier] || row.tier) : '';
+    var tierLabel = row.tier ? window._tierLabel(row.tier) : '';
 
     var packed = (summary.materialsPacked && typeof summary.materialsPacked === 'object') ? summary.materialsPacked : {};
     var diss = (summary.materialsDisseminated && typeof summary.materialsDisseminated === 'object') ? summary.materialsDisseminated : {};
@@ -43652,6 +43704,9 @@ window.cmsBuildStaffActivityReport = async function() {
     var t = new Date();
     dEl.value = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
     var nb = document.getElementById('oneOffNewContactBox'); if (nb) nb.style.display = 'none';
+    /* Fill the tier options before the edit branch below sets .value — assigning a
+       value that has no matching option silently leaves the select blank. */
+    window.populateTierDropdowns();
     if (_ooEditId) {
       try {
         var doc = await db.collection('events').doc(_ooEditId).get();
@@ -46138,12 +46193,10 @@ window.cmsBuildMembershipReport = async function() {
         </div>
         <div>
           <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Tier level</label>
+          <!-- Options are filled by populateTierDropdowns() from the managed
+               "tiers" list; this placeholder is all the static markup carries. -->
           <select id="oneOffTier" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;background:#fff;">
             <option value="">&mdash; Select tier &mdash;</option>
-            <option value="Tier 1">Tier 1 - Self-Service / Information</option>
-            <option value="Tier 2">Tier 2 - Brief Consultation</option>
-            <option value="Tier 3">Tier 3 - Workshops</option>
-            <option value="Tier 4">Tier 4 - Intensive 1:1 Support</option>
           </select>
         </div>
       </div>
