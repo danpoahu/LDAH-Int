@@ -4754,7 +4754,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.19-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.20-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13444,17 +13444,34 @@ var _photoPendingByIsland = {};
   // Cleared by loadContacts(true) / refresh so it can't go stale after an advocacy
   // is opened or closed.
   let _ctAdvocacyIds = null;   // Set<contactId>, or null when not yet loaded
+  // True when an interaction represents case advocacy. (v148.13)
+  //
+  // Was `interactionType === 'Case Advocacy'`. That type is being retired —
+  // advocacy already has its own field, and using it as a *type* meant the
+  // interaction could not also carry its tier. Every such record was backfilled
+  // with caseAdvocacy:true first, so the flag is the durable signal; the string
+  // stays as a fallback for anything predating the flag.
+  //
+  // 🔴 Document retention depends on this: a family with an OPEN advocacy
+  // interaction keeps their Connect-Gen documents instead of the 24h destroy.
+  window._isCaseAdvocacyIx = function(x) {
+    if (!x) return false;
+    return x.caseAdvocacy === true || !!x.caseAdvocateUid || x.interactionType === 'Case Advocacy';
+  };
+
   async function _getAdvocacyContactIds() {
     if (_ctAdvocacyIds) return _ctAdvocacyIds;
     var ids = new Set();
     try {
+      // Advocacy is identified by a flag as well as the legacy type string, which
+      // one where() cannot express — so filter the open ones in memory.
       var snap = await db.collection('interactions')
-        .where('interactionType', '==', 'Case Advocacy')
         .where('status', '==', 'Open')
         .get();
       snap.forEach(function(doc) {
-        var cid = (doc.data() || {}).contactId;
-        if (cid) ids.add(cid);
+        var d = doc.data() || {};
+        if (!window._isCaseAdvocacyIx(d)) return;
+        if (d.contactId) ids.add(d.contactId);
       });
     } catch (e) {
       console.warn('advocacy-only lookup failed:', e.message);
@@ -13620,7 +13637,10 @@ var _photoPendingByIsland = {};
 
       // Ensure "Chat" + "Event Feedback" + "Case Advocacy" exist in channels (auto-migrate existing data)
       var _channelsDirty = false;
-      ['Chat', 'Event Feedback', 'Case Advocacy'].forEach(function(ch) {
+      // 'Case Advocacy' removed from this list 2026-08-19 — the channel was
+      // retired and its 26 interactions moved to 'Other'. Re-adding it here
+      // would resurrect an option Daniel deleted.
+      ['Chat', 'Event Feedback'].forEach(function(ch) {
         if (_lookupLists.channels.length > 0 && !_lookupLists.channels.includes(ch)) {
           var otherIdx = _lookupLists.channels.indexOf('Other');
           if (otherIdx >= 0) {
@@ -13640,9 +13660,13 @@ var _photoPendingByIsland = {};
         }).catch(function(e) { console.warn('Could not update channels lookup:', e.message); });
       }
 
-      // Ensure "Case Advocacy" exists in interactionTypes (auto-migrate existing data)
+      // 'Case Advocacy' was retired as an interaction TYPE on 2026-08-19 —
+      // advocacy is tracked by the caseAdvocacy flag, and using it as a type
+      // meant the interaction could not also record its tier. Nothing is
+      // re-added here any more; the loop is left empty so the shape stays
+      // obvious if another protected value is ever needed.
       var _typesDirty = false;
-      ['Case Advocacy'].forEach(function(t) {
+      [].forEach(function(t) {
         if (_lookupLists.interactionTypes.length > 0 && !_lookupLists.interactionTypes.includes(t)) {
           _lookupLists.interactionTypes.push(t);
           _typesDirty = true;
@@ -13656,21 +13680,14 @@ var _photoPendingByIsland = {};
         }).catch(function(e) { console.warn('Could not update interactionTypes lookup:', e.message); });
       }
 
-      // 'Screening' fires the SRP screening-consent email when chosen on an
-      // interaction, so it has to be selectable. It used to be injected in memory
-      // only — but saveLookupList() wrote the in-memory array, so any unrelated
-      // list edit persisted it anyway, and any edit made while it was absent
-      // dropped it again. It is a real, protected list item now: restored to
-      // Firestore if missing, exactly like the other protected values.
-      if (Array.isArray(_lookupLists.interactionTypes) && !_lookupLists.interactionTypes.includes('Screening')) {
-        _lookupLists.interactionTypes.push('Screening');
-        console.warn('[lists] restored protected interaction type "Screening"');
-        db.collection('lookupLists').doc('interactionTypes').update({
-          items: _lookupLists.interactionTypes,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: 'auto-migrate (restored protected item)'
-        }).catch(function(e) { console.warn('Could not restore Screening:', e.message); });
-      }
+      // 'Screening' was retired as an interaction type on 2026-08-19 (Daniel:
+      // screenings are always Tier 4) and its 26 interactions were migrated.
+      // It is no longer injected or restored here.
+      //
+      // ⚠ Consequence: choosing 'Screening' on a new interaction is what used to
+      // fire the SRP screening-consent email automatically. With the option gone
+      // that path is unreachable — the consent request is now sent only by the
+      // manual Resend buttons on the signup and the contact card.
 
       populateChannelDropdown();
       populateTypeDropdown();
@@ -14701,14 +14718,13 @@ var _photoPendingByIsland = {};
   //   interactionTypes 'Screening'     -> fires the SRP screening-consent email
   //   channels         'Case Advocacy' -> the channel those interactions are
   //     created with by the advocacy Cloud Function
+  // 2026-08-19: 'Case Advocacy' and 'Screening' were UNLOCKED once the code
+  // stopped matching on those strings. Advocacy is now detected by the
+  // caseAdvocacy flag (see _isCaseAdvocacyIx), and every record was migrated off
+  // the type first, so deleting these options no longer switches anything off.
   window._LM_PROTECTED = {
-    interactionTypes: {
-      'Case Advocacy': 'Cloud Functions match this exactly to decide whether case-advocacy documents are kept or destroyed.',
-      'Screening': 'Choosing this on an interaction is what sends the screening-consent email.'
-    },
-    channels: {
-      'Case Advocacy': 'The advocacy Cloud Function creates its interactions on this channel.'
-    }
+    interactionTypes: {},
+    channels: {}
   };
   window._lmProtectedReason = function(listKey, item) {
     var m = window._LM_PROTECTED[listKey];
@@ -16190,7 +16206,7 @@ var _photoPendingByIsland = {};
       if (contactId && cg.eventId && cg.signupId) {
         try {
           var _advSnap = await db.collection('interactions').where('contactId', '==', contactId).get();
-          var _openAdv = _advSnap.docs.some(function(x) { var a = x.data() || {}; return a.interactionType === 'Case Advocacy' && a.status === 'Open'; });
+          var _openAdv = _advSnap.docs.some(function(x) { var a = x.data() || {}; return window._isCaseAdvocacyIx(a) && a.status === 'Open'; });
           if (_openAdv) {
             var _val = slot.querySelector('.val');
             var _destroyed = !!(s && s.connectGenDocumentsDestroyedAt && !s.connectGenDocuments);
@@ -16662,7 +16678,7 @@ window.openContactDetail = async function(contactId) {
       // when this contact has an OPEN Case Advocacy interaction.
       db.collection('interactions').where('contactId', '==', contactId).get().then(function(iSnap) {
         var openAdv = false;
-        iSnap.forEach(function(d) { var x = d.data() || {}; if (x.interactionType === 'Case Advocacy' && x.status === 'Open') openAdv = true; });
+        iSnap.forEach(function(d) { var x = d.data() || {}; if (window._isCaseAdvocacyIx(x) && x.status === 'Open') openAdv = true; });
         var cp = document.getElementById('ctDetailCgPill');
         if (cp && openAdv) { cp.style.display = 'inline-block'; }
         // v146.0.0 — populate the Case Advocacy Documents slot when open.
@@ -19373,6 +19389,7 @@ window.openContactDetail = async function(contactId) {
 
   var _ixViewDocId = null; // track which interaction is open for appending notes
   var _ixViewInteractionType = null; // v145.0.2 — interactionType of currently-viewed interaction
+  var _ixViewIsCaseAdvocacy = false; // v148.13 — the advocacy FLAG on that interaction
 
   window.viewInteraction = async function(docId, editOpts) {
     var body = document.getElementById('ixViewBody');
@@ -19400,6 +19417,7 @@ window.openContactDetail = async function(contactId) {
       }
       var d = doc.data();
       _ixViewInteractionType = d.interactionType || ''; // v145.0.2
+      _ixViewIsCaseAdvocacy = (d.caseAdvocacy === true) || !!d.caseAdvocateUid; // v148.13
       var ts = d.createdAt ? d.createdAt.toDate() : null;
       var dateStr = ts ? ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
         ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
@@ -20042,7 +20060,7 @@ window.openContactDetail = async function(contactId) {
     }
 
     // v145.0.2 — stamp / clear caseAdvocacyClosedAt for Case Advocacy interactions.
-    if (_ixViewInteractionType === 'Case Advocacy') {
+    if (window._isCaseAdvocacyIx({ interactionType: _ixViewInteractionType, caseAdvocacy: _ixViewIsCaseAdvocacy })) {
       if (newStatus === 'Closed') {
         updates.caseAdvocacyClosedAt = firebase.firestore.FieldValue.serverTimestamp();
       } else {
@@ -20217,6 +20235,7 @@ window.openContactDetail = async function(contactId) {
   window.closeIxView = function() {
     _ixViewDocId = null;
     _ixViewInteractionType = null; // v145.0.2
+    _ixViewIsCaseAdvocacy = false; // v148.13
     document.getElementById('ixViewOverlay').classList.remove('active');
   };
 
