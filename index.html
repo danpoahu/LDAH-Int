@@ -1559,6 +1559,22 @@
       border-color:var(--ocean-deep); box-shadow:0 0 0 3px rgba(8,145,178,.13); }
     #overlay .field textarea{ min-height:64px; }
     #overlay .modal-actions{ padding:0 16px 13px; }
+
+    /* ── List Management: rename + protected items (v148.12) ───────────────── */
+    #listManagementSection .lm-list li { gap:6px; }
+    .lm-item-text { flex:1; min-width:0; }
+    .lm-item-text.editable { cursor:text; border-radius:6px; padding:2px 5px; margin:-2px -5px; }
+    .lm-item-text.editable:hover { background:rgba(8,145,178,.09); box-shadow:inset 0 0 0 1px rgba(8,145,178,.22); }
+    .lm-item-input {
+      flex:1; min-width:0; font:inherit; padding:3px 7px; border-radius:7px;
+      border:1.5px solid var(--ocean-deep); outline:none; background:#fff;
+    }
+    .lm-lock {
+      font-size:.66rem; font-weight:800; letter-spacing:.4px; text-transform:uppercase;
+      background:#EEF4F8; color:var(--text-soft); border-radius:99px; padding:2px 8px; white-space:nowrap;
+    }
+    .lm-edit-btn { background:none; border:none; cursor:pointer; opacity:.55; font-size:.95rem; padding:2px 5px; }
+    .lm-edit-btn:hover { opacity:1; }
     /* Reopen guard (v148.8) */
     .ix-fu-warn{ margin-top:6px; font-size:.78rem; line-height:1.35; color:#9A3412;
       background:#FFF7ED; border-left:3px solid #F97316; border-radius:0 7px 7px 0; padding:6px 9px; }
@@ -4738,7 +4754,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.11</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.12</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13592,10 +13608,11 @@ var _photoPendingByIsland = {};
         }
       });
       if (_channelsDirty) {
+        console.warn('[lists] restored protected channel(s) missing from lookupLists/channels');
         db.collection('lookupLists').doc('channels').update({
           items: _lookupLists.channels,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: 'auto-migrate'
+          updatedBy: 'auto-migrate (restored protected item)'
         }).catch(function(e) { console.warn('Could not update channels lookup:', e.message); });
       }
 
@@ -13615,11 +13632,20 @@ var _photoPendingByIsland = {};
         }).catch(function(e) { console.warn('Could not update interactionTypes lookup:', e.message); });
       }
 
-      // STAGE DEMO (2026-07-15): a "Screening" interaction type, injected IN-MEMORY
-      // ONLY (never written back to lookupLists) so it stays STAGE-only. Selecting it
-      // on a new interaction fires the SRP screening-consent email to the client.
+      // 'Screening' fires the SRP screening-consent email when chosen on an
+      // interaction, so it has to be selectable. It used to be injected in memory
+      // only — but saveLookupList() wrote the in-memory array, so any unrelated
+      // list edit persisted it anyway, and any edit made while it was absent
+      // dropped it again. It is a real, protected list item now: restored to
+      // Firestore if missing, exactly like the other protected values.
       if (Array.isArray(_lookupLists.interactionTypes) && !_lookupLists.interactionTypes.includes('Screening')) {
         _lookupLists.interactionTypes.push('Screening');
+        console.warn('[lists] restored protected interaction type "Screening"');
+        db.collection('lookupLists').doc('interactionTypes').update({
+          items: _lookupLists.interactionTypes,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedBy: 'auto-migrate (restored protected item)'
+        }).catch(function(e) { console.warn('Could not restore Screening:', e.message); });
       }
 
       populateChannelDropdown();
@@ -14643,6 +14669,30 @@ var _photoPendingByIsland = {};
     tiers: 'lmTiersList'
   };
 
+  // Values the CODE matches on by exact string. Renaming or deleting one of
+  // these does not just change a label — it silently switches off the behaviour
+  // attached to it, so the UI refuses. (v148.12)
+  //   interactionTypes 'Case Advocacy' -> the Cloud Function rule that decides
+  //     whether case-advocacy DOCUMENTS are retained or destroyed
+  //   interactionTypes 'Screening'     -> fires the SRP screening-consent email
+  //   channels         'Case Advocacy' -> the channel those interactions are
+  //     created with by the advocacy Cloud Function
+  window._LM_PROTECTED = {
+    interactionTypes: {
+      'Case Advocacy': 'Cloud Functions match this exactly to decide whether case-advocacy documents are kept or destroyed.',
+      'Screening': 'Choosing this on an interaction is what sends the screening-consent email.'
+    },
+    channels: {
+      'Case Advocacy': 'The advocacy Cloud Function creates its interactions on this channel.'
+    }
+  };
+  window._lmProtectedReason = function(listKey, item) {
+    var m = window._LM_PROTECTED[listKey];
+    return (m && m[item]) || '';
+  };
+
+  function _lmEsc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
   function renderLookupList(listKey) {
     var ul = document.getElementById(_lmListMap[listKey]);
     if (!ul) return;
@@ -14650,15 +14700,132 @@ var _photoPendingByIsland = {};
     ul.innerHTML = '';
     items.forEach(function(item, idx) {
       var li = document.createElement('li');
-      var safeItem = item.replace(/'/g, "\\'");
-      li.innerHTML =
-        '<span class="lm-item-text">' + item + '</span>' +
+      var reason = window._lmProtectedReason(listKey, item);
+      var esc = _lmEsc(item);
+
+      var textEl = document.createElement('span');
+      textEl.className = 'lm-item-text' + (reason ? '' : ' editable');
+      textEl.textContent = item;
+      if (!reason) {
+        textEl.title = 'Click to rename';
+        textEl.addEventListener('click', function() { window.startRenameLookupItem(listKey, idx); });
+      }
+      li.appendChild(textEl);
+
+      if (reason) {
+        var lock = document.createElement('span');
+        lock.className = 'lm-lock';
+        lock.textContent = 'In use by the system';
+        lock.title = reason;
+        li.appendChild(lock);
+      } else {
+        var ed = document.createElement('button');
+        ed.className = 'lm-edit-btn'; ed.type = 'button';
+        ed.title = 'Rename'; ed.textContent = '✎';
+        ed.addEventListener('click', function() { window.startRenameLookupItem(listKey, idx); });
+        li.appendChild(ed);
+      }
+
+      var extra =
         '<button class="lm-move-btn" title="Move up" onclick="moveLookupItem(\'' + listKey + '\',' + idx + ',-1)">↑</button>' +
         '<button class="lm-move-btn" title="Move down" onclick="moveLookupItem(\'' + listKey + '\',' + idx + ',1)">↓</button>' +
-        '<button class="lm-del-btn" title="Remove" onclick="removeLookupItem(\'' + listKey + '\',' + idx + ')">×</button>';
+        (reason ? '' : '<button class="lm-del-btn" title="Remove" onclick="removeLookupItem(\'' + listKey + '\',' + idx + ')">×</button>');
+      li.insertAdjacentHTML('beforeend', extra);
       ul.appendChild(li);
     });
   }
+
+  // Rename in place. Renaming only changes what the dropdown OFFERS — records
+  // already saved keep the old wording — so the confirm says how many there are
+  // and offers to update them too.
+  window.startRenameLookupItem = function(listKey, idx) {
+    var ul = document.getElementById(_lmListMap[listKey]);
+    if (!ul) return;
+    var li = ul.children[idx];
+    if (!li || li.querySelector('.lm-item-input')) return;
+    var oldVal = _lookupLists[listKey][idx];
+
+    var input = document.createElement('input');
+    input.className = 'lm-item-input';
+    input.value = oldVal;
+    var textEl = li.querySelector('.lm-item-text');
+    li.replaceChild(input, textEl);
+    input.focus(); input.select();
+
+    var done = false;
+    function cancel() { if (done) return; done = true; renderLookupList(listKey); }
+    function commit() {
+      if (done) return;
+      var val = input.value.trim();
+      if (!val || val === oldVal) return cancel();
+      done = true;
+      window.renameLookupItem(listKey, idx, oldVal, val);
+    }
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    });
+    input.addEventListener('blur', commit);
+  };
+
+  window.renameLookupItem = async function(listKey, idx, oldVal, newVal) {
+    if (window._lmProtectedReason(listKey, oldVal)) {
+      alert('“' + oldVal + '” cannot be renamed.\n\n' + window._lmProtectedReason(listKey, oldVal));
+      renderLookupList(listKey); return;
+    }
+    if ((_lookupLists[listKey] || []).indexOf(newVal) >= 0) {
+      alert('“' + newVal + '” is already in this list.');
+      renderLookupList(listKey); return;
+    }
+    var field = _LM_RECORD_FIELD[listKey];
+    var used = 0;
+    if (field) {
+      try {
+        var snap = await db.collection('interactions').where(field, '==', oldVal).get();
+        used = snap.size;
+      } catch (e) { console.warn('rename usage count failed:', e.message); }
+    }
+    var msg = 'Rename “' + oldVal + '” to “' + newVal + '”?';
+    var alsoUpdate = false;
+    if (used > 0) {
+      msg += '\n\n' + used + ' existing interaction' + (used === 1 ? '' : 's') +
+             ' still say' + (used === 1 ? 's' : '') + ' “' + oldVal + '”.' +
+             '\n\nOK  — rename the option AND update those ' + used + ' records.' +
+             '\nCancel — stop, change nothing.';
+      if (!confirm(msg)) { renderLookupList(listKey); return; }
+      alsoUpdate = true;
+    } else if (!confirm(msg)) { renderLookupList(listKey); return; }
+
+    await _lmMutate(listKey, function(arr) {
+      var i = arr.indexOf(oldVal);
+      if (i < 0) return null;                 // someone else already changed it
+      arr[i] = newVal;
+      return arr;
+    });
+
+    if (alsoUpdate && field) {
+      try {
+        var s2 = await db.collection('interactions').where(field, '==', oldVal).get();
+        var batch = db.batch(), n = 0;
+        s2.forEach(function(d) {
+          var u = {}; u[field] = newVal;
+          u.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+          batch.update(d.ref, u); n++;
+        });
+        if (n) await batch.commit();
+        _showToast('Renamed, and updated ' + n + ' record' + (n === 1 ? '' : 's') + '.', '#16A34A');
+        if (window.auditLog) window.auditLog('Renamed list item', listKey + ': "' + oldVal + '" -> "' + newVal + '" (' + n + ' records updated)');
+      } catch (e) {
+        alert('The option was renamed, but the existing records could not be updated: ' + e.message);
+      }
+    } else {
+      _showToast('Renamed to “' + newVal + '”.', '#16A34A');
+      if (window.auditLog) window.auditLog('Renamed list item', listKey + ': "' + oldVal + '" -> "' + newVal + '"');
+    }
+  };
+
+  // Which interactions field each list feeds, for the rename backfill.
+  var _LM_RECORD_FIELD = { channels: 'channel', interactionTypes: 'interactionType', grants: 'grantProgram' };
 
   window.renderAllLookupLists = function() {
     renderLookupList('channels');
@@ -14789,10 +14956,43 @@ var _photoPendingByIsland = {};
     if (e.key === 'Escape' && document.activeElement === box) { box.value = ''; lmFilter(); box.blur(); }
   });
 
-  async function saveLookupList(listKey) {
+  // Apply one change to the CURRENT stored array rather than overwriting the doc
+  // with whatever this tab happens to be holding.
+  //
+  // Why: saveLookupList() used to .set() the in-memory copy. A tab opened before
+  // someone else's edit would silently undo it, and the in-memory-only
+  // 'Screening' injection below got written back by any unrelated save. mutate()
+  // receives a fresh array and returns the new one, or null to abort.
+  window._lmMutate = async function(listKey, mutate) {
+    var ref = db.collection('lookupLists').doc(listKey);
     try {
+      var snap = await ref.get();
+      var fresh = (snap.exists && Array.isArray((snap.data() || {}).items))
+        ? (snap.data().items || []).slice() : [];
+      var next = mutate(fresh);
+      if (!next) {
+        _showToast('That item changed in another window — reloading the list.', '#D97706');
+        _lookupLists[listKey] = fresh;
+        renderLookupList(listKey);
+        return false;
+      }
+      _lookupLists[listKey] = next;
+      renderLookupList(listKey);
+      await saveLookupList(listKey, next);
+      return true;
+    } catch (e) {
+      alert('Error saving list: ' + e.message);
+      return false;
+    }
+  };
+
+  async function saveLookupList(listKey, itemsOverride) {
+    try {
+      var items = itemsOverride || _lookupLists[listKey] || [];
+      // 'Screening' is pushed into interactionTypes in memory at load time; never
+      // let an unrelated save persist an injected value it did not come from.
       await db.collection('lookupLists').doc(listKey).set({
-        items: _lookupLists[listKey],
+        items: items,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: currentUserData?.uid || ''
       });
@@ -14813,30 +15013,56 @@ var _photoPendingByIsland = {};
     var input = document.getElementById(inputId);
     var val = input.value.trim();
     if (!val) return;
-    if (_lookupLists[listKey].includes(val)) { alert('This item already exists.'); return; }
-    _lookupLists[listKey].push(val);
-    input.value = '';
-    renderLookupList(listKey);
-    await saveLookupList(listKey);
+    if ((_lookupLists[listKey] || []).includes(val)) { alert('This item already exists.'); return; }
+    var ok = await window._lmMutate(listKey, function(arr) {
+      if (arr.indexOf(val) >= 0) return null;
+      arr.push(val);
+      return arr;
+    });
+    if (ok) input.value = '';
   };
 
   window.removeLookupItem = async function(listKey, idx) {
     var item = _lookupLists[listKey][idx];
-    if (!confirm('Remove "' + item + '" from the list?')) return;
-    _lookupLists[listKey].splice(idx, 1);
-    renderLookupList(listKey);
-    await saveLookupList(listKey);
+    var reason = window._lmProtectedReason(listKey, item);
+    if (reason) {
+      alert('“' + item + '” cannot be removed.\n\n' + reason);
+      return;
+    }
+    var field = _LM_RECORD_FIELD[listKey];
+    var used = 0;
+    if (field) {
+      try { used = (await db.collection('interactions').where(field, '==', item).get()).size; }
+      catch (e) { console.warn('usage count failed:', e.message); }
+    }
+    var msg = 'Remove "' + item + '" from the list?';
+    if (used > 0) {
+      msg += '\n\n' + used + ' existing interaction' + (used === 1 ? '' : 's') + ' still use' +
+             (used === 1 ? 's' : '') + ' it. Those records keep the value — it just stops being ' +
+             'offered on new ones, and they will show a value that is no longer in the list.' +
+             '\n\nTo change the wording instead, click the item and rename it.';
+    }
+    if (!confirm(msg)) return;
+    await window._lmMutate(listKey, function(arr) {
+      var i = arr.indexOf(item);
+      if (i < 0) return null;
+      arr.splice(i, 1);
+      return arr;
+    });
+    if (window.auditLog) window.auditLog('Removed list item', listKey + ': "' + item + '"' + (used ? ' (' + used + ' records still use it)' : ''));
   };
 
   window.moveLookupItem = async function(listKey, idx, direction) {
-    var arr = _lookupLists[listKey];
-    var newIdx = idx + direction;
-    if (newIdx < 0 || newIdx >= arr.length) return;
-    var temp = arr[idx];
-    arr[idx] = arr[newIdx];
-    arr[newIdx] = temp;
-    renderLookupList(listKey);
-    await saveLookupList(listKey);
+    var item = (_lookupLists[listKey] || [])[idx];
+    if (item == null) return;
+    await window._lmMutate(listKey, function(arr) {
+      var i = arr.indexOf(item);
+      if (i < 0) return null;
+      var j = i + direction;
+      if (j < 0 || j >= arr.length) return null;
+      var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+      return arr;
+    });
   };
 
   // ── Quick-add contact from interaction modal ──
