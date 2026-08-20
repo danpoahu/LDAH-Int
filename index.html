@@ -4856,7 +4856,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.21</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.22</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8039,6 +8039,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <span id="cmsCgWsStatus" style="font-size:.82rem;color:var(--text-soft);"></span>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-ghost" onclick="cmsCgWsClose()">Close</button>
+            <button class="btn btn-ghost" id="cmsCgWsExpandBtn" onclick="cmsCgWsToggleExpand()" title="Grow every box to fit what is written in it">&#8597;&nbsp; Expand worksheet</button>
             <button class="btn btn-ghost" id="cmsCgWsPrintBtn" onclick="cmsCgWsPrint()" title="Print this worksheet">&#128424;&nbsp; Print</button>
             <button class="btn btn-primary" id="cmsCgWsSaveBtn" style="background:#059669;" onclick="cmsCgWsSave()">Save Worksheet</button>
           </div>
@@ -30687,6 +30688,41 @@ window.cmsCgWsPrint = function () {
   if (window.auditLog) auditLog('Connect-Gen worksheet printed', 'Client: ' + who);
 };
 
+
+// ── Expand the worksheet for reading (v148.22) ─────────────────────────────
+// Every answer sits in a 2-row <textarea>, so a long one — and they are often
+// several hundred words — has to be scrolled a few lines at a time. This grows
+// each box to its content so the whole worksheet reads as a page. Toggles back,
+// and stays on while typing or when a concern is added.
+var _cmsCgWsExpanded = false;
+
+function _cmsCgWsFit(ta) {
+  if (!ta) return;
+  if (_cmsCgWsExpanded) {
+    ta.style.height = 'auto';
+    ta.style.height = (ta.scrollHeight + 2) + 'px';
+    ta.style.overflowY = 'hidden';
+  } else {
+    ta.style.height = '';
+    ta.style.overflowY = '';
+  }
+}
+
+window.cmsCgWsApplyExpand = function () {
+  document.querySelectorAll('#cmsCgWsBody textarea[data-i][data-k]').forEach(_cmsCgWsFit);
+  var b = document.getElementById('cmsCgWsExpandBtn');
+  if (b) b.innerHTML = _cmsCgWsExpanded ? '&#8596;&nbsp; Collapse worksheet' : '&#8597;&nbsp; Expand worksheet';
+  // Expanded, the body scrolls as one page instead of each box scrolling
+  // separately — which is the whole point of the button.
+  var body = document.getElementById('cmsCgWsBody');
+  if (body) body.style.maxHeight = _cmsCgWsExpanded ? 'calc(100vh - 220px)' : 'calc(100vh - 260px)';
+};
+
+window.cmsCgWsToggleExpand = function () {
+  _cmsCgWsExpanded = !_cmsCgWsExpanded;
+  window.cmsCgWsApplyExpand();
+};
+
 var CMS_CG_WS_QUESTIONS = [
   { key: 'a', label: 'Concern',                       hint: 'What worries the family' },
   { key: 'b', label: 'Evidence of the problem',       hint: 'Report cards, teacher comments, what they see at home' },
@@ -30729,6 +30765,7 @@ window.cmsCgWsOpen = async function(collection, eventId, signupId) {
     }
     document.getElementById('cmsCgWsSubheader').innerHTML = bits.join(' &nbsp;·&nbsp; ');
 
+    _cmsCgWsExpanded = false;   // each family opens collapsed
     cmsCgWsRender();
     auditLog('Connect-Gen worksheet viewed', 'Client: ' + (s.name || 'unknown'));
   } catch (err) {
@@ -30765,12 +30802,16 @@ function cmsCgWsRender() {
   });
   h += '<button type="button" class="btn btn-ghost" style="width:100%;border:1.5px dashed var(--ocean-deep);color:var(--ocean-deep);font-weight:600;" onclick="cmsCgWsAdd()">+ Add another concern</button>';
   body.innerHTML = h;
+  // A render replaces every textarea, so re-fit them if the reader had the
+  // worksheet expanded — otherwise adding a concern silently collapses it.
+  if (window.cmsCgWsApplyExpand) window.cmsCgWsApplyExpand();
 }
 
 window.cmsCgWsEdit = function(el) {
   var i = parseInt(el.getAttribute('data-i'), 10);
   var k = el.getAttribute('data-k');
   if (_cmsCgWs.concerns[i]) _cmsCgWs.concerns[i][k] = el.value;
+  if (_cmsCgWsExpanded) _cmsCgWsFit(el);   // keep it grown while typing
 };
 
 window.cmsCgWsAdd = function() {
