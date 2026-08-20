@@ -1631,6 +1631,32 @@
       font-size:.82rem; line-height:1.4; color:#9A3412; background:#FFF7ED;
       border-left:3px solid #F97316; border-radius:0 8px 8px 0; padding:8px 11px; margin:2px 0 12px;
     }
+    /* Calendar -> Workshop form hand-off (v148.18) */
+    .ed-wp-prompt{
+      position:fixed; right:22px; bottom:22px; z-index:11200; display:flex; align-items:center; gap:12px;
+      background:#fff; border:1px solid rgba(8,145,178,.22); border-left:4px solid var(--ocean-deep);
+      border-radius:14px; padding:13px 14px 13px 15px; max-width:430px;
+      box-shadow:0 18px 44px rgba(0,44,74,.20);
+      transform:translateY(14px) scale(.98); opacity:0; transition:transform .24s cubic-bezier(.2,.8,.3,1), opacity .24s;
+    }
+    .ed-wp-prompt.in{ transform:none; opacity:1; }
+    .ed-wp-ico{
+      flex:0 0 36px; height:36px; border-radius:10px; background:#E6F6FB; color:var(--ocean-deep);
+      display:flex; align-items:center; justify-content:center; font-size:1.05rem;
+    }
+    .ed-wp-b{ flex:1; min-width:0; }
+    .ed-wp-b b{ display:block; font-family:'Outfit',sans-serif; font-size:.92rem; line-height:1.25;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ed-wp-b span{ display:block; font-size:.78rem; color:var(--text-soft); line-height:1.35; }
+    .ed-wp-go{
+      flex:0 0 auto; border:none; border-radius:9px; cursor:pointer; padding:8px 14px;
+      background:var(--ocean-deep); color:#fff; font:600 .84rem 'Outfit',sans-serif;
+    }
+    .ed-wp-go:hover{ background:#013A5C; }
+    .ed-wp-x{ flex:0 0 auto; border:none; background:none; cursor:pointer; color:var(--text-soft);
+      font-size:1.15rem; line-height:1; padding:2px 4px; }
+    @media (max-width:640px){ .ed-wp-prompt{ left:14px; right:14px; max-width:none; } }
+
     .wp-sub-note{ font-weight:400; font-size:.72rem; color:var(--text-soft); opacity:.85; text-transform:none; letter-spacing:0; }
     #wpFormOverlay .wp-f select{
       border:1.5px solid rgba(8,145,178,.20); border-radius:10px; padding:7px 11px;
@@ -4830,7 +4856,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.17</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.18</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -28598,6 +28624,12 @@ window.edSetPresenter = async function(sel, idx) {
     sel.className = 'ed-sel' + (name ? '' : ' unassigned');
     auditLog('Set event presenter', ev.title + ' — ' + ev.date + ' → ' + (name || 'unassigned'));
     if (typeof _showToast === 'function') _showToast(name ? (name + ' assigned to ' + ev.title) : 'Presenter cleared', '#16A34A');
+
+    // Assigning a presenter to an off-site event is the moment the Workshop &
+    // Presentation form is worth filling — the trainer is now known, and this
+    // is the page Noe is already on. Open it right here rather than making her
+    // find the task. Only on assignment, only off-site, only while unsubmitted.
+    if (name) _edMaybeOfferWorkshopForm(ev);
   } catch (e) {
     sel.value = prev;
     alert('Could not save that: ' + e.message);
@@ -28605,6 +28637,61 @@ window.edSetPresenter = async function(sel, idx) {
     sel.disabled = false;
   }
 };
+
+
+// ── Workshop form hand-off from the calendar (v148.18) ──────────────────────
+// Same off-site test the Cloud Function uses, so the calendar and the task
+// queue never disagree about which events need the form.
+function _edIsOffsiteEvent(e) {
+  if (!e) return false;
+  var t = e.eventType;
+  if (!t) {
+    if (e.specialEvent === true) {
+      t = (e.specialFormConfig && e.specialFormConfig.screening === true) ? 'screening' : 'outreach_booth';
+    } else if (e.remoteSignup === true) {
+      t = 'remote_signup';
+    }
+  }
+  return ['outreach_booth', 'screening', 'remote_signup'].indexOf(t) >= 0;
+}
+
+async function _edMaybeOfferWorkshopForm(edEv) {
+  try {
+    if (edEv.coll !== 'events') return;             // recurring programmes stay in the office
+    var snap = await db.collection('events').doc(edEv.id).get();
+    if (!snap.exists || !_edIsOffsiteEvent(snap.data() || {})) return;
+    var f = await db.collection('workshopForms').doc(edEv.id).get();
+    if (f.exists && (f.data() || {}).submittedAt) return;   // already done
+    _edShowWorkshopPrompt(edEv, f.exists);
+  } catch (e) { console.warn('workshop form offer skipped:', e.message); }
+}
+
+// A quiet slide-in rather than a modal thrown in her face — she may be working
+// down a column of unassigned events, and interrupting each one would be worse
+// than the paper form.
+function _edShowWorkshopPrompt(edEv, isDraft) {
+  var old = document.getElementById('edWpPrompt');
+  if (old) old.remove();
+  var el = document.createElement('div');
+  el.id = 'edWpPrompt';
+  el.className = 'ed-wp-prompt';
+  el.innerHTML =
+    '<div class="ed-wp-ico">&#9993;</div>' +
+    '<div class="ed-wp-b">' +
+      '<b>' + rsEscape(String(edEv.title).slice(0, 44)) + '</b>' +
+      '<span>Off-site event &mdash; ' + (isDraft ? 'the Workshop &amp; Presentation form is started.' : 'it needs a Workshop &amp; Presentation form.') + '</span>' +
+    '</div>' +
+    '<button class="ed-wp-go" type="button">' + (isDraft ? 'Continue' : 'Open the form') + '</button>' +
+    '<button class="ed-wp-x" type="button" title="Later">&times;</button>';
+  document.body.appendChild(el);
+  requestAnimationFrame(function() { el.classList.add('in'); });
+
+  var close = function() { el.classList.remove('in'); setTimeout(function() { el.remove(); }, 240); };
+  el.querySelector('.ed-wp-go').addEventListener('click', function() { close(); openWorkshopForm(edEv.id); });
+  el.querySelector('.ed-wp-x').addEventListener('click', close);
+  // Long enough to read and act on, short enough not to sit there nagging.
+  setTimeout(function() { if (document.body.contains(el)) close(); }, 12000);
+}
 
 window.edRender = async function() {
   var grid = document.getElementById('edGrid');
