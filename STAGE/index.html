@@ -4886,7 +4886,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.33-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.34-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5133,10 +5133,28 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             // status to Firestore (Closed when checked, Open when un-checked) so
             // the change sticks system-wide. Optimistic: toggle the strikethrough
             // immediately, revert it if the write fails. The row stays in place.
-            window.myDayToggleDone = async function(check, id){
+            window.myDayToggleDone = async function(check, id, step, eventId){
               if(!id) return;
               var row=check.parentElement;
               var nowDone=!row.classList.contains('done');
+
+              /* Closing the travel task used to write nothing and warn about
+                 nothing — the chain just marked itself done. That is exactly how
+                 Molokaʻi's flights and lodging never reached the form, and the
+                 packing list went out with "booked by Admin" and no dates under
+                 it. Not a hard block: when ground transport is agency-provided
+                 there is genuinely nothing to enter. */
+              if(nowDone && step==='workshopTravel' && eventId){
+                var _rec = null;
+                try{
+                  var _fs = await db.collection('workshopForms').doc(eventId).get();
+                  var _fd = _fs.exists ? (_fs.data()||{}) : {};
+                  _rec = !!(_fd.airDone || _fd.lodgeDone);
+                }catch(e){ _rec = true; }   // can't tell — don't nag
+                if(_rec === false){
+                  if(!confirm('No booking dates are recorded for this event.\n\nThe packing list goes out three days beforehand and will show no flight or lodging dates.\n\nClick Cancel to go back and use "Book travel" — or OK to close it anyway.')) return;
+                }
+              }
               row.classList.toggle('done');
               check.style.pointerEvents='none';
               try{
@@ -5669,8 +5687,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                         // Workshop & Presentation form (v148.15). Three steps, three
                         // owners: Noe fills it, the ED approves travel in one click,
                         // Admin books it on page 2.
-                        if(d.workflowEventId&&(d.workflowStep==='workshopForm'||d.workflowStep==='workshopTravel'))
-                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">'+(d.workflowStep==='workshopTravel'?'Book travel &rarr;':'Open the form &rarr;')+'</button>';
+                        if(d.workflowEventId&&d.workflowStep==='workshopForm')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">Open the form &rarr;</button>';
+                        /* Booking travel is four fields. Sending someone into page 2
+                           of a forty-field form to fill them is how the Molokaʻi
+                           booking got closed with nothing recorded — so the fields
+                           come to the task instead, the way the ED's approval does. */
+                        else if(d.workflowEventId&&d.workflowStep==='workshopTravel')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();wpTravelInline(\''+d.workflowEventId+'\',\''+d._id+'\',this)">Book travel &rarr;</button>';
                         else if(d.workflowEventId&&d.workflowStep==='workshopTravelOk')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#15803d;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();approveWorkshopTravel(\''+d.workflowEventId+'\',this)">&#10003; Approve travel</button>'
                             +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#fff;color:#0e5f7a;border:1px solid #cfe3ec;border-radius:6px;cursor:pointer;margin-top:7px;margin-left:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">View the form</button>';
@@ -5712,7 +5736,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayCancelPending(\''+d._id+'\')">Cancel &amp; archive pending &rarr;</button>';
                       }
                       return '<div class="'+m.cls+'" onclick="viewInteraction(\''+d._id+'\')">'
-                        +'<div class="check" onclick="event.stopPropagation();myDayToggleDone(this,\''+d._id+'\')"></div>'
+                        +'<div class="check" onclick="event.stopPropagation();myDayToggleDone(this,\''+d._id+'\',\''+_attrJsArg(d.workflowStep||'')+'\',\''+_attrJsArg(d.workflowEventId||'')+'\')"></div>'
                         +'<div class="meta"><div class="ttl">'+esc(d.summary||'(no summary)')+person+'</div>'
                         +'<div class="sub">'+(sub.join(' · ')||'—')+'</div>'+actionBtn+'</div>'
                         +'<div class="tags">'+m.pill+typePill+'</div></div>';
@@ -19712,6 +19736,97 @@ window.openContactDetail = async function(contactId) {
       alert('Could not record the approval: ' + e.message);
       if (btn) { btn.disabled = false; btn.textContent = 'Approve travel'; }
     }
+  };
+
+  /* Admin's half of the travel chain, on the task card.
+
+     The ED approves in one click and never opens the form; Admin had to go
+     into page 2 of a forty-field form to fill four boxes, which is a different
+     job and a much worse one. Molokaʻi's booking was closed with all four left
+     empty. So the four boxes come to her instead — same shape as the approval
+     above, and Save both records the booking and closes the task. */
+  window.wpTravelInline = async function(eventId, taskId, btn) {
+    if (!eventId || !btn) return;
+    var card = btn.parentElement;
+    var open = card.querySelector('.wp-tin');
+    if (open) { open.remove(); btn.textContent = 'Book travel →'; return; }
+
+    btn.disabled = true;
+    var d = {};
+    try {
+      var snap = await db.collection('workshopForms').doc(eventId).get();
+      if (snap.exists) d = snap.data() || {};
+    } catch (e) {
+      btn.disabled = false;
+      alert('Could not open the booking details: ' + e.message);
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Hide';
+
+    // What the ED actually authorised, so she is not guessing which to book.
+    var needs = [];
+    if (d.airlineTravel === 'yes') needs.push('flights');
+    if (d.groundTransport === 'rentacar') needs.push('a rental car');
+    if (d.groundTransport === 'agency') needs.push('ground transport from the agency — nothing to book');
+
+    var box = document.createElement('div');
+    box.className = 'wp-tin';
+    box.style.cssText = 'margin-top:9px;padding:11px 12px;background:#F8FAFC;border:1px solid #CFE3EC;border-radius:8px;max-width:430px;';
+    box.onclick = function(e) { e.stopPropagation(); };
+    box.innerHTML =
+      (needs.length ? '<div style="font-size:.72rem;color:#0E5F7A;font-weight:700;margin-bottom:8px;">Authorised: ' + rsEscape(needs.join(' and ')) + '</div>' : '')
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;">'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Flights booked'
+      +     '<input type="date" class="wp-tin-ad" value="' + rsEscape(d.airDone || '') + '" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Sent to'
+      +     '<input class="wp-tin-af" value="' + rsEscape(d.airFwd || '') + '" placeholder="Trainer initials" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Lodging booked'
+      +     '<input type="date" class="wp-tin-ld" value="' + rsEscape(d.lodgeDone || '') + '" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Sent to'
+      +     '<input class="wp-tin-lf" value="' + rsEscape(d.lodgeFwd || '') + '" placeholder="Trainer initials" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      + '</div>'
+      + '<div style="margin-top:10px;display:flex;align-items:center;gap:9px;">'
+      +   '<button type="button" class="wp-tin-save btn" style="font-size:.74rem;padding:6px 14px;background:#15803D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;">Save &amp; close the task</button>'
+      +   '<a href="javascript:void(0)" class="wp-tin-full" style="font-size:.7rem;color:#0E5F7A;font-weight:600;">Open the whole form</a>'
+      + '</div>'
+      + '<div class="wp-tin-msg" style="font-size:.7rem;color:#B45309;margin-top:7px;display:none;"></div>';
+    card.appendChild(box);
+
+    box.querySelector('.wp-tin-full').onclick = function() { openWorkshopForm(eventId); };
+
+    box.querySelector('.wp-tin-save').onclick = async function() {
+      var save = this;
+      var ad = box.querySelector('.wp-tin-ad').value;
+      var ld = box.querySelector('.wp-tin-ld').value;
+      var msg = box.querySelector('.wp-tin-msg');
+      /* Same reasoning as the checkbox guard: warn, never block. Agency-provided
+         ground transport legitimately has nothing to record. */
+      if (!ad && !ld && !confirm('Nothing is filled in.\n\nSave and close the task anyway?')) return;
+      save.disabled = true; save.textContent = 'Saving…';
+      try {
+        await db.collection('workshopForms').doc(eventId).set({
+          airDone: ad, airFwd: box.querySelector('.wp-tin-af').value.trim(),
+          lodgeDone: ld, lodgeFwd: box.querySelector('.wp-tin-lf').value.trim(),
+          travelBookedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          travelBookedBy: (window.currentUserData || {}).displayName || '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        if (taskId) {
+          await db.collection('interactions').doc(taskId).update({
+            status: 'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          if (typeof window._clearAssignmentNotifs === 'function') await window._clearAssignmentNotifs(taskId);
+        }
+        if (window.auditLog) window.auditLog('Recorded workshop travel booking', eventId);
+        _showToast('Booking recorded and the task is closed.', '#16A34A');
+        if (typeof loadMyDay === 'function') loadMyDay();
+      } catch (e) {
+        save.disabled = false; save.textContent = 'Save & close the task';
+        msg.textContent = 'Could not save: ' + e.message;
+        msg.style.display = 'block';
+      }
+    };
   };
 
   window.openQuickContactModal = function() {

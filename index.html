@@ -2711,6 +2711,15 @@
 .ed-sel{ width:100%; margin-top:4px; font-size:.68rem; padding:2px 4px; border:1px solid #CBD5E1; border-radius:5px; background:#fff; color:#334155; cursor:pointer; }
 .ed-sel.unassigned{ border-color:#F59E0B; background:#FFFBEB; color:#92400E; font-weight:700; }
 .ed-sel:disabled{ opacity:.6; cursor:progress; }
+/* Workshop & Presentation form, straight off the calendar card (v148.25).
+   Sized to match .ed-sel because it sits directly under it, and the cells are
+   narrow on a 1366x768 screen. Off-site events only, so most cards never show
+   one. */
+.ed-wp-link{ width:100%; margin-top:3px; font-size:.66rem; padding:2px 4px; border-radius:5px; cursor:pointer; font-weight:700; text-align:center; line-height:1.35; border:1px solid; }
+.ed-wp-link.todo{ border-color:#F59E0B; background:#FFFBEB; color:#92400E; }
+.ed-wp-link.draft{ border-color:#0891B2; background:#ECFEFF; color:#0E5F7A; }
+.ed-wp-link.done{ border-color:#CBD5E1; background:#F8FAFC; color:#475569; }
+.ed-wp-link:hover{ filter:brightness(.96); }
 @media(max-width:900px){ .ed-grid{ grid-template-columns:repeat(7,minmax(120px,1fr)); } .ed-cell{ min-height:96px; } }
 
 /* ── Resource Activity Tracking ── */
@@ -4877,7 +4886,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.24</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.25</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -28633,6 +28642,7 @@ function cmsBuildSessionKey(sess) {
 var _edMonth = null;                 // first of the displayed month
 var _edPresenters = [];              // [{name, uid}]
 var _edEvents = [];                  // flattened, dated
+var _edWpForms = {};                 // eventId -> {started, submitted}
 
 function edMonthStart(d) { var x = new Date(d.getFullYear(), d.getMonth(), 1); x.setHours(0,0,0,0); return x; }
 function edIso(d) {
@@ -28698,14 +28708,16 @@ async function edLoadEvents(fromIso, toIso) {
         if (!k || k < fromIso || k > toIso) return;
         var summ = (e.sessionSummaries && e.sessionSummaries[lbl]) || (e.sessionSummaries && e.sessionSummaries[k]) || {};
         list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: k, key: lbl,
-                    when: '', where: e.location || '', presenter: summ.presenter || '', single: false });
+                    when: '', where: e.location || '', presenter: summ.presenter || '',
+                    single: false, offsite: _edIsOffsiteEvent(e) });
       });
     } else {
       var d = String(e.eventDate || '').slice(0,10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < fromIso || d > toIso) return;
       list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: d, key: '',
                   when: e.time || '', where: e.location || '',
-                  presenter: (e.summary && e.summary.presenter) || '', single: true });
+                  presenter: (e.summary && e.summary.presenter) || '',
+                  single: true, offsite: _edIsOffsiteEvent(e) });
     }
   });
 
@@ -28854,6 +28866,22 @@ window.edRender = async function() {
     var last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
     _edEvents = await edLoadEvents(edIso(first), edIso(last));
 
+    /* Every workshop form in one read, keyed by event id. There are a handful
+       and they are small, so this is cheaper than a get() per off-site card and
+       far cheaper than the alternative of not showing state at all. A failure
+       here must not take the calendar down with it — the buttons just fall back
+       to "not started". */
+    _edWpForms = {};
+    try {
+      var _wpSnap = await db.collection('workshopForms').get();
+      _wpSnap.forEach(function(d) {
+        var w = d.data() || {};
+        _edWpForms[d.id] = { started: true, submitted: !!w.submittedAt };
+      });
+    } catch (e) {
+      console.warn('workshop forms lookup failed, calendar buttons will read as not started:', e.message);
+    }
+
     var byDate = {};
     _edEvents.forEach(function(ev, i) { (byDate[ev.date] = byDate[ev.date] || []).push(i); });
 
@@ -28899,7 +28927,24 @@ window.edRender = async function() {
         // Someone assigned before they left the Presenters list still shows, so
         // an old assignment is never silently rewritten to unassigned.
         if (ev.presenter && !known) html += '<option value="' + rsEscape(ev.presenter) + '" selected>' + rsEscape(ev.presenter) + ' (not on list)</option>';
-        html += '</select></div>';
+        html += '</select>';
+
+        /* Off-site events carry a Workshop & Presentation form. Until now the
+           only ways in were an OPEN task and the slide-in that fires once on
+           presenter assignment — so a submitted form was unreachable exactly
+           when someone spotted a mistake in it. This button is always here. */
+        if (ev.offsite) {
+          var _wp = _edWpForms[ev.id];
+          var _cls = _wp ? (_wp.submitted ? 'done' : 'draft') : 'todo';
+          var _lbl = _wp ? (_wp.submitted ? 'Workshop form &#10003;' : 'Workshop form — draft') : 'Workshop form — start';
+          var _ttl = _wp
+            ? (_wp.submitted ? 'Workshop & Presentation form — submitted. Open it to review or adjust.'
+                             : 'Workshop & Presentation form — started but not submitted.')
+            : 'Workshop & Presentation form — not started yet.';
+          html += '<button type="button" class="ed-wp-link ' + _cls + '" title="' + rsEscape(_ttl)
+               + '" onclick="event.stopPropagation();openWorkshopForm(\'' + _attrJsArg(ev.id) + '\')">' + _lbl + '</button>';
+        }
+        html += '</div>';
       });
       html += '</div>';
     });
