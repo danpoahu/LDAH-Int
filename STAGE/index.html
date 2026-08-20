@@ -1981,6 +1981,12 @@
 
 /* ── User Roles Management ── */
 #userRolesSection { padding: 24px; }
+/* Correct a misspelt name in place (v148.24). A name typed wrong at account
+   creation was previously unfixable from the dashboard. */
+.ur-name { cursor:text; border-radius:5px; padding:2px 5px; margin:-2px -5px; }
+.ur-name:hover { background:rgba(8,145,178,.10); box-shadow:inset 0 0 0 1px rgba(8,145,178,.22); }
+.ur-name-input { font:inherit; font-weight:600; padding:3px 7px; border-radius:6px;
+  border:1.5px solid var(--ocean-deep); outline:none; background:#fff; min-width:190px; }
 #userRolesSection h2 { font-family: 'Outfit', sans-serif; margin-bottom: 20px; color: var(--ocean-deep); }
 .ur-card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 24px; overflow: hidden; }
 .ur-card-header { padding: 16px 20px; background: var(--ocean-deep); color: white; font-weight: 700; font-size: 1rem; }
@@ -4871,7 +4877,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.30-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.31-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12715,7 +12721,11 @@ var _photoPendingByIsland = {};
 
       tr.innerHTML =
         '<td class="ur-col-status" style="text-align:center;">' + (r.isArchived ? '<span style="color:#94a3b8;font-size:.7rem;">—</span>' : '<span class="ur-status-dot ' + dotClass + '" title="' + statusLabel + '"></span>') + '</td>'
-        + '<td style="font-weight:600;">' + _wEsc(r.name) + archivedBadge + '</td>'
+        + '<td style="font-weight:600;">'
+            + (r.isArchived
+                ? _wEsc(r.name)
+                : '<span class="ur-name" data-uid="' + r.uid + '" title="Click to correct the spelling">' + _wEsc(r.name) + '</span>')
+            + archivedBadge + '</td>'
         + '<td>' + _wEsc(r.email) + '</td>'
         + '<td>' + (r.isArchived ? '<span style="color:#94a3b8;font-size:.8rem;">— None —</span>' : '<select class="ur-role-select" data-uid="' + r.uid + '">'
         + VALID_ROLES.map(function(rl) { return '<option value="'+rl+'" '+(rl===r.role?'selected':'')+'>'+(ROLE_LABELS[rl]||rl)+'</option>'; }).join('')
@@ -12791,6 +12801,63 @@ var _photoPendingByIsland = {};
         } catch (err) {
           alert('Error updating: ' + err.message);
         }
+      });
+    });
+
+
+    // ── Correct a misspelt display name (v148.24) ──────────────────────────
+    // The name is written once at account creation and was unfixable after
+    // that. It is not only cosmetic: interactions, tasks and the Workshop form
+    // store staff by NAME, and the packing-list email resolves an address by
+    // matching displayName — so a typo quietly breaks those lookups.
+    tbody.querySelectorAll('.ur-name').forEach(function(el) {
+      el.addEventListener('click', function() {
+        var uid = el.getAttribute('data-uid');
+        var cached = _urCachedRows.find(function(rw) { return rw.uid === uid; });
+        if (!cached) return;
+        if (el.parentElement.querySelector('.ur-name-input')) return;   // already editing
+
+        var input = document.createElement('input');
+        input.className = 'ur-name-input';
+        input.value = cached.name || '';
+        el.replaceWith(input);
+        input.focus(); input.select();
+
+        var done = false;
+        var cancel = function() { if (done) return; done = true; renderUserRolesTable(); };
+        var commit = async function() {
+          if (done) return;
+          var val = input.value.trim();
+          if (!val || val === cached.name) return cancel();
+          done = true;
+          if (!confirm('Change "' + cached.name + '" to "' + val + '"?')) { renderUserRolesTable(); return; }
+          try {
+            await db.collection('userRoles').doc(uid).update({
+              displayName: val,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            auditLog('Corrected staff name', '"' + cached.name + '" -> "' + val + '" (' + (cached.email || uid) + ')');
+            var old = cached.name;
+            cached.name = val;
+            renderUserRolesTable();
+            _showToast('Name updated to ' + val + '.', '#16A34A');
+            // Records already written keep the old spelling — say so rather than
+            // let someone assume it rippled everywhere.
+            setTimeout(function() {
+              alert('Saved.\n\nRecords already written still say "' + old + '" — interactions, tasks and any ' +
+                    'Workshop & Presentation form keep the spelling they were saved with. Tell Daniel if those ' +
+                    'need updating too.');
+            }, 400);
+          } catch (err) {
+            alert('Could not rename: ' + err.message);
+            renderUserRolesTable();
+          }
+        };
+        input.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+        });
+        input.addEventListener('blur', commit);
       });
     });
 
