@@ -4856,7 +4856,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.25-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.26-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -28708,13 +28708,36 @@ function _edShowWorkshopPrompt(edEv, isDraft) {
     '<button class="ed-wp-go" type="button">' + (isDraft ? 'Continue' : 'Open the form') + '</button>' +
     '<button class="ed-wp-x" type="button" title="Later">&times;</button>';
   document.body.appendChild(el);
-  requestAnimationFrame(function() { el.classList.add('in'); });
+  // Force a layout flush, then add the class. requestAnimationFrame does NOT
+  // fire while the tab is hidden, so a prompt created in a background tab would
+  // sit at opacity 0 and then dismiss itself twelve seconds later having never
+  // been seen. Reading offsetWidth flushes synchronously, so the transition
+  // still animates and the reveal never depends on the tab being foregrounded.
+  void el.offsetWidth;
+  el.classList.add('in');
+
+  // The dismiss timer should measure time the person could actually see it.
+  // If the tab is hidden, start counting when they come back.
+  var _dismiss = null;
+  var _arm = function() {
+    clearTimeout(_dismiss);
+    _dismiss = setTimeout(function() { if (document.body.contains(el)) close(); }, 12000);
+  };
 
   var close = function() { el.classList.remove('in'); setTimeout(function() { el.remove(); }, 240); };
   el.querySelector('.ed-wp-go').addEventListener('click', function() { close(); openWorkshopForm(edEv.id); });
   el.querySelector('.ed-wp-x').addEventListener('click', close);
   // Long enough to read and act on, short enough not to sit there nagging.
-  setTimeout(function() { if (document.body.contains(el)) close(); }, 12000);
+  if (document.hidden) {
+    var _onVis = function() {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', _onVis);
+      _arm();
+    };
+    document.addEventListener('visibilitychange', _onVis);
+  } else {
+    _arm();
+  }
 }
 
 window.edRender = async function() {
