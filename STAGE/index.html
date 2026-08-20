@@ -1631,6 +1631,12 @@
       font-size:.82rem; line-height:1.4; color:#9A3412; background:#FFF7ED;
       border-left:3px solid #F97316; border-radius:0 8px 8px 0; padding:8px 11px; margin:2px 0 12px;
     }
+    .wp-sub-note{ font-weight:400; font-size:.72rem; color:var(--text-soft); opacity:.85; text-transform:none; letter-spacing:0; }
+    #wpFormOverlay .wp-f select{
+      border:1.5px solid rgba(8,145,178,.20); border-radius:10px; padding:7px 11px;
+      font:inherit; background:#fff; color:var(--text-dark); outline:none;
+    }
+    #wpFormOverlay .wp-f select:focus{ border-color:var(--ocean-deep); box-shadow:0 0 0 3px rgba(8,145,178,.13); }
     .wp-locked{
       font-size:.85rem; color:var(--text-soft); background:#F8FAFC;
       border:1px dashed rgba(8,145,178,.25); border-radius:10px; padding:13px 15px;
@@ -4824,7 +4830,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.23-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.24-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8521,6 +8527,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <label>Island Location</label>
           <div class="wp-radios" id="wpIsland"></div>
         </div>
+        <div class="wp-f">
+          <label>Partner Islands <span class="wp-sub-note">not on the paper form &mdash; tick when the event is in the Pacific Basin</span></label>
+          <div class="wp-radios" id="wpPartnerIslands"></div>
+        </div>
 
         <!-- ── the workshop grid ───────────────────────────────────── -->
         <div class="wp-sec">Workshop / Presentation</div>
@@ -8577,7 +8587,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <div class="wp-top">
           <div class="wp-f"><label>Other audience (specify)</label><input id="wpAudOther"></div>
           <div class="wp-f"><label>Anticipated #</label><input id="wpAnticipated" inputmode="numeric"></div>
-          <div class="wp-f"><label>Second staff member</label><input id="wpSecondPerson" placeholder="Outreach travels in pairs"></div>
+          <div class="wp-f"><label>Second staff member</label><select id="wpSecondPerson"></select></div>
         </div>
 
         <!-- ── agency ──────────────────────────────────────────────── -->
@@ -19110,8 +19120,56 @@ window.openContactDetail = async function(contactId) {
   // a person can supply. Stored at workshopForms/{eventId}; a Cloud Function
   // watches that doc and moves the task along — Noe, then the ED, then Admin.
   var _wpEventId = null, _wpEvent = null, _wpDoc = null;
+  var _wpStaff = [], _wpPresenterName = '';
 
   var WP_ISLANDS = ['Oahu', 'Maui', 'Big Island', 'Kauai', 'Lanai', 'Molokai'];
+  // The Pacific Basin partners LDAH serves. Not on the paper form, which predates
+  // the partner work — Daniel asked for them alongside the Hawaiian islands.
+  // Same six as the dashboard's partner clocks, so the vocabularies agree.
+  var WP_PARTNER_ISLANDS = ['American Samoa', 'Guam', 'CNMI', 'Micronesia', 'Marshall Islands', 'Palau'];
+
+  // Staff who can present or travel. presenterStaff is the curated list the
+  // event presenter picker already uses, so both stay in step.
+  var _wpStaffCache = null;
+  async function _wpStaffNames() {
+    if (_wpStaffCache) return _wpStaffCache;
+    var out = [];
+    try {
+      var snap = await db.collection('presenterStaff').get();
+      snap.forEach(function(d) {
+        var x = d.data() || {};
+        if (x.active === false) return;
+        out.push({ name: x.name || x.displayName || '', sort: x.sortOrder == null ? 999 : x.sortOrder });
+      });
+      out.sort(function(a, b) { return a.sort - b.sort || a.name.localeCompare(b.name); });
+    } catch (e) { console.warn('presenterStaff read failed:', e.message); }
+    _wpStaffCache = out.map(function(o) { return o.name; }).filter(Boolean);
+    return _wpStaffCache;
+  }
+
+  // The event's assigned presenter for a session. Stored as a uid on
+  // sessionSummaries[key].presenterUid (never a top-level field), so it has to
+  // be resolved through userRoles to a display name.
+  async function _wpPresenterForSession(sessionKey) {
+    var ss = (_wpEvent && _wpEvent.sessionSummaries) || {};
+    var rec = ss[sessionKey];
+    if (!rec && sessionKey) {
+      // sessionSummaries keys are not always byte-identical to signupDates
+      // entries; fall back to the first key that starts the same way.
+      var want = String(sessionKey).slice(0, 18);
+      Object.keys(ss).forEach(function(k) { if (!rec && k.slice(0, 18) === want) rec = ss[k]; });
+    }
+    var uid = rec && rec.presenterUid;
+    if (!uid) {
+      // single-session events sometimes carry it on summary instead
+      uid = (_wpEvent && _wpEvent.summary && _wpEvent.summary.presenterUid) || '';
+    }
+    if (!uid) return '';
+    try {
+      var u = await db.collection('userRoles').doc(uid).get();
+      return (u.exists && (u.data() || {}).displayName) || '';
+    } catch (e) { return ''; }
+  }
 
   function _wpEsc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 
@@ -19173,6 +19231,16 @@ window.openContactDetail = async function(contactId) {
     isl.innerHTML = WP_ISLANDS.map(function(i) {
       return '<label class="wp-r"><input type="radio" name="wpIslandR" value="' + _wpEsc(i) + '"> ' + _wpEsc(i) + '</label>';
     }).join('');
+    // Partner islands are checkboxes, not radios — an outreach trip can cover
+    // more than one, and it is separate from the Hawaiian island choice.
+    var pil = document.getElementById('wpPartnerIslands');
+    pil.innerHTML = WP_PARTNER_ISLANDS.map(function(i) {
+      return '<label class="wp-r"><input type="checkbox" class="wp-partner" value="' + _wpEsc(i) + '"> ' + _wpEsc(i) + '</label>';
+    }).join('');
+
+    // Staff dropdowns, and the trainer prefilled from the event's presenter.
+    _wpStaff = await _wpStaffNames();
+    _wpPresenterName = await _wpPresenterForSession((_wpEvent.signupDates || [])[0] || '');
 
     _wpRenderRows();
     _wpFill();
@@ -19206,7 +19274,7 @@ window.openContactDetail = async function(contactId) {
       var date = r ? (r.date || '') : (pre ? _wpToDateInput(pre.date) : '');
       var st = r ? (r.start || '') : (pre ? _wpTo24h(pre.start) : '');
       var en = r ? (r.end || '') : '';
-      var tr = r ? (r.trainer || '') : '';
+      var tr = r ? (r.trainer || '') : (pre ? _wpPresenterName : '');
       html += '<tr class="' + (on ? 'on' : '') + '" data-i="' + i + '">' +
         '<td><input type="checkbox" class="wp-chk"' + (on ? ' checked' : '') + ' onchange="_wpRowToggle(this)"></td>' +
         '<td class="wp-name">' + _wpEsc(name) + '</td>' +
@@ -19214,17 +19282,34 @@ window.openContactDetail = async function(contactId) {
         '<td><input type="date" class="wp-date" value="' + _wpEsc(date) + '"' + (on ? '' : ' disabled') + '></td>' +
         '<td><input type="time" class="wp-start" value="' + _wpEsc(st) + '"' + (on ? '' : ' disabled') + '></td>' +
         '<td><input type="time" class="wp-end" value="' + _wpEsc(en) + '"' + (on ? '' : ' disabled') + '></td>' +
-        '<td><input type="text" class="wp-trainer" value="' + _wpEsc(tr) + '"' + (on ? '' : ' disabled') + '></td>' +
+        '<td>' + _wpStaffSelect('wp-trainer', tr || (on ? _wpPresenterName : ''), !on) + '</td>' +
         '</tr>';
     });
     document.getElementById('wpRows').innerHTML = html ||
       '<tr><td colspan="7" style="padding:14px;color:var(--text-soft);">No workshops in the list yet — add them under Admin &rarr; List Management.</td></tr>';
   }
 
+  // One staff <select>, used for both the Staff Trainer column and the second
+  // person. Keeps a value that is no longer on the staff list rather than
+  // silently dropping it.
+  function _wpStaffSelect(cls, value, disabled) {
+    var opts = '<option value="">&mdash;</option>';
+    var seen = false;
+    _wpStaff.forEach(function(n) {
+      if (n === value) seen = true;
+      opts += '<option value="' + _wpEsc(n) + '"' + (n === value ? ' selected' : '') + '>' + _wpEsc(n) + '</option>';
+    });
+    if (value && !seen) opts += '<option value="' + _wpEsc(value) + '" selected>' + _wpEsc(value) + ' (not on the staff list)</option>';
+    return '<select class="' + cls + '"' + (disabled ? ' disabled' : '') + '>' + opts + '</select>';
+  }
+
   window._wpRowToggle = function(cb) {
     var tr = cb.closest('tr');
     tr.classList.toggle('on', cb.checked);
-    tr.querySelectorAll('input:not(.wp-chk)').forEach(function(el) { el.disabled = !cb.checked; });
+    tr.querySelectorAll('input:not(.wp-chk), select').forEach(function(el) { el.disabled = !cb.checked; });
+    // an untouched row inherits the event's presenter the first time it is ticked
+    var sel = tr.querySelector('select.wp-trainer');
+    if (cb.checked && sel && !sel.value && _wpPresenterName) sel.value = _wpPresenterName;
   };
 
   function _wpSet(id, v) { var el = document.getElementById(id); if (el) el.value = v == null ? '' : v; }
@@ -19260,7 +19345,13 @@ window.openContactDetail = async function(contactId) {
     _wpChk('wpAudStudents', d.audStudents);
     _wpSet('wpAudOther', d.audOther || '');
     _wpSet('wpAnticipated', d.anticipated || '');
+    var sp = document.getElementById('wpSecondPerson');
+    if (sp) sp.innerHTML = _wpStaffSelect('', d.secondPerson || '', false).replace(/^<select[^>]*>/, '').replace(/<\/select>$/, '');
     _wpSet('wpSecondPerson', d.secondPerson || '');
+    (d.partnerIslands || []).forEach(function(v) {
+      var el = document.querySelector('.wp-partner[value="' + v.replace(/"/g, '') + '"]');
+      if (el) el.checked = true;
+    });
 
     _wpSet('wpAgencyName', d.agencyName || '');
     _wpSet('wpAgencyPhone', d.agencyPhone || '');
@@ -19333,6 +19424,7 @@ window.openContactDetail = async function(contactId) {
       audParents: c('wpAudParents'), audProfessionals: c('wpAudProfessionals'),
       audStudents: c('wpAudStudents'), audOther: g('wpAudOther'),
       anticipated: g('wpAnticipated'), secondPerson: g('wpSecondPerson'),
+      partnerIslands: Array.prototype.slice.call(document.querySelectorAll('.wp-partner:checked')).map(function(el) { return el.value; }),
       agencyName: g('wpAgencyName'), agencyPhone: g('wpAgencyPhone'),
       agencyFax: g('wpAgencyFax'), agencyEmail: g('wpAgencyEmail'),
       flyers: _wpGetRadio('wpFlyers'),
