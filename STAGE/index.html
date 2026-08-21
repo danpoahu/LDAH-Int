@@ -4886,7 +4886,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.36-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.37-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12127,6 +12127,75 @@ var _photoPendingByIsland = {};
     return last ? first + ' ' + last.charAt(0).toUpperCase() + '.' : first;
   }
 
+  /* ── Stale-tab guard (2026-08-20) ──────────────────────────────────────
+     A browser that is already open keeps running the JavaScript it loaded,
+     for ever. There is no way to reach it: not a deploy, not Force Offline,
+     not signing someone out. On 2026-08-19 a tab holding pre-fix code
+     silently rewrote two lookup lists 52 minutes after Daniel had corrected
+     them, and no record said which machine did it.
+
+     Code cannot reach an open tab — so the tab has to notice for itself.
+
+     No extra file and no deploy step to forget: we HEAD the very page we are
+     running and compare ETags. Bumping the version, which already happens on
+     every deploy, changes the file and therefore the ETag. A HEAD is a couple
+     of hundred bytes, ten minutes apart.
+
+     ⚠ index.html is served `cache-control: max-age=600`, so the request must
+     be cache-busted AND no-store or the browser will happily answer from the
+     very cache we are trying to detect. */
+  var _STALE_CHECK_MS = 10 * 60 * 1000;   // how often to ask
+  var _STALE_IDLE_MS  = 15 * 60 * 1000;   // untouched this long = safe to reload under them
+  var _staleEtag = null;
+  var _staleLastActive = Date.now();
+
+  ['click', 'keydown', 'pointerdown', 'wheel'].forEach(function(ev) {
+    document.addEventListener(ev, function() { _staleLastActive = Date.now(); }, true);
+  });
+
+  async function _staleFetchEtag() {
+    var res = await fetch(location.pathname + '?_sv=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
+    if (!res.ok) return null;
+    return res.headers.get('etag') || res.headers.get('last-modified') || null;
+  }
+
+  function _staleBanner() {
+    if (document.getElementById('staleBanner')) return;
+    var b = document.createElement('div');
+    b.id = 'staleBanner';
+    b.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;'
+      + 'background:#0E5F7A;color:#fff;border-radius:10px;padding:11px 16px;display:flex;align-items:center;'
+      + 'gap:13px;box-shadow:0 6px 22px rgba(0,0,0,.25);font-size:.84rem;max-width:92vw;';
+    b.innerHTML = '<span>This page is out of date &mdash; reload to pick up the current version.</span>'
+      + '<button type="button" id="staleReloadBtn" style="background:#fff;color:#0E5F7A;border:none;border-radius:6px;'
+      + 'padding:6px 14px;font-weight:700;cursor:pointer;font-size:.82rem;white-space:nowrap;">Reload now</button>';
+    document.body.appendChild(b);
+    document.getElementById('staleReloadBtn').addEventListener('click', function() { location.reload(); });
+  }
+
+  async function _staleCheck() {
+    try {
+      var now = await _staleFetchEtag();
+      if (!now) return;
+      if (!_staleEtag) { _staleEtag = now; return; }   // first call sets the baseline
+      if (now === _staleEtag) return;
+
+      /* Reloading out from under someone would lose whatever they were typing.
+         Every modal in here sets body overflow hidden while it is open, so that
+         is the tell: if one is up, ask rather than act. Otherwise a tab nobody
+         has touched for fifteen minutes is precisely the dangerous kind — that
+         is the one worth reloading, and the safe one. */
+      var modalOpen = document.body.style.overflow === 'hidden';
+      if (!modalOpen && (Date.now() - _staleLastActive) > _STALE_IDLE_MS) { location.reload(); return; }
+      _staleBanner();
+    } catch (e) {
+      // Offline, or the HEAD was blocked. Nothing to do — try again next time.
+    }
+  }
+
+  _staleCheck();
+  setInterval(_staleCheck, _STALE_CHECK_MS);
+
   function renderPresenceStrip(snap) {
     var scrollEl = document.getElementById('presenceScrollOnline');
     var fixedEl = document.getElementById('presenceFixedOffline');
@@ -12986,10 +13055,11 @@ var _photoPendingByIsland = {};
         btn.disabled = true;
         btn.textContent = '…';
         try {
-          await db.collection('chatPresence').doc(uid).set({
-            online: false,
-            lastSeen: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true });
+          /* `lastSeen` is deliberately NOT touched. Stamping it here overwrote
+             the one fact worth keeping — when that person was really last
+             active — which is exactly what was wanted while working out which
+             open tab had rewritten a list. Clearing the dot is the whole job. */
+          await db.collection('chatPresence').doc(uid).set({ online: false }, { merge: true });
           auditLog('Force offline', cached.name + ' (' + (cached.email || uid) + ')');
           cached.status = 'red';
           cached.statusOrder = 2;
@@ -14059,8 +14129,13 @@ var _photoPendingByIsland = {};
 
   async function seedLookupListsIfNeeded() {
     var defaults = {
-      channels: ['Phone', 'Web', 'Office', 'Email', 'Chat', 'Other'],
-      interactionTypes: ['Consultation', 'Resource request', 'Training', 'Follow-up', 'Finding / corrective action', 'Case Advocacy'],
+      /* These fire only when a doc is MISSING, so they are dormant — but they
+         are also the last word on what a list should contain, and they had
+         drifted to the February vocabulary. 'Case Advocacy' sat here long after
+         it was retired: had either doc ever been recreated it would have walked
+         straight back in. Kept in step with the live lists 2026-08-20. */
+      channels: ['Inbound Phone', 'Outbound Phone', 'Email', 'Office', 'Out of office meeting', 'Event Feedback', 'Chat', 'Web', 'Other'],
+      interactionTypes: ['Tier 1: Individual Assistance:  Advocacy', 'Tier 2: Training Workspaces: LL,PTC,CG', 'Tier 3: Workshops', 'Tier 4: Outreach: Screenings'],
       grants: ['PTI', 'IDEA', 'OSEP'],
       tiers: ['Tier 1: Indv Asst', 'Tier 2: Training Wrkspc', 'Tier 3: Wrkshp', 'Tier 4: Outreach'],
       // The list on the paper Workshop & Presentation Form (rev 12/09), in the
@@ -14077,7 +14152,7 @@ var _photoPendingByIsland = {};
         "Understanding Hawaiʻi's Education System", 'Understanding Evaluations'
       ],
       titles: ['Program Coordinator', 'Case Manager', 'Director', 'Advocate', 'Specialist', 'Administrative Assistant'],
-      departments: ['Education Services', 'Administration', 'Outreach', 'Training', 'Operations'],
+      departments: ['Education Services', 'Administration', 'Outreach', 'Training', 'Operations', 'School Readiness Project'],
       resourceTypes: ['Advocacy & Legal Services', 'Behavioral & Mental Health', 'Therapy & Medical Services', 'Testing & Evaluation', 'Schools & Tutoring', 'Early Childhood & Family Support', 'Independent Living & Disability Services', 'Transition & Vocational/Trades'],
       materials: ['Agency Brochure', 'Education & Training Brochure', 'What is a Learning Disability Brochure', 'Understanding ADHD Brochure', 'Understanding Dyslexia Brochure', 'Understanding Autism', 'Flyers', 'Tips and Tools', 'Connect Gen'],
       tips: [
@@ -14115,50 +14190,20 @@ var _photoPendingByIsland = {};
         }
       });
 
-      // Ensure "Chat" + "Event Feedback" + "Case Advocacy" exist in channels (auto-migrate existing data)
-      var _channelsDirty = false;
-      // 'Case Advocacy' removed from this list 2026-08-19 — the channel was
-      // retired and its 26 interactions moved to 'Other'. Re-adding it here
-      // would resurrect an option Daniel deleted.
-      ['Chat', 'Event Feedback'].forEach(function(ch) {
-        if (_lookupLists.channels.length > 0 && !_lookupLists.channels.includes(ch)) {
-          var otherIdx = _lookupLists.channels.indexOf('Other');
-          if (otherIdx >= 0) {
-            _lookupLists.channels.splice(otherIdx, 0, ch);
-          } else {
-            _lookupLists.channels.push(ch);
-          }
-          _channelsDirty = true;
-        }
-      });
-      if (_channelsDirty) {
-        console.warn('[lists] restored protected channel(s) missing from lookupLists/channels');
-        db.collection('lookupLists').doc('channels').update({
-          items: _lookupLists.channels,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: 'auto-migrate (restored protected item)'
-        }).catch(function(e) { console.warn('Could not update channels lookup:', e.message); });
-      }
+      /* Nothing is force-restored here any more (2026-08-20).
 
-      // 'Case Advocacy' was retired as an interaction TYPE on 2026-08-19 —
-      // advocacy is tracked by the caseAdvocacy flag, and using it as a type
-      // meant the interaction could not also record its tier. Nothing is
-      // re-added here any more; the loop is left empty so the shape stays
-      // obvious if another protected value is ever needed.
-      var _typesDirty = false;
-      [].forEach(function(t) {
-        if (_lookupLists.interactionTypes.length > 0 && !_lookupLists.interactionTypes.includes(t)) {
-          _lookupLists.interactionTypes.push(t);
-          _typesDirty = true;
-        }
-      });
-      if (_typesDirty) {
-        db.collection('lookupLists').doc('interactionTypes').update({
-          items: _lookupLists.interactionTypes,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedBy: 'auto-migrate'
-        }).catch(function(e) { console.warn('Could not update interactionTypes lookup:', e.message); });
-      }
+         Two loops used to re-add values that were "supposed" to exist —
+         'Case Advocacy' among them — writing to Firestore on a plain page
+         load, with no audit entry and no user action. A tab left open from
+         before the loops were emptied resurrected two retired list values
+         52 minutes after Daniel deleted them, and nothing recorded which
+         machine did it.
+
+         The lists are now whatever Firestore says they are. If a value is
+         genuinely required by system code, guard it in _LM_PROTECTED so it
+         cannot be deleted in the first place — never restore it behind
+         someone's back. channels and interactionTypes are additionally
+         locked to Daniel's uid in the Firestore rules. */
 
       // 'Screening' was retired as an interaction type on 2026-08-19 (Daniel:
       // screenings are always Tier 4) and its 26 interactions were migrated.
@@ -15574,7 +15619,13 @@ var _photoPendingByIsland = {};
       arr.push(val);
       return arr;
     });
-    if (ok) input.value = '';
+    /* Removes and renames were logged; adds were not. That gap is why "did
+       someone put Case Advocacy back?" could not be answered from the audit
+       log — a human add and an automatic restore looked identical. */
+    if (ok) {
+      if (window.auditLog) window.auditLog('Added list item', listKey + ': "' + val + '"');
+      input.value = '';
+    }
   };
 
   window.removeLookupItem = async function(listKey, idx) {
@@ -15610,7 +15661,7 @@ var _photoPendingByIsland = {};
   window.moveLookupItem = async function(listKey, idx, direction) {
     var item = (_lookupLists[listKey] || [])[idx];
     if (item == null) return;
-    await window._lmMutate(listKey, function(arr) {
+    var moved = await window._lmMutate(listKey, function(arr) {
       var i = arr.indexOf(item);
       if (i < 0) return null;
       var j = i + direction;
@@ -15618,6 +15669,7 @@ var _photoPendingByIsland = {};
       var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
       return arr;
     });
+    if (moved && window.auditLog) window.auditLog('Reordered list item', listKey + ': "' + item + '" moved ' + (direction < 0 ? 'up' : 'down'));
   };
 
   // ── Quick-add contact from interaction modal ──
