@@ -4886,7 +4886,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.29</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.30</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8732,6 +8732,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <div class="left">
           <img src="logo_transparent.png" alt="LDAH logo"/>
           <div>New Interaction</div>
+          <!-- Shown once the named contact turns out to be an advocacy family.
+               Same purple and same wording as the pill on the contact card, so
+               it reads as the same fact in a second place. -->
+          <span id="intCaseAdvPill" style="display:none;background:#7C3AED;color:#fff;font-size:.72rem;font-weight:700;border-radius:999px;padding:3px 11px;margin-left:10px;user-select:none;white-space:nowrap;" title="This family has an open Case Advocacy">Case Advocacy</span>
         </div>
         <button class="close" type="button" id="closeModal" aria-label="Close">&times;</button>
       </div>
@@ -15615,6 +15619,49 @@ var _photoPendingByIsland = {};
     if (moved && window.auditLog) window.auditLog('Reordered list item', listKey + ': "' + item + '" moved ' + (direction < 0 ? 'up' : 'down'));
   };
 
+  /* Purple "Case Advocacy" flag in the New Interaction header.
+
+     Whoever is logging the call should know they are talking to an advocacy
+     family before they start typing, not after — the pill on the contact card
+     only helps if you went to the contact card first.
+
+     Display only. It deliberately does NOT tick the "Case advocacy" box: that
+     box records what THIS interaction is, which is a different question from
+     whether the family is already in advocacy, and quietly ticking it would
+     put words in the logger's mouth.
+
+     Same set the Advocacy-only contact filter uses — contacts with an OPEN
+     advocacy interaction — so the pill, the filter and the contact card cannot
+     disagree. */
+  window._intUpdateCaseAdvPill = async function() {
+    var pill = document.getElementById('intCaseAdvPill');
+    var input = document.getElementById('intContact');
+    if (!pill || !input) return;
+    var val = String(input.value || '').trim().toLowerCase();
+    if (!val) { pill.style.display = 'none'; return; }
+
+    var match = null;
+    try {
+      match = _allContacts.find(function(c) {
+        return String(c.displayName || '').toLowerCase() === val;
+      }) || null;
+    } catch (e) { /* contacts not loaded yet */ }
+    if (!match || !match.id) { pill.style.display = 'none'; return; }
+
+    try {
+      var ids = await _getAdvocacyContactIds();
+      // null means the lookup failed; say nothing rather than say "not in
+      // advocacy", which would be a claim we cannot support.
+      if (!ids) { pill.style.display = 'none'; return; }
+      // The name may have changed while the lookup was in flight.
+      var still = String(input.value || '').trim().toLowerCase();
+      if (still !== val) return;
+      pill.style.display = ids.has(match.id) ? 'inline-block' : 'none';
+    } catch (e) {
+      pill.style.display = 'none';
+    }
+  };
+
   // ── Quick-add contact from interaction modal ──
 
   (function() {
@@ -15645,8 +15692,12 @@ var _photoPendingByIsland = {};
         }
       }
     }
-    intContactInput.addEventListener('input', checkContactQuickAdd);
-    intContactInput.addEventListener('change', checkContactQuickAdd);
+    function onContactChanged() {
+      checkContactQuickAdd();
+      if (window._intUpdateCaseAdvPill) window._intUpdateCaseAdvPill();
+    }
+    intContactInput.addEventListener('input', onContactChanged);
+    intContactInput.addEventListener('change', onContactChanged);
 
     intContactAddBtn.addEventListener('click', function() {
       _quickAddReturnToInteraction = true;
@@ -19879,6 +19930,8 @@ window.openContactDetail = async function(contactId) {
     var tySel = document.getElementById('intType');
     if (tySel && tySel.options.length > 0) tySel.selectedIndex = 0; else if (tySel) tySel.value = '';
     document.getElementById('intContact').value = '';
+    var _caPill = document.getElementById('intCaseAdvPill');
+    if (_caPill) _caPill.style.display = 'none';
     document.getElementById('intGrant').value = '';
     document.getElementById('intSummary').value = '';
     document.getElementById('intFollowUp').value = '';
