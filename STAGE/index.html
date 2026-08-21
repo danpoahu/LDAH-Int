@@ -4943,7 +4943,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.51-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.52-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -42960,28 +42960,26 @@ window.cmsLoadCmsDashboard = async function() {
               });
               var _cgList = Object.keys(_cgKeys);
               if (!_cgList.length && meta.eventDate) { _cgKeys[meta.eventDate] = meta.eventDate; _cgList = [meta.eventDate]; }
-              // Count each family ONCE per period: in Upcoming if they have a
-              // future session that period, in Past for a past one (a family
-              // spanning both shows in each pane's bar, as elsewhere on this
-              // chart). Attendance counts families who came to a past session.
+              // Count each family ONCE per two-month period. Whether that
+              // period lands in Upcoming or Past is decided by the PERIOD as a
+              // whole (at push time below), not the individual session — so a
+              // period never splits across both panes. The current period keeps
+              // its already-past sessions in Upcoming until it closes.
               var _fam = {};
               _cgList.forEach(function(key) {
                 var mon = parseInt(key.slice(5, 7), 10) - 1;
                 if (isNaN(mon)) return;
                 var yr = key.slice(0, 4), bidx = Math.floor(mon / 2), bk = yr + '-' + bidx;
-                var f = _fam[bk] || (_fam[bk] = { yr: yr, bidx: bidx, up: false, past: false, att: false });
-                if (key >= _chartToday) { f.up = true; }
-                else {
-                  f.past = true;
+                var f = _fam[bk] || (_fam[bk] = { yr: yr, bidx: bidx, att: false });
+                if (key < _chartToday) {
                   var rec = (d.sessionAttendance || {})[_cgKeys[key]];
                   if ((rec && rec.status === 'attended') || (!rec && _cmsSignupAttended(d) && _cgList.length === 1)) f.att = true;
                 }
               });
               Object.keys(_fam).forEach(function(bk) {
                 var f = _fam[bk];
-                var b = cgBuckets[bk] || (cgBuckets[bk] = { up: 0, past: 0, att: 0, yr: f.yr, bidx: f.bidx });
-                if (f.up) b.up++;
-                if (f.past) b.past++;
+                var b = cgBuckets[bk] || (cgBuckets[bk] = { fams: 0, att: 0, yr: f.yr, bidx: f.bidx });
+                b.fams++;
                 if (f.att) b.att++;
               });
             } else {
@@ -43022,16 +43020,23 @@ window.cmsLoadCmsDashboard = async function() {
         });
         var _cgBk = Object.keys(cgBuckets);
         if (_cgBk.length) {
-          // One green bar per two-month period. Year is appended only when it
-          // is not the current one, so "Connect-Gen Jul/Aug" stays short.
+          // One green bar per two-month period, placed WHOLE in Upcoming or Past
+          // by whether the period has ENDED: the current period stays in
+          // Upcoming (already-past sessions and all) until its second month
+          // closes, then the whole bar moves to Past. Year appended only when
+          // not the current one.
           var _MON2 = ['Jan/Feb', 'Mar/Apr', 'May/Jun', 'Jul/Aug', 'Sep/Oct', 'Nov/Dec'];
-          var _cgNowYr = String(new Date().getFullYear());
+          var _cgCurY = Number(_chartToday.slice(0, 4));
+          var _cgCurM0 = Number(_chartToday.slice(5, 7)) - 1;
           _cgBk.forEach(function(bk) {
             var b = cgBuckets[bk];
-            if (!b.up && !b.past) return;
-            var lbl = 'Connect-Gen ' + _MON2[b.bidx] + (b.yr !== _cgNowYr ? " '" + b.yr.slice(2) : '');
-            chartRows.push({ title: lbl, etype: 'connect_gen', up: b.up, past: b.past, pastAttended: b.att,
-                             cgOrder: Number(b.yr) * 6 + b.bidx });
+            if (!b.fams) return;
+            var yr = Number(b.yr), m1 = b.bidx * 2 + 1;   // period's last month (0-indexed)
+            var ended = (yr < _cgCurY) || (yr === _cgCurY && m1 < _cgCurM0);
+            var lbl = 'Connect-Gen ' + _MON2[b.bidx] + (yr !== _cgCurY ? " '" + b.yr.slice(2) : '');
+            var order = yr * 6 + b.bidx;
+            if (ended) chartRows.push({ title: lbl, etype: 'connect_gen', up: 0, past: b.fams, pastAttended: b.att, cgOrder: order });
+            else chartRows.push({ title: lbl, etype: 'connect_gen', up: b.fams, past: 0, pastAttended: 0, cgOrder: order });
           });
         } else if (upCount > 0 || pastCount > 0) {
           chartRows.push({ title: window._cmsStripEventTitle(meta.title), etype: meta.etype,
