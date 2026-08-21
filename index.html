@@ -4886,7 +4886,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.28</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.29</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12089,6 +12089,37 @@ var _photoPendingByIsland = {};
     document.getElementById('staleReloadBtn').addEventListener('click', function() { location.reload(); });
   }
 
+  /* Is there anything on screen worth not throwing away?
+
+     Deliberately not "is a modal open" by name. Int has 37 overlays and they
+     are marked in several different ways, so anything keyed to one convention
+     would quietly stop covering the others the next time one is added. The
+     second loop is the real guard and needs no convention at all: if a visible
+     field has something typed in it, somebody is mid-thought.
+
+     Errs towards never reloading. A stale tab that lingers is now a cosmetic
+     problem — the restore loops are gone and the Firestore rule refuses the
+     write — whereas discarding half a logged interaction is a real one. */
+  function _staleWorkInProgress() {
+    var open = document.querySelectorAll('.active, .open');
+    for (var i = 0; i < open.length; i++) {
+      var el = open[i];
+      var tag = (el.id || '') + ' ' + String(el.className || '');
+      if (/overlay|modal|panel/i.test(tag) && el.offsetParent !== null) return true;
+    }
+    var fields = document.querySelectorAll('input, textarea, [contenteditable="true"]');
+    for (var j = 0; j < fields.length; j++) {
+      var f = fields[j];
+      if (f.disabled || f.readOnly) continue;
+      var t = String(f.type || '').toLowerCase();
+      if (t === 'hidden' || t === 'checkbox' || t === 'radio' || t === 'button' || t === 'submit' || t === 'file') continue;
+      if (f.offsetParent === null) continue;                 // not on screen
+      var v = f.isContentEditable ? (f.textContent || '') : (f.value || '');
+      if (v.trim()) return true;
+    }
+    return false;
+  }
+
   async function _staleCheck() {
     try {
       var now = await _staleFetchEtag();
@@ -12096,13 +12127,10 @@ var _photoPendingByIsland = {};
       if (!_staleEtag) { _staleEtag = now; return; }   // first call sets the baseline
       if (now === _staleEtag) return;
 
-      /* Reloading out from under someone would lose whatever they were typing.
-         Every modal in here sets body overflow hidden while it is open, so that
-         is the tell: if one is up, ask rather than act. Otherwise a tab nobody
-         has touched for fifteen minutes is precisely the dangerous kind — that
-         is the one worth reloading, and the safe one. */
-      var modalOpen = document.body.style.overflow === 'hidden';
-      if (!modalOpen && (Date.now() - _staleLastActive) > _STALE_IDLE_MS) { location.reload(); return; }
+      /* Reloading out from under someone would lose whatever they were typing,
+         so a tab only reloads itself when there is demonstrably nothing to
+         lose. Otherwise: ask, and let them pick the moment. */
+      if (!_staleWorkInProgress() && (Date.now() - _staleLastActive) > _STALE_IDLE_MS) { location.reload(); return; }
       _staleBanner();
     } catch (e) {
       // Offline, or the HEAD was blocked. Nothing to do — try again next time.
