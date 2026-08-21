@@ -4886,7 +4886,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.35-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.36-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -15207,6 +15207,22 @@ var _photoPendingByIsland = {};
     interactionTypes: {},
     channels: {}
   };
+  /* Channels and Interaction Types are owned by Daniel (2026-08-20). Enforced
+     in the Firestore rule — this only makes the UI honest, so another admin
+     sees a lock rather than typing an edit and collecting a permission error.
+     Changing this list alone changes nothing: the rule is the authority. */
+  var _LM_OWNER_ONLY_LISTS = ['channels', 'interactionTypes'];
+  var _LM_LIST_OWNERS = [
+    'YmGV2TlBGqR01dVdxZ0rtFLEFCG3',   // danpellegrini63@gmail.com
+    'Lwz0SNVIRAcC68tVQdzE2BBCapt1'    // dan@oahuappdesign.com — .IT_Help break-glass
+  ];
+  window._lmListLockedReason = function(listKey) {
+    if (_LM_OWNER_ONLY_LISTS.indexOf(listKey) < 0) return '';
+    var uid = (window.currentUserData || {}).uid || '';
+    if (_LM_LIST_OWNERS.indexOf(uid) >= 0) return '';
+    return 'This list drives every interaction record, so it is changed by Dan only. Ask him and he will edit it.';
+  };
+
   window._lmProtectedReason = function(listKey, item) {
     var m = window._LM_PROTECTED[listKey];
     return (m && m[item]) || '';
@@ -15219,9 +15235,26 @@ var _photoPendingByIsland = {};
     if (!ul) return;
     var items = _lookupLists[listKey] || [];
     ul.innerHTML = '';
+
+    /* A locked list hides its editing affordances entirely — including Move,
+       which is also a write and would be refused the same way. */
+    var listLock = window._lmListLockedReason(listKey);
+    var addRow = ul.parentElement ? ul.parentElement.querySelector('.lm-add-row') : null;
+    if (addRow) {
+      addRow.style.display = listLock ? 'none' : '';
+      var note = ul.parentElement.querySelector('.lm-owner-note');
+      if (listLock && !note) {
+        note = document.createElement('div');
+        note.className = 'lm-owner-note';
+        note.style.cssText = 'margin-top:10px;padding:8px 11px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;font-size:.76rem;color:#475569;';
+        note.textContent = listLock;
+        ul.parentElement.appendChild(note);
+      } else if (!listLock && note) { note.remove(); }
+    }
+
     items.forEach(function(item, idx) {
       var li = document.createElement('li');
-      var reason = window._lmProtectedReason(listKey, item);
+      var reason = listLock || window._lmProtectedReason(listKey, item);
       var esc = _lmEsc(item);
 
       var textEl = document.createElement('span');
@@ -15236,7 +15269,7 @@ var _photoPendingByIsland = {};
       if (reason) {
         var lock = document.createElement('span');
         lock.className = 'lm-lock';
-        lock.textContent = 'In use by the system';
+        lock.textContent = listLock ? 'Dan only' : 'In use by the system';
         lock.title = reason;
         li.appendChild(lock);
       } else {
@@ -15247,10 +15280,10 @@ var _photoPendingByIsland = {};
         li.appendChild(ed);
       }
 
-      var extra =
+      var extra = listLock ? '' : (
         '<button class="lm-move-btn" title="Move up" onclick="moveLookupItem(\'' + listKey + '\',' + idx + ',-1)">↑</button>' +
         '<button class="lm-move-btn" title="Move down" onclick="moveLookupItem(\'' + listKey + '\',' + idx + ',1)">↓</button>' +
-        (reason ? '' : '<button class="lm-del-btn" title="Remove" onclick="removeLookupItem(\'' + listKey + '\',' + idx + ')">×</button>');
+        (reason ? '' : '<button class="lm-del-btn" title="Remove" onclick="removeLookupItem(\'' + listKey + '\',' + idx + ')">×</button>'));
       li.insertAdjacentHTML('beforeend', extra);
       ul.appendChild(li);
     });
