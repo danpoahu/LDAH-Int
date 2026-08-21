@@ -1621,6 +1621,14 @@
     #wpFormOverlay .modal-header .left small{ display:block; font-weight:400; font-size:.78rem; opacity:.9; }
     #wpFormOverlay .modal-actions{ align-items:center; }
     .wp-savemsg{ margin-right:auto; font-size:.82rem; color:var(--text-soft); }
+.wp-activity{ border:1px solid #E2E8F0; border-radius:10px; overflow:hidden; margin-top:8px; }
+.wp-activity-row{ display:grid; grid-template-columns:150px 130px 1fr; gap:12px; padding:8px 13px; border-top:1px solid #F1F5F9; font-size:.8rem; align-items:baseline; }
+.wp-activity-row:first-child{ border-top:0; }
+.wp-activity-row .wa-when{ color:#64748B; font-size:.74rem; }
+.wp-activity-row .wa-who{ font-weight:700; color:#334155; }
+.wp-activity-row .wa-what b{ color:#0E5F7A; }
+.wp-activity-empty{ padding:14px; color:#94A3B8; font-size:.82rem; text-align:center; }
+@media (max-width:640px){ .wp-activity-row{ grid-template-columns:1fr; gap:2px; } }
 /* Fast hover hints on the Workshop form's footer buttons — the same 90ms
    tooltip as the interaction pills. Right-anchored and opening upward, so
    Submit (far right) never overflows the modal. (2026-08-21) */
@@ -4964,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.45</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.46</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8770,6 +8778,12 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
           <div class="wp-f"><label>Comments or Concerns</label><textarea id="wpComments"></textarea></div>
         </div>
+
+        <!-- Activity / audit trail. Read-only, never emailed. Records every
+             change, task and email on THIS form so anyone can see its history.
+             So many hands touch this and it is critical. (2026-08-21) -->
+        <div class="wp-sec" style="margin-top:24px;">Activity / Audit Trail <span class="wp-owner" style="background:#E2E8F0;color:#475569;">info only &mdash; never emailed</span></div>
+        <div id="wpActivityList" class="wp-activity"><div class="wp-activity-empty">Loading…</div></div>
       </div>
 
       <div class="modal-actions">
@@ -19655,6 +19669,7 @@ window.openContactDetail = async function(contactId) {
 
     _wpRenderRows();
     _wpFill();
+    _wpLoadActivity();
     _wpApplyAdminGate();
     if (msg) msg.textContent = _wpDoc ? '' : 'Prefilled from the event — check every line.';
   };
@@ -19927,6 +19942,8 @@ window.openContactDetail = async function(contactId) {
       await db.collection('workshopForms').doc(_wpEventId).set(data, { merge: true });
       var back = await db.collection('workshopForms').doc(_wpEventId).get();
       _wpDoc = back.data() || {};
+      await _wpLogActivity(submit ? 'Submitted' : 'Draft saved', '');
+      _wpLoadActivity();
       _wpApplyAdminGate();
       if (msg) msg.textContent = submit ? '✓ Submitted' : '✓ Draft saved';
       if (window.auditLog) window.auditLog(submit ? 'Submitted Workshop & Presentation form' : 'Saved Workshop form draft', data.eventTitle);
@@ -19942,6 +19959,56 @@ window.openContactDetail = async function(contactId) {
       if (btn) btn.disabled = false;
     }
   };
+
+  // Append-only activity log for THIS form. Never emailed; the Firestore rule
+     // forbids editing or deleting an entry. Best-effort — a log failure must
+     // never block the save it is recording.
+  window._wpLogActivity = async function(what, detail) {
+    if (!_wpEventId) return;
+    try {
+      await db.collection('workshopForms').doc(_wpEventId).collection('activity').add({
+        at: firebase.firestore.FieldValue.serverTimestamp(),
+        who: (window.currentUserData && (window.currentUserData.displayName || window.currentUserData.email)) || 'Staff',
+        what: String(what || ''), detail: String(detail || '')
+      });
+    } catch (e) { console.warn('workshop activity log failed:', e.message); }
+  };
+
+  window._wpLoadActivity = async function() {
+    var host = document.getElementById('wpActivityList');
+    if (!host || !_wpEventId) return;
+    try {
+      var snap = await db.collection('workshopForms').doc(_wpEventId).collection('activity')
+                   .orderBy('at', 'desc').limit(200).get();
+      var rows = [];
+      snap.forEach(function(d) { rows.push(d.data() || {}); });
+      _wpRenderActivity(rows);
+    } catch (e) {
+      host.innerHTML = '<div class="wp-activity-empty">Could not load the activity log.</div>';
+      console.warn('workshop activity load failed:', e.message);
+    }
+  };
+
+  function _wpRenderActivity(rows) {
+    var host = document.getElementById('wpActivityList');
+    if (!host) return;
+    if (!rows.length) { host.innerHTML = '<div class="wp-activity-empty">Nothing recorded yet. Changes, tasks and emails will appear here.</div>'; return; }
+    host.innerHTML = rows.map(function(r) {
+      var when = '';
+      var at = r.at;
+      if (at && typeof at.toDate === 'function') {
+        var dt = at.toDate();
+        var hst = new Date(dt.getTime() - (dt.getTimezoneOffset() + 600) * 60000);
+        when = hst.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' HST';
+      }
+      return '<div class="wp-activity-row">' +
+               '<span class="wa-when">' + rsEscape(when) + '</span>' +
+               '<span class="wa-who">' + rsEscape(String(r.who || '')) + '</span>' +
+               '<span class="wa-what"><b>' + rsEscape(String(r.what || '')) + '</b>' +
+                 (r.detail ? ' &mdash; ' + rsEscape(String(r.detail)) : '') + '</span>' +
+             '</div>';
+    }).join('');
+  }
 
   window.closeWorkshopForm = function() {
     document.getElementById('wpFormOverlay').classList.remove('active');
