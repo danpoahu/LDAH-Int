@@ -4925,7 +4925,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.44-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.45-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8885,7 +8885,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <label>Also record</label>
             <div class="ix-chips">
               <label class="ix-pill" data-tip="Recommending case advocacy? Tick this to send the request to Noelani.">
-                <input type="checkbox" id="intCaseAdvocacy" onchange="_toggleCaseAdvocacyPicker('int');_ixSyncPills()">
+                <input type="checkbox" id="intCaseAdvocacy" onchange="_toggleCaseAdvocacyPicker('int');_ixSyncPills();window._intRefreshCaFlag&&window._intRefreshCaFlag()">
                 Case advocacy
               </label>
               <label class="ix-pill">
@@ -15802,9 +15802,21 @@ var _photoPendingByIsland = {};
   window._intSetCaseAdvFlag = function(on) {
     var pill = document.getElementById('intCaseAdvPill');
     if (pill) pill.style.display = on ? 'inline-block' : 'none';
+    window._intRefreshCaFlag();
+  };
+
+  /* The purple ring is on when EITHER the family is already in advocacy (pill)
+     OR the person is recommending it now (the Case advocacy box). So ticking
+     the box turns the whole modal purple — the same cue the pill gives — for
+     whoever is logging, Noe or not. */
+  window._intRefreshCaFlag = function() {
+    var pill = document.getElementById('intCaseAdvPill');
+    var pillOn = !!(pill && pill.style.display === 'inline-block');
+    var box = document.getElementById('intCaseAdvocacy');
+    var boxOn = !!(box && box.checked);
     var ov = document.getElementById('overlay');
     var modal = ov ? ov.querySelector('.modal') : null;
-    if (modal) modal.classList.toggle('ca-flagged', !!on);
+    if (modal) modal.classList.toggle('ca-flagged', pillOn || boxOn);
   };
 
   // ── Quick-add contact from interaction modal ──
@@ -18712,6 +18724,19 @@ window.openContactDetail = async function(contactId) {
 
   // Show/hide the advocate picker for a given prefix ('int' = new form,
   // 'edit' = edit modal). Lazily populates the select on first reveal.
+  /* Choosing WHO takes a case is Noe's job (Rosie backs her up when Noe is
+     out). For everyone else on the New Interaction modal, ticking "Case
+     advocacy" turns the flag on and routes the request to Noe — they never see
+     the advocate picker, so they cannot mis-assign it. The picker's default is
+     the blank option, and a blank advocate is exactly the "coordinator to
+     assign" signal spawnOrReassignCaseAdvocacy already funnels to Noe. */
+  var CASE_ADV_PICKER_UIDS = [
+    'lwn8EWt6XEbCg5rhM0f8OSy8nTj2',   // Noelani Dela Vega
+    'rorJEIUS4sX7jYgzqORK8G7iPdM2'    // Rosie Rowe (backup)
+  ];
+  window._caCanPickAdvocate = function() {
+    return CASE_ADV_PICKER_UIDS.indexOf((window.currentUserData || {}).uid || '') >= 0;
+  };
   window._toggleCaseAdvocacyPicker = function(prefix) {
     var cb = document.getElementById(prefix + 'CaseAdvocacy');
     var picker = document.getElementById(prefix + 'CaseAdvocacyPicker');
@@ -18720,8 +18745,10 @@ window.openContactDetail = async function(contactId) {
     // not the div default of block, when toggled back on. Others ('int','edit')
     // are block-level .val containers, so '' (default) is correct.
     var onDisplay = (prefix === 'ix') ? 'inline-flex' : '';
-    picker.style.display = cb.checked ? onDisplay : 'none';
-    if (cb.checked) _populateCaseAdvocateSelect(prefix);
+    // On the New Interaction modal, only Noe/Rosie ever see the picker.
+    var allowed = (prefix !== 'int') || window._caCanPickAdvocate();
+    picker.style.display = (cb.checked && allowed) ? onDisplay : 'none';
+    if (cb.checked && allowed) _populateCaseAdvocateSelect(prefix);
   };
 
   // Populate a case-advocate <select> from the active presenter-name list.
@@ -20211,6 +20238,8 @@ window.openContactDetail = async function(contactId) {
     if (matPicker) matPicker.style.display = 'none';
     var matList = document.getElementById('intMaterialsList');
     if (matList) { matList.innerHTML = ''; matList.removeAttribute('data-rendered'); }
+    // Box and pill are both cleared above; recompute the ring so it is off.
+    if (window._intRefreshCaFlag) window._intRefreshCaFlag();
   }
 
   // ── Dashboard: Recent Interactions from Firestore ──
