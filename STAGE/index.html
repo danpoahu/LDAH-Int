@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.58-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.59-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8351,9 +8351,33 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
           <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsExportApplicationsCsv()">Export CSV</button>
           <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Download all applications grouped by opportunity as a spreadsheet. Includes name, contact info, status, and admin notes.')">i</span>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary" style="font-size:.82rem;" onclick="cmsOpenVolunteerEmail()">&#9993;&nbsp; Email volunteers</button>
         </div>
         <div id="cmsVolunteersAppsCards">
           <div class="cms-empty"><p>Loading applications...</p></div>
+        </div>
+      </div>
+
+      <!-- Email the accepted-volunteer roster (2026-08-21) -->
+      <div id="cmsVolEmailOverlay" class="overlay" role="dialog" aria-modal="true" style="display:none;">
+        <div class="modal" style="max-width:640px;">
+          <div class="modal-header">
+            <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div>Email Volunteers</div></div>
+            <button class="close" type="button" onclick="cmsCloseVolunteerEmail()" aria-label="Close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div id="cmsVolEmailCount" style="background:#ECFEFF;border:1px solid #CFE9F0;border-radius:10px;padding:10px 14px;font-size:.88rem;color:#0E6E9C;margin-bottom:14px;"></div>
+            <div class="field"><label>Subject</label><input id="cmsVolEmailSubject" type="text" placeholder="e.g. We need a few hands this Saturday"></div>
+            <div class="field"><label>Message</label><textarea id="cmsVolEmailBody" rows="6" placeholder="Write your message to the volunteers…"></textarea></div>
+            <div class="field"><label>Signature</label><textarea id="cmsVolEmailSig" rows="4"></textarea></div>
+            <div style="font-size:.78rem;color:var(--text-soft);margin-top:2px;">Sent through the system (logged in Email Log). Everyone is BCC&rsquo;d &mdash; volunteers never see each other&rsquo;s addresses.</div>
+          </div>
+          <div class="modal-actions">
+            <span id="cmsVolEmailMsg" style="margin-right:auto;font-size:.82rem;color:var(--text-soft);"></span>
+            <button class="btn btn-ghost" type="button" onclick="cmsCloseVolunteerEmail()">Cancel</button>
+            <button class="btn btn-primary" type="button" id="cmsVolEmailSend" onclick="cmsSendVolunteerEmail()">Send</button>
+          </div>
         </div>
       </div>
 
@@ -38185,6 +38209,66 @@ window.cmsSaveAppNotes = async function(appId, textareaId) {
     auditLog('Updated application notes', appName);
     _showToast('Notes saved.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
+};
+
+// ── Email the accepted-volunteer roster (2026-08-21) ──────────────────────
+window._cmsVolDefaultSig = 'Mahalo,\nThe LDAH Volunteer Team\nLeadership in Disabilities and Achievement of Hawai\u02BBi\n(808) 536-9684';
+
+window.cmsAcceptedVolunteers = function() {
+  return (_cmsVolunteerApps || []).filter(function(a) {
+    return a.status === 'accepted' && a.archived !== true && a.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(a.email));
+  });
+};
+
+window.cmsOpenVolunteerEmail = function() {
+  var accepted = window.cmsAcceptedVolunteers();
+  var ov = document.getElementById('cmsVolEmailOverlay');
+  var countEl = document.getElementById('cmsVolEmailCount');
+  var send = document.getElementById('cmsVolEmailSend');
+  if (accepted.length) {
+    countEl.innerHTML = 'This will email <b>' + accepted.length + '</b> accepted volunteer' + (accepted.length === 1 ? '' : 's') + '.';
+    if (send) send.disabled = false;
+  } else {
+    countEl.innerHTML = 'No accepted volunteers have an email on file yet. Accept some applications first.';
+    if (send) send.disabled = true;
+  }
+  var sig = document.getElementById('cmsVolEmailSig');
+  if (sig && !sig.value) sig.value = window._cmsVolDefaultSig;
+  document.getElementById('cmsVolEmailMsg').textContent = '';
+  ov.style.display = 'flex';
+};
+
+window.cmsCloseVolunteerEmail = function() {
+  document.getElementById('cmsVolEmailOverlay').style.display = 'none';
+};
+
+window.cmsSendVolunteerEmail = async function() {
+  var subject = (document.getElementById('cmsVolEmailSubject').value || '').trim();
+  var body = (document.getElementById('cmsVolEmailBody').value || '').trim();
+  var signature = (document.getElementById('cmsVolEmailSig').value || '').trim();
+  var msg = document.getElementById('cmsVolEmailMsg');
+  var send = document.getElementById('cmsVolEmailSend');
+  if (!subject) { _showToast('Add a subject.', '#D97706'); return; }
+  if (!body) { _showToast('Write a message.', '#D97706'); return; }
+  var accepted = window.cmsAcceptedVolunteers();
+  if (!accepted.length) { _showToast('No accepted volunteers to email.', '#D97706'); return; }
+  if (!confirm('Send this email to ' + accepted.length + ' accepted volunteer' + (accepted.length === 1 ? '' : 's') + '?')) return;
+  if (send) { send.disabled = true; send.textContent = 'Sending…'; }
+  if (msg) msg.textContent = '';
+  try {
+    var res = await firebase.functions().httpsCallable('emailVolunteerRoster')({ subject: subject, body: body, signature: signature });
+    var sent = (res && res.data && res.data.sent) || 0;
+    if (window.auditLog) window.auditLog('Emailed volunteer roster', sent + ' recipient(s) — ' + subject);
+    _showToast('Sent to ' + sent + ' volunteer' + (sent === 1 ? '' : 's') + '.', '#16A34A');
+    document.getElementById('cmsVolEmailSubject').value = '';
+    document.getElementById('cmsVolEmailBody').value = '';
+    cmsCloseVolunteerEmail();
+  } catch (e) {
+    if (msg) msg.textContent = '';
+    _showToast('Could not send: ' + (e && e.message || e), '#DC2626');
+  } finally {
+    if (send) { send.disabled = false; send.textContent = 'Send'; }
+  }
 };
 
 window.cmsArchiveApp = async function(appId, archive) {
