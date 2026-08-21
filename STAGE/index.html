@@ -4930,7 +4930,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.46-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.47-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -42681,6 +42681,17 @@ window.cmsRenderSignupChart = function(rows) {
 
   var all = rows || [];
 
+  // The Connect-Gen period bars group together at the FRONT of each pane, in
+  // calendar order (Jan/Feb → Nov/Dec), so the split reads as one series; every
+  // other event keeps the by-size order after them.
+  function _cgChartCmp(a, b) {
+    var aCg = a.etype === 'connect_gen', bCg = b.etype === 'connect_gen';
+    if (aCg && bCg) return (a.cgOrder || 0) - (b.cgOrder || 0);
+    if (aCg) return -1;
+    if (bCg) return 1;
+    return b.plot - a.plot;
+  }
+
   // `plot` is what the bar HEIGHT represents, and it is always whatever the
   // label above the bar says. A capacity session is labelled in people, so it
   // must be drawn in people too — a bar of height 3 under a "10/80" label reads
@@ -42689,13 +42700,13 @@ window.cmsRenderSignupChart = function(rows) {
                     .map(function(r) {
                       var cap = r.cap || 0, heads = r.upHeads || 0;
                       return { title: r.title, etype: r.etype, count: r.up, attended: 0,
-                               cap: cap, heads: heads, plot: cap > 0 ? heads : r.up };
+                               cap: cap, heads: heads, plot: cap > 0 ? heads : r.up, cgOrder: r.cgOrder };
                     })
-                    .sort(function(a, b) { return b.plot - a.plot; });
+                    .sort(_cgChartCmp);
   var past = all.filter(function(r) { return (r.past || 0) > 0; })
                 .map(function(r) { return { title: r.title, etype: r.etype, count: r.past,
-                                            attended: r.pastAttended || 0, plot: r.past }; })
-                .sort(function(a, b) { return b.plot - a.plot; });
+                                            attended: r.pastAttended || 0, plot: r.past, cgOrder: r.cgOrder }; })
+                .sort(_cgChartCmp);
 
   if (!upcoming.length && !past.length) {
     body.innerHTML = '<div class="cms-chart-empty">No signups recorded yet.</div>';
@@ -42934,18 +42945,29 @@ window.cmsLoadCmsDashboard = async function() {
               });
               var _cgList = Object.keys(_cgKeys);
               if (!_cgList.length && meta.eventDate) { _cgKeys[meta.eventDate] = meta.eventDate; _cgList = [meta.eventDate]; }
+              // Count each family ONCE per period: in Upcoming if they have a
+              // future session that period, in Past for a past one (a family
+              // spanning both shows in each pane's bar, as elsewhere on this
+              // chart). Attendance counts families who came to a past session.
+              var _fam = {};
               _cgList.forEach(function(key) {
                 var mon = parseInt(key.slice(5, 7), 10) - 1;
                 if (isNaN(mon)) return;
                 var yr = key.slice(0, 4), bidx = Math.floor(mon / 2), bk = yr + '-' + bidx;
-                var b = cgBuckets[bk] || (cgBuckets[bk] = { up: 0, past: 0, att: 0, yr: yr, bidx: bidx });
-                if (key >= _chartToday) { b.up++; }
+                var f = _fam[bk] || (_fam[bk] = { yr: yr, bidx: bidx, up: false, past: false, att: false });
+                if (key >= _chartToday) { f.up = true; }
                 else {
-                  b.past++;
+                  f.past = true;
                   var rec = (d.sessionAttendance || {})[_cgKeys[key]];
-                  if (rec && rec.status === 'attended') b.att++;
-                  else if (!rec && _cmsSignupAttended(d) && _cgList.length === 1) b.att++;
+                  if ((rec && rec.status === 'attended') || (!rec && _cmsSignupAttended(d) && _cgList.length === 1)) f.att = true;
                 }
+              });
+              Object.keys(_fam).forEach(function(bk) {
+                var f = _fam[bk];
+                var b = cgBuckets[bk] || (cgBuckets[bk] = { up: 0, past: 0, att: 0, yr: f.yr, bidx: f.bidx });
+                if (f.up) b.up++;
+                if (f.past) b.past++;
+                if (f.att) b.att++;
               });
             } else {
               // Upcoming vs past is decided PER SIGNUP, not per event — an
@@ -42993,7 +43015,8 @@ window.cmsLoadCmsDashboard = async function() {
             var b = cgBuckets[bk];
             if (!b.up && !b.past) return;
             var lbl = 'Connect-Gen ' + _MON2[b.bidx] + (b.yr !== _cgNowYr ? " '" + b.yr.slice(2) : '');
-            chartRows.push({ title: lbl, etype: 'connect_gen', up: b.up, past: b.past, pastAttended: b.att });
+            chartRows.push({ title: lbl, etype: 'connect_gen', up: b.up, past: b.past, pastAttended: b.att,
+                             cgOrder: Number(b.yr) * 6 + b.bidx });
           });
         } else if (upCount > 0 || pastCount > 0) {
           chartRows.push({ title: window._cmsStripEventTitle(meta.title), etype: meta.etype,
