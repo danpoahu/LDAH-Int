@@ -2779,7 +2779,7 @@
 .ed-sel{ width:100%; margin-top:4px; font-size:.68rem; padding:2px 4px; border:1px solid #CBD5E1; border-radius:5px; background:#fff; color:#334155; cursor:pointer; }
 .ed-sel.unassigned{ border-color:#F59E0B; background:#FFFBEB; color:#92400E; font-weight:700; }
 .ed-sel:disabled{ opacity:.6; cursor:progress; }
-/* Workshop & Presentation form, straight off the calendar card (v148.25).
+/* Workshop & Presentation form, straight off the calendar card (v148.33).
    Sized to match .ed-sel because it sits directly under it, and the cells are
    narrow on a 1366x768 screen. Off-site events only, so most cards never show
    one. */
@@ -4753,7 +4753,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
   .gr-handled-toggle { background: none; border: none; color: #1f6feb; cursor: pointer; padding: 0; }
 
 </style>
-<link rel="stylesheet" href="chat.css?v=148.7">
+<link rel="stylesheet" href="chat.css?v=148.14">
 </head>
 
 <body>
@@ -4828,11 +4828,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div class="nav-group-body">
             <a class="active" href="javascript:void(0)" data-section="dashboard">Home <span class="pill">Today</span></a>
             <a href="javascript:void(0)" data-section="webdashboard" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Web/App Analytics</a>
-            <a href="javascript:void(0)" data-section="interactions" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Interactions</a>
+            <a href="javascript:void(0)" data-section="interactions" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser,partner">Interactions</a>
             <a href="javascript:void(0)" data-section="resources">Downloads</a>
-            <a href="javascript:void(0)" data-section="contacts" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Contacts</a>
+            <a href="javascript:void(0)" data-section="contacts" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser,partner">Contacts</a>
             <a href="javascript:void(0)" data-section="changes" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">Change Requests <span class="pill" id="crBadge" style="display:none;">0</span></a>
-            <a href="javascript:void(0)" data-section="reports" data-roles="superAdmin,admin">Reports</a>
+            <a href="javascript:void(0)" data-section="reports" data-roles="superAdmin,admin,partner">Reports</a>
             <a href="javascript:void(0)" data-section="cmsTrainingVideos">Training Videos</a>
           </div>
         </div>
@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.48</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.49</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -4999,7 +4999,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             🔔 <span style="font-family:inherit;font-weight:800;">Alerts</span>
             <span class="pill" id="notifBadge" style="display:none;">0</span>
           </button>
-          <button class="btn btn-primary" type="button" id="newInteractionBtn" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser">
+          <button class="btn btn-primary" type="button" id="newInteractionBtn" data-roles="superAdmin,admin,webAdmin,appAdmin,dailyUser,dataUser,partner">
             ➕ New Interaction
           </button>
           <div id="topbarWeather" class="topbar-weather" style="display:none;" onclick="toggleWeatherOverlay()">
@@ -5219,10 +5219,28 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             // status to Firestore (Closed when checked, Open when un-checked) so
             // the change sticks system-wide. Optimistic: toggle the strikethrough
             // immediately, revert it if the write fails. The row stays in place.
-            window.myDayToggleDone = async function(check, id){
+            window.myDayToggleDone = async function(check, id, step, eventId){
               if(!id) return;
               var row=check.parentElement;
               var nowDone=!row.classList.contains('done');
+
+              /* Closing the travel task used to write nothing and warn about
+                 nothing — the chain just marked itself done. That is exactly how
+                 Molokaʻi's flights and lodging never reached the form, and the
+                 packing list went out with "booked by Admin" and no dates under
+                 it. Not a hard block: when ground transport is agency-provided
+                 there is genuinely nothing to enter. */
+              if(nowDone && step==='workshopTravel' && eventId){
+                var _rec = null;
+                try{
+                  var _fs = await db.collection('workshopForms').doc(eventId).get();
+                  var _fd = _fs.exists ? (_fs.data()||{}) : {};
+                  _rec = !!(_fd.airDone || _fd.lodgeDone);
+                }catch(e){ _rec = true; }   // can't tell — don't nag
+                if(_rec === false){
+                  if(!confirm('No booking dates are recorded for this event.\n\nThe packing list goes out three days beforehand and will show no flight or lodging dates.\n\nClick Cancel to go back and use "Book travel" — or OK to close it anyway.')) return;
+                }
+              }
               row.classList.toggle('done');
               check.style.pointerEvents='none';
               try{
@@ -5755,8 +5773,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                         // Workshop & Presentation form (v148.15). Three steps, three
                         // owners: Noe fills it, the ED approves travel in one click,
                         // Admin books it on page 2.
-                        if(d.workflowEventId&&(d.workflowStep==='workshopForm'||d.workflowStep==='workshopTravel'))
-                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">'+(d.workflowStep==='workshopTravel'?'Book travel &rarr;':'Open the form &rarr;')+'</button>';
+                        if(d.workflowEventId&&d.workflowStep==='workshopForm')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">Open the form &rarr;</button>';
+                        /* Booking travel is four fields. Sending someone into page 2
+                           of a forty-field form to fill them is how the Molokaʻi
+                           booking got closed with nothing recorded — so the fields
+                           come to the task instead, the way the ED's approval does. */
+                        else if(d.workflowEventId&&d.workflowStep==='workshopTravel')
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();wpTravelInline(\''+d.workflowEventId+'\',\''+d._id+'\',this)">Book travel &rarr;</button>';
                         else if(d.workflowEventId&&d.workflowStep==='workshopTravelOk')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#15803d;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();approveWorkshopTravel(\''+d.workflowEventId+'\',this)">&#10003; Approve travel</button>'
                             +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#fff;color:#0e5f7a;border:1px solid #cfe3ec;border-radius:6px;cursor:pointer;margin-top:7px;margin-left:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">View the form</button>';
@@ -5798,7 +5822,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayCancelPending(\''+d._id+'\')">Cancel &amp; archive pending &rarr;</button>';
                       }
                       return '<div class="'+m.cls+'" onclick="viewInteraction(\''+d._id+'\')">'
-                        +'<div class="check" onclick="event.stopPropagation();myDayToggleDone(this,\''+d._id+'\')"></div>'
+                        +'<div class="check" onclick="event.stopPropagation();myDayToggleDone(this,\''+d._id+'\',\''+_attrJsArg(d.workflowStep||'')+'\',\''+_attrJsArg(d.workflowEventId||'')+'\')"></div>'
                         +'<div class="meta"><div class="ttl">'+esc(d.summary||'(no summary)')+person+'</div>'
                         +'<div class="sub">'+(sub.join(' · ')||'—')+'</div>'+actionBtn+'</div>'
                         +'<div class="tags">'+m.pill+typePill+'</div></div>';
@@ -6010,17 +6034,17 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <p style="color:var(--text-soft);margin:4px 0 0;">Generate and export organizational reports.</p>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #0891B2;" onclick="cmsBuildScreeningsReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #0891B2;" data-roles="superAdmin,admin" onclick="cmsBuildScreeningsReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">🩺</div>
               <div style="font-weight:700;font-size:.92rem;">Screenings</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who signed up (filter by Today), add Vision/Hearing results per child, and track consent &amp; results status.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildInteractionsSummaryReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin,partner" onclick="cmsBuildInteractionsSummaryReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📊</div>
               <div style="font-weight:700;font-size:.92rem;">Interactions Summary</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Weekly/monthly interaction counts by channel, status, and owner.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildContactDemographicsReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin,partner" onclick="cmsBuildContactDemographicsReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">👥</div>
               <div style="font-weight:700;font-size:.92rem;">Contact Demographics</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Breakdown of contacts by type, region, and engagement level.</div>
@@ -6029,37 +6053,37 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                  which was never built — its onclick was a "coming soon" toast.
                  No emoji: new work follows the house rule even though the older
                  cards in this grid predate it. -->
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1D4ED8;" onclick="cmsBuildStaffTrainingReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1D4ED8;" data-roles="superAdmin,admin" onclick="cmsBuildStaffTrainingReport()">
               <div style="margin-bottom:6px;color:#1D4ED8;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg></div>
               <div style="font-weight:700;font-size:.92rem;">Staff Training</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who has completed each sign-in training session, who is skipping, and how often. CSV export.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildEventAttendanceReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin,partner" onclick="cmsBuildEventAttendanceReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📅</div>
               <div style="font-weight:700;font-size:.92rem;">Event Attendance</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Sign-up counts and attendance rates for community events and workshops.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildFeedbackReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin" onclick="cmsBuildFeedbackReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📝</div>
               <div style="font-weight:700;font-size:.92rem;">Feedback Detail Report</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Every post-event feedback response, grouped by event &amp; session date. Click any respondent to expand all 13 answers.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildStaffActivityReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin" onclick="cmsBuildStaffActivityReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📈</div>
               <div style="font-weight:700;font-size:.92rem;">Staff Activity</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Follow-up interactions grouped by staff member, then by family. Includes update timeline.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildNHSurveyReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin" onclick="cmsBuildNHSurveyReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">🌺</div>
               <div style="font-weight:700;font-size:.92rem;">Native Hawaiian Family Survey</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Cumulative results across all submissions.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" onclick="cmsBuildWebsiteAppAnalyticsReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin" onclick="cmsBuildWebsiteAppAnalyticsReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">🌐</div>
               <div style="font-weight:700;font-size:.92rem;">Website & App Analytics</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Page views, visitor trends, engagement, and resource downloads — executive summary + detail for grant reporting.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #B45309;" onclick="cmsBuildMembershipReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #B45309;" data-roles="superAdmin,admin" onclick="cmsBuildMembershipReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">💳</div>
               <div style="font-weight:700;font-size:.92rem;">Membership Reports</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Member summary &amp; totals, CSV export, quick-pay pending memberships, and PayPal reconciliation.</div>
@@ -6067,10 +6091,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
             <!-- v146.4.37 — who has taken a child's confidential documents off the
                  platform. Bordered red: this is the one report about data leaving. -->
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #DC2626;" onclick="cmsBuildDocDownloadReport()">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #DC2626;" data-roles="superAdmin,admin" onclick="cmsBuildDocDownloadReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">🔐</div>
               <div style="font-weight:700;font-size:.92rem;">Documents Downloaded</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Every confidential document taken off the system &mdash; who, which family, which file, when. CSV export.</div>
+            </div>
+            <!-- Certification Program. No emoji on this card: the reports grid
+                 predates the house no-emoji rule and the rest will be tidied
+                 separately, but new work follows the rule. -->
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #B45309;" data-roles="superAdmin,admin" onclick="cmsBuildCertificationReport()">
+              <div style="margin-bottom:6px;color:#B45309;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg></div>
+              <div style="font-weight:700;font-size:.92rem;">Certification Program</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who has started and who has finished each tier, quiz scores, attempts, and certificate numbers. CSV export.</div>
             </div>
           </div>
         </div>
@@ -6094,6 +6126,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
           <div id="ddSummary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
           <div id="ddBody"><div class="cms-empty"><p>Loading…</p></div></div>
+        </div>
+
+        <!-- Certification Program report (in-grid; toggled from Reports card).
+             READ ONLY — staff never write member progress or certificates. -->
+        <div id="certReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseCertificationReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#B45309;margin:0;">Certification Program</h2>
+            <span id="crGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <input type="search" id="crSearch" placeholder="Filter by name or email&hellip;" oninput="cmsRenderCertificationReport()" style="flex:1;min-width:200px;max-width:340px;padding:7px 12px;border:1px solid #CBD5E1;border-radius:8px;font-size:.88rem;">
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="crExportCSV()">Export CSV</button>
+          </div>
+          <div id="crBody"><div class="cms-empty"><p>Loading&hellip;</p></div></div>
         </div>
 
         <!-- Staff Training report (in-grid; toggled from Reports card).
@@ -6572,7 +6619,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <input type="search" id="ctSearch" placeholder="Search contacts by name, email, phone, type, org…">
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="ctMembersOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Members only</label>
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;" title="Contacts with an open Case Advocacy interaction"><input type="checkbox" id="ctAdvocacyOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Advocacy only</label>
-          <button class="ct-btn-add" id="ctAddBtn" data-roles="superAdmin,admin" onclick="openContactForm()">+ Add Contact</button>
+          <button class="ct-btn-add" id="ctAddBtn" data-roles="superAdmin,admin,partner" onclick="openContactForm()">+ Add Contact</button>
           <button class="section-refresh-btn" onclick="exportContactsCSV()" title="Download the contacts currently shown (respects search / A–Z / Members / Advocacy filter)">&#x2913; Export CSV</button>
           <button class="section-refresh-btn" onclick="loadContacts(true)">Refresh</button>
         </div>
@@ -8923,11 +8970,6 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     const closeBtn = document.getElementById('closeModal');
 
     window.openModal = function openModal(){
-      // v120.5.2: partners cannot create interactions
-      if (window.currentUserData && window.currentUserData.role === 'partner') {
-        alert('Partners cannot create interactions.');
-        return;
-      }
       overlay.classList.add('active');
       // Reset fields
       if (typeof resetInteractionModal === 'function') resetInteractionModal();
@@ -9506,7 +9548,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- Internal chat — see chat-core.js -->
-<script src="chat-core.js?v=148.7"></script>
+<script src="chat-core.js?v=148.14"></script>
 <script>
   LDAHChat.mount(document.getElementById('chatMount'), {
     mode: 'modal',
@@ -9521,7 +9563,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- WebRTC screen share — see rtc-screenshare.js -->
-<script src="rtc-screenshare.js?v=148.7"></script>
+<script src="rtc-screenshare.js?v=148.14"></script>
 
 <!-- ── Recipient List CMS ── -->
 <script>
@@ -11481,6 +11523,48 @@ var _photoPendingByIsland = {};
     // Set global for existing highlightMine() logic
     window.currentUserName = name;
   }
+
+  /* ── Pacific Partner Scoping (v148.32) ────────────────────────────
+     The `partner` role is the six Pacific Basin partner organizations.
+     Their island already lives in userRoles.location as a WEATHER_LOCATIONS
+     label, which is the same vocabulary WP_PARTNER_ISLANDS uses — so this
+     reads the maintained field rather than deriving a second one.
+
+     Deliberately NOT contacts.island: that dropdown offers the six Hawaiian
+     islands plus 'Other', and writing a territory name into it would render
+     blank on the contact form and leak into the zip autofill, the Announce
+     island filter and Dissem Reach. Partner records carry `partnerIsland`
+     alongside island:'Other' instead. */
+  var PARTNER_ISLANDS = ['American Samoa','Guam','CNMI','Micronesia','Marshall Islands','Palau'];
+
+  window.isPartnerUser = function() {
+    return !!(window.currentUserData && window.currentUserData.role === 'partner');
+  };
+
+  // The signed-in partner's island label, or '' for everyone else. Returns ''
+  // for a partner whose location doesn't resolve, which fails closed: nothing
+  // gets stamped, so nothing they create joins the partner reports.
+  window.currentPartnerIsland = function() {
+    if (!window.isPartnerUser()) return '';
+    var loc = String((window.currentUserData && window.currentUserData.location) || '').trim().toLowerCase();
+    for (var i = 0; i < PARTNER_ISLANDS.length; i++) {
+      if (PARTNER_ISLANDS[i].toLowerCase() === loc) return PARTNER_ISLANDS[i];
+    }
+    return '';
+  };
+
+  // Stamps partnerIsland onto anything a partner creates. A no-op for staff,
+  // so it is safe to call unconditionally at every write site.
+  window.partnerStamp = function(data) {
+    var isl = window.currentPartnerIsland();
+    if (isl) data.partnerIsland = isl;
+    return data;
+  };
+
+  // A record belongs to the Pacific partners if it carries the stamp. The three
+  // partner-visible reports filter on this and nothing else — all six islands
+  // pooled, no Hawaiʻi records.
+  window.isPartnerRecord = function(d) { return !!(d && d.partnerIsland); };
 
   // ── Role-Based Visibility ──
   function applyRolePermissions() {
@@ -14182,6 +14266,7 @@ var _photoPendingByIsland = {};
     });
   };
 
+
   async function seedLookupListsIfNeeded() {
     var defaults = {
       /* These fire only when a doc is MISSING, so they are dormant — but they
@@ -16284,6 +16369,18 @@ var _photoPendingByIsland = {};
   };
 
   window.openContactForm = async function(docId) {
+    /* Partner scope (v148.32): a partner adds contacts freely and edits the
+       ones their organization added, never a Hawaiʻi family's record. The
+       Firestore rule refuses the write either way — this is the civil version
+       of the message, before they have typed anything. */
+    if (docId && window.isPartnerUser && window.isPartnerUser()) {
+      var _pExisting = null;
+      try { _pExisting = _allContacts.find(function(x) { return x.id === docId; }) || null; } catch (e) {}
+      if (!window.isPartnerRecord(_pExisting)) {
+        alert('You can only edit contacts your partner organization added.');
+        return;
+      }
+    }
     document.getElementById('ctEditId').value = docId || '';
     document.getElementById('ctFormTitle').textContent = docId ? 'Edit Contact' : 'Add Contact';
     document.getElementById('ctFirstName').value = '';
@@ -16774,6 +16871,7 @@ var _photoPendingByIsland = {};
       } else {
         data.createdBy = currentUserData?.uid || '';
         data.createdByName = currentUserData?.displayName || '';
+        window.partnerStamp(data);
         data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
         // v145.1.0: Child 1 (fixed fields) + any additional-child cards →
         // canonical children[]. Legacy flat fields above still mirror Child 1.
@@ -19328,7 +19426,7 @@ window.openContactDetail = async function(contactId) {
     }
 
     try {
-      var newIxRef = await db.collection('interactions').add(data);
+      var newIxRef = await db.collection('interactions').add(window.partnerStamp(data));
 
       // Case advocacy (v134.0.0) — additive + guarded; never blocks the save.
       try {
@@ -20038,6 +20136,97 @@ window.openContactDetail = async function(contactId) {
       alert('Could not record the approval: ' + e.message);
       if (btn) { btn.disabled = false; btn.textContent = 'Approve travel'; }
     }
+  };
+
+  /* Admin's half of the travel chain, on the task card.
+
+     The ED approves in one click and never opens the form; Admin had to go
+     into page 2 of a forty-field form to fill four boxes, which is a different
+     job and a much worse one. Molokaʻi's booking was closed with all four left
+     empty. So the four boxes come to her instead — same shape as the approval
+     above, and Save both records the booking and closes the task. */
+  window.wpTravelInline = async function(eventId, taskId, btn) {
+    if (!eventId || !btn) return;
+    var card = btn.parentElement;
+    var open = card.querySelector('.wp-tin');
+    if (open) { open.remove(); btn.textContent = 'Book travel →'; return; }
+
+    btn.disabled = true;
+    var d = {};
+    try {
+      var snap = await db.collection('workshopForms').doc(eventId).get();
+      if (snap.exists) d = snap.data() || {};
+    } catch (e) {
+      btn.disabled = false;
+      alert('Could not open the booking details: ' + e.message);
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Hide';
+
+    // What the ED actually authorised, so she is not guessing which to book.
+    var needs = [];
+    if (d.airlineTravel === 'yes') needs.push('flights');
+    if (d.groundTransport === 'rentacar') needs.push('a rental car');
+    if (d.groundTransport === 'agency') needs.push('ground transport from the agency — nothing to book');
+
+    var box = document.createElement('div');
+    box.className = 'wp-tin';
+    box.style.cssText = 'margin-top:9px;padding:11px 12px;background:#F8FAFC;border:1px solid #CFE3EC;border-radius:8px;max-width:430px;';
+    box.onclick = function(e) { e.stopPropagation(); };
+    box.innerHTML =
+      (needs.length ? '<div style="font-size:.72rem;color:#0E5F7A;font-weight:700;margin-bottom:8px;">Authorised: ' + rsEscape(needs.join(' and ')) + '</div>' : '')
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;">'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Flights booked'
+      +     '<input type="date" class="wp-tin-ad" value="' + rsEscape(d.airDone || '') + '" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Sent to'
+      +     '<input class="wp-tin-af" value="' + rsEscape(d.airFwd || '') + '" placeholder="Trainer initials" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Lodging booked'
+      +     '<input type="date" class="wp-tin-ld" value="' + rsEscape(d.lodgeDone || '') + '" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      +   '<label style="font-size:.7rem;color:#475569;font-weight:600;">Sent to'
+      +     '<input class="wp-tin-lf" value="' + rsEscape(d.lodgeFwd || '') + '" placeholder="Trainer initials" style="width:100%;margin-top:3px;font-size:.75rem;padding:4px 6px;border:1px solid #CBD5E1;border-radius:5px;"></label>'
+      + '</div>'
+      + '<div style="margin-top:10px;display:flex;align-items:center;gap:9px;">'
+      +   '<button type="button" class="wp-tin-save btn" style="font-size:.74rem;padding:6px 14px;background:#15803D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;">Save &amp; close the task</button>'
+      +   '<a href="javascript:void(0)" class="wp-tin-full" style="font-size:.7rem;color:#0E5F7A;font-weight:600;">Open the whole form</a>'
+      + '</div>'
+      + '<div class="wp-tin-msg" style="font-size:.7rem;color:#B45309;margin-top:7px;display:none;"></div>';
+    card.appendChild(box);
+
+    box.querySelector('.wp-tin-full').onclick = function() { openWorkshopForm(eventId); };
+
+    box.querySelector('.wp-tin-save').onclick = async function() {
+      var save = this;
+      var ad = box.querySelector('.wp-tin-ad').value;
+      var ld = box.querySelector('.wp-tin-ld').value;
+      var msg = box.querySelector('.wp-tin-msg');
+      /* Same reasoning as the checkbox guard: warn, never block. Agency-provided
+         ground transport legitimately has nothing to record. */
+      if (!ad && !ld && !confirm('Nothing is filled in.\n\nSave and close the task anyway?')) return;
+      save.disabled = true; save.textContent = 'Saving…';
+      try {
+        await db.collection('workshopForms').doc(eventId).set({
+          airDone: ad, airFwd: box.querySelector('.wp-tin-af').value.trim(),
+          lodgeDone: ld, lodgeFwd: box.querySelector('.wp-tin-lf').value.trim(),
+          travelBookedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          travelBookedBy: (window.currentUserData || {}).displayName || '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        if (taskId) {
+          await db.collection('interactions').doc(taskId).update({
+            status: 'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          if (typeof window._clearAssignmentNotifs === 'function') await window._clearAssignmentNotifs(taskId);
+        }
+        if (window.auditLog) window.auditLog('Recorded workshop travel booking', eventId);
+        _showToast('Booking recorded and the task is closed.', '#16A34A');
+        if (typeof loadMyDay === 'function') loadMyDay();
+      } catch (e) {
+        save.disabled = false; save.textContent = 'Save & close the task';
+        msg.textContent = 'Could not save: ' + e.message;
+        msg.style.display = 'block';
+      }
+    };
   };
 
   window.openQuickContactModal = function() {
@@ -39705,11 +39894,18 @@ window._pe2PartnerPageKey = function(u) {
   if (!u) return null;
   var byIsland = {'samoa':'americansamoa','cnmi':'cnmi','fsm':'fsm','guam':'guam','marshall':'marshallislands','palau':'palau'};
   var byLocation = {'american samoa':'americansamoa','cnmi':'cnmi','micronesia':'fsm','fsm':'fsm','guam':'guam','marshall islands':'marshallislands','palau':'palau'};
-  if (u.island && byIsland[u.island]) return byIsland[u.island];
+  /* v148.32: `location` now wins over `island`. `location` is the field the
+     User Roles dropdown renders and saves; `island` is a legacy short code
+     nothing maintains, and the two had drifted apart — Jo Blas reads
+     location 'Guam' but island 'palau', so the old precedence sent her to
+     Palau's page while every screen said Guam. Reading the maintained field
+     fixes that without touching anyone's data, and matches what
+     currentPartnerIsland() stamps onto partner records. */
   if (u.location) {
     var k = String(u.location).toLowerCase();
     if (byLocation[k]) return byLocation[k];
   }
+  if (u.island && byIsland[u.island]) return byIsland[u.island];
   return null;
 };
 
@@ -44170,6 +44366,9 @@ window.cmsBuildStaffActivityReport = async function() {
       allEvents = allEvents.filter(function(e) { return e._coll === 'events' && e.isOneOff === true; });
     }
 
+    // Partner scope: only events stamped to one of the six Pacific partners.
+    if (window.isPartnerUser()) allEvents = allEvents.filter(window.isPartnerRecord);
+
     // Group feedback by event id for fast lookup
     var fbByEvent = {};
     fbSnap.forEach(function(d) {
@@ -45925,6 +46124,7 @@ window.cmsBuildStaffActivityReport = async function() {
         createdBy: (window.currentUserData && window.currentUserData.uid) || '',
         createdByName: (window.currentUserData && window.currentUserData.displayName) || ''
       };
+      window.partnerStamp(data);
       var ref = await db.collection('contacts').add(data);
       var c = { id: ref.id, displayName: name, firstName: firstName, lastName: lastName, type: type, email: email, phone: phone };
       _allContacts.push(c);
@@ -46077,11 +46277,11 @@ window.cmsBuildStaffActivityReport = async function() {
           isOneOff: true, archived: true, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
         });
       } else {
-        var evRef = await db.collection('events').add({
+        var evRef = await db.collection('events').add(window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, summary: { presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments }, signupDates: [], archived: true,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
-        });
+        }));
         eventId = evRef.id;
       }
       var dateDisplay = (typeof _fmtFullDate === 'function') ? _fmtFullDate(new Date(dateIso + 'T00:00:00')) : dateIso;
@@ -46369,6 +46569,7 @@ window.cmsBuildStaffActivityReport = async function() {
       var snap = await db.collection('contacts').get();
       var docs = [];
       snap.forEach(function(d){ docs.push(d.data() || {}); });
+      if (window.isPartnerUser()) docs = docs.filter(window.isPartnerRecord);
       var agg = _cdAggregate(docs);
       _cdRenderContactDemographics(agg);
 
@@ -46736,6 +46937,228 @@ window.cmsBuildStaffActivityReport = async function() {
     a.download = 'ldah-documents-downloaded-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
+  };
+
+  // ══ Certification Program Report ═══════════════════════════════════
+  // READ ONLY. Staff never write member progress or certificates — the
+  // Firestore rules refuse it (`allow write: if false` on certificates, and
+  // progress is writable only by its owner).
+  //
+  // Two collectionGroup reads, neither with a where() or orderBy(), so no
+  // index is required. If you ever add a filter here, add the matching
+  // single-field COLLECTION_GROUP index FIRST — a missing one surfaces as a
+  // bare "9 FAILED_PRECONDITION" with no hint.
+  //
+  //   contacts/{id}/certification/progress   — lessons, quizzes, tiers
+  //   contacts/{id}/certificates/{tier}      — issued credentials
+  //
+  // Names come from the contact record, fetched by id for exactly the members
+  // who appear, rather than reading the whole contacts collection.
+  var _crRows = [];
+
+  var _CR_TIERS = ['bronze', 'silver', 'gold'];
+  var _CR_TIER_LESSONS = {
+    bronze: ['b1', 'b2', 'b2pq', 'b3', 'b4', 'bquiz'],
+    silver: ['s1', 's2', 's2pq', 's3', 's4', 'squiz'],
+    gold: ['g1', 'g2', 'g2pq', 'g3', 'g4', 'gquiz']
+  };
+  var _CR_TIER_QUIZ = { bronze: 'bquiz', silver: 'squiz', gold: 'gquiz' };
+
+  function _crMs(v) {
+    if (!v) return 0;
+    if (typeof v === 'number') return v;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    return 0;
+  }
+  function _crDate(v) {
+    var ms = _crMs(v);
+    return ms ? new Date(ms).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+  }
+
+  window.cmsCloseCertificationReport = function() {
+    var el = document.getElementById('certReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'none';
+    if (rg) rg.style.display = 'block';
+  };
+
+  window.cmsBuildCertificationReport = async function() {
+    var el = document.getElementById('certReportInGrid');
+    var rg = document.getElementById('reportsInGrid');
+    if (el) el.style.display = 'block';
+    if (rg) rg.style.display = 'none';
+    var body = document.getElementById('crBody');
+    if (body) body.innerHTML = '<div class="cms-empty"><p>Loading certification data…</p></div>';
+    try {
+      var progSnap = await db.collectionGroup('certification').get();
+      var certSnap = await db.collectionGroup('certificates').get();
+
+      var byContact = {};
+      progSnap.forEach(function(d) {
+        if (d.id !== 'progress') return;                 // only the progress doc
+        var parent = d.ref.parent.parent;                // contacts/{id}
+        if (!parent) return;
+        byContact[parent.id] = { contactId: parent.id, progress: d.data() || {}, certs: {} };
+      });
+      certSnap.forEach(function(d) {
+        var parent = d.ref.parent.parent;
+        if (!parent) return;
+        if (!byContact[parent.id]) byContact[parent.id] = { contactId: parent.id, progress: {}, certs: {} };
+        byContact[parent.id].certs[d.id] = d.data() || {};
+      });
+
+      var ids = Object.keys(byContact);
+      // Names for exactly the members who appear. Cheaper and more current
+      // than reading every contact.
+      var contacts = await Promise.all(ids.map(function(cid) {
+        return db.collection('contacts').doc(cid).get()
+          .then(function(s) { return { id: cid, data: s.exists ? (s.data() || {}) : null }; })
+          .catch(function() { return { id: cid, data: null }; });
+      }));
+      var nameById = {};
+      contacts.forEach(function(c) {
+        var d = c.data || {};
+        nameById[c.id] = {
+          name: (d.displayName || [d.firstName, d.lastName].filter(Boolean).join(' ') || '').trim(),
+          email: String(d.email || '')
+        };
+      });
+
+      _crRows = ids.map(function(cid) {
+        var rec = byContact[cid];
+        var who = nameById[cid] || { name: '', email: '' };
+        var lessons = rec.progress.lessons || {};
+        var quizzes = rec.progress.quizzes || {};
+        var tiers = rec.progress.tiers || {};
+        var row = {
+          contactId: cid,
+          name: who.name || '(contact not found)',
+          email: who.email,
+          updatedAt: _crMs(rec.progress.updatedAt),
+          startedAt: 0,
+          tiers: {}
+        };
+        // "Started" is the earliest lesson completion on record.
+        Object.keys(lessons).forEach(function(k) {
+          var t = _crMs(lessons[k]);
+          if (t && (!row.startedAt || t < row.startedAt)) row.startedAt = t;
+        });
+        _CR_TIERS.forEach(function(tier) {
+          var need = _CR_TIER_LESSONS[tier];
+          var done = need.filter(function(k) { return !!lessons[k]; }).length;
+          var q = quizzes[_CR_TIER_QUIZ[tier]] || {};
+          var cert = rec.certs[tier] || null;
+          row.tiers[tier] = {
+            done: done, total: need.length,
+            complete: done === need.length,
+            quizPct: (typeof q.pct === 'number') ? q.pct : null,
+            quizScore: (typeof q.score === 'number') ? q.score : null,
+            quizTotal: (typeof q.total === 'number') ? q.total : null,
+            attempts: Number(q.attempts) || 0,
+            passed: !!q.passed,
+            markedAt: _crMs((tiers[tier] || {}).completedAt),
+            certNumber: cert ? String(cert.certNumber || '') : '',
+            certName: cert ? String(cert.memberName || '') : '',
+            certAt: cert ? _crMs(cert.issuedAt) : 0
+          };
+        });
+        return row;
+      });
+
+      _crRows.sort(function(a, b) { return (b.updatedAt || b.startedAt || 0) - (a.updatedAt || a.startedAt || 0); });
+      var st = document.getElementById('crGeneratedAt');
+      if (st) st.textContent = 'Generated ' + new Date().toLocaleString() + ' · ' + _crRows.length + ' member(s)';
+      cmsRenderCertificationReport();
+    } catch (e) {
+      if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load certification data: ' + rsEscape(e.message) + '</div>';
+    }
+  };
+
+  window.cmsRenderCertificationReport = function() {
+    var body = document.getElementById('crBody');
+    if (!body) return;
+    var qEl = document.getElementById('crSearch');
+    var q = String((qEl && qEl.value) || '').trim().toLowerCase();
+    var rows = q ? _crRows.filter(function(r) {
+      return (r.name + ' ' + r.email).toLowerCase().indexOf(q) !== -1;
+    }) : _crRows;
+
+    if (!rows.length) {
+      body.innerHTML = '<div class="cms-empty"><p>' + (_crRows.length ? 'No members match that filter.' : 'No member has started the certification program yet.') + '</p></div>';
+      return;
+    }
+
+    var started = _crRows.length;
+    var bronzeDone = _crRows.filter(function(r) { return r.tiers.bronze.complete; }).length;
+    var certified = _crRows.filter(function(r) { return !!r.tiers.bronze.certNumber; }).length;
+    var scored = _crRows.filter(function(r) { return typeof r.tiers.bronze.quizPct === 'number'; });
+    var avg = scored.length ? Math.round(scored.reduce(function(s, r) { return s + r.tiers.bronze.quizPct; }, 0) / scored.length) : 0;
+
+    var card = function(label, val, color) {
+      return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;text-align:center;">'
+        + '<div style="font-size:1.6rem;font-weight:800;color:' + color + ';">' + val + '</div>'
+        + '<div style="font-size:.78rem;color:var(--text-soft);margin-top:2px;">' + label + '</div></div>';
+    };
+    var html = '';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px;">';
+    html += card('Started', started, '#1a3c6e');
+    html += card('Bronze finished', bronzeDone, '#16A34A');
+    html += card('Certificates issued', certified, '#B45309');
+    html += card('Avg Bronze quiz', avg ? avg + '%' : '—', '#0891B2');
+    html += '</div>';
+
+    html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px;overflow-x:auto;">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:.86rem;min-width:820px;"><thead><tr style="text-align:left;color:var(--text-soft);">'
+         +  '<th style="padding:6px 4px;">Member</th><th style="padding:6px 4px;">Started</th>'
+         +  '<th style="padding:6px 4px;text-align:center;">Bronze lessons</th>'
+         +  '<th style="padding:6px 4px;text-align:center;">Quiz</th>'
+         +  '<th style="padding:6px 4px;text-align:center;">Attempts</th>'
+         +  '<th style="padding:6px 4px;">Certificate</th><th style="padding:6px 4px;">Issued</th>'
+         +  '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var b = r.tiers.bronze;
+      var quizCell = (b.quizPct === null) ? '<span style="color:var(--text-soft);">—</span>'
+        : '<span style="font-weight:700;color:' + (b.passed ? '#16A34A' : '#D97706') + ';">' + b.quizPct + '%</span>'
+          + (b.quizTotal ? ' <span style="color:var(--text-soft);">(' + b.quizScore + '/' + b.quizTotal + ')</span>' : '');
+      html += '<tr style="border-top:1px solid #F1F5F9;">'
+           +  '<td style="padding:6px 4px;"><div style="font-weight:600;">' + rsEscape(r.name) + '</div>'
+           +    '<div style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(r.email) + '</div></td>'
+           +  '<td style="padding:6px 4px;">' + rsEscape(_crDate(r.startedAt)) + '</td>'
+           +  '<td style="padding:6px 4px;text-align:center;' + (b.complete ? 'color:#16A34A;font-weight:700;' : '') + '">' + b.done + ' / ' + b.total + '</td>'
+           +  '<td style="padding:6px 4px;text-align:center;">' + quizCell + '</td>'
+           +  '<td style="padding:6px 4px;text-align:center;">' + (b.attempts || '—') + '</td>'
+           +  '<td style="padding:6px 4px;font-variant-numeric:tabular-nums;">' + (b.certNumber ? rsEscape(b.certNumber) : '<span style="color:var(--text-soft);">not issued</span>') + '</td>'
+           +  '<td style="padding:6px 4px;">' + rsEscape(_crDate(b.certAt)) + '</td>'
+           +  '</tr>';
+    });
+    html += '</tbody></table></div>';
+    body.innerHTML = html;
+  };
+
+  window.crExportCSV = function() {
+    if (!_crRows.length) { alert('No certification data loaded.'); return; }
+    var out = [['Name', 'Email', 'Contact ID', 'Started',
+                'Bronze lessons done', 'Bronze lessons total', 'Bronze quiz %', 'Bronze quiz score',
+                'Bronze quiz attempts', 'Bronze passed', 'Certificate number', 'Certificate name', 'Certificate issued']];
+    _crRows.forEach(function(r) {
+      var b = r.tiers.bronze;
+      out.push([
+        r.name, r.email, r.contactId, _crDate(r.startedAt),
+        b.done, b.total,
+        (b.quizPct === null ? '' : b.quizPct),
+        (b.quizTotal ? b.quizScore + '/' + b.quizTotal : ''),
+        b.attempts, (b.passed ? 'Yes' : 'No'),
+        b.certNumber, b.certName, _crDate(b.certAt)
+      ].map(function(v) { var s = (v == null ? '' : String(v)).replace(/"/g, '""'); return '"' + s + '"'; }));
+    });
+    var csv = out.map(function(r) { return r.join(','); }).join('\r\n');
+    var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ldah-certification-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // ══ Staff Training ══════════════════════════════════════════════════
@@ -47504,6 +47927,7 @@ window.cmsBuildMembershipReport = async function() {
         .get();
       var docs = [];
       snap.forEach(function(d){ docs.push(d.data() || {}); });
+      if (window.isPartnerUser()) docs = docs.filter(window.isPartnerRecord);
       var agg = _isAggregate(docs);
       _isRenderInteractionsSummary(agg);
 
