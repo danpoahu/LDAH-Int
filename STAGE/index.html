@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.66-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.67-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -38376,11 +38376,27 @@ window.cmsLoadVolunteerRequests = async function() {
   }
 };
 
+// A request is "done" once attendance has been taken OR its date has passed.
+window._volParseReqDate = function(str) {
+  if (!str) return null;
+  var t = String(str).replace(/(\d+)(st|nd|rd|th)\b/gi, '$1').trim();  // "August 1st" -> "August 1"
+  if (!/\b\d{4}\b/.test(t)) t = t + ', ' + new Date().getFullYear();     // assume this year if none given
+  var d = new Date(t);
+  return isNaN(d.getTime()) ? null : d;
+};
+window._volReqIsDone = function(r) {
+  if ((r.participants || []).some(function(p) { return p.attended; })) return true;
+  var d = window._volParseReqDate(r.date);
+  if (!d) return false;
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  return d < today;
+};
+
 window.cmsRenderVolunteerRequests = function() {
   var host = document.getElementById('cmsVolRequestsList');
   var reqs = window._cmsVolRequests || [];
   var badge = document.getElementById('cmsVolReqCountBadge');
-  var openN = reqs.filter(function(r){ return r.status !== 'closed'; }).length;
+  var openN = reqs.filter(function(r){ return r.status !== 'closed' && !window._volReqIsDone(r); }).length;
   if (badge) { badge.textContent = openN; badge.style.display = openN ? 'inline-block' : 'none'; }
   if (!reqs.length) {
     host.innerHTML = '<div class="cms-empty"><p>No help requests yet. Send one from the Roster tab &mdash; select volunteers and choose &ldquo;Email them&rdquo;.</p></div>';
@@ -38395,16 +38411,20 @@ window.cmsRenderVolunteerRequests = function() {
     var when = [r.date, r.time].filter(Boolean).join(' · ');
     var meta = [when, r.location].filter(Boolean).join(' — ');
     var isFull = max > 0 && conf >= max;
+    var done = window._volReqIsDone(r);
     var confLabel = max > 0 ? (conf + ' of ' + max + ' confirmed') : (conf + ' of ' + inv + ' confirmed');
-    return '<div class="vac" style="margin-bottom:14px;">' +
+    // Done requests use the muted (slate) badge; active ones stay blue.
+    var confStyle = done ? 'background:#E2E8F0;color:#475569;' : '';
+    var confCls = done ? 'vac-badge' : 'vac-badge vb-contacted';
+    return '<div class="vac" style="margin-bottom:14px;' + (done ? 'background:#F8FAFC;' : '') + '">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
-        '<div><div class="vac-name" style="font-size:1.08rem;">' + rsEscape(r.title || '(untitled request)') +
-          (isFull ? ' <span class="vac-badge" style="background:#DCFCE7;color:#15803D;vertical-align:middle;">full</span>' : '') + '</div>' +
+        '<div><div class="vac-name" style="font-size:1.08rem;' + (done ? 'color:#64748B;' : '') + '">' + rsEscape(r.title || '(untitled request)') +
+          (done ? ' <span class="vac-badge" style="background:#E2E8F0;color:#475569;vertical-align:middle;">completed</span>' : (isFull ? ' <span class="vac-badge" style="background:#DCFCE7;color:#15803D;vertical-align:middle;">full</span>' : '')) + '</div>' +
           (meta ? '<div class="vac-sub">' + rsEscape(meta) + '</div>' : '') + '</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-          '<span class="vac-badge vb-contacted">' + confLabel + '</span>' +
+          '<span class="' + confCls + '"' + (confStyle ? ' style="' + confStyle + '"' : '') + '>' + confLabel + '</span>' +
           (wait ? '<span class="vac-badge" style="background:#FEF3C7;color:#B45309;">' + wait + ' waiting</span>' : '') +
-          (att ? '<span class="vac-badge vb-accepted">' + att + ' attended</span>' : '') +
+          (att ? '<span class="vac-badge"' + (done ? ' style="background:#E2E8F0;color:#475569;"' : ' style="background:#DCFCE7;color:#15803D;"') + '>' + att + ' attended</span>' : '') +
         '</div>' +
       '</div>' +
       '<div class="vac-foot">' +
