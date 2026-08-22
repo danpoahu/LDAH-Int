@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.51</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.52</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -29943,26 +29943,25 @@ function cmsGenerateSessionDates(schedules, cancelledDates, days) {
  *   dateStatusOverrides: { "<sessionDateKey>": "confirmed-in-person" | "confirmed-virtual" }
  */
 function cmsIsDateVirtual(eventDoc, sessionDateKey) {
-  if (!eventDoc) return null;
   var vx = /virtual|zoom|online/i;
+  // The session key's own location portion is authoritative for THIS session.
+  // Key format: "2026-08-24|All Islands Virtual – Zoom Meeting|3:00 PM – 5:00 PM"
+  // — the middle field IS the venue, so test it directly rather than trying to
+  // match it back to a schedule in eventDoc.schedules (which missed sessions not
+  // in that list, or events with no schedules array — the old bug that made a
+  // virtual Connect-Gen session read as "in person"). (fix 2026-08-22)
+  var parts = String(sessionDateKey || '').split('|');
+  if (parts.length >= 2 && String(parts[1]).trim()) {
+    return vx.test(parts[1]);
+  }
+  if (!eventDoc) return null;
   // One-time event: single location field
   if (eventDoc.location && !eventDoc.schedules) {
     return vx.test(eventDoc.location);
   }
-  // Recurring program: look up which schedule matches the key's location portion
+  // Recurring program with no location in the key: fall back to the schedules —
+  // if every schedule agrees, return that; else unknown.
   if (Array.isArray(eventDoc.schedules) && eventDoc.schedules.length) {
-    // Key formats: "2026-04-27|Oahu|5:00 pm-6:00 pm" or other
-    var parts = String(sessionDateKey || '').split('|');
-    var locPortion = parts.length >= 2 ? parts[1] : '';
-    if (locPortion) {
-      for (var i = 0; i < eventDoc.schedules.length; i++) {
-        var sch = eventDoc.schedules[i];
-        if (sch && sch.location && String(sch.location).indexOf(locPortion) !== -1) {
-          return vx.test(sch.location);
-        }
-      }
-    }
-    // Fall back: if every schedule agrees, return that; else unknown
     var allVirtual = eventDoc.schedules.every(function(sch) { return sch && sch.location && vx.test(sch.location); });
     var allInPerson = eventDoc.schedules.every(function(sch) { return sch && sch.location && !vx.test(sch.location); });
     if (allVirtual) return true;
