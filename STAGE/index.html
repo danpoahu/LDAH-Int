@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.69-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.70-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -32205,6 +32205,39 @@ window.cmsCgSummaryClose = function() {
   } catch (_) {}
 })();
 
+// ── "Email upload request" button (2026-08-22) ──────────────────────────────
+// Sends a Connect-Gen family the document-upload email (the standard
+// "Upload your Connect-Gen documents" lifecycle email) via
+// sendConnectGenUploadLaterEmail. Shows ONLY when the family has a live upload
+// token — i.e. they have signed consent (consent-submit mints the token) and
+// the case is still open. This covers the "moved sessions, docs email never
+// went out" case (mint exists, email skipped).
+function cmsCgUploadReqBtn(s, collection, eventId) {
+  if (!s || !s.uploadAuthToken) return '';                 // no consent yet = no token
+  if (s.connectGenDocumentsDestroyedAt || s.connectGenDisposition) return '';
+  return '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#0891B2;color:#fff;border:none;font-weight:600;" onclick="event.stopPropagation();cgResendUploadRequest(' +
+    _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ',' + _jsArg(s.name || s.firstName || 'this family') +
+    ')" title="Email this family their document-upload link">Email upload request</button>';
+}
+window.cgResendUploadRequest = async function(collection, eventId, signupId, who) {
+  if (!confirm('Email ' + (who || 'this family') + ' their document-upload link?\n\nThey get the standard "Upload your Connect-Gen documents" email with a working upload link.')) return;
+  try {
+    var snap = await db.collection(collection).doc(eventId).collection('signups').doc(signupId).get();
+    var s = snap.exists ? snap.data() : null;
+    if (!s || !s.uploadAuthToken) { alert('No upload link on file — the family may not have signed consent yet.'); return; }
+    var exp = (s.uploadAuthExpiresAt && s.uploadAuthExpiresAt.toMillis) ? s.uploadAuthExpiresAt.toMillis() : 0;
+    if (exp && exp < Date.now()) { alert('This family\'s upload link has expired. It needs to be re-minted before resending.'); return; }
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendConnectGenUploadLaterEmail', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uploadAuthToken: s.uploadAuthToken })
+    });
+    var j = {}; try { j = await resp.json(); } catch (e) {}
+    if (!resp.ok || !j.ok) { alert(j.error || ('Could not send it — ' + resp.status)); return; }
+    try { auditLog('Emailed Connect-Gen upload request', (who || signupId)); } catch (_) {}
+    if (typeof _showToast === 'function') _showToast('Upload link sent to ' + (who || 'the family') + '.', '#16A34A');
+  } catch (e) { alert('Could not send it: ' + e.message); }
+};
+
 function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
   if (!cmsIsConnectGenContext()) return '';
   // Readiness pill — same in every branch below, so build it once. We know we
@@ -32232,7 +32265,7 @@ function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
     return '<div style="padding:8px 14px;background:#F8FAFC;border-top:1px solid #E2E8F0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
       '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
       '<span style="font-size:.78rem;color:#64748B;">Destroyed &mdash; ' + rsEscape(dispLabel) + '</span>' +
-      cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + _cgPill +
+      cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + cmsCgUploadReqBtn(s, collection, eventId) + _cgPill +
       '</div>';
   }
   // No docs uploaded yet — surface neutral muted note so staff know to
@@ -32247,7 +32280,7 @@ function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
       '<span style="font-size:.78rem;font-weight:600;color:#334155;">Connect-Gen Documents</span>' +
       '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + zeroLabel + '</button>' +
       (_wasDestroyed ? '<span style="font-size:.74rem;color:#7C2D12;font-style:italic;">Previously removed</span>' : '<span style="font-size:.74rem;color:#94A3B8;font-style:italic;">None on file yet</span>') +
-      cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + _cgPill +
+      cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + cmsCgUploadReqBtn(s, collection, eventId) + _cgPill +
       '</div>';
   }
   // Docs present — primary review button.
@@ -32261,7 +32294,7 @@ function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
     '<span style="font-size:.78rem;font-weight:700;color:#0C4A6E;">Connect-Gen Documents</span>' +
     '<button class="btn btn-primary" style="font-size:.82rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + rsEscape(label) + '</button>' +
     (disposition ? '<span style="font-size:.74rem;color:#475569;font-style:italic;">Marked: ' + rsEscape(disposition === 'noSupport' ? 'No Additional Support' : 'Case Advocacy') + '</span>' : '') +
-    cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + _cgPill +
+    cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + cmsCgUploadReqBtn(s, collection, eventId) + _cgPill +
     '</div>';
 }
 
