@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.71-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.72-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6781,6 +6781,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div class="wa-chart-head"><h4>Document / PDF Views</h4><span class="wa-chart-sub">top 10 shown</span></div>
               <div class="wa-chart-wrap tall"><canvas id="waDocumentViewsChart"></canvas></div>
               <div class="wa-chart-rows" id="waDocumentViews"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
+            </div>
+            <div class="wa-chart-card">
+              <div class="wa-chart-head"><h4>Flyer Popups</h4><span class="wa-chart-sub">homepage &amp; app splash &middot; seen / clicked</span></div>
+              <div class="wa-chart-wrap tall"><canvas id="waFlyerChart"></canvas></div>
+              <div class="wa-chart-rows" id="waFlyerPopups"><p style="color:var(--text-soft);font-size:0.85rem;">Loading...</p></div>
             </div>
             <div class="wa-chart-card">
               <div class="wa-chart-head"><h4>Form Submissions</h4><span class="wa-chart-sub">by form type</span></div>
@@ -23241,6 +23246,7 @@ window.openContactDetail = async function(contactId) {
   let siteAnalyticsData = [];           // current view (30d or YTD slice)
   let siteAnalyticsCacheYTD = null;     // full YTD, populated on first YTD click
   let siteAnalyticsCache30d = null;     // 30d slice, populated on first 30d fetch
+  let _waFlyerTitles = null;            // event id -> title, for the Flyer Popups panel (built once)
   let waActivePeriod = '30d';           // '30d' | 'ytd'
 
   function _waPeriodStart(period) {
@@ -23288,6 +23294,13 @@ window.openContactDetail = async function(contactId) {
       var docs = snapshot.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
 
       siteAnalyticsData = docs;
+      if (!_waFlyerTitles) {   // build event id -> title once, for the Flyer Popups panel
+        _waFlyerTitles = {};
+        try {
+          var _evs = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
+          _evs.forEach(function(s) { s.forEach(function(d) { var v = d.data() || {}; _waFlyerTitles[d.id] = v.title || v.name || d.id; }); });
+        } catch (e) {}
+      }
       if (waActivePeriod === 'ytd') {
         siteAnalyticsCacheYTD = docs;
         siteAnalyticsCache30d = _waSliceForPeriod(docs, '30d');
@@ -23326,6 +23339,10 @@ window.openContactDetail = async function(contactId) {
     let documentViews = 0;
     let documentViewsByDoc = {};
     let formSubmitsByType = {};
+    let flyerSeen = 0;              // homepage/app rotation popup impressions
+    let flyerClicks = 0;
+    let flyerSeenByKey = {};
+    let flyerClickByKey = {};
     let pageviewsByPage = {};
     let donationByDate = {};   // 'YYYY-MM-DD' -> clicks, for the trend chart
 
@@ -23372,6 +23389,18 @@ window.openContactDetail = async function(contactId) {
             }
           });
         }
+        flyerSeen += day.events.flyer_seen_total || 0;
+        flyerClicks += day.events.flyer_click_total || 0;
+        if (day.events.flyer_seen && typeof day.events.flyer_seen === 'object') {
+          Object.keys(day.events.flyer_seen).forEach(function(k) {
+            flyerSeenByKey[k] = (flyerSeenByKey[k] || 0) + (day.events.flyer_seen[k] || 0);
+          });
+        }
+        if (day.events.flyer_click && typeof day.events.flyer_click === 'object') {
+          Object.keys(day.events.flyer_click).forEach(function(k) {
+            flyerClickByKey[k] = (flyerClickByKey[k] || 0) + (day.events.flyer_click[k] || 0);
+          });
+        }
       }
       // Dot-notation flat keys (older docs use update() with dotted paths)
       Object.keys(day).forEach(function(key) {
@@ -23402,6 +23431,10 @@ window.openContactDetail = async function(contactId) {
       formSubmits: formSubmits,
       documentViews: documentViews,
       documentViewsByDoc: documentViewsByDoc,
+      flyerSeen: flyerSeen,
+      flyerClicks: flyerClicks,
+      flyerSeenByKey: flyerSeenByKey,
+      flyerClickByKey: flyerClickByKey,
       formSubmitsByType: formSubmitsByType,
       totalInteractions: phoneCalls + emailClicks + outboundClicks + modalOpens + documentViews + formSubmits,
       pageviewsByPage: pageviewsByPage,
@@ -23590,6 +23623,29 @@ window.openContactDetail = async function(contactId) {
         return '<div class="wa-row"><span class="wa-row-label">' + label + '</span><span class="wa-row-value">' + entry[1].toLocaleString() + '</span></div>';
       }).join('');
       docViewsEl.innerHTML = docHtml;
+    }
+
+    // Flyer Popups (homepage + app splash rotation) — seen / clicked per flyer
+    var flyerEl = document.getElementById('waFlyerPopups');
+    if (flyerEl) {
+      var _flyKeys = {};
+      Object.keys(totals.flyerSeenByKey || {}).forEach(function(k) { _flyKeys[k] = true; });
+      Object.keys(totals.flyerClickByKey || {}).forEach(function(k) { _flyKeys[k] = true; });
+      var _flyRows = Object.keys(_flyKeys).map(function(k) {
+        return { title: (_waFlyerTitles && _waFlyerTitles[k]) || k, seen: totals.flyerSeenByKey[k] || 0, clicks: totals.flyerClickByKey[k] || 0 };
+      }).sort(function(a, b) { return b.seen - a.seen; });
+      _waBarChart('waFlyerChart', 'hbar', _flyRows.slice(0, 10).map(function(r) { return [r.title, r.seen]; }));
+      if (!_flyRows.length) {
+        flyerEl.innerHTML = '<p style="color:var(--text-soft);text-align:center;padding:0.5rem;font-size:0.85rem;">No flyer popups shown yet.</p>';
+      } else {
+        var _ctr = totals.flyerSeen ? Math.round(totals.flyerClicks / totals.flyerSeen * 100) : 0;
+        var fh = '<div class="wa-row" style="font-weight:600;border-bottom:1px solid #eee;padding-bottom:4px;margin-bottom:4px;"><span class="wa-row-label">Total Seen / Clicked</span><span class="wa-row-value">' + totals.flyerSeen.toLocaleString() + ' / ' + totals.flyerClicks.toLocaleString() + ' (' + _ctr + '%)</span></div>';
+        fh += _flyRows.map(function(r) {
+          var ctr = r.seen ? Math.round(r.clicks / r.seen * 100) : 0;
+          return '<div class="wa-row"><span class="wa-row-label">' + rsEscape(r.title) + '</span><span class="wa-row-value">' + r.seen.toLocaleString() + ' seen &middot; ' + r.clicks.toLocaleString() + ' clk &middot; ' + ctr + '%</span></div>';
+        }).join('');
+        flyerEl.innerHTML = fh;
+      }
     }
 
     // Form Submissions by type
