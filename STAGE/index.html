@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.75-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.76-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -42891,28 +42891,46 @@ window.renderEmailLogTable = function() {
   var search = ((document.getElementById('emailLogSearch') || {}).value || '').toLowerCase();
   var typeFilter = ((document.getElementById('emailLogTypeFilter') || {}).value || '');
 
+  // Partner scoping (2026-08-24): an island partner sees only emails to THEIR
+  // families (recipient matches one of their island-scoped contacts); a
+  // coordinator partner (Sandy) sees all partner islands'. Cascades from
+  // _allContacts, which is already scoped. Staff see everything. Partners can
+  // resend their families' emails right from here (the row Resend button).
+  var _emCache = _emailLogCache;
+  if (window.isPartnerUser && window.isPartnerUser()) {
+    var _pset = new Set();
+    (window._allContacts || []).forEach(function(c){
+      if (c.email) _pset.add(String(c.email).toLowerCase());
+      if (Array.isArray(c.alternateEmails)) c.alternateEmails.forEach(function(e){ if(e) _pset.add(String(e).toLowerCase()); });
+    });
+    _emCache = _emailLogCache.filter(function(r){
+      var t = Array.isArray(r.to) ? r.to : [r.to];
+      return t.some(function(x){ return _pset.has(String(x||'').toLowerCase()); });
+    });
+  }
+
   var kpiFailed = 0, kpiToday = 0, kpi7d = 0;
   var todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   var sevenDaysAgoMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  _emailLogCache.forEach(function(r) {
+  _emCache.forEach(function(r) {
     if (!r.success) kpiFailed++;
     var tsMs = r.sentAt && r.sentAt.toMillis ? r.sentAt.toMillis() : 0;
     if (tsMs >= todayStart.getTime()) kpiToday++;
     if (tsMs >= sevenDaysAgoMs) kpi7d++;
   });
 
-  var rows = _emailLogCache.filter(function(r) {
+  var rows = _emCache.filter(function(r) {
     if (typeFilter && (r.type || '') !== typeFilter) return false;
     if (!search) return true;
     var blob = ((r.to || '') + ' ' + (r.subject || '') + ' ' + (r.recipientName || '') + ' ' + (r.type || '')).toLowerCase();
     return blob.indexOf(search) !== -1;
   });
 
-  var kpi7dDisplay = (kpi7d === _emailLogCache.length && _emailLogCache.length >= 500) ? (kpi7d + '+') : String(kpi7d);
+  var kpi7dDisplay = (kpi7d === _emCache.length && _emCache.length >= 500) ? (kpi7d + '+') : String(kpi7d);
 
   var lastSendLbl = '—', lastSendStale = false, lastSendTitle = 'No sends in cache';
-  if (_emailLogCache.length && _emailLogCache[0].sentAt && _emailLogCache[0].sentAt.toMillis) {
-    var lastMs = _emailLogCache[0].sentAt.toMillis();
+  if (_emCache.length && _emCache[0].sentAt && _emCache[0].sentAt.toMillis) {
+    var lastMs = _emCache[0].sentAt.toMillis();
     var diffMs = Date.now() - lastMs;
     var diffSec = Math.floor(diffMs / 1000);
     if (diffSec < 60) lastSendLbl = 'Just now';
