@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.74-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.75-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11364,7 +11364,7 @@ var _photoPendingByIsland = {};
     if (typeof loadContacts === 'function') {
       db.collection('contacts').orderBy('displayName').get().then(function(snap) {
         _allContacts = [];
-        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; _allContacts.push({ id: doc.id, ...d }); });
+        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; if (!window._partnerScopeOK(d)) return; _allContacts.push({ id: doc.id, ...d }); });
         buildContactDatalist();
       }).catch(function() {});
     }
@@ -11460,6 +11460,7 @@ var _photoPendingByIsland = {};
             role: roleDoc.data().role,
             island: roleDoc.data().island || '',
             location: roleDoc.data().location || '',
+            partnerAllIslands: roleDoc.data().partnerAllIslands === true,   // coordinator partner (Sandy) — sees all partner islands
             alertPrefs: roleDoc.data().alertPrefs || null,
             alertSubs: roleDoc.data().alertSubs || {}
           };
@@ -11759,6 +11760,18 @@ var _photoPendingByIsland = {};
   // partner-visible reports filter on this and nothing else — all six islands
   // pooled, no Hawaiʻi records.
   window.isPartnerRecord = function(d) { return !!(d && d.partnerIsland); };
+
+  // Partner list scoping (2026-08-24). Staff see everything. A COORDINATOR
+  // partner (userRoles.partnerAllIslands === true — Sandy: "like Noe, but for
+  // all partner islands") sees every partner-stamped record across all six
+  // islands. A plain island partner (Jo, etc.) sees only their own island's
+  // records. Fails closed: a record with no partnerIsland is hidden from any
+  // partner, and an island partner whose island doesn't resolve sees nothing.
+  window._partnerScopeOK = function(d) {
+    if (!window.isPartnerUser || !window.isPartnerUser()) return true;
+    if (window.currentUserData && window.currentUserData.partnerAllIslands === true) return !!(d && d.partnerIsland);
+    return !!(d && d.partnerIsland && d.partnerIsland === window.currentPartnerIsland());
+  };
 
   // ── Role-Based Visibility ──
   function applyRolePermissions() {
@@ -20635,6 +20648,7 @@ window.openContactDetail = async function(contactId) {
       snap.forEach(function(doc) {
         var d = doc.data();
         if (d.channel === 'Internal Chat') return;
+        if (!window._partnerScopeOK(d)) return;   // partner scoping (own island / all islands for coordinator)
         docs.push({ id: doc.id, data: d, _ts: d.createdAt });
       });
 
@@ -22977,6 +22991,9 @@ window.openContactDetail = async function(contactId) {
       snap.forEach(function(doc) {
         var d = doc.data();
         d._id = doc.id;
+        // Partner scoping (2026-08-24): island partner → own island only;
+        // coordinator partner (Sandy) → all partner islands; staff → everything.
+        if (!window._partnerScopeOK(d)) return;
         if (d.channel === 'Internal Chat') return;
         if (contactFilter && d.contactId !== contactFilter) return;
         if (statusFilter && d.status !== statusFilter) return;
@@ -22995,7 +23012,7 @@ window.openContactDetail = async function(contactId) {
       // Skip form merge when follow-up filter is active (form entries have no follow-up dates)
       var _formChannels = ['Signup','Contact Form','Provider','Pledge','Event Request','Volunteer','Partner Application'];
       var _isFormFilter = channelFilter && _formChannels.indexOf(channelFilter) !== -1;
-      if (!_wasFollowUpFilter && (!channelFilter || _isFormFilter)) {
+      if (!_wasFollowUpFilter && (!channelFilter || _isFormFilter) && !(window.isPartnerUser && window.isPartnerUser())) {   // partners: no web-form entries, only their own interactions
         var _dfrom = dateFrom ? new Date(dateFrom + 'T00:00:00') : null;
         var _dto = dateTo ? (function(){ var e = new Date(dateTo + 'T00:00:00'); e.setDate(e.getDate()+1); return e; })() : null;
         function _tsToDate(t) { return t && t.toDate ? t.toDate() : (t ? new Date(t) : null); }
@@ -23146,7 +23163,7 @@ window.openContactDetail = async function(contactId) {
       if (_allContacts.length === 0) {
         var snap = await db.collection('contacts').orderBy('displayName').get();
         _allContacts = [];
-        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; _allContacts.push({ id: doc.id, ...d }); });
+        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; if (!window._partnerScopeOK(d)) return; _allContacts.push({ id: doc.id, ...d }); });
         buildContactDatalist();
       }
       _allContacts.forEach(function(c) {
@@ -45152,7 +45169,7 @@ window.cmsBuildStaffActivityReport = async function() {
     }
 
     // Partner scope: only events stamped to one of the six Pacific partners.
-    if (window.isPartnerUser()) allEvents = allEvents.filter(window.isPartnerRecord);
+    if (window.isPartnerUser()) allEvents = allEvents.filter(window._partnerScopeOK);
 
     // Group feedback by event id for fast lookup
     var fbByEvent = {};
@@ -47354,7 +47371,7 @@ window.cmsBuildStaffActivityReport = async function() {
       var snap = await db.collection('contacts').get();
       var docs = [];
       snap.forEach(function(d){ docs.push(d.data() || {}); });
-      if (window.isPartnerUser()) docs = docs.filter(window.isPartnerRecord);
+      if (window.isPartnerUser()) docs = docs.filter(window._partnerScopeOK);
       var agg = _cdAggregate(docs);
       _cdRenderContactDemographics(agg);
 
@@ -48712,7 +48729,7 @@ window.cmsBuildMembershipReport = async function() {
         .get();
       var docs = [];
       snap.forEach(function(d){ docs.push(d.data() || {}); });
-      if (window.isPartnerUser()) docs = docs.filter(window.isPartnerRecord);
+      if (window.isPartnerUser()) docs = docs.filter(window._partnerScopeOK);
       var agg = _isAggregate(docs);
       _isRenderInteractionsSummary(agg);
 
