@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.58</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.59</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8900,10 +8900,6 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             </tr></thead>
             <tbody id="wpRows"></tbody>
           </table>
-        </div>
-        <div class="wp-f">
-          <label>Other</label>
-          <input id="wpOther" placeholder="Anything not on the list above">
         </div>
 
         <!-- ── venue ───────────────────────────────────────────────── -->
@@ -20017,8 +20013,23 @@ window.openContactDetail = async function(contactId) {
         '<td>' + _wpStaffSelect('wp-trainer', tr || (on ? _wpPresenterName : ''), !on) + '</td>' +
         '</tr>';
     });
-    document.getElementById('wpRows').innerHTML = html ||
-      '<tr><td colspan="7" style="padding:14px;color:var(--text-soft);">No workshops in the list yet — add them under Admin &rarr; List Management.</td></tr>';
+    // "Other" — a free-text session that behaves like every listed row
+    // (checkbox, day, date, start, end, trainer). It has no fixed name, so its
+    // title cell is an editable input. Prefilled from a saved row flagged isOther.
+    var oRow = null;
+    saved.forEach(function(r){ if (r && r.isOther) oRow = r; });
+    var oOn = !!oRow;
+    var oHtml = '<tr class="' + (oOn ? 'on' : '') + '" data-other="1">' +
+      '<td><input type="checkbox" class="wp-chk"' + (oOn ? ' checked' : '') + ' onchange="_wpRowToggle(this)"></td>' +
+      '<td><input type="text" class="wp-other-name" placeholder="Other — type the topic" value="' + _wpEsc(oRow ? (oRow.workshop || '') : '') + '"' + (oOn ? '' : ' disabled') + '></td>' +
+      '<td>' + _wpDaySelect(oRow ? (oRow.day || '') : '', !oOn) + '</td>' +
+      '<td><input type="date" class="wp-date" value="' + _wpEsc(oRow ? (oRow.date || '') : '') + '"' + (oOn ? '' : ' disabled') + ' onchange="_wpSyncDay(this)"></td>' +
+      '<td><input type="time" class="wp-start" value="' + _wpEsc(oRow ? (oRow.start || '') : '') + '"' + (oOn ? '' : ' disabled') + '></td>' +
+      '<td><input type="time" class="wp-end" value="' + _wpEsc(oRow ? (oRow.end || '') : '') + '"' + (oOn ? '' : ' disabled') + '></td>' +
+      '<td>' + _wpStaffSelect('wp-trainer', oRow ? (oRow.trainer || '') : '', !oOn) + '</td>' +
+      '</tr>';
+    document.getElementById('wpRows').innerHTML = (html ||
+      '<tr><td colspan="7" style="padding:14px;color:var(--text-soft);">No workshops in the list yet — add them under Admin &rarr; List Management.</td></tr>') + oHtml;
   }
 
   // One staff <select>, used for both the Staff Trainer column and the second
@@ -20084,7 +20095,6 @@ window.openContactDetail = async function(contactId) {
     _wpSet('wpContactPerson', d.contactPerson || '');
     _wpRadio('wpIslandR', d.island || '');
 
-    _wpSet('wpOther', d.other || '');
     _wpSet('wpLocation', d.location || _wpEvent.location || '');
     _wpRadio('wpAccess', d.accessible || '');
 
@@ -20181,14 +20191,21 @@ window.openContactDetail = async function(contactId) {
     document.querySelectorAll('#wpRows tr').forEach(function(tr) {
       var cb = tr.querySelector('.wp-chk');
       if (!cb || !cb.checked) return;
-      rows.push({
-        workshop: (tr.querySelector('.wp-name') || {}).textContent || '',
+      var isOther = tr.hasAttribute('data-other');
+      var name = isOther
+        ? ((tr.querySelector('.wp-other-name') || {}).value || '').trim()
+        : ((tr.querySelector('.wp-name') || {}).textContent || '');
+      if (isOther && !name) return; // "Other" ticked but left blank — nothing to save
+      var row = {
+        workshop: name,
         day: (tr.querySelector('.wp-day') || {}).value || '',
         date: (tr.querySelector('.wp-date') || {}).value || '',
         start: (tr.querySelector('.wp-start') || {}).value || '',
         end: (tr.querySelector('.wp-end') || {}).value || '',
         trainer: (tr.querySelector('.wp-trainer') || {}).value || ''
-      });
+      };
+      if (isOther) row.isOther = true;
+      rows.push(row);
     });
     var g = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
     var c = function(id) { var el = document.getElementById(id); return !!(el && el.checked); };
@@ -20198,7 +20215,7 @@ window.openContactDetail = async function(contactId) {
       eventDate: _wpEvent.startDate || _wpEvent.eventDate || '',
       dateOfRequest: g('wpDateOfRequest'), takenBy: g('wpTakenBy'), grant: g('wpGrant'),
       contactPerson: g('wpContactPerson'), island: _wpGetRadio('wpIslandR'),
-      rows: rows, other: g('wpOther'),
+      rows: rows,
       location: g('wpLocation'), accessible: _wpGetRadio('wpAccess'),
       eqLaptop: c('wpEqLaptop'), eqProjector: c('wpEqProjector'),
       eqCord: c('wpEqCord'), eqStrip: c('wpEqStrip'), eqOther: g('wpEqOther'),
@@ -20225,7 +20242,7 @@ window.openContactDetail = async function(contactId) {
 
     if (submit) {
       var missing = [];
-      if (!data.rows.length && !data.other) missing.push('at least one workshop, or Other');
+      if (!data.rows.length) missing.push('at least one workshop (including Other)');
       if (!data.location) missing.push('the location');
       if (!data.island) missing.push('the island');
       if (!_wpGetRadio('wpAir')) missing.push('whether airline travel is needed');
