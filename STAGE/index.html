@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.76-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.77-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8230,6 +8230,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <iframe id="cmsCgSummaryFrame" title="Case summary" style="width:100%;height:calc(100vh - 240px);border:0;background:#fff;"></iframe>
         </div>
         <div class="modal-actions" style="justify-content:flex-end;">
+          <button class="btn btn-ghost" onclick="cmsCgSummaryPrint()">&#128424;&nbsp; Print</button>
           <button class="btn btn-ghost" onclick="cmsCgSummaryClose()">Close</button>
         </div>
       </div>
@@ -9555,6 +9556,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <span id="ctDetailCgPill" style="display:none;background:#7C3AED;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;" title="This contact has an open Case Advocacy">Case Advocacy</span>
         <span id="ctDetailMemberPill" style="display:none;background:linear-gradient(135deg,#B45309,#F59E0B);color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;box-shadow:0 2px 6px rgba(180,83,9,.3);" title="LDAH member">Member</span>
         <button id="ctDetailMarkPaidBtn" type="button" style="display:none;background:#16A34A;color:#fff;font-size:.72rem;font-weight:700;border:none;border-radius:999px;padding:5px 12px;margin-left:8px;cursor:pointer;" title="Mark this membership as paid (clears pending)">Mark as Paid</button>
+        <button id="ctDetailCaseSummaryBtn" type="button" style="display:none;background:#7C3AED;color:#fff;font-size:.72rem;font-weight:700;border:none;border-radius:999px;padding:5px 12px;margin-left:8px;cursor:pointer;" title="AI case summary of this family's uploaded documents">Case Summary</button>
         <button class="ct-close" onclick="closeContactDetail()">&times;</button>
       </div>
       <div class="ct-detail-body" id="ctDetailBody">
@@ -17612,6 +17614,13 @@ window.openContactDetail = async function(contactId) {
       }
       var c = doc.data();
       document.getElementById('ctDetailTitle').textContent = c.displayName || 'Contact Detail';
+
+      // Case Summary button — shown when an AI summary is attached to this contact.
+      var _csBtn = document.getElementById('ctDetailCaseSummaryBtn');
+      if (_csBtn) {
+        if (c.caseSummary && c.caseSummary.html) { _csBtn.style.display = 'inline-block'; _csBtn.onclick = function() { cmsOpenContactCaseSummary(contactId); }; }
+        else { _csBtn.style.display = 'none'; _csBtn.onclick = null; }
+      }
 
       // Reset + populate the green Feedback pill async (don't block render).
       // _ctFeedbackCache holds the docs the modal will need on click so we
@@ -32278,6 +32287,36 @@ window.cmsCgSummaryClose = function() {
   if (ov) ov.classList.remove('active');
   var frame = document.getElementById('cmsCgSummaryFrame');
   if (frame) frame.srcdoc = '';
+};
+// Print just the summary (the iframe's own document, so only the report prints).
+window.cmsCgSummaryPrint = function() {
+  var f = document.getElementById('cmsCgSummaryFrame');
+  try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { window.print(); }
+};
+// Shared show — sets the frame + title + opens the modal (used by contact card).
+window._cmsShowCaseSummary = function(html, name) {
+  var ov = document.getElementById('cmsCgSummaryOverlay');
+  var frame = document.getElementById('cmsCgSummaryFrame');
+  var t = document.getElementById('cmsCgSummaryTitle'); if (t) t.textContent = 'Case Summary — ' + (name || 'family');
+  if (frame) frame.srcdoc = html;
+  if (ov) ov.classList.add('active');
+};
+// Open a case summary attached to a CONTACT (mirrors the Connect-Gen one).
+window.cmsOpenContactCaseSummary = async function(contactId) {
+  var ov = document.getElementById('cmsCgSummaryOverlay');
+  var frame = document.getElementById('cmsCgSummaryFrame');
+  if (frame) frame.srcdoc = '<p style="font-family:sans-serif;padding:20px;color:#666;">Loading summary&hellip;</p>';
+  if (ov) ov.classList.add('active');
+  try {
+    var snap = await db.collection('contacts').doc(contactId).get();
+    var c = snap.exists ? snap.data() : {};
+    var cs = c.caseSummary || {};
+    if (!cs.html) throw new Error('No summary is attached to this contact.');
+    window._cmsShowCaseSummary(cs.html, c.displayName || 'family');
+    try { auditLog('Case summary viewed (TEST)', 'Client: ' + (c.displayName || 'unknown')); } catch (_) {}
+  } catch (err) {
+    if (frame) frame.srcdoc = '<p style="font-family:sans-serif;padding:20px;color:#DC2626;">Error: ' + rsEscape(err.message || String(err)) + '</p>';
+  }
 };
 // Deep link for the Monday test email to Rosie:
 //   /STAGE/?caseSummary=<collection>__<eventId>__<signupId>
