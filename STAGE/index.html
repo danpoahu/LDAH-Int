@@ -4605,6 +4605,21 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 .my-day-card .myday-chip { background:#fff; border:1px solid rgba(8,145,178,.12); border-radius:12px; padding:8px 12px; text-align:center; min-width:74px; }
 .my-day-card .myday-chip .n { font-family:'Outfit', sans-serif; font-weight:700; font-size:1.2rem; color: var(--ocean-deep); }
 .my-day-card .myday-chip .l { font-size:.62rem; color:var(--text-soft); font-weight:800; text-transform:uppercase; letter-spacing:.06em; margin-top:1px; }
+/* Open cases (v148.87-STAGE). Deliberately NOT a todo: no checkbox, nothing to
+   tick off. An advocacy case is a standing relationship that runs for months or
+   years, and the todo list already hides it — tasks with a follow-up more than
+   14 days out are filtered out precisely so 3-month case-advocacy follow-ups do
+   not pad the day. The effect was that open cases appeared nowhere at all. */
+.my-day-card .myday-chip.cases .n { color:#6D28D9; }
+.my-day-card .cases { padding:0 16px 12px; display:flex; flex-direction:column; gap:8px; }
+.my-day-card .case { display:grid; grid-template-columns: 1fr auto; gap:12px; align-items:center; padding:10px 12px; background:#fff; border:1px solid rgba(124,58,237,.16); border-radius:12px; border-left:4px solid #7C3AED; cursor:pointer; transition: background .15s, transform .12s; }
+.my-day-card .case:hover { background:#FAF8FF; transform: translateY(-1px); }
+.my-day-card .case.unassigned { border-left-color:#B45309; background: linear-gradient(90deg, rgba(180,83,9,.05), #fff 30%); }
+.my-day-card .case .ttl { font-weight:600; font-size:.92rem; color:var(--text-dark); }
+.my-day-card .case .sub { font-size:.74rem; color:var(--text-soft); margin-top:2px; }
+.my-day-card .case .who { font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#6D28D9; background:#F3EEFF; border-radius:20px; padding:3px 9px; white-space:nowrap; }
+.my-day-card .case.unassigned .who { color:#7C2D12; background:#FEF3C7; }
+.my-day-card .case .age { font-variant-numeric: tabular-nums; }
 .my-day-card .myday-chip.urgent .n { color:#DC2626; }
 .my-day-card .myday-chip.amber .n { color: var(--sunset-coral); }
 .my-day-card .myday-chip.green .n { color: var(--palm); }
@@ -4972,7 +4987,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.86-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.87-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5078,6 +5093,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 <div class="myday-chip amber"><div class="n" id="myDayTodayN">4</div><div class="l">Today</div></div>
                 <div class="myday-chip"><div class="n" id="myDayWeekN">7</div><div class="l">This wk</div></div>
                 <div class="myday-chip green"><div class="n" id="myDayDoneN">12</div><div class="l">Done</div></div>
+                <div class="myday-chip cases"><div class="n" id="myDayCasesN">0</div><div class="l">Open cases</div></div>
               </div>
             </div>
 
@@ -5148,6 +5164,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 <div class="tags"><span class="pill">DONE</span></div>
               </div>
             </div>
+
+            <!-- Open cases (v148.87-STAGE) — standing caseload, not a to-do list -->
+            <div class="myday-sect">
+              <h4>Open cases <span class="count" id="myDayCasesCount">0</span></h4>
+              <button class="view-all" type="button" onclick="document.querySelector('[data-section=interactions]').click()">View all interactions &rarr;</button>
+            </div>
+            <div class="cases" id="myDayCases"></div>
 
             <!-- Updates feed -->
             <div class="myday-sect">
@@ -5704,11 +5727,78 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               });
             };
 
+            /* Open cases (v148.87-STAGE). One row per FAMILY, not per record —
+               a family can accumulate several advocacy interactions and a
+               caseload should read as people, not rows. Everyone sees every
+               open case: the team is small, advocacy is collaborative, and an
+               ageing view filtered to "mine" would hide exactly the cases that
+               have been sitting longest with nobody on them.
+               Advocacy cannot be expressed in one where() — the flag, the
+               advocate uid and the legacy type string are all valid signals —
+               so this mirrors _getAdvocacyContactIds(): query the OPEN ones and
+               filter in memory with _isCaseAdvocacyIx. */
+            window.loadMyDayOpenCases = async function(){
+              var box=document.getElementById('myDayCases');
+              if(!box) return;
+              try{
+                var snap=await db.collection('interactions').where('status','==','Open').get();
+                var byFamily={};
+                snap.forEach(function(doc){
+                  var d=doc.data()||{}; d._id=doc.id;
+                  if(!window._isCaseAdvocacyIx(d)) return;
+                  var key=d.contactId||('_'+doc.id);
+                  var advocate=d.caseAdvocateName||'';
+                  var prev=byFamily[key];
+                  // Prefer the record that actually names an advocate; among
+                  // equals keep the oldest, because that is the real start date.
+                  if(!prev) byFamily[key]=d;
+                  else{
+                    var prevHas=!!prev.caseAdvocateName, nowHas=!!advocate;
+                    if(nowHas&&!prevHas) byFamily[key]=d;
+                    else if(nowHas===prevHas){
+                      var a=d.createdAt&&d.createdAt.toMillis?d.createdAt.toMillis():Infinity;
+                      var b=prev.createdAt&&prev.createdAt.toMillis?prev.createdAt.toMillis():Infinity;
+                      if(a<b) byFamily[key]=d;
+                    }
+                  }
+                });
+                var rows=Object.keys(byFamily).map(function(k){return byFamily[k];});
+                var now=Date.now();
+                rows.forEach(function(d){
+                  d._days=d.createdAt&&d.createdAt.toMillis?Math.floor((now-d.createdAt.toMillis())/86400000):null;
+                  d._unassigned=!d.caseAdvocateName;
+                });
+                // Unassigned first — those are the coordinator's queue and are
+                // nobody's caseload until someone is named. Then oldest first.
+                rows.sort(function(a,b){
+                  if(a._unassigned!==b._unassigned) return a._unassigned?-1:1;
+                  return (b._days||0)-(a._days||0);
+                });
+                setText('myDayCasesN',rows.length);
+                setText('myDayCasesCount',rows.length);
+                if(!rows.length){ empty('myDayCases','No open advocacy cases.'); return; }
+                box.innerHTML=rows.map(function(d){
+                  var sub=[];
+                  if(d._days!==null) sub.push('open <b class="age">'+d._days+'</b> day'+(d._days===1?'':'s'));
+                  if(d.followUpDate) sub.push('follow-up '+esc(d.followUpDate));
+                  var who=d._unassigned?'Needs advocate':esc(d.caseAdvocateName);
+                  return '<div class="case'+(d._unassigned?' unassigned':'')+'" onclick="viewInteraction(\''+esc(d._id)+'\')">'
+                    +'<div><div class="ttl">'+esc(d.contactName||'(no contact)')+'</div>'
+                    +'<div class="sub">'+sub.join(' &middot; ')+'</div></div>'
+                    +'<div class="who">'+who+'</div></div>';
+                }).join('');
+              }catch(e){
+                console.warn('loadMyDayOpenCases:',e&&e.message);
+                empty('myDayCases','Could not load open cases.');
+              }
+            };
+
             window.loadMyDay = async function(){
               var u=window._myDayViewAs||window.currentUserData||{};
               var first=String(u.displayName||u.email||'').split(/[ @]/)[0]||'';
               setText('myDayGreeting','Aloha'+(first?' '+first:''));
               loading('myDayTodos');loading('myDayUpdates');
+              loading('myDayCases');window.loadMyDayOpenCases();
 
               // The logged-in user's OPEN interactions — LIVE (v145.5.4).
               // onSnapshot so the list updates in real time as tasks are
