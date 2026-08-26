@@ -4996,7 +4996,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.88-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.89-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5105,7 +5105,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 <div class="myday-chip cases" id="myDayCasesChip" role="button" tabindex="0"
                      title="Jump to the open cases below"
                      onclick="cmsMyDayJumpToCases()"
-                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cmsMyDayJumpToCases();}"><div class="n" id="myDayCasesN">0</div><div class="l">Open cases</div></div>
+                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cmsMyDayJumpToCases();}"><div class="n" id="myDayCasesN">0</div><div class="l">My cases</div></div>
               </div>
             </div>
 
@@ -5179,7 +5179,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
             <!-- Open cases (v148.87-STAGE) — standing caseload, not a to-do list -->
             <div class="myday-sect">
-              <h4>Open cases <span class="count" id="myDayCasesCount">0</span></h4>
+              <h4><span id="myDayCasesHeading">My open cases</span> <span class="count" id="myDayCasesCount">0</span></h4>
               <button class="view-all" type="button" onclick="document.querySelector('[data-section=interactions]').click()">View all interactions &rarr;</button>
             </div>
             <div class="cases" id="myDayCases"></div>
@@ -5766,11 +5766,33 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               var box=document.getElementById('myDayCases');
               if(!box) return;
               try{
+                /* Scope (v148.89-STAGE): a caseload is personal — an advocate should
+                   see the families they are carrying, not everyone's. The one
+                   exception is the case-advocacy coordinator, who allocates every
+                   case and therefore needs the whole board plus the true total.
+                   Matched on EMAIL, not uid or name: that is the one field nobody
+                   rekeys, and it is how CASE_ADVOCACY_COORDINATOR is already
+                   defined (mdelavega@ vs ndelavega@ is a real trap here).
+                   Respects the "Viewing as" picker, so Daniel switching to a
+                   staffer sees exactly what that staffer sees. */
+                var _v = window._myDayViewAs || window.currentUserData || {};
+                var _vUid = _v.uid || '';
+                var _vEmail = String(_v.email||'').trim().toLowerCase();
+                var _isCoord = _vEmail && _vEmail === String(CASE_ADVOCACY_COORDINATOR.email).toLowerCase();
                 var snap=await db.collection('interactions').where('status','==','Open').get();
                 var byFamily={};
                 snap.forEach(function(doc){
                   var d=doc.data()||{}; d._id=doc.id;
                   if(!window._isCaseAdvocacyIx(d)) return;
+                  /* Filter BEFORE collapsing to one row per family, so a family
+                     carried by two people cannot hide one advocate's case behind
+                     the other's. Unassigned cases carry the coordinator as owner
+                     (see spawnOrReassignCaseAdvocacy), so they land in her pile
+                     and nobody else's — which is right: an unallocated case is
+                     not yet anyone's caseload. */
+                  if(!_isCoord){
+                    if(d.caseAdvocateUid!==_vUid && d.ownerUid!==_vUid) return;
+                  }
                   var key=d.contactId||('_'+doc.id);
                   var advocate=d.caseAdvocateName||'';
                   var prev=byFamily[key];
@@ -5801,7 +5823,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 });
                 setText('myDayCasesN',rows.length);
                 setText('myDayCasesCount',rows.length);
-                if(!rows.length){ empty('myDayCases','No open advocacy cases.'); return; }
+                var h=document.getElementById('myDayCasesHeading');
+                if(h) h.textContent=_isCoord?'Open cases — all advocates':'My open cases';
+                if(!rows.length){ empty('myDayCases',_isCoord?'No open advocacy cases.':'No advocacy cases assigned to you.'); return; }
                 box.innerHTML=rows.map(function(d){
                   var sub=[];
                   if(d._days!==null) sub.push('open <b class="age">'+d._days+'</b> day'+(d._days===1?'':'s'));
