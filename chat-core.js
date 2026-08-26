@@ -2083,6 +2083,16 @@ window.LDAHChat = (function () {
     _mode = opts.mode || 'modal';
     _host = opts.host || {};
     el.innerHTML = MODAL_MARKUP + (_mode === 'modal' ? FAB_MARKUP : '');
+    /* The launcher belongs in the top bar next to Alerts, not floating over the
+       corner of the page. Re-parented rather than re-authored so every behaviour
+       hanging off it — unread badge, popped-out state, click handler — keeps
+       working untouched. Falls back to the floating position when the host page
+       offers no slot, which is what chat.html itself does. */
+    try {
+      var _slot = document.getElementById('topbarChatSlot');
+      var _launch = el.querySelector('.chat-launch');
+      if (_slot && _launch) { _slot.appendChild(_launch); _launch.classList.add('in-topbar'); }
+    } catch (_e) {}
     bindElements();
     wireEvents();
     if (_mode === 'window') {
