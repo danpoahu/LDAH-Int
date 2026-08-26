@@ -4996,7 +4996,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.67</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.68</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5292,7 +5292,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               var _isCad = step==='caseAdvocacy' ||
                            (window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(_cadDoc));
               if(nowDone && _isCad){
-                if(!window._confirmEndCaseAdvocacy((_cadDoc && _cadDoc.contactName) || '')) return;
+                if(!await window._confirmEndCaseAdvocacy((_cadDoc && _cadDoc.contactName) || '',
+                     _cadDoc && _cadDoc.contactId, id)) return;
               }
               row.classList.toggle('done');
               check.style.pointerEvents='none';
@@ -21302,7 +21303,7 @@ window.openContactDetail = async function(contactId) {
           '<div class="ct-info-field"><label>Status</label><div class="val">' +
             (isEditMode
               ? '<select id="ixStatusSelect" class="ix-edit-input">' + optHtml + '</select>'
-              : '<div class="ix-status-changer"><select id="ixStatusSelect" data-current-status="' + rsEscape(currentStatus) + '" onchange="_ixCheckReopenFollowUp()">' + optHtml + '</select></div>') +
+              : '<div class="ix-status-changer"><select id="ixStatusSelect" data-current-status="' + rsEscape(currentStatus) + '" onchange="_ixStatusChanged(this)">' + optHtml + '</select></div>') +
           '</div></div>';
       } else {
         statusFieldHtml =
@@ -21904,19 +21905,60 @@ window.openContactDetail = async function(contactId) {
      hours, then closed the next morning before the documents had even arrived
      — with nothing in the audit log to say who closed it or why. Asked on both
      close paths: the detail panel's STATUS dropdown and the My Day checkbox. */
-  window._confirmEndCaseAdvocacy = function(name) {
+  /* Is this the LAST open advocacy record for the family? (v148.68)
+     A family routinely carries two: the session note with the Case Advocacy box
+     ticked, and the dedicated "Case advocacy — advocating for X" record the tick
+     spawns. Closing the note does not end anything — the case continues on the
+     other record — so warning about document destruction there was crying wolf,
+     and a warning nobody believes is worse than no warning. Returns -1 if the
+     lookup fails, which the caller treats as "warn anyway". */
+  window._otherOpenAdvocacies = async function(contactId, excludeId) {
+    if (!contactId) return 0;
+    try {
+      var snap = await db.collection('interactions')
+        .where('contactId', '==', contactId).where('status', '==', 'Open').get();
+      var n = 0;
+      snap.forEach(function(d) {
+        if (d.id !== excludeId && window._isCaseAdvocacyIx(d.data() || {})) n++;
+      });
+      return n;
+    } catch (e) { console.warn('advocacy sibling lookup failed:', e.message); return -1; }
+  };
+
+  window._confirmEndCaseAdvocacy = async function(name, contactId, excludeId) {
+    var others = await window._otherOpenAdvocacies(contactId, excludeId);
+    // Not the last one — this is a duplicate or a session note. The case is not
+    // ending, so do not pretend it is. Close it quietly.
+    if (others > 0) return true;
     var ok = confirm(
       'END case advocacy for ' + (name || 'this family') + '?\n\n' +
-      'This is not the same as closing an interaction. Ending case advocacy:\n' +
-      '  \u2022 removes the Case Advocacy flag from the contact card\n' +
-      '  \u2022 starts the document countdown \u2014 the advocate is alerted after\n' +
+      'This is the LAST open advocacy record for this family, so closing it ends the case:\n' +
+      '  \u2022 the Case Advocacy flag comes off the contact card\n' +
+      '  \u2022 the document countdown starts \u2014 the advocate is alerted after\n' +
       '    2 days and the case documents are destroyed after 3\n\n' +
-      'Ordinary interactions can be closed freely. Only close THIS record once\n' +
-      'the advocacy itself is genuinely finished.\n\n' +
+      'Ordinary interactions, and duplicate session notes, can be closed freely.\n\n' +
       'Cancel to keep the case open.'
     );
     if (!ok && typeof _showToast === 'function') _showToast('Case advocacy left open.', '#7C3AED');
     return ok;
+  };
+
+  /* Ask the moment Closed is picked, not at Save (v148.68). Being told after
+     filling in a form that the thing you chose three fields ago was the
+     consequential one is a poor way to be warned. Reverts the dropdown on
+     cancel, and remembers the answer so Save does not ask twice. */
+  window._ixStatusChanged = async function(sel) {
+    _ixCheckReopenFollowUp();
+    if (!sel || sel.value !== 'Closed' || !_ixViewDocId) return;
+    var prev = sel.getAttribute('data-current-status') || 'Open';
+    try {
+      var snap = await db.collection('interactions').doc(_ixViewDocId).get();
+      var d = snap.exists ? (snap.data() || {}) : {};
+      if (!(window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(d))) return;
+      var ok = await window._confirmEndCaseAdvocacy(d.contactName, d.contactId, _ixViewDocId);
+      if (!ok) { sel.value = prev; _ixCheckReopenFollowUp(); return; }
+      window._ixAdvocacyCloseOkFor = _ixViewDocId;
+    } catch (e) { console.warn('status-change advocacy check failed:', e.message); }
   };
 
   // Status (+ presenter) write. The presenter-before-close gate is enforced by the
@@ -22068,12 +22110,14 @@ window.openContactDetail = async function(contactId) {
          an interaction — see _confirmEndCaseAdvocacy. Sits with the other
          pre-checks so a cancelled close writes nothing at all. */
       if (statusDirty && newStatus === 'Closed' &&
-          window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(data)) {
-        if (!window._confirmEndCaseAdvocacy(data.contactName)) {
+          window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(data) &&
+          window._ixAdvocacyCloseOkFor !== _ixViewDocId) {
+        if (!await window._confirmEndCaseAdvocacy(data.contactName, data.contactId, _ixViewDocId)) {
           fail('Case advocacy left open.');
           return;
         }
       }
+      window._ixAdvocacyCloseOkFor = null;
 
       // ── Apply only what changed ──
       if (ownerDirty) await window._applyOwnerChange(ownerUid);
