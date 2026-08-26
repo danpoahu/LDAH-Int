@@ -4996,7 +4996,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.92-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.93-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -29869,7 +29869,34 @@ async function edLoadEvents(fromIso, toIso) {
   res[1].forEach(function(doc) {
     var e = doc.data() || {};
     if (e.archived === true || e.flyerOnly === true || e.active === false) return;
-    var sessions = cmsGenerateSessionDates(e.schedules, e.cancelledDates, 400) || [];
+    /* Past sessions used to vanish (v148.93-STAGE). cmsGenerateSessionDates() walks
+       FORWARD from today, so once a recurring session's date passed it was never
+       generated and the calendar cell simply emptied — seven Connect-Gen sessions
+       disappeared out of August while Learning Labs on the 12th and 19th stayed
+       put. Nothing was ever deleted: one-off events store their dates, recurring
+       programmes compute theirs, and only the computed ones could go missing.
+       So generate backwards as well, using the same backwards generator the
+       signups modal and Event Summary already rely on. Sized to reach the month
+       being displayed, so paging back to April fills in rather than going blank.
+       includeToday:false because the forward generator already emits today —
+       otherwise every session today would render twice. */
+    var _edBackDays = 0;
+    try {
+      var _edFrom = new Date(fromIso + 'T00:00:00');
+      _edBackDays = Math.ceil((Date.now() - _edFrom.getTime()) / 86400000) + 31;
+    } catch (e2) { _edBackDays = 0; }
+    var sessions = (cmsGenerateSessionDates(e.schedules, e.cancelledDates, 400) || []);
+    if (_edBackDays > 0 && typeof _cmsGenerateSessionDatesPast === 'function') {
+      var _past = _cmsGenerateSessionDatesPast(e.schedules, e.cancelledDates, _edBackDays, false) || [];
+      // Belt and braces: the two generators overlap around today, and a duplicate
+      // here would render the same session twice in one cell.
+      var _seen = {};
+      sessions.forEach(function(s2) { _seen[cmsBuildSessionKey(s2)] = true; });
+      _past.forEach(function(s2) {
+        var k2 = cmsBuildSessionKey(s2);
+        if (!_seen[k2]) { _seen[k2] = true; sessions.push(s2); }
+      });
+    }
     sessions.forEach(function(sess) {
       if (sess.cancelled) return;
       if (sess.date < fromIso || sess.date > toIso) return;
