@@ -4972,7 +4972,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.85-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.86-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5240,6 +5240,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 if(_rec === false){
                   if(!confirm('No booking dates are recorded for this event.\n\nThe packing list goes out three days beforehand and will show no flight or lodging dates.\n\nClick Cancel to go back and use "Book travel" — or OK to close it anyway.')) return;
                 }
+              }
+              /* The My Day checkbox is the OTHER way a case advocacy gets closed,
+                 and unlike the detail panel it never stamped caseAdvocacyClosedAt
+                 — so a case could vanish from the flag without starting (or being
+                 seen to start) the document clock. Same question, both doors. */
+              if(nowDone && step==='caseAdvocacy'){
+                if(!window._confirmEndCaseAdvocacy(row && row.dataset ? row.dataset.contactName : '')) return;
               }
               row.classList.toggle('done');
               check.style.pointerEvents='none';
@@ -21749,6 +21756,30 @@ window.openContactDetail = async function(contactId) {
     } catch (e) { console.warn('clear assignment notifs on close failed:', e.message); }
   };
 
+  /* Ending case advocacy is not the same as closing an interaction (v148.86-STAGE).
+     Closing an ordinary interaction is bookkeeping — staff do it all day and
+     should keep doing it. Closing the CASE ADVOCACY record is different: it
+     removes the purple flag from the contact card and starts the document
+     countdown (advocate alerted at 2 days, documents destroyed at 3). The
+     Karsin case was requested, assigned, and signed by the parent inside six
+     hours, then closed the next morning before the documents had even arrived
+     — with nothing in the audit log to say who closed it or why. Asked on both
+     close paths: the detail panel's STATUS dropdown and the My Day checkbox. */
+  window._confirmEndCaseAdvocacy = function(name) {
+    var ok = confirm(
+      'END case advocacy for ' + (name || 'this family') + '?\n\n' +
+      'This is not the same as closing an interaction. Ending case advocacy:\n' +
+      '  \u2022 removes the Case Advocacy flag from the contact card\n' +
+      '  \u2022 starts the document countdown \u2014 the advocate is alerted after\n' +
+      '    2 days and the case documents are destroyed after 3\n\n' +
+      'Ordinary interactions can be closed freely. Only close THIS record once\n' +
+      'the advocacy itself is genuinely finished.\n\n' +
+      'Cancel to keep the case open.'
+    );
+    if (!ok && typeof _showToast === 'function') _showToast('Case advocacy left open.', '#7C3AED');
+    return ok;
+  };
+
   // Status (+ presenter) write. The presenter-before-close gate is enforced by the
   // caller (saveInteractionDetail) BEFORE anything is written, so a rejected close
   // can't leave a half-applied card. Throws on failure. (v146.4.25)
@@ -21892,6 +21923,17 @@ window.openContactDetail = async function(contactId) {
         // blank raises the task to the coordinator to assign, which is how
         // advocacy is actually allocated; blocking the save just meant staff
         // guessed an advocate or gave up.
+      }
+
+      /* Guard rail (v148.86-STAGE): ending case advocacy is a different act from closing
+         an interaction — see _confirmEndCaseAdvocacy. Sits with the other
+         pre-checks so a cancelled close writes nothing at all. */
+      if (statusDirty && newStatus === 'Closed' &&
+          window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(data)) {
+        if (!window._confirmEndCaseAdvocacy(data.contactName)) {
+          fail('Case advocacy left open.');
+          return;
+        }
       }
 
       // ── Apply only what changed ──
