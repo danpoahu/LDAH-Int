@@ -155,6 +155,13 @@
       senderName: rtcMyName(),
       text: msgText,
       screenShareSession: _rtcSessionId,
+      /* The renderer fails CLOSED: no screenShareConvId on the message means no
+         button, deliberately, so a stale conversation id can never open a
+         signalling channel under the wrong conversation. That hardening landed
+         on the render side only — this sender never wrote the field, so the
+         request arrived as text with no button under it and the other person had
+         nothing to click. */
+      screenShareConvId: convId,
       clientId: null,
       clientName: null,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
