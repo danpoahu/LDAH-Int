@@ -5027,7 +5027,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.98-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.99-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5338,6 +5338,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 });
                 // Checking it off closes the task — clear its assignment notifications
                 // from the bell, same as the detail-panel STATUS dropdown does.
+                if(nowDone && _cadDoc){ await window._carryAdvocateForward(_cadDoc, id); }
                 if(nowDone && typeof window._clearAssignmentNotifs==='function'){ await window._clearAssignmentNotifs(id); }
                 if(typeof window.refreshDashKpis==='function')window.refreshDashKpis();
                 if(typeof window.loadInteractions==='function')window.loadInteractions();
@@ -19572,6 +19573,23 @@ window.openContactDetail = async function(contactId) {
         : (String(existingTask.data.owner || "").trim().toLowerCase() ===
            String(advocateName || "").trim().toLowerCase());
       if (_sameAdvocate) {
+        /* Matching owners does not mean the case record is LABELLED (v148.99-STAGE). An
+           unassigned task is OWNED by the coordinator, so choosing her as the
+           advocate satisfies uid === currentOwnerUid and returned here with
+           caseAdvocateName still blank on the durable task. The advocate then
+           existed only on the source note — and vanished the moment that note
+           was closed as a duplicate. Rochelle Saldana and Stradlyne Saint Julien
+           both lost their advocate exactly this way. */
+        if (advocateName && !existingTask.data.caseAdvocateName) {
+          try {
+            await db.collection('interactions').doc(existingId).update({
+              caseAdvocateName: advocateName,
+              caseAdvocateUid: uid || '',
+              needsAdvocateAssignment: false,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (e) { console.warn('could not label the case record:', e && e.message); }
+        }
         return { interactionId: existingId, uid: uid || currentOwnerUid, reassigned: false };
       }
       // Different advocate → reassign the existing task + notify.
@@ -22084,6 +22102,46 @@ window.openContactDetail = async function(contactId) {
     } catch (e) { console.warn('advocacy sibling lookup failed:', e.message); return -1; }
   };
 
+  /* Closing a note that names the advocate must not take the advocate with it
+     (v148.99-STAGE). Staff record advocacy on a session note; the durable "Case advocacy
+     — advocating for X" record is what survives. Twice now the note carried the
+     only copy of the advocate, and tidying the duplicate left the family
+     reading NEEDS ADVOCATE. Runs on both close paths, after the close succeeds,
+     and is silent when there is nothing to carry. */
+  window._carryAdvocateForward = async function(closingDoc, closingId) {
+    try {
+      if (!closingDoc || !closingDoc.contactId || !closingDoc.caseAdvocateName) return 0;
+      var snap = await db.collection('interactions')
+        .where('contactId', '==', closingDoc.contactId)
+        .where('status', '==', 'Open').get();
+      var refs = [];
+      snap.forEach(function(d) {
+        if (d.id === closingId) return;
+        var x = d.data() || {};
+        if (!window._isCaseAdvocacyIx(x)) return;
+        if (x.caseAdvocateName) return;
+        refs.push(d.ref);
+      });
+      for (var i = 0; i < refs.length; i++) {
+        await refs[i].update({
+          caseAdvocateName: closingDoc.caseAdvocateName,
+          caseAdvocateUid: closingDoc.caseAdvocateUid || '',
+          needsAdvocateAssignment: false,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+      if (refs.length) {
+        if (typeof auditLog === 'function') {
+          auditLog('Advocate carried to the case record',
+            (closingDoc.contactName || '') + ' — ' + closingDoc.caseAdvocateName +
+            ' kept on ' + refs.length + ' open case record(s) when a note naming them was closed.');
+        }
+        if (typeof _showToast === 'function') _showToast('Advocate kept on the case record.', '#0891B2');
+      }
+      return refs.length;
+    } catch (e) { console.warn('carry advocate forward failed:', e && e.message); return 0; }
+  };
+
   window._confirmEndCaseAdvocacy = async function(name, contactId, excludeId) {
     var others = await window._otherOpenAdvocacies(contactId, excludeId);
     // Not the last one — this is a duplicate or a session note. The case is not
@@ -22280,6 +22338,10 @@ window.openContactDetail = async function(contactId) {
 
       // ── Apply only what changed ──
       if (ownerDirty) await window._applyOwnerChange(ownerUid);
+
+      if (statusDirty && newStatus === 'Closed') {
+        await window._carryAdvocateForward(data, _ixViewDocId);
+      }
 
       if (statusDirty || presDirty) {
         var presName = '';
