@@ -5021,7 +5021,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.75</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.76</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5817,8 +5817,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                    Respects the "Viewing as" picker, so Daniel switching to a
                    staffer sees exactly what that staffer sees. */
                 var _v = window._myDayViewAs || window.currentUserData || {};
-                var _vUid = _v.uid || '';
-                var _vEmail = String(_v.email||'').trim().toLowerCase();
+                /* Fall back to the signed-in user (v148.76). If _vUid came out empty
+                   the filter below matched nothing and the panel rendered a
+                   confident "0" — indistinguishable from genuinely having no
+                   cases. A viewer we cannot identify must say so, not claim zero.
+                   _myDayViewAs can also be a thin {uid, displayName} object, so
+                   the email is recovered the same way. */
+                var _au = (window.firebase && firebase.auth && firebase.auth().currentUser) || null;
+                var _vUid = _v.uid || (_au && _au.uid) || '';
+                var _vEmail = String(_v.email || (_au && _au.email) || '').trim().toLowerCase();
+                var _vWho = _v.displayName || (_au && _au.email) || 'this account';
                 /* Resolve the coordinator to a UID as well as an email (v148.66).
                    The "Viewing as" picker falls back to {uid, displayName} with NO
                    email when a staffer is missing from the bridge cache — so an
@@ -5831,6 +5839,12 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 catch(e){ console.warn('coordinator uid lookup failed:', e && e.message); }
                 var _isCoord = (!!_vEmail && _vEmail === String(CASE_ADVOCACY_COORDINATOR.email).toLowerCase())
                             || (!!_coordUid && _vUid === _coordUid);
+                if (!_vUid && !_isCoord) {
+                  setText('myDayCasesN', '—');
+                  setText('myDayCasesCount', '—');
+                  empty('myDayCases', 'Could not tell who is signed in — reload the page.');
+                  return;
+                }
                 var snap=await db.collection('interactions').where('status','==','Open').get();
                 var byFamily={};
                 snap.forEach(function(doc){
@@ -5877,7 +5891,12 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 setText('myDayCasesCount',rows.length);
                 var h=document.getElementById('myDayCasesHeading');
                 if(h) h.textContent=_isCoord?'Open cases — all advocates':'My open cases';
-                if(!rows.length){ empty('myDayCases',_isCoord?'No open advocacy cases.':'No advocacy cases assigned to you.'); return; }
+                if(!rows.length){
+                  empty('myDayCases', _isCoord
+                    ? 'No open advocacy cases.'
+                    : 'No advocacy cases assigned to ' + _vWho + '.');
+                  return;
+                }
                 box.innerHTML=rows.map(function(d){
                   var sub=[];
                   if(d._days!==null) sub.push('open <b class="age">'+d._days+'</b> day'+(d._days===1?'':'s'));
