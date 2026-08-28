@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.105-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.106-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5872,9 +5872,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   // equals keep the oldest, because that is the real start date.
                   if(!prev) byFamily[key]=d;
                   else{
+                    /* v148.81: the CASE FILE wins over a work log. Ticking "Case
+                       advocacy" spawns ONE durable record (workflowStep==='caseAdvocacy')
+                       and leaves the flag set on every later call or email for that
+                       family. If one of those logs is left Open it also looks like a
+                       case here — so the card linked to the wrong record and showed
+                       the log's age instead of the case's real start date. Order:
+                       case file, then a named advocate, then oldest. */
+                    var prevFile=prev.workflowStep==='caseAdvocacy', nowFile=d.workflowStep==='caseAdvocacy';
                     var prevHas=!!prev.caseAdvocateName, nowHas=!!advocate;
-                    if(nowHas&&!prevHas) byFamily[key]=d;
-                    else if(nowHas===prevHas){
+                    if(nowFile!==prevFile){ if(nowFile) byFamily[key]=d; }
+                    else if(nowHas!==prevHas){ if(nowHas) byFamily[key]=d; }
+                    else{
                       var a=d.createdAt&&d.createdAt.toMillis?d.createdAt.toMillis():Infinity;
                       var b=prev.createdAt&&prev.createdAt.toMillis?prev.createdAt.toMillis():Infinity;
                       if(a<b) byFamily[key]=d;
@@ -19306,6 +19315,10 @@ window.openContactDetail = async function(contactId) {
   window._populateCaseAdvocateSelect = async function(prefix) {
     var sel = document.getElementById(prefix + 'CaseAdvocate');
     if (!sel) return;
+    // v148.81: for viewers who may not pick an advocate this element is a hidden
+    // input carrying the current name, not a <select>. Writing options into it
+    // would wipe that value on save.
+    if (sel.tagName !== 'SELECT') return;
     // Only populate once (placeholder is the lone option when empty).
     if (sel.options.length > 1) return;
     var current = sel.getAttribute('data-current-name') || '';
@@ -21635,6 +21648,25 @@ window.openContactDetail = async function(contactId) {
         // Only meaningful for OPEN interactions tied to a contact; the apply handler
         // (saveInteractionDetail) guards on contactId with a heads-up toast.
         var caAdvIsOn = (d.caseAdvocacy === true);
+        /* v148.81: choosing WHO carries a case is the coordinator's call. The New
+           Interaction modal has enforced that since v134 via _caCanPickAdvocate(),
+           but this side panel never did — anyone could reassign an advocate on a
+           live case from here, silently. Same guard, same allowlist: everyone else
+           now SEES the advocate and cannot change it. The hidden input keeps
+           saveInteractionDetail's dirty-check working unchanged, so a non-picker
+           saving a status or follow-up can never blank the advocate. */
+        var caCanPick = (typeof window._caCanPickAdvocate === 'function') ? window._caCanPickAdvocate() : false;
+        var caAdvName = d.caseAdvocateName || '';
+        var caAdvControl = caCanPick
+          ? '<select id="ixCaseAdvocate" data-current-name="' + rsEscape(caAdvName) + '"><option value="">— Select advocate —</option></select>'
+          : '<span style="font-weight:700;color:var(--text-dark);">' +
+              (caAdvName ? rsEscape(caAdvName) : 'Coordinator to assign') + '</span>' +
+            '<input type="hidden" id="ixCaseAdvocate" value="' + rsEscape(caAdvName) +
+              '" data-current-name="' + rsEscape(caAdvName) + '">';
+        var caAdvHint = caCanPick
+          ? 'Turning this on creates a 3-month follow-up task for the advocate. Requires an attached contact.'
+          : 'Only ' + rsEscape((window.CASE_ADVOCACY_COORDINATOR || {}).name || 'the case advocacy coordinator') +
+            ' assigns the advocate. Turning this on sends the request to her.';
         var caseAdvocacyFieldHtml =
           '<div class="ct-info-field" style="grid-column:span 2;"><label>Case advocacy</label><div class="val">' +
             '<div class="ix-status-changer" style="flex-wrap:wrap;">' +
@@ -21642,10 +21674,10 @@ window.openContactDetail = async function(contactId) {
                 '<input type="checkbox" id="ixCaseAdvocacy" data-current-on="' + (caAdvIsOn ? '1' : '0') + '" style="width:16px;height:16px;cursor:pointer;accent-color:var(--ocean-deep);"' +
                   (caAdvIsOn ? ' checked' : '') + ' onchange="_toggleCaseAdvocacyPicker(\'ix\')"> On</label>' +
               '<div id="ixCaseAdvocacyPicker" style="display:' + (caAdvIsOn ? 'inline-flex' : 'none') + ';align-items:center;gap:8px;">' +
-                '<select id="ixCaseAdvocate" data-current-name="' + rsEscape(d.caseAdvocateName || '') + '"><option value="">— Select advocate —</option></select>' +
+                caAdvControl +
               '</div>' +
             '</div>' +
-            '<div style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">Turning this on creates a 3-month follow-up task for the advocate. Requires an attached contact.</div>' +
+            '<div style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">' + caAdvHint + '</div>' +
           '</div></div>';
 
         infoCard =
