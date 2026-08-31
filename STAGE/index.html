@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.115-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.116-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22131,6 +22131,51 @@ window.openContactDetail = async function(contactId) {
             interactionId: _ixViewDocId,
           });
         } catch (e) { console.warn('createNotification on owner change failed:', e.message); }
+      }
+
+      /* Reassigning the "assign a parent consultant" task IS the allocation.
+         Until now it only moved the task owner, so the person never became the
+         named advocate and the opening letter never fired -- Therese Patricio
+         (2026-08-25) was allocated this way, got no letter from the system, and
+         Leilani ended up emailing the letter and consent form by hand two days
+         later with nothing recorded against the contact.
+
+         Scoped to workflowStep === 'caseAdvocacy', i.e. the durable CASE FILE.
+         A phone call or email logged for that family also carries
+         caseAdvocacy:true, and reassigning one of those must not silently
+         rename the family's advocate.
+
+         The letter cannot duplicate: sendCaseAdvocacyAuthorizationLink sends
+         once per family and returns skipped:"already-sent" thereafter, so a
+         reassignment to a second advocate updates the name without mailing the
+         family again. Daniel, 2026-08-31: "only if the letter has never been
+         fired -- I don't want duplicates unless Rosie decides we need a nudge
+         system." (2026-08-31) */
+      if (newUid && newName && _priorIxData.workflowStep === 'caseAdvocacy') {
+        try {
+          await db.collection('interactions').doc(_ixViewDocId).update({
+            caseAdvocateUid: newUid,
+            caseAdvocateName: newName,
+            needsAdvocateAssignment: false,
+            caseAdvocateNamedVia: 'task-reassignment',
+            caseAdvocateNamedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          auditLog('Case advocate named by reassignment',
+            (_priorIxData.contactName || '(no contact)') + ' — ' + newName +
+            ' became the named advocate when the allocation task was reassigned (' + _ixViewDocId + ')');
+          if (_priorIxData.contactId && typeof window._caSendOpeningLetter === 'function') {
+            var _lr = await window._caSendOpeningLetter(_priorIxData.contactId, newName, { quiet: true });
+            if (_lr && _lr.skipped === 'already-sent') {
+              _showToast('Advocate set to ' + newName + '. Opening letter was already sent ' +
+                         (_lr.sentAt || 'earlier') + ' — not resent.', '#0891B2');
+            } else if (_lr && _lr.ok) {
+              _showToast('Advocate set to ' + newName + ' and the case opening letter was sent.', '#16A34A');
+            }
+          }
+        } catch (e) {
+          console.warn('name advocate on reassignment failed:', e && e.message);
+          _showToast('Owner changed, but the advocate/letter step failed — check the case record.', '#D97706');
+        }
       }
     }
   };
