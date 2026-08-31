@@ -5024,7 +5024,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.88</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.89</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6265,6 +6265,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <p style="color:var(--text-soft);margin:4px 0 0;">Generate and export organizational reports.</p>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #7C3AED;" data-roles="superAdmin,admin" onclick="cmsBuildCaseAdvocacyReport()">
+              <div style="font-size:1.4rem;margin-bottom:6px;">&#9878;&#65039;</div>
+              <div style="font-weight:700;font-size:.92rem;">Case Advocacy</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Every family in case advocacy &mdash; advocate, start date, consent, welcome letter and membership. Admin only.</div>
+            </div>
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #0891B2;" data-roles="superAdmin,admin" onclick="cmsBuildScreeningsReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">🩺</div>
               <div style="font-weight:700;font-size:.92rem;">Screenings</div>
@@ -6403,6 +6408,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <span id="mrGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
           </div>
           <div id="mrBody"><div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading membership data…</div></div>
+        </div>
+
+        <!-- Case Advocacy Report (in-grid; Admin / SuperAdmin only) -->
+        <div id="caseAdvocacyReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseCaseAdvocacyReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#6D28D9;margin:0;flex:1;">Case Advocacy Report</h2>
+            <label style="font-size:.8rem;color:var(--text-soft);display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="carShowClosed" onchange="cmsBuildCaseAdvocacyReport()"> Include closed
+            </label>
+            <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#6D28D9;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="cmsExportCaseAdvocacyCsv()">Export CSV</button>
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="window.print()">Print</button>
+            <span id="carGeneratedAt" style="font-size:.78rem;color:var(--text-soft);"></span>
+          </div>
+          <div id="carBody"><div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading case advocacy&hellip;</div></div>
         </div>
 
         <!-- Event Attendance Report (in-grid; toggled from Reports card) -->
@@ -48986,6 +49006,209 @@ window.cmsCheckPayPalPayments = async function() {
     setOut('PayPal check failed: ' + e.message, '#DC2626');
   }
   if (btn) btn.disabled = false;
+};
+
+/* ── Case Advocacy Report (Admin / SuperAdmin) ──────────────────────────────
+   One row per FAMILY in case advocacy, not per interaction. Ticking "Case
+   advocacy" spawns one durable case file (workflowStep==='caseAdvocacy') and
+   leaves caseAdvocacy:true on every later call and email for that family, so
+   counting records would badly overstate the caseload -- the same trap that
+   made a work log look like a second open case on My Day.
+
+   Rosie needs to see, per family: who is carrying it, when it started, whether
+   the authorization is on file, whether Noe's welcome letter went out, and
+   whether they joined. Legacy cases opened before the letter and consent flows
+   existed simply have blanks there -- shown as gaps to work, not as errors.
+   (2026-08-31) */
+var _carRows = [];
+
+function _carTs(v) { try { return v && v.toDate ? v.toDate() : (v ? new Date(v) : null); } catch (e) { return null; } }
+function _carDay(d) { return d ? d.toISOString().slice(0, 10) : ''; }
+function _carIsAdv(d) {
+  return d.caseAdvocacy === true || !!d.caseAdvocateUid ||
+         d.interactionType === 'Case Advocacy' || d.workflowStep === 'caseAdvocacy';
+}
+
+window.cmsBuildCaseAdvocacyReport = async function() {
+  var el = document.getElementById('caseAdvocacyReportInGrid');
+  var rg = document.getElementById('reportsInGrid');
+  if (el) el.style.display = 'block';
+  if (rg) rg.style.display = 'none';
+  var body = document.getElementById('carBody');
+  if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading case advocacy&hellip;</div>';
+
+  try {
+    var showClosed = !!(document.getElementById('carShowClosed') || {}).checked;
+    var snaps = await Promise.all([
+      db.collection('interactions').get(),
+      db.collection('contacts').get()
+    ]);
+    var contacts = {};
+    snaps[1].forEach(function(d) { contacts[d.id] = d.data() || {}; });
+
+    // Collapse to one entry per family; keep the OLDEST case file as the anchor
+    // so "started" is the real start, not the most recent re-open.
+    var fam = {};
+    snaps[0].forEach(function(doc) {
+      var v = doc.data() || {}; v._id = doc.id;
+      if (!_carIsAdv(v)) return;
+      var key = v.contactId || ('_' + doc.id);
+      var g = fam[key] || { recs: [], file: null };
+      g.recs.push(v);
+      if (v.workflowStep === 'caseAdvocacy') {
+        var a = _carTs(v.createdAt), b = g.file ? _carTs(g.file.createdAt) : null;
+        if (!g.file || (a && b && a < b)) g.file = v;
+      }
+      fam[key] = g;
+    });
+
+    var today = new Date();
+    _carRows = Object.keys(fam).map(function(cid) {
+      var g = fam[cid], f = g.file || g.recs[0], c = contacts[cid] || {};
+      var openRec = g.recs.filter(function(r) { return r.status === 'Open'; })[0] || null;
+      var auth = c.caseAdvocacyAuthorization || null;
+      var started = _carTs(f.caseAdvocacyStartedAt) || _carTs(f.createdAt);
+      var closedAt = null;
+      g.recs.forEach(function(r) { var t = _carTs(r.caseAdvocacyClosedAt); if (t && !closedAt) closedAt = t; });
+      var end = openRec ? today : (closedAt || today);
+      return {
+        contactId: (cid.charAt(0) === '_' ? '' : cid),
+        interactionId: f._id,
+        name: f.contactName || c.name || '(no contact)',
+        email: c.email || '',
+        island: c.island || '',
+        advocate: (g.recs.map(function(r) { return r.caseAdvocateName; }).filter(Boolean))[0] || '',
+        started: started,
+        days: started ? Math.max(0, Math.round((end - started) / 86400000)) : null,
+        open: !!openRec,
+        closedAt: closedAt,
+        followUp: (openRec && openRec.followUpDate) || '',
+        consentMethod: auth ? (auth.method || 'on file') : '',
+        consentAt: auth ? (_carTs(auth.signedAt) || _carTs(auth.recordedAt)) : null,
+        letterAt: _carTs(c.caseAdvocacyOpeningEmailSentAt),
+        member: window._membershipIsActive ? !!window._membershipIsActive(c) : /^(active|paid)$/i.test(String(c.membershipStatus || '')),
+        memberLevel: c.membershipLevel || '',
+        touches: g.recs.length
+      };
+    }).filter(function(r) { return showClosed || r.open; });
+
+    _carRows.sort(function(a, b) {
+      if (a.open !== b.open) return a.open ? -1 : 1;      // open first
+      return (b.days || 0) - (a.days || 0);                // then oldest
+    });
+    _carRender();
+    var st = document.getElementById('carGeneratedAt');
+    if (st) st.textContent = 'Generated ' + new Date().toLocaleString();
+  } catch (e) {
+    if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load case advocacy: ' + rsEscape(e.message) + '</div>';
+    console.warn('cmsBuildCaseAdvocacyReport:', e && e.message);
+  }
+};
+
+window.cmsCloseCaseAdvocacyReport = function() {
+  var el = document.getElementById('caseAdvocacyReportInGrid');
+  var rg = document.getElementById('reportsInGrid');
+  if (el) el.style.display = 'none';
+  if (rg) rg.style.display = 'block';
+};
+
+function _carPill(text, bg, fg) {
+  return '<span style="display:inline-block;background:' + bg + ';color:' + fg +
+         ';border-radius:999px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">' + text + '</span>';
+}
+
+function _carRender() {
+  var body = document.getElementById('carBody');
+  if (!body) return;
+  var rows = _carRows;
+  if (!rows.length) {
+    body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">No case advocacy families match.</div>';
+    return;
+  }
+  var open = rows.filter(function(r) { return r.open; }).length;
+  var noConsent = rows.filter(function(r) { return r.open && !r.consentMethod; }).length;
+  var noLetter = rows.filter(function(r) { return r.open && !r.letterAt; }).length;
+  var noAdvocate = rows.filter(function(r) { return r.open && !r.advocate; }).length;
+  var members = rows.filter(function(r) { return r.member; }).length;
+  var todayIso = new Date().toISOString().slice(0, 10);
+
+  var kpi = function(n, label, alert) {
+    return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px 16px;border-left:4px solid ' +
+      (alert ? '#B45309' : '#6D28D9') + ';">' +
+      '<div style="font-size:1.6rem;font-weight:800;color:' + (alert ? '#B45309' : '#6D28D9') + ';line-height:1.1;">' + n + '</div>' +
+      '<div style="font-size:.76rem;color:var(--text-soft);margin-top:2px;">' + label + '</div></div>';
+  };
+
+  var h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px;">' +
+    kpi(open, 'open cases', false) +
+    kpi(noConsent, 'open, no authorization', noConsent > 0) +
+    kpi(noLetter, 'open, no welcome letter', noLetter > 0) +
+    kpi(noAdvocate, 'open, no advocate named', noAdvocate > 0) +
+    kpi(members, 'joined as members', false) +
+    '</div>';
+
+  h += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow-x:auto;">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:.86rem;min-width:900px;">' +
+    '<thead><tr style="background:#F5F3FF;">' +
+    ['Family', 'Advocate', 'Started', 'Open', 'Authorization', 'Welcome letter', 'Member', 'Next follow-up']
+      .map(function(t) { return '<th style="text-align:left;padding:9px 12px;color:#6D28D9;font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;">' + t + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+
+  rows.forEach(function(r) {
+    var overdue = r.open && r.followUp && r.followUp < todayIso;
+    h += '<tr style="border-bottom:1px solid #EDE9FE;' + (r.open ? '' : 'opacity:.6;') + '">' +
+      '<td style="padding:9px 12px;">' +
+        '<div style="font-weight:700;">' + rsEscape(r.name) + '</div>' +
+        '<div style="font-size:.74rem;color:var(--text-soft);">' + rsEscape(r.email || '—') +
+          (r.island ? ' &middot; ' + rsEscape(r.island) : '') + '</div></td>' +
+      '<td style="padding:9px 12px;">' + (r.advocate ? rsEscape(r.advocate)
+          : _carPill('Needs advocate', '#FEF3C7', '#92400E')) + '</td>' +
+      '<td style="padding:9px 12px;white-space:nowrap;">' + (_carDay(r.started) || '—') + '</td>' +
+      '<td style="padding:9px 12px;white-space:nowrap;">' + (r.open
+          ? '<b>' + (r.days === null ? '—' : r.days) + '</b> days'
+          : _carPill('Closed ' + (_carDay(r.closedAt) || ''), '#F1F5F9', '#475569')) + '</td>' +
+      '<td style="padding:9px 12px;">' + (r.consentMethod
+          ? _carPill(r.consentMethod === 'paper' ? 'PAPER' : 'SIGNED', '#DCFCE7', '#166534') +
+            '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">' + (_carDay(r.consentAt) || '') + '</div>'
+          : _carPill('Not on file', '#FEE2E2', '#991B1B')) + '</td>' +
+      '<td style="padding:9px 12px;">' + (r.letterAt
+          ? _carDay(r.letterAt)
+          : _carPill('Not sent', '#F1F5F9', '#475569')) + '</td>' +
+      '<td style="padding:9px 12px;">' + (r.member
+          ? _carPill('MEMBER' + (r.memberLevel ? ' &middot; ' + rsEscape(r.memberLevel) : ''), '#DBEAFE', '#1E40AF')
+          : '<span style="color:var(--text-soft);">—</span>') + '</td>' +
+      '<td style="padding:9px 12px;white-space:nowrap;">' + (r.followUp
+          ? (overdue ? _carPill(rsEscape(r.followUp) + ' &middot; overdue', '#FEE2E2', '#991B1B') : rsEscape(r.followUp))
+          : (r.open ? _carPill('None set', '#FEF3C7', '#92400E') : '—')) + '</td>' +
+      '</tr>';
+  });
+  h += '</tbody></table></div>';
+
+  h += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px 18px;margin-top:14px;font-size:.83rem;color:var(--text-soft);line-height:1.55;">' +
+    '<b style="color:var(--text-dark);">One row per family, not per interaction.</b> Ticking &ldquo;Case advocacy&rdquo; creates one case file and leaves the flag on every later call or email for that family, so counting records would overstate the caseload.<br><br>' +
+    '<b style="color:var(--text-dark);">Blanks are gaps, not errors.</b> The authorization and welcome-letter flows started in August 2026. Cases opened before that have nothing recorded &mdash; the family may well have consented on paper before the vault existed.<br><br>' +
+    '<b style="color:var(--text-dark);">Authorization</b> is the signed case-advocacy release: SIGNED is an e-signature returned through the emailed link, PAPER is a signed PDF recorded by staff. Either one counts.<br><br>' +
+    '<b style="color:var(--text-dark);">Days</b> counts from the case start to today for an open case, or to the close date for a closed one. A long case is not a bad case &mdash; it is here so a stalled one is visible.' +
+    '</div>';
+  body.innerHTML = h;
+}
+
+window.cmsExportCaseAdvocacyCsv = function() {
+  if (!_carRows.length) return;
+  var head = ['Family', 'Email', 'Island', 'Advocate', 'Started', 'Status', 'Days', 'Closed',
+              'Authorization', 'Authorization date', 'Welcome letter', 'Member', 'Level', 'Next follow-up', 'Records'];
+  var esc = function(v) { v = (v === null || v === undefined) ? '' : String(v); return '"' + v.replace(/"/g, '""') + '"'; };
+  var lines = [head.map(esc).join(',')];
+  _carRows.forEach(function(r) {
+    lines.push([r.name, r.email, r.island, r.advocate, _carDay(r.started), r.open ? 'Open' : 'Closed',
+      (r.days === null ? '' : r.days), _carDay(r.closedAt), r.consentMethod, _carDay(r.consentAt),
+      _carDay(r.letterAt), r.member ? 'Yes' : 'No', r.memberLevel, r.followUp, r.touches].map(esc).join(','));
+  });
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'case-advocacy-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
 };
 
 window.cmsBuildMembershipReport = async function() {
