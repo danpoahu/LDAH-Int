@@ -5024,7 +5024,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.85</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.86</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -35958,16 +35958,27 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   var active = filteredSignups.filter(function(s) { return s.archived !== true && s.status !== 'cancelled'; });
   var totalRegistered = active.length;
   var totalAttended = 0, totalNoShow = 0;
+  // HEADCOUNT, not signup count. One signup is a family: groupSize is what they
+  // said they were bringing. A household of five that turns up is five people in
+  // the room, and that is the number the pink sheet and the grant report want --
+  // counting it as 1 understated every off-site event. Missing or junk groupSize
+  // falls back to 1 so a legacy signup can never count as zero. (2026-08-31)
+  var _esParty = function (s) {
+    var g = Number(s && s.groupSize);
+    return (isFinite(g) && g > 0) ? Math.round(g) : 1;
+  };
+  var totalAttendedPeople = 0, totalRegisteredPeople = 0;
+  active.forEach(function(s) { totalRegisteredPeople += _esParty(s); });
 
   if (sessionDate && (isRecurring || isOneTimeMulti)) {
     active.forEach(function(s) {
       var sa = (s.sessionAttendance && s.sessionAttendance[sessionDate]) || {};
-      if (sa.status === 'attended') totalAttended++;
+      if (sa.status === 'attended') { totalAttended++; totalAttendedPeople += _esParty(s); }
       else if (sa.status === 'no-show') totalNoShow++;
     });
   } else if (!isRecurring && !isOneTimeMulti) {
     active.forEach(function(s) {
-      if (s.attendanceStatus === 'attended') totalAttended++;
+      if (s.attendanceStatus === 'attended') { totalAttended++; totalAttendedPeople += _esParty(s); }
       else if (s.attendanceStatus === 'no-show') totalNoShow++;
     });
   } else {
@@ -35975,12 +35986,12 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     active.forEach(function(s) {
       if (s.sessionAttendance) {
         Object.values(s.sessionAttendance).forEach(function(sa) {
-          if (sa.status === 'attended') totalAttended++;
+          if (sa.status === 'attended') { totalAttended++; totalAttendedPeople += _esParty(s); }
           else if (sa.status === 'no-show') totalNoShow++;
         });
       } else if (!isRecurring) {
         // Multi-date one-time event with legacy flat attendanceStatus
-        if (s.attendanceStatus === 'attended') totalAttended++;
+        if (s.attendanceStatus === 'attended') { totalAttended++; totalAttendedPeople += _esParty(s); }
         else if (s.attendanceStatus === 'no-show') totalNoShow++;
       }
     });
@@ -36087,11 +36098,13 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
     ? _attSummary.manualAttendees.map(function(a){ return { name: (a && a.name) || '', email: (a && a.email) || '', contactId: (a && a.contactId) || '', interactionLogged: !!(a && a.interactionLogged) }; })
     : [];
   var _manualCount = _cmsEventSummaryData.manualAttendees.length;
-  var attTotalAuto2 = totalAttended + _manualCount; // auto = signups attended + walk-ins
+  // auto = PEOPLE who attended (sum of party sizes) + walk-ins, not families.
+  var attTotalAuto2 = totalAttendedPeople + _manualCount;
 
   // Stash autos so the save handler decides override-vs-auto without recomputing.
   _cmsEventSummaryData.autos = {
     attTotal: attTotalAuto2, signupsAttended: totalAttended,
+    attendedPeople: totalAttendedPeople, registeredPeople: totalRegisteredPeople,
     newParent: attNewParentAuto, parentReturning: attParentReturningAuto,
     youthWD: attYouthWithDisabilityAuto, profOther: attProfessionalOtherAuto,
     militaryActive: attMilitaryActiveAuto
