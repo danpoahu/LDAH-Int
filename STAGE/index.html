@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.119-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.120-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14594,6 +14594,7 @@ var _photoPendingByIsland = {};
   // Cleared by loadContacts(true) / refresh so it can't go stale after an advocacy
   // is opened or closed.
   let _ctAdvocacyIds = null;   // Set<contactId>, or null when not yet loaded
+  let _ctAdvocacyBy  = null;   // Map<contactId, advocateName> for the same set
   // True when an interaction represents case advocacy. (v148.13)
   //
   // Was `interactionType === 'Case Advocacy'`. That type is being retired —
@@ -14618,11 +14619,25 @@ var _photoPendingByIsland = {};
       var snap = await db.collection('interactions')
         .where('status', '==', 'Open')
         .get();
+      var by = new Map();
       snap.forEach(function(doc) {
         var d = doc.data() || {};
         if (!window._isCaseAdvocacyIx(d)) return;
-        if (d.contactId) ids.add(d.contactId);
+        if (!d.contactId) return;
+        ids.add(d.contactId);
+        /* Remember WHO carries it, not just that someone does. The durable case
+           file wins: a later phone call for the same family also carries the
+           flag and may have been logged before the advocate was named.
+           (2026-08-31) */
+        var isFile = d.workflowStep === 'caseAdvocacy';
+        var prev = by.get(d.contactId);
+        if (d.caseAdvocateName && (!prev || (isFile && !prev.fromFile))) {
+          by.set(d.contactId, { name: d.caseAdvocateName, fromFile: isFile });
+        } else if (!prev) {
+          by.set(d.contactId, { name: '', fromFile: isFile });
+        }
       });
+      _ctAdvocacyBy = by;
     } catch (e) {
       console.warn('advocacy-only lookup failed:', e.message);
       _showToast('Could not load the advocacy filter — showing all contacts.', '#D97706');
@@ -14631,6 +14646,20 @@ var _photoPendingByIsland = {};
     _ctAdvocacyIds = ids;
     return _ctAdvocacyIds;
   }
+
+  /* Is this FAMILY already in case advocacy, and who has it?
+     Returns null when unknown (lookup failed or no contact), so callers can
+     stay silent rather than assert "not in advocacy" on missing data. */
+  window._caFamilyAdvocacy = async function(contactId) {
+    if (!contactId) return null;
+    try {
+      var ids = await _getAdvocacyContactIds();
+      if (!ids) return null;
+      if (!ids.has(contactId)) return { inAdvocacy: false, advocate: '' };
+      var rec = _ctAdvocacyBy ? _ctAdvocacyBy.get(contactId) : null;
+      return { inAdvocacy: true, advocate: (rec && rec.name) || '' };
+    } catch (e) { return null; }
+  };
   function renderAzFilter(){
     var wrap = document.getElementById('ctAz');
     if (!wrap) return;
@@ -16640,7 +16669,7 @@ var _photoPendingByIsland = {};
     var moreWrap = document.getElementById('ctShowMoreWrap');
 
     try {
-      if (forceRefresh) _ctAdvocacyIds = null;   // re-resolve who's in advocacy
+      if (forceRefresh) { _ctAdvocacyIds = null; _ctAdvocacyBy = null; }   // re-resolve who's in advocacy
       if (forceRefresh || !_allContacts.length) {
         if (moreWrap) moreWrap.innerHTML = '';
         list.innerHTML = '<div class="ct-empty">Loading contacts...</div>';
@@ -21742,7 +21771,7 @@ window.openContactDetail = async function(contactId) {
               '<div style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">This family has an open case. Only ' + _caCoord +
                 ' can change or end the advocacy; it unlocks here once the case is closed.</div>' +
             '</div></div>'
-          : '<div class="ct-info-field" style="grid-column:span 2;"><label>Case advocacy</label><div class="val">' +
+          : '<div class="ct-info-field" style="grid-column:span 2;"><label>Case advocacy</label><div class="val" id="ixCaseAdvocacyCell">' +
               '<div class="ix-status-changer" style="flex-wrap:wrap;">' +
                 '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:700;font-size:.85rem;color:var(--text-dark);">' +
                   '<input type="checkbox" id="ixCaseAdvocacy" data-current-on="' + (caAdvIsOn ? '1' : '0') + '" style="width:16px;height:16px;cursor:pointer;accent-color:var(--ocean-deep);"' +
@@ -21875,6 +21904,53 @@ window.openContactDetail = async function(contactId) {
       if (typeof _populateCaseAdvocateSelect === 'function' && document.getElementById('ixCaseAdvocate')) {
         _populateCaseAdvocateSelect('ix');
       }
+
+      /* Lock on the FAMILY, not on this record. (2026-08-31)
+
+         v148.92 locked only when THIS interaction was itself flagged, open and
+         had an advocate -- so a closed phone call for a family already in
+         advocacy still offered a tickable "Case advocacy" box, and ticking it
+         would raise a fresh request for a case that already exists. Daniel:
+         "If they are in Advocacy already I don't want to see this. I only want
+         to display who is the advocate."
+
+         The family lookup is async, so the cell renders normally first and is
+         replaced once the answer arrives -- a query cannot be waited on inside
+         a synchronous render without stalling the whole panel.
+
+         The hidden inputs mirror THIS RECORD's stored values, not the family's.
+         saveInteractionDetail compares them against their data-current-*
+         attributes, so a record whose own flag is off stays off: the chip
+         reports the family's status without silently rewriting this row. */
+      (function () {
+        var cell = document.getElementById('ixCaseAdvocacyCell');
+        if (!cell || !d.contactId) return;
+        if (typeof window._caFamilyAdvocacy !== 'function') return;
+        var canPickNow = (typeof window._caCanPickAdvocate === 'function') ? window._caCanPickAdvocate() : false;
+        if (canPickNow) return;                       // the coordinator keeps the control
+        var openedFor = _ixViewDocId;
+        window._caFamilyAdvocacy(d.contactId).then(function (res) {
+          if (!res || !res.inAdvocacy) return;
+          if (_ixViewDocId !== openedFor) return;     // panel moved on while we waited
+          var cur = document.getElementById('ixCaseAdvocacyCell');
+          if (!cur) return;
+          var wasOn = (d.caseAdvocacy === true) ? '1' : '0';
+          var mine  = d.caseAdvocateName || '';
+          var coord = rsEscape((window.CASE_ADVOCACY_COORDINATOR || {}).name || 'the case advocacy coordinator');
+          cur.innerHTML =
+            '<div style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:8px;padding:7px 12px;">' +
+              '<span style="font-size:.9rem;">&#128274;</span>' +
+              '<span style="font-size:.72rem;font-weight:700;letter-spacing:.4px;color:#6D28D9;text-transform:uppercase;">In case advocacy</span>' +
+              '<span style="font-weight:700;color:var(--text-dark);">' +
+                (res.advocate ? rsEscape(res.advocate) : 'advocate not yet named') + '</span>' +
+            '</div>' +
+            '<input type="checkbox" id="ixCaseAdvocacy" data-current-on="' + wasOn + '"' +
+              (wasOn === '1' ? ' checked' : '') + ' style="display:none;">' +
+            '<input type="hidden" id="ixCaseAdvocate" value="' + rsEscape(mine) + '" data-current-name="' + rsEscape(mine) + '">' +
+            '<div style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">This family already has an open case. Only ' +
+              coord + ' can change or end the advocacy.</div>';
+        }).catch(function () { /* unknown -> leave the cell exactly as rendered */ });
+      })();
 
       // Populate header contact name
       var headerContactSpan = document.getElementById('ixViewHeaderContact');
