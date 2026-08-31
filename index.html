@@ -5024,7 +5024,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.99</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.100</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -27629,6 +27629,32 @@ var _CMS_TYPE_META = {
   flyer:            { label: 'Flyer',            color: '#F59E0B', icon: '📰', desc: 'Announcement only — a flyer image, no signups.' }
 };
 
+/* ── Event-type capabilities (2026-08-31, Daniel) ──────────────────────────
+   The client twin of EVENT_TYPE_CAPABILITIES in functions/index.js. Keep the
+   two in step: the backend owns the task lifecycle, this file owns the two
+   wrap-up tasks raised on an attendance save (Send Zoom Link / Send Slides).
+
+   Only `slides` is read here today. The rest of the row is carried verbatim so
+   the two tables can be diffed at a glance rather than reasoned about, and so a
+   future client-side gate has an answer already waiting.
+
+   Fails OPEN for an unlisted type — a new event type keeps behaving as it does
+   today until somebody adds a row deliberately. */
+var _CMS_TYPE_CAPS = {
+  learning_labs:    { presenter: true,  attendance: true,  summary: true,  announce: true,  slides: true  },
+  parent_talk_cafe: { presenter: true,  attendance: true,  summary: true,  announce: true,  slides: false },
+  connect_gen:      { presenter: true,  attendance: true,  summary: true,  announce: true,  slides: false },
+  remote_signup:    { presenter: true,  attendance: true,  summary: true,  announce: true,  slides: false },
+  screening:        { presenter: false, attendance: false, summary: true,  announce: false, slides: false },
+  outreach_booth:   { presenter: false, attendance: false, summary: true,  announce: false, slides: false },
+  flyer:            { presenter: false, attendance: false, summary: false, announce: false, slides: false }
+};
+window._cmsEventCan = function (ev, capability, coll) {
+  var caps = _CMS_TYPE_CAPS[window._cmsDeriveEventType(ev || {}, coll || 'events')];
+  if (!caps) return true;
+  return caps[capability] !== false;
+};
+
 // Paint the event-type badge inside the edit modal. Reads the same
 // _CMS_TYPE_META registry the cards use, so the badge can never disagree with
 // the card. Pass null to hide it (a brand-new event has no type yet).
@@ -35725,6 +35751,14 @@ window.cmsCreateSendRecapTasks = async function(eventId, eventTitle, updates) {
 
     var evSnap = await db.collection('events').doc(eventId).get();
     var ev = evSnap.exists ? evSnap.data() : {};
+
+    /* These two tasks say "send out the Zoom Meeting URL and password" and
+       "attach the PowerPoint PDF". Both were raised on ANY attendance save in
+       the events collection, so a Parent Talk Cafe, a remote in-person workshop,
+       a screening table and an outreach booth were all being told to send a Zoom
+       link they never had. Learning Labs is the only type that does. (2026-08-31) */
+    if (!window._cmsEventCan(ev, 'slides', 'events')) return;
+
     var today = (typeof _localToday === 'function') ? _localToday() : '';
 
     for (var i = 0; i < sessionKeys.length; i++) {
