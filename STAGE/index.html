@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.106-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.107-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8137,6 +8137,12 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="close" type="button" onclick="cmsCloseEventModal()">&times;</button>
           </div>
           <div class="modal-body">
+            <!-- Event-type badge (2026-08-31). The modal title only says "Special
+                 Event" / "Event", which does not distinguish an Outreach Booth
+                 from a Screening, or a Learning Lab from a Parent Talk Cafe. The
+                 card colours are close enough to confuse (outreach teal #0D9488
+                 reads as connect-gen green #16A34A), so name the type outright. -->
+            <div id="cmsEventTypeBadge" style="display:none;justify-content:flex-end;margin:-4px 0 10px;"></div>
             <input type="hidden" id="cmsEventEditId">
             <input type="hidden" id="cmsEventEditIsRecurring">
             <input type="hidden" id="cmsEventEditIsSpecial">
@@ -27565,6 +27571,24 @@ var _CMS_TYPE_META = {
   flyer:            { label: 'Flyer',            color: '#F59E0B', icon: '📰', desc: 'Announcement only — a flyer image, no signups.' }
 };
 
+// Paint the event-type badge inside the edit modal. Reads the same
+// _CMS_TYPE_META registry the cards use, so the badge can never disagree with
+// the card. Pass null to hide it (a brand-new event has no type yet).
+window._cmsSetEventTypeBadge = function (type) {
+  var el = document.getElementById('cmsEventTypeBadge');
+  if (!el) return;
+  var meta = type && _CMS_TYPE_META[type];
+  if (!meta) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<span title="' + rsEscape(meta.desc || '') + '" style="display:inline-flex;align-items:center;gap:6px;' +
+      'background:' + meta.color + '18;color:' + meta.color + ';border:1px solid ' + meta.color + '55;' +
+      'border-radius:999px;padding:4px 12px;font-size:.78rem;font-weight:700;letter-spacing:.2px;">' +
+      '<span style="font-size:.9rem;line-height:1;">' + meta.icon + '</span>' +
+      rsEscape(meta.label) +
+    '</span>';
+  el.style.display = 'flex';
+};
+
 // Tabs removed in the unified Events view (Phase 1). Kept as a no-op so any
 // legacy caller (e.g. a dashboard stat) doesn't error; the unified list already
 // shows every type. Refreshes the unified list if it's available.
@@ -29381,6 +29405,7 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
   // plain manual Add/Edit never inherits a stale funnel-chosen type.
   _cmsPendingEventType = null;
   _cmsPendingRemoteSignup = false;
+  if (typeof _cmsSetEventTypeBadge === 'function') _cmsSetEventTypeBadge(null);
   document.getElementById('cmsEventModalTitle').textContent = docId
     ? (isSpec ? 'Edit Special Event' : (isFly ? 'Edit Flyer' : (isRec ? 'Edit Program' : 'Edit Event')))
     : (isSpec ? 'Add Special Event' : (isFly ? 'Add Flyer' : (isRec ? 'Add Program' : 'Add Event')));
@@ -29489,6 +29514,14 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
       var doc = await db.collection(collection).doc(docId).get();
       if (doc.exists) {
         var d = doc.data();
+        // Name the type in the header. _cmsDeriveEventType is the same resolver
+        // the cards use -- it trusts a stored eventType and only falls back to
+        // the flags -- so the badge and the card can never disagree.
+        try {
+          if (typeof _cmsSetEventTypeBadge === 'function' && typeof _cmsDeriveEventType === 'function') {
+            _cmsSetEventTypeBadge(_cmsDeriveEventType(d, collection));
+          }
+        } catch (e) { /* badge is cosmetic -- never block the edit form */ }
         document.getElementById('cmsEventTitle').value = d.title || '';
         document.getElementById('cmsEventDescription').value = d.description || '';
         document.getElementById('cmsEventImageUrl').value = d.imageUrl || '';
