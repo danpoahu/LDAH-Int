@@ -5024,7 +5024,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.84</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.85</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -46115,7 +46115,7 @@ window.cmsBuildStaffActivityReport = async function() {
       if (!showZero && (r.totalAttended || 0) === 0) return false;
       if (f.year && String(r.year) !== String(f.year)) return false;
       if (f.program && f.program !== '__all__') {
-        var _eaType = (r.eventDoc && r.eventDoc.isOneOff) ? 'One-Off' : _classifyEAEventType(r.eventTitle);
+        var _eaType = (r.eventDoc && r.eventDoc.isOneOff) ? 'One-Off' : _classifyEAEventType(r.eventTitle, r.eventDoc);
         if (f.program === '__programs__') { if (_eaType === 'One-Off') return false; }
         else if (_eaType !== f.program) return false;
       }
@@ -46158,8 +46158,43 @@ window.cmsBuildStaffActivityReport = async function() {
     host.innerHTML = html;
   }
 
-  // v125.0.2: classify event by title substring → drives card border + chip color.
-  function _classifyEAEventType(eventTitle) {
+  // eventType -> the label this report uses. (2026-08-31)
+  var _EA_TYPE_FROM_EVENTTYPE = {
+    learning_labs:    'Learning Lab',
+    connect_gen:      'Connect-Gen',
+    parent_talk_cafe: 'Parent Talk Cafe',
+    screening:        'Screening',
+    remote_signup:    'Remote Signup',
+    outreach_booth:   'Outreach Booth',
+    flyer:            'Flyer'
+  };
+
+  // Classify an event for the card border + chip colour.
+  //
+  // v125.0.2 matched on the TITLE only, which silently collapsed three of the
+  // seven event types into "Other Event": a Screening, a Remote Signup and an
+  // Outreach Booth all landed in grey, because none of those words appear in a
+  // title like "Puakalehua 4th Annual 'Ohana Festival" or "Molokai 'Ohana Movie
+  // Night". It also mis-typed any Learning Lab whose title did not happen to
+  // contain the words "learning lab".
+  //
+  // Now the STORED eventType wins -- the same field the CMS card, the type
+  // picker and the modal badge all read -- and the title regex stays only as
+  // the fallback for legacy docs written before eventType existed.
+  // (2026-08-31)
+  function _classifyEAEventType(eventTitle, eventDoc) {
+    // Short Film Contest is a title-only category -- there is no eventType for
+    // it, and the one event that carries it is stored as learning_labs. So it
+    // has to be tested BEFORE the eventType lookup or it silently demotes to
+    // "Learning Lab" and loses its own chip. (2026-08-31)
+    if (/short\s*film/i.test(String(eventTitle || ''))) return 'Short Film Contest';
+    if (eventDoc) {
+      var et = eventDoc.eventType;
+      if (!et && typeof _cmsDeriveEventType === 'function') {
+        try { et = _cmsDeriveEventType(eventDoc, eventDoc._coll || 'events'); } catch (e) { et = null; }
+      }
+      if (et && _EA_TYPE_FROM_EVENTTYPE[et]) return _EA_TYPE_FROM_EVENTTYPE[et];
+    }
     var t = String(eventTitle || '');
     if (/learning\s*lab/i.test(t)) return 'Learning Lab';
     if (/connect[\s\-]?gen/i.test(t)) return 'Connect-Gen';
@@ -46176,7 +46211,15 @@ window.cmsBuildStaffActivityReport = async function() {
     'Parent Talk Cafe':   { bg: '#F97316', text: '#FFFFFF' }, // sunset-coral
     'Short Film Contest': { bg: '#FBBF24', text: '#1F2937' }, // plumeria — dark text for WCAG
     'Other Event':        { bg: '#64748B', text: '#FFFFFF' }, // slate
-    'One-Off':            { bg: '#DB2777', text: '#FFFFFF' }  // rose — hand-keyed one-off gathering (pink sheet)
+    'One-Off':            { bg: '#DB2777', text: '#FFFFFF' }, // rose — hand-keyed one-off gathering (pink sheet)
+    // The remaining event types, so they stop collapsing into grey "Other
+    // Event". Values match _CMS_TYPE_META exactly, so a type reads the same
+    // colour here as it does on its CMS card and in the modal badge.
+    // (2026-08-31)
+    'Screening':          { bg: '#7C3AED', text: '#FFFFFF' }, // violet
+    'Remote Signup':      { bg: '#4F46E5', text: '#FFFFFF' }, // indigo
+    'Outreach Booth':     { bg: '#92400E', text: '#FFFFFF' }, // bronze
+    'Flyer':              { bg: '#F59E0B', text: '#1F2937' }  // amber — dark text for contrast
   };
 
   // v125.0.0: one card uses the shared .cms-card pattern. Whole card is
@@ -46184,7 +46227,7 @@ window.cmsBuildStaffActivityReport = async function() {
   // v125.0.2: left border + chip colored by event type.
   function _renderEventAttendanceCard(r) {
     var encId = _attrJsArg(r.id);
-    var eventType = (r.eventDoc && r.eventDoc.isOneOff) ? 'One-Off' : _classifyEAEventType(r.eventTitle);
+    var eventType = (r.eventDoc && r.eventDoc.isOneOff) ? 'One-Off' : _classifyEAEventType(r.eventTitle, r.eventDoc);
     var colors = _EA_TYPE_COLORS[eventType] || _EA_TYPE_COLORS['Other Event'];
     var html = '';
     html += '<div class="cms-card ea-card-v2" data-session-key="' + encId + '" onclick="openEAModal(decodeURIComponent(\'' + encId + '\'))" style="cursor:pointer;border-left:4px solid ' + colors.bg + ';">';
