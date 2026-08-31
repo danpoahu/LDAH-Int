@@ -5024,7 +5024,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.89</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.90</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -49022,6 +49022,15 @@ window.cmsCheckPayPalPayments = async function() {
    (2026-08-31) */
 var _carRows = [];
 
+/* The case-advocacy authorization and welcome-letter flows went live on
+   2026-08-12 (Noe's opening letter, Int v147.7 + the Cloud Function). A case
+   opened before that date has no authorization record because the mechanism did
+   not exist yet -- several of those families consented on paper long before the
+   vault. Those rows are labelled LEGACY and are excluded from the "no
+   authorization" count, so the number on screen is only families who could have
+   been asked and were not. */
+var CAR_AUTH_LIVE_FROM = '2026-08-12';
+
 function _carTs(v) { try { return v && v.toDate ? v.toDate() : (v ? new Date(v) : null); } catch (e) { return null; } }
 function _carDay(d) { return d ? d.toISOString().slice(0, 10) : ''; }
 function _carIsAdv(d) {
@@ -49084,6 +49093,10 @@ window.cmsBuildCaseAdvocacyReport = async function() {
         closedAt: closedAt,
         followUp: (openRec && openRec.followUpDate) || '',
         consentMethod: auth ? (auth.method || 'on file') : '',
+        // Legacy = the case was already open before the authorization flow
+        // existed, so there is nothing to find and nothing to chase. Flagged,
+        // and deliberately NOT counted as missing. (2026-08-31)
+        legacy: !auth && !!started && _carDay(started) < CAR_AUTH_LIVE_FROM,
         consentAt: auth ? (_carTs(auth.signedAt) || _carTs(auth.recordedAt)) : null,
         letterAt: _carTs(c.caseAdvocacyOpeningEmailSentAt),
         member: window._membershipIsActive ? !!window._membershipIsActive(c) : /^(active|paid)$/i.test(String(c.membershipStatus || '')),
@@ -49126,7 +49139,8 @@ function _carRender() {
     return;
   }
   var open = rows.filter(function(r) { return r.open; }).length;
-  var noConsent = rows.filter(function(r) { return r.open && !r.consentMethod; }).length;
+  var noConsent = rows.filter(function(r) { return r.open && !r.consentMethod && !r.legacy; }).length;
+  var legacyOpen = rows.filter(function(r) { return r.open && r.legacy; }).length;
   var noLetter = rows.filter(function(r) { return r.open && !r.letterAt; }).length;
   var noAdvocate = rows.filter(function(r) { return r.open && !r.advocate; }).length;
   var members = rows.filter(function(r) { return r.member; }).length;
@@ -49142,6 +49156,7 @@ function _carRender() {
   var h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px;">' +
     kpi(open, 'open cases', false) +
     kpi(noConsent, 'open, no authorization', noConsent > 0) +
+    kpi(legacyOpen, 'open, predates consent flow', false) +
     kpi(noLetter, 'open, no welcome letter', noLetter > 0) +
     kpi(noAdvocate, 'open, no advocate named', noAdvocate > 0) +
     kpi(members, 'joined as members', false) +
@@ -49170,7 +49185,10 @@ function _carRender() {
       '<td style="padding:9px 12px;">' + (r.consentMethod
           ? _carPill(r.consentMethod === 'paper' ? 'PAPER' : 'SIGNED', '#DCFCE7', '#166534') +
             '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">' + (_carDay(r.consentAt) || '') + '</div>'
-          : _carPill('Not on file', '#FEE2E2', '#991B1B')) + '</td>' +
+          : (r.legacy
+              ? _carPill('LEGACY', '#EDE9FE', '#5B21B6') +
+                '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">opened before the consent flow</div>'
+              : _carPill('Not on file', '#FEE2E2', '#991B1B'))) + '</td>' +
       '<td style="padding:9px 12px;">' + (r.letterAt
           ? _carDay(r.letterAt)
           : _carPill('Not sent', '#F1F5F9', '#475569')) + '</td>' +
@@ -49186,7 +49204,7 @@ function _carRender() {
 
   h += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px 18px;margin-top:14px;font-size:.83rem;color:var(--text-soft);line-height:1.55;">' +
     '<b style="color:var(--text-dark);">One row per family, not per interaction.</b> Ticking &ldquo;Case advocacy&rdquo; creates one case file and leaves the flag on every later call or email for that family, so counting records would overstate the caseload.<br><br>' +
-    '<b style="color:var(--text-dark);">Blanks are gaps, not errors.</b> The authorization and welcome-letter flows started in August 2026. Cases opened before that have nothing recorded &mdash; the family may well have consented on paper before the vault existed.<br><br>' +
+    '<b style="color:var(--text-dark);">LEGACY is not a gap.</b> The authorization and welcome-letter flows went live on 12&nbsp;August&nbsp;2026. A case opened before that has no record because the mechanism did not exist &mdash; several of those families consented on paper long before the vault. Those rows read LEGACY and are <b>excluded</b> from the &ldquo;no authorization&rdquo; count, so that number is only families who could have been asked and were not.<br><br>' +
     '<b style="color:var(--text-dark);">Authorization</b> is the signed case-advocacy release: SIGNED is an e-signature returned through the emailed link, PAPER is a signed PDF recorded by staff. Either one counts.<br><br>' +
     '<b style="color:var(--text-dark);">Days</b> counts from the case start to today for an open case, or to the close date for a closed one. A long case is not a bad case &mdash; it is here so a stalled one is visible.' +
     '</div>';
@@ -49201,7 +49219,8 @@ window.cmsExportCaseAdvocacyCsv = function() {
   var lines = [head.map(esc).join(',')];
   _carRows.forEach(function(r) {
     lines.push([r.name, r.email, r.island, r.advocate, _carDay(r.started), r.open ? 'Open' : 'Closed',
-      (r.days === null ? '' : r.days), _carDay(r.closedAt), r.consentMethod, _carDay(r.consentAt),
+      (r.days === null ? '' : r.days), _carDay(r.closedAt),
+      (r.consentMethod || (r.legacy ? 'legacy (predates flow)' : '')), _carDay(r.consentAt),
       _carDay(r.letterAt), r.member ? 'Yes' : 'No', r.memberLevel, r.followUp, r.touches].map(esc).join(','));
   });
   var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
