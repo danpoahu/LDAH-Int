@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.131-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.132-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -42842,7 +42842,8 @@ window.tsMaybeShow = async function() {
       var pr = _tsProgress[x._id];
       return !(pr && pr.status === 'completed');
     })[0];
-    if (!next || !Array.isArray(next.slides) || !next.slides.length) return;
+    if (!next) return;
+    if (!next.embedUrl && (!Array.isArray(next.slides) || !next.slides.length)) return;
     _tsSession = next; _tsIdx = 0;
     document.getElementById('tsTitle').textContent = next.title || 'New this week';
     _tsRender();
@@ -42851,6 +42852,31 @@ window.tsMaybeShow = async function() {
 };
 
 function _tsRender() {
+  /* Embedded walkthrough (2026-09-01, Daniel: "can't you just display it?").
+     A session carrying embedUrl shows the real narrated deck in an iframe —
+     its own graphics, its own voice-over, its own Start button — rather than a
+     text summary of it. The deck brings its own navigation, so the splash drops
+     Back/Next and the dots and keeps only Skip and Done. */
+  if (_tsSession.embedUrl) {
+    var panel = document.getElementById('tsPanel');
+    var wrap  = document.getElementById('tsEmbedWrap');
+    var frame = document.getElementById('tsEmbed');
+    var slw   = document.getElementById('tsSlideWrap');
+    if (slw) slw.style.display = 'none';
+    if (wrap) wrap.style.display = 'block';
+    /* Staff are on 1366x768 — clamp to the viewport rather than a fixed size, or
+       the footer buttons fall off the bottom of the screen. */
+    if (panel) panel.style.maxWidth = 'min(1140px, 96vw)';
+    if (frame && frame.getAttribute('data-src') !== _tsSession.embedUrl) {
+      frame.style.height = 'min(660px, 74vh)';
+      frame.setAttribute('data-src', _tsSession.embedUrl);
+      frame.src = _tsSession.embedUrl;
+    }
+    document.getElementById('tsDots').innerHTML = '';
+    document.getElementById('tsBackBtn').style.display = 'none';
+    document.getElementById('tsNextBtn').textContent = 'Done';
+    return;
+  }
   var sl = _tsSession.slides[_tsIdx] || {};
   document.getElementById('tsSlideTitle').textContent = sl.title || '';
   document.getElementById('tsSlideBody').textContent = sl.body || '';
@@ -42885,7 +42911,7 @@ window.tsReplay = async function(sessionId) {
     var d = await db.collection('trainingSessions').doc(sessionId).get();
     if (!d.exists) return;
     _tsSession = Object.assign({ _id: d.id }, d.data() || {});
-    if (!Array.isArray(_tsSession.slides) || !_tsSession.slides.length) return;
+    if (!_tsSession.embedUrl && (!Array.isArray(_tsSession.slides) || !_tsSession.slides.length)) return;
     _tsReplayMode = (function(){ var pr = _tsProgress[sessionId]; return !!(pr && pr.status === 'completed'); })();
     _tsIdx = 0;
     document.getElementById('tsTitle').textContent = _tsSession.title || 'Training';
@@ -42896,7 +42922,7 @@ window.tsReplay = async function(sessionId) {
 
 window.tsPrev = function() { if (_tsIdx > 0) { _tsIdx--; _tsRender(); } };
 window.tsNext = async function() {
-  if (_tsIdx < _tsSession.slides.length - 1) { _tsIdx++; _tsRender(); return; }
+  if (!_tsSession.embedUrl && _tsIdx < _tsSession.slides.length - 1) { _tsIdx++; _tsRender(); return; }
   await _tsWrite('completed');
   _tsReplayMode = false;
   _tsClose();
@@ -42908,7 +42934,25 @@ window.tsSkip = async function() {
   _tsReplayMode = false;
   _tsClose();
 };
-function _tsClose() { var el = document.getElementById('tsSplash'); if (el) el.style.display = 'none'; }
+function _tsClose() {
+  /* Tear the iframe down on the way out. Without this the deck keeps talking
+     after Skip — speechSynthesis lives in the iframe's own window, and hiding
+     the overlay does not stop it. Cancel first (same origin), then blank the
+     src so nothing is left running. */
+  var frame = document.getElementById('tsEmbed');
+  if (frame) {
+    try { if (frame.contentWindow && frame.contentWindow.speechSynthesis) frame.contentWindow.speechSynthesis.cancel(); } catch (e) {}
+    frame.removeAttribute('data-src');
+    frame.removeAttribute('src');
+  }
+  var wrap = document.getElementById('tsEmbedWrap');
+  if (wrap) wrap.style.display = 'none';
+  var slw = document.getElementById('tsSlideWrap');
+  if (slw) slw.style.display = '';
+  var panel = document.getElementById('tsPanel');
+  if (panel) panel.style.maxWidth = '560px';     // restore for ordinary slide sessions
+  var el = document.getElementById('tsSplash'); if (el) el.style.display = 'none';
+}
 /* Esc closes it too. Same path as the X and Skip for now: the skip is still
    recorded, so it returns next sign-in rather than vanishing quietly. */
 document.addEventListener('keydown', function(e) {
@@ -51374,7 +51418,7 @@ window._ctAccToggle = function(head, panelId){
 <!-- Weekly training splash. STAGE only for now. -->
 <div id="tsSplash" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.55);
      align-items:center;justify-content:center;padding:20px;">
-  <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;box-shadow:0 20px 50px rgba(15,23,42,.3);overflow:hidden;">
+  <div id="tsPanel" style="background:#fff;border-radius:16px;max-width:560px;width:100%;box-shadow:0 20px 50px rgba(15,23,42,.3);overflow:hidden;">
     <div style="background:linear-gradient(135deg,#0e7490,#0891B2);padding:16px 22px;color:#fff;position:relative;">
       <button type="button" onclick="tsSkip()" aria-label="Close"
         style="position:absolute;top:10px;right:12px;background:rgba(255,255,255,.18);border:none;color:#fff;
@@ -51382,7 +51426,14 @@ window._ctAccToggle = function(head, panelId){
       <div style="font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.85;">New this week</div>
       <div id="tsTitle" style="font-size:1.15rem;font-weight:700;margin-top:2px;"></div>
     </div>
-    <div style="padding:22px 24px;min-height:170px;">
+    <!-- Embedded walkthrough (2026-09-01). A session with an embedUrl plays the
+         real narrated deck — its own graphics, its own voice — instead of a
+         text summary. Hidden for ordinary slide sessions. -->
+    <div id="tsEmbedWrap" style="display:none;background:#fff;">
+      <iframe id="tsEmbed" title="Training walkthrough" allow="autoplay"
+              style="display:block;width:100%;border:0;background:#fff;"></iframe>
+    </div>
+    <div id="tsSlideWrap" style="padding:22px 24px;min-height:170px;">
       <div id="tsSlideTitle" style="font-size:1rem;font-weight:700;color:#0f172a;margin-bottom:8px;"></div>
       <div id="tsSlideBody" style="font-size:.94rem;line-height:1.6;color:#334155;white-space:pre-wrap;"></div>
       <img id="tsSlideImg" alt="" style="display:none;margin-top:12px;max-width:100%;border:1px solid #E2E8F0;border-radius:8px;box-shadow:0 2px 8px rgba(15,23,42,.08);">
