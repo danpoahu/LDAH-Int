@@ -77,6 +77,13 @@ window.LDAHChat = (function () {
     '          </div>' +
     '        </div>' +
     '' +
+    '        <div class="chat-drop-hint" id="chatDropHint" aria-hidden="true">' +
+    '          <div class="chat-drop-hint-inner">' +
+    '            <div class="chat-drop-hint-icon">\u2b06\ufe0e</div>' +
+    '            <div class="chat-drop-hint-title">Drop the screenshot here</div>' +
+    '            <div class="chat-drop-hint-sub">PNG or JPG \u00b7 up to 10MB \u00b7 you can also just paste it</div>' +
+    '          </div>' +
+    '        </div>' +
     '        <div class="chat-modal-messages" id="chatModalMessages">' +
     '          <div class="chat-empty-state" id="chatEmptyState">' +
     '            <div style="font-size:2.5rem;margin-bottom:8px;">💬</div>' +
@@ -1418,6 +1425,27 @@ window.LDAHChat = (function () {
     var MAX_EDGE = 1600;
     var JPEG_QUALITY = 0.82;
 
+    // Shared by paste and drop — the size guard, the generation stamp and the
+    // downscale are identical either way, and having two copies is how they drift.
+    function acceptImageFile(file, how) {
+      if (!file) return;
+      if (!/^image\//.test(file.type || '')) {
+        hostToast('That is not an image \u2014 drop a PNG or JPG screenshot.', '#DC2626');
+        return;
+      }
+      if (file.size > MAX_RAW_BYTES) {
+        hostToast('That image is too large (max 10MB).', '#DC2626');
+        return;
+      }
+      // Captured at the START — before the decode await — so the resolution below can tell
+      // whether this image is still the one the user is waiting on.
+      var gen = ++_pendingImageGen;
+      downscaleImage(file).then(function (pi) { setPendingImage(pi, gen); }).catch(function (err) {
+        console.warn('chat image ' + (how || 'paste') + ':', err && err.message);
+        hostToast('Could not read that image.', '#DC2626');
+      });
+    }
+
     function handleImagePaste(e) {
       var items = (e.clipboardData && e.clipboardData.items) || [];
       var file = null;
@@ -1428,17 +1456,80 @@ window.LDAHChat = (function () {
       }
       if (!file) return;                       // plain text paste — leave it alone
       e.preventDefault();
-      if (file.size > MAX_RAW_BYTES) {
-        hostToast('That image is too large (max 10MB).', '#DC2626');
+      acceptImageFile(file, 'paste');
+    }
+
+    /* ── Drag and drop (2026-09-01, Daniel) ────────────────────────────────
+       Paste already worked; drop did not exist at all, so a dragged screenshot
+       fell through to the browser default and opened in a new window — which
+       looks exactly like a broken feature. Both routes now land in
+       acceptImageFile().
+
+       preventDefault() on dragover is what actually stops the navigation. Doing
+       it only on drop is not enough: without a dragover handler the element is
+       not a drop target, the drop never fires on it, and the browser navigates.
+       That is the whole bug.
+
+       Scoped to the chat panel. The Downloads page has its own drop zone and the
+       rest of the app must keep its normal behaviour, so nothing is bound at
+       document level. */
+    var _dragDepth = 0;   // dragenter/dragleave fire per child element; a plain
+                          // boolean flickers the hint as the pointer crosses a message.
+
+    function _dragHasFile(e) {
+      var dt = e.dataTransfer;
+      if (!dt) return false;
+      if (dt.types) {
+        for (var i = 0; i < dt.types.length; i++) if (dt.types[i] === 'Files') return true;
+      }
+      return false;
+    }
+    function _showDropHint(on) {
+      var el = document.getElementById('chatDropHint');
+      if (el) el.classList.toggle('active', !!on);
+    }
+    function handleChatDragEnter(e) {
+      if (!_dragHasFile(e)) return;            // text/link drags keep normal behaviour
+      e.preventDefault();
+      _dragDepth++;
+      _showDropHint(true);
+    }
+    function handleChatDragOver(e) {
+      if (!_dragHasFile(e)) return;
+      e.preventDefault();                       // REQUIRED — without this, no drop event
+      try { e.dataTransfer.dropEffect = 'copy'; } catch (_) {}
+    }
+    function handleChatDragLeave(e) {
+      if (!_dragHasFile(e)) return;
+      _dragDepth = Math.max(0, _dragDepth - 1);
+      if (_dragDepth === 0) _showDropHint(false);
+    }
+    function handleChatDrop(e) {
+      if (!_dragHasFile(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      _dragDepth = 0;
+      _showDropHint(false);
+      var dt = e.dataTransfer;
+      var file = null;
+      // .items is the reliable route in Chrome; .files is the fallback.
+      if (dt.items && dt.items.length) {
+        for (var i = 0; i < dt.items.length; i++) {
+          if (dt.items[i].kind === 'file' && /^image\//.test(dt.items[i].type)) {
+            file = dt.items[i].getAsFile(); break;
+          }
+        }
+      }
+      if (!file && dt.files && dt.files.length) {
+        for (var j = 0; j < dt.files.length; j++) {
+          if (/^image\//.test(dt.files[j].type || '')) { file = dt.files[j]; break; }
+        }
+      }
+      if (!file) {
+        hostToast('That is not an image \u2014 drop a PNG or JPG screenshot.', '#DC2626');
         return;
       }
-      // Captured at the START — before the decode await — so the resolution below can tell
-      // whether this paste is still the one the user is waiting on.
-      var gen = ++_pendingImageGen;
-      downscaleImage(file).then(function (pi) { setPendingImage(pi, gen); }).catch(function (err) {
-        console.warn('chat image paste:', err && err.message);
-        hostToast('Could not read that image.', '#DC2626');
-      });
+      acceptImageFile(file, 'drop');
     }
 
     function downscaleImage(file) {
@@ -1994,6 +2085,17 @@ window.LDAHChat = (function () {
     // ── Screenshot paste (Task 8) ──
     if (chatModalInput)    chatModalInput.addEventListener('paste', handleImagePaste);
     if (chatModalMessages) chatModalMessages.addEventListener('paste', handleImagePaste);
+
+    // ── Screenshot drag-and-drop (2026-09-01) ──
+    // Bound to the overlay so the whole open chat is a target: dropping on the
+    // roster, a message or the composer all work. All four events are needed —
+    // see handleChatDragOver for why dragover is the load-bearing one.
+    if (chatModalOverlay) {
+      chatModalOverlay.addEventListener('dragenter', handleChatDragEnter);
+      chatModalOverlay.addEventListener('dragover',  handleChatDragOver);
+      chatModalOverlay.addEventListener('dragleave', handleChatDragLeave);
+      chatModalOverlay.addEventListener('drop',      handleChatDrop);
+    }
     var xBtn = document.getElementById('chatImgPreviewX');
     if (xBtn) xBtn.addEventListener('click', clearPendingImage);
 
