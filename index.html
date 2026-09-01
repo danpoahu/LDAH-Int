@@ -5024,7 +5024,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.112</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.113</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6276,6 +6276,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-weight:700;font-size:.92rem;">Screenings</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who signed up (filter by Today), add Vision/Hearing results per child, and track consent &amp; results status.</div>
             </div>
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #92400E;" data-roles="superAdmin" onclick="cmsBuildItHelpReport()">
+              <div style="font-size:1.4rem;margin-bottom:6px;">🤖</div>
+              <div style="font-weight:700;font-size:.92rem;">IT Help Assistant</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">What the automatic IT_Help answers are being used for &mdash; who asked, what it cost, and the ones it left for a person.</div>
+            </div>
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin,partner" onclick="cmsBuildInteractionsSummaryReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📊</div>
               <div style="font-weight:700;font-size:.92rem;">Interactions Summary</div>
@@ -6385,6 +6390,20 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
              writes nothing. Covers the sign-in splash sessions only; the 19
              items in the Training Videos vault have no per-user tracking, and
              the panel says so rather than letting the reader assume otherwise. -->
+        <div id="itHelpReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseItHelpReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#92400E;margin:0;">IT Help Assistant</h2>
+            <span id="ihGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
+          </div>
+          <div style="font-size:.8rem;color:var(--text-soft);margin-bottom:14px;">Every question sent to IT_Help that the assistant looked at &mdash; including the ones it deliberately stayed out of because a person answered first.</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsBuildItHelpReport()">Refresh</button>
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="ihExportCSV()">Export CSV</button>
+            <span id="ihStatus" style="font-size:.8rem;color:var(--text-soft);"></span>
+          </div>
+          <div id="ihBody"></div>
+        </div>
         <div id="staffTrainingReportInGrid" style="display:none;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseStaffTrainingReport()">&larr; Back to Reports</button>
@@ -47578,7 +47597,7 @@ window._CMS_REPORT_PANELS = [
   'eventAttendanceInGrid', 'contactDemographicsInGrid', 'interactionsSummaryInGrid',
   'docDownloadReportInGrid', 'certReportInGrid', 'staffTrainingReportInGrid',
   'membershipReportInGrid', 'caseAdvocacyReportInGrid', 'websiteAppAnalyticsInGrid',
-  'nhSurveyReportInGrid'
+  'nhSurveyReportInGrid', 'itHelpReportInGrid'
 ];
 
 /* Show one report panel and hide the rest (plus the Reports grid).
@@ -47592,6 +47611,148 @@ window._cmsShowOnlyReport = function (panelId) {
     var rg = document.getElementById('reportsInGrid');
     if (rg) rg.style.display = panelId ? 'none' : 'block';
   } catch (e) { console.warn('_cmsShowOnlyReport:', e && e.message); }
+};
+
+  
+/* ── IT Help Assistant report (2026-09-01) ─────────────────────────────────
+   What the automatic IT_Help answers are being used for. Reads itHelpLog, one
+   document per attempted reply, written by the itHelpAutoAnswer function.
+
+   Follows the panel rule exactly: _cmsShowOnlyReport() to open, and again with
+   null to close. No per-report hide logic — that is what broke the Reports nav
+   in v148.97, and hiding the report PANELS is not the same act as hiding the
+   report GRID. */
+var _ihRows = [];
+
+window.cmsBuildItHelpReport = async function () {
+  _cmsShowOnlyReport('itHelpReportInGrid');
+  var body = document.getElementById('ihBody');
+  var status = document.getElementById('ihStatus');
+  if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);">Loading…</div>';
+  if (status) status.textContent = '';
+  try {
+    var snap = await db.collection('itHelpLog').get();
+    _ihRows = [];
+    snap.forEach(function (d) {
+      var x = d.data() || {};
+      var t = 0; try { t = x.createdAt ? x.createdAt.toMillis() : 0; } catch (e) { t = 0; }
+      _ihRows.push(Object.assign({ _t: t }, x));
+    });
+    _ihRows.sort(function (a, b) { return b._t - a._t; });
+    var g = document.getElementById('ihGeneratedAt');
+    if (g) g.textContent = 'Generated ' + new Date().toLocaleString();
+    cmsRenderItHelpReport();
+  } catch (e) {
+    if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;">Could not load: ' + rsEscape(e.message) + '</div>';
+  }
+};
+
+window.cmsCloseItHelpReport = function () { _cmsShowOnlyReport(null); };
+
+function _ihMoney(n) {
+  if (n == null) return '—';
+  return '$' + (Number(n) < 0.01 ? Number(n).toFixed(4) : Number(n).toFixed(2));
+}
+
+window.cmsRenderItHelpReport = function () {
+  var body = document.getElementById('ihBody');
+  if (!body) return;
+  if (!_ihRows.length) {
+    body.innerHTML = '<div style="background:#fff;border-radius:12px;padding:30px;text-align:center;color:var(--text-soft);">' +
+      '<div style="font-weight:700;color:var(--text-dark);margin-bottom:4px;">Nothing yet.</div>' +
+      'No staff member has messaged IT_Help since the assistant was switched on.</div>';
+    return;
+  }
+  var answered = _ihRows.filter(function (r) { return !r.suppressed; });
+  var left = _ihRows.filter(function (r) { return r.suppressed; });
+  var cost = answered.reduce(function (s, r) { return s + (r.estCostUsd || 0); }, 0);
+  var cachedTok = answered.reduce(function (s, r) { return s + (r.cacheReadTokens || 0); }, 0);
+  var freshTok = answered.reduce(function (s, r) { return s + (r.inputTokens || 0); }, 0);
+  var cachePct = (cachedTok + freshTok) > 0 ? Math.round(cachedTok / (cachedTok + freshTok) * 100) : 0;
+
+  var people = {};
+  _ihRows.forEach(function (r) {
+    var k = r.askerName || '(unknown)';
+    if (!people[k]) people[k] = { name: k, asked: 0, answered: 0, left: 0, cost: 0, last: 0 };
+    var p = people[k];
+    p.asked++;
+    if (r.suppressed) p.left++; else { p.answered++; p.cost += r.estCostUsd || 0; }
+    if (r._t > p.last) p.last = r._t;
+  });
+  var plist = Object.keys(people).map(function (k) { return people[k]; })
+    .sort(function (a, b) { return b.asked - a.asked; });
+
+  function tile(n, l, colour) {
+    return '<div style="flex:1;min-width:140px;background:#fff;border-radius:10px;padding:13px 15px;' +
+      'box-shadow:var(--shadow-soft);border-left:4px solid ' + colour + ';">' +
+      '<div style="font-size:1.5rem;font-weight:800;color:var(--ocean-deep);line-height:1.1;">' + n + '</div>' +
+      '<div style="font-size:.73rem;color:var(--text-soft);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:3px;">' + l + '</div></div>';
+  }
+
+  var h = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">' +
+    tile(answered.length, 'Answered', '#0F7B4F') +
+    tile(left.length, 'Left to a person', '#B45309') +
+    tile(plist.length, 'Staff who asked', '#0891B2') +
+    tile(_ihMoney(cost), 'Total cost', '#7C3AED') +
+    tile(cachePct + '%', 'Served from cache', '#0891B2') +
+    '</div>';
+
+  h += '<div style="background:#fff;border-radius:10px;box-shadow:var(--shadow-soft);padding:14px 16px;margin-bottom:14px;font-size:.82rem;color:var(--text-soft);">' +
+    '<b style="color:var(--text-dark);">Left to a person</b> counts the questions the assistant deliberately stayed out of because someone answered first. ' +
+    '<b style="color:var(--text-dark);">Served from cache</b> is how much of its knowledge was reused rather than re-read at full price — it climbs with use and resets when the knowledge is edited.</div>';
+
+  h += '<h3 style="font-family:\'Outfit\',sans-serif;color:var(--ocean-deep);margin:16px 0 8px;font-size:1rem;">By person</h3>' +
+    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.85rem;background:#fff;border-radius:10px;overflow:hidden;box-shadow:var(--shadow-soft);">' +
+    '<thead><tr style="background:#eef2f4;"><th style="padding:9px 12px;text-align:left;">Staff member</th>' +
+    '<th style="padding:9px 12px;text-align:right;">Asked</th><th style="padding:9px 12px;text-align:right;">Answered</th>' +
+    '<th style="padding:9px 12px;text-align:right;">Left to a person</th><th style="padding:9px 12px;text-align:right;">Cost</th>' +
+    '<th style="padding:9px 12px;text-align:left;">Last asked</th></tr></thead><tbody>';
+  plist.forEach(function (p) {
+    h += '<tr style="border-top:1px solid var(--line,#e2e8f0);"><td style="padding:9px 12px;">' + rsEscape(p.name) + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + p.asked + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + p.answered + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + p.left + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + _ihMoney(p.cost) + '</td>' +
+      '<td style="padding:9px 12px;">' + (p.last ? new Date(p.last).toLocaleDateString() : '—') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  h += '<h3 style="font-family:\'Outfit\',sans-serif;color:var(--ocean-deep);margin:20px 0 8px;font-size:1rem;">Every exchange, newest first</h3>' +
+    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.83rem;background:#fff;border-radius:10px;overflow:hidden;box-shadow:var(--shadow-soft);">' +
+    '<thead><tr style="background:#eef2f4;"><th style="padding:9px 12px;text-align:left;white-space:nowrap;">When</th>' +
+    '<th style="padding:9px 12px;text-align:left;">Who</th><th style="padding:9px 12px;text-align:left;">Asked &amp; answered</th>' +
+    '<th style="padding:9px 12px;text-align:right;">Cost</th></tr></thead><tbody>';
+  _ihRows.forEach(function (r) {
+    h += '<tr style="border-top:1px solid var(--line,#e2e8f0);vertical-align:top;">' +
+      '<td style="padding:9px 12px;white-space:nowrap;">' + (r._t ? new Date(r._t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—') + '</td>' +
+      '<td style="padding:9px 12px;">' + rsEscape(r.askerName || '—') + '</td>' +
+      '<td style="padding:9px 12px;"><div style="color:var(--text-dark);">' + rsEscape(String(r.question || '').slice(0, 220)) + '</div>' +
+      (r.suppressed
+        ? '<div style="color:#B45309;font-weight:700;font-size:.78rem;margin-top:3px;">Not answered — ' + rsEscape(r.suppressedReason || '') + '</div>'
+        : '<div style="color:var(--text-soft);font-style:italic;margin-top:3px;">' + rsEscape(String(r.answer || '').slice(0, 300)) + '</div>') +
+      '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + (r.suppressed ? '—' : _ihMoney(r.estCostUsd)) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  body.innerHTML = h;
+};
+
+window.ihExportCSV = function () {
+  if (!_ihRows.length) { _showToast('Nothing to export yet.', '#B45309'); return; }
+  var q = function (v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+  var lines = [['When', 'Who', 'Question', 'Answer', 'Answered', 'Reason not answered', 'Model', 'Input tokens', 'Cached tokens', 'Output tokens', 'Cost USD'].join(',')];
+  _ihRows.forEach(function (r) {
+    lines.push([q(r._t ? new Date(r._t).toISOString() : ''), q(r.askerName), q(r.question), q(r.answer),
+      q(r.suppressed ? 'no' : 'yes'), q(r.suppressedReason), q(r.model),
+      q(r.inputTokens), q(r.cacheReadTokens), q(r.outputTokens), q(r.estCostUsd)].join(','));
+  });
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'it-help-usage-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
 };
 
   window.cmsCloseEventAttendanceReport = function() {
