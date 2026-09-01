@@ -775,7 +775,12 @@ window.LDAHChat = (function () {
           // Treat as offline if lastSeen is stale (> 15 min) even if online flag is true
           var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
           var isStale = lastSeenMs < staleThreshold;
-          if (d.online && !isStale) {
+          /* alwaysOnline exempts an account from the staleness check (2026-09-01).
+             IT_Help is answered by a Cloud Function, so it genuinely is available
+             around the clock — there is no browser to send a heartbeat, and it
+             showed as offline for something that never sleeps. A flag rather
+             than a cron: no writes, nothing to keep running. */
+          if (d.alwaysOnline === true || (d.online && !isStale)) {
             online.push(d);
           } else {
             offline.push(d);
@@ -1198,7 +1203,12 @@ window.LDAHChat = (function () {
         var d = doc.data();
         var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
         var isStale = lastSeenMs < (Date.now() - 15 * 60 * 1000);
-        if (d.online && !isStale) {
+        /* Same alwaysOnline exemption as the roster — otherwise the roster would
+           show IT_Help online while the header of that very thread said
+           "Last seen 21 Aug". */
+        if (d.alwaysOnline === true) {
+          if (chatHeaderStatus) chatHeaderStatus.textContent = '🟢 Always available';
+        } else if (d.online && !isStale) {
           if (chatHeaderStatus) chatHeaderStatus.textContent = '🟢 Online';
         } else {
           var ls = d.lastSeen ? _formatTime(d.lastSeen) : '';
