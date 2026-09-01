@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.127-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.128-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5330,7 +5330,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                            (window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(_cadDoc));
               if(nowDone && _isCad){
                 if(!await window._confirmEndCaseAdvocacy((_cadDoc && _cadDoc.contactName) || '',
-                     _cadDoc && _cadDoc.contactId, id)) return;
+                     _cadDoc && _cadDoc.contactId, id,
+                     step==='caseAdvocacy' || !!(_cadDoc && _cadDoc.workflowStep === 'caseAdvocacy'))) return;
               }
               row.classList.toggle('done');
               check.style.pointerEvents='none';
@@ -22369,14 +22370,27 @@ window.openContactDetail = async function(contactId) {
     } catch (e) { console.warn('carry advocate forward failed:', e && e.message); return 0; }
   };
 
-  window._confirmEndCaseAdvocacy = async function(name, contactId, excludeId) {
+  window._confirmEndCaseAdvocacy = async function(name, contactId, excludeId, isCaseFile) {
     var others = await window._otherOpenAdvocacies(contactId, excludeId);
-    // Not the last one — this is a duplicate or a session note. The case is not
-    // ending, so do not pretend it is. Close it quietly.
-    if (others > 0) return true;
+    /* The CASE FILE is the record that ends advocacy for a family. A session
+       note with the Case Advocacy box ticked is NOT interchangeable with it.
+       Treating them as equivalent meant that while any note stayed open,
+       ticking the real case file off the My Day list closed it SILENTLY — no
+       prompt, no caseAdvocacyClosedAt stamp. That is how the Patricio case was
+       closed on 2026-08-27 while it was plainly still running, which then made
+       the authorisation letter refuse to send with "no parent consultant".
+       Always ask when the record being closed is the case file. (2026-08-31) */
+    if (!isCaseFile && others > 0) return true;
+    var lead = isCaseFile
+      ? 'This is the CASE FILE \u2014 the record that carries the case for this family, so closing it ends the case:\n'
+      : 'This is the LAST open advocacy record for this family, so closing it ends the case:\n';
+    var alsoOpen = (isCaseFile && others > 0)
+      ? '\n' + others + ' other advocacy record' + (others === 1 ? '' : 's') +
+        ' will stay open, but the case itself ends here.\n'
+      : '';
     var ok = confirm(
       'END case advocacy for ' + (name || 'this family') + '?\n\n' +
-      'This is the LAST open advocacy record for this family, so closing it ends the case:\n' +
+      lead + alsoOpen +
       '  \u2022 the Case Advocacy flag comes off the contact card\n' +
       '  \u2022 the document countdown starts \u2014 the advocate is alerted after\n' +
       '    2 days and the case documents are destroyed after 3\n\n' +
@@ -22399,7 +22413,8 @@ window.openContactDetail = async function(contactId) {
       var snap = await db.collection('interactions').doc(_ixViewDocId).get();
       var d = snap.exists ? (snap.data() || {}) : {};
       if (!(window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(d))) return;
-      var ok = await window._confirmEndCaseAdvocacy(d.contactName, d.contactId, _ixViewDocId);
+      var ok = await window._confirmEndCaseAdvocacy(d.contactName, d.contactId, _ixViewDocId,
+                                                    d.workflowStep === 'caseAdvocacy');
       if (!ok) { sel.value = prev; _ixCheckReopenFollowUp(); return; }
       window._ixAdvocacyCloseOkFor = _ixViewDocId;
     } catch (e) { console.warn('status-change advocacy check failed:', e.message); }
@@ -22556,7 +22571,8 @@ window.openContactDetail = async function(contactId) {
       if (statusDirty && newStatus === 'Closed' &&
           window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(data) &&
           window._ixAdvocacyCloseOkFor !== _ixViewDocId) {
-        if (!await window._confirmEndCaseAdvocacy(data.contactName, data.contactId, _ixViewDocId)) {
+        if (!await window._confirmEndCaseAdvocacy(data.contactName, data.contactId, _ixViewDocId,
+                                                  data.workflowStep === 'caseAdvocacy')) {
           fail('Case advocacy left open.');
           return;
         }
