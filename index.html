@@ -5044,7 +5044,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.3</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.4</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -49722,7 +49722,24 @@ window.cmsBuildCaseAdvocacyReport = async function() {
         letterAt: _carTs(c.caseAdvocacyOpeningEmailSentAt),
         member: window._membershipIsActive ? !!window._membershipIsActive(c) : /^(active|paid)$/i.test(String(c.membershipStatus || '')),
         memberLevel: c.membershipLevel || '',
-        touches: g.recs.length
+        touches: g.recs.length,
+        /* Every note written on this family's advocacy records, newest first.
+           g.recs already holds them — the row used to keep only the count and
+           throw the text away. Cheap: no extra reads, the data is already here.
+           `notes` accumulates the "Add a Note" appends, so one record can carry
+           several entries; the original note is the first block. (2026-09-01) */
+        notes: g.recs
+          .filter(function(r) { return String(r.notes || '').trim() || String(r.summary || '').trim(); })
+          .map(function(r) {
+            return {
+              at: _carTs(r.createdAt),
+              who: r.owner || r.createdBy || '',
+              type: r.interactionType || '',
+              summary: String(r.summary || '').trim(),
+              text: String(r.notes || '').trim()
+            };
+          })
+          .sort(function(a, b) { return (b.at || 0) - (a.at || 0); })
       };
     }).filter(function(r) { return showClosed || r.open; });
 
@@ -49747,6 +49764,21 @@ function _carPill(text, bg, fg) {
   return '<span style="display:inline-block;background:' + bg + ';color:' + fg +
          ';border-radius:999px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">' + text + '</span>';
 }
+
+/* Expand/collapse one family's notes on the Case Advocacy report. The rows are
+   already in the DOM, so this is a display flip — no fetch, nothing to await,
+   and it cannot half-open. (2026-09-01) */
+window.carToggleNotes = function (i) {
+  var row = document.getElementById('carNotes' + i);
+  var btn = document.getElementById('carExp' + i);
+  if (!row) return;
+  var showing = row.style.display !== 'none';
+  row.style.display = showing ? 'none' : 'table-row';
+  if (btn) {
+    btn.innerHTML = showing ? '\u25B8' : '\u25BE';       // right / down chevron
+    btn.setAttribute('aria-expanded', showing ? 'false' : 'true');
+  }
+};
 
 function _carRender() {
   var body = document.getElementById('carBody');
@@ -49787,13 +49819,21 @@ function _carRender() {
       .map(function(t) { return '<th style="text-align:left;padding:9px 12px;color:#6D28D9;font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;">' + t + '</th>'; }).join('') +
     '</tr></thead><tbody>';
 
-  rows.forEach(function(r) {
+  rows.forEach(function(r, _i) {
     var overdue = r.open && r.followUp && r.followUp < todayIso;
     h += '<tr style="border-bottom:1px solid #EDE9FE;' + (r.open ? '' : 'opacity:.6;') + '">' +
       '<td style="padding:9px 12px;">' +
-        '<div style="font-weight:700;">' + rsEscape(r.name) + '</div>' +
-        '<div style="font-size:.74rem;color:var(--text-soft);">' + rsEscape(r.email || '—') +
-          (r.island ? ' &middot; ' + rsEscape(r.island) : '') + '</div></td>' +
+        '<div style="display:flex;align-items:baseline;gap:7px;">' +
+          (r.notes && r.notes.length
+            ? '<button type="button" class="car-exp" id="carExp' + _i + '" onclick="carToggleNotes(' + _i + ')" ' +
+              'aria-expanded="false" title="Show the notes on this family" ' +
+              'style="border:none;background:none;cursor:pointer;padding:0;font-size:.8rem;color:#6D28D9;line-height:1;">&#9656;</button>'
+            : '<span style="width:9px;display:inline-block;"></span>') +
+          '<div><div style="font-weight:700;">' + rsEscape(r.name) + '</div>' +
+          '<div style="font-size:.74rem;color:var(--text-soft);">' + rsEscape(r.email || '—') +
+            (r.island ? ' &middot; ' + rsEscape(r.island) : '') +
+            (r.notes && r.notes.length ? ' &middot; ' + r.notes.length + ' note' + (r.notes.length === 1 ? '' : 's') : '') +
+          '</div></div></div></td>' +
       '<td style="padding:9px 12px;">' + (r.advocate ? rsEscape(r.advocate)
           : _carPill('Needs advocate', '#FEF3C7', '#92400E')) + '</td>' +
       '<td style="padding:9px 12px;white-space:nowrap;">' + (_carDay(r.started) || '—') + '</td>' +
@@ -49817,6 +49857,26 @@ function _carRender() {
           ? (overdue ? _carPill(rsEscape(r.followUp) + ' &middot; overdue', '#FEE2E2', '#991B1B') : rsEscape(r.followUp))
           : (r.open ? _carPill('None set', '#FEF3C7', '#92400E') : '—')) + '</td>' +
       '</tr>';
+
+    /* The notes, in a hidden row directly beneath. Rendered up front rather
+       than fetched on click — the data is already in memory, so an expand is
+       instant and there is nothing to fail. Small font on purpose: this is for
+       reading a history at a glance, not for editing. */
+    if (r.notes && r.notes.length) {
+      h += '<tr id="carNotes' + _i + '" style="display:none;background:#FBFAFF;">' +
+        '<td colspan="8" style="padding:2px 12px 12px 30px;border-bottom:1px solid #EDE9FE;">' +
+        r.notes.map(function(n) {
+          return '<div style="padding:7px 0;border-bottom:1px dashed #E9E4F8;">' +
+            '<div style="font-size:.7rem;color:#6D28D9;font-weight:700;">' +
+              (n.at ? _carDay(n.at) : '—') +
+              (n.who ? ' &middot; ' + rsEscape(n.who) : '') +
+              (n.type ? ' &middot; ' + rsEscape(n.type) : '') + '</div>' +
+            (n.summary ? '<div style="font-size:.78rem;color:var(--text-dark);font-weight:600;margin-top:1px;">' + rsEscape(n.summary) + '</div>' : '') +
+            (n.text ? '<div style="font-size:.76rem;color:var(--text-soft);white-space:pre-wrap;margin-top:2px;line-height:1.5;">' + rsEscape(n.text) + '</div>' : '') +
+            '</div>';
+        }).join('') +
+        '</td></tr>';
+    }
   });
   h += '</tbody></table></div>';
 
