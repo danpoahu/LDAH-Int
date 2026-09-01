@@ -1335,9 +1335,16 @@ window.LDAHChat = (function () {
           shareBtn = '<br><button class="chat-share-btn" data-convid="' + _escHTML(shareConvId) + '" data-sessionid="' + _escHTML(m.screenShareSession) + '">📺 Share My Screen</button>';
         }
 
+        /* Mark an automatic answer. Nobody should think they are talking to a
+           person when they are not — the reply is posted under the IT_Help
+           name, so without this badge it is indistinguishable. (2026-09-01) */
+        var autoTag = (m.isAutoReply === true)
+          ? '<span class="chat-auto-tag" title="Written automatically by the IT Help assistant, not by a person">Answered automatically</span>'
+          : '';
+
         html += '<div class="' + cls + '">'
           + '<div class="chat-message-header">'
-          + '<div class="chat-message-name">' + nameDisplay + clientTag + '</div>'
+          + '<div class="chat-message-name">' + nameDisplay + clientTag + autoTag + '</div>'
           + '<div class="chat-message-time">' + timeStr + '</div>'
           + '</div>'
           + '<div class="chat-message-text">' + imgHtml + textHtml + shareBtn + '</div>'
