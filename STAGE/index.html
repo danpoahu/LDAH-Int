@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.126-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v148.127-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8191,7 +8191,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div class="upload-progress" id="cmsEventUploadProgress" style="display:none;margin-top:6px;height:6px;background:#E2E8F0;border-radius:4px;overflow:hidden;">
                 <div id="cmsEventUploadProgressBar" style="height:100%;background:#0891B2;width:0%;transition:width .2s;"></div>
               </div>
-              <p style="font-size:0.8rem;color:var(--text-soft);margin-top:0.5rem;">Max 10 MB. PNG, JPG, WebP, or PDF.</p>
+              <p style="font-size:0.8rem;color:var(--text-soft);margin-top:0.5rem;">Max 10 MB. PNG, JPG, WebP, or PDF. Large images are compressed automatically.</p>
             </div>
 
             <!-- === ONE-TIME EVENT FIELDS === -->
@@ -29918,11 +29918,23 @@ function _cmsImageToCanvas(file) {
 async function _cmsFlyerToJpeg(file) {
   try {
     if (!file || !file.type) return file;
-    if (file.type === 'image/jpeg') return file;
+    /* JPEG used to return here untouched, so _cmsImageToCanvas's 1600px cap
+       never applied to it. The only thing that could shrink a JPEG was
+       autoCropImage, and that re-encodes ONLY when it finds >=5% whitespace to
+       trim — so a full-resolution JPEG with no border was stored and served at
+       its original size. PNG, WebP and PDF were all capped; JPEG, the format
+       phones and design tools export by default, was the one that was not.
+       Every image now takes the same path. (2026-08-31, Daniel) */
     var isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+    if (!isPdf && !/^image\//.test(file.type)) return file;
     var canvas = isPdf ? await _cmsRenderPdfFirstPage(file) : await _cmsImageToCanvas(file);
     var blob = await new Promise(function(res) { canvas.toBlob(res, 'image/jpeg', 0.9); });
     if (!blob) return file;
+    /* Never hand back something worse than we were given. A small, already
+       well-compressed JPEG can come out of a canvas round-trip BIGGER; keep the
+       original in that case. Only applies to JPEG — for PNG/WebP/PDF the
+       converted JPEG is the whole point, whatever it weighs. */
+    if (file.type === 'image/jpeg' && blob.size >= file.size) return file;
     var base = (file.name || 'flyer').replace(/\.[^.]+$/, '');
     return new File([blob], base + '.jpg', { type: 'image/jpeg' });
   } catch (e) { console.warn('_cmsFlyerToJpeg failed, using original:', e && e.message); return file; }
