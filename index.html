@@ -5044,7 +5044,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.5</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21682,9 +21682,29 @@ window.openContactDetail = async function(contactId) {
               '<div style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">' + caAdvHint + '</div>' +
             '</div></div>';
 
+        /* The date is editable in place (2026-09-01). Staff log interactions
+           after the fact — a call on Monday typed up on Wednesday — and the
+           note then files under the day it was TYPED, not the day the family
+           was served. Reports, the case-advocacy notes panel and every sort
+           read createdAt, so correcting it here corrects all of them at once;
+           adding a second "serviced" field would have meant finding every
+           reader, and missing one is how these things drift.
+           The true entry time is not lost — it is kept on createdAtOriginal
+           the first time a date is changed, with who changed it and when. */
+        var _svcIso = '';
+        try { if (ts) { _svcIso = new Date(ts.getTime() - ts.getTimezoneOffset() * 60000).toISOString().slice(0, 10); } } catch (e) {}
+        var _dateCell = canChangeStatus
+          ? '<div class="val"><input type="date" id="ixServiceDate" class="ix-edit-input" style="max-width:170px;" ' +
+              'title="The date this actually happened. Change it if you are logging it later." ' +
+              'data-current="' + rsEscape(_svcIso) + '" value="' + rsEscape(_svcIso) + '">' +
+              (d.createdAtOriginal ? '<div style="font-size:.68rem;color:var(--text-soft);margin-top:2px;">date corrected' +
+                 (d.dateChangedBy ? ' by ' + rsEscape(d.dateChangedBy) : '') + '</div>' : '') +
+            '</div>'
+          : '<div class="val">' + dateStr + '</div>';
+
         infoCard =
           '<div class="ct-info-card">' +
-            '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
+            '<div class="ct-info-field"><label>Date</label>' + _dateCell + '</div>' +
             '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
             '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
             statusFieldHtml + presenterFieldHtml +
@@ -22450,8 +22470,13 @@ window.openContactDetail = async function(contactId) {
 
     var newFollowUp  = fuInput ? fuInput.value : '';
     var fuDirty      = !!fuInput && newFollowUp !== (fuInput.getAttribute('data-current') || '');
+    var svcInput     = document.getElementById('ixServiceDate');
+    var newSvcDate   = svcInput ? (svcInput.value || '') : '';
+    /* Blank is not a change. Clearing the box would otherwise wipe the date of
+       the interaction entirely, which nothing downstream expects. */
+    var svcDirty     = !!svcInput && !!newSvcDate && newSvcDate !== (svcInput.getAttribute('data-current') || '');
 
-    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty) {
+    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty && !svcDirty) {
       if (msg) { msg.className = ''; msg.textContent = 'No changes.'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
       return;
@@ -22525,6 +22550,28 @@ window.openContactDetail = async function(contactId) {
         });
         if (fuInput) fuInput.setAttribute('data-current', newFollowUp);
         if (window.auditLog) window.auditLog('Changed follow-up date', (fuInput.getAttribute('data-current') || '(none)') + ' \u2192 ' + (newFollowUp || '(cleared)'));
+      }
+
+      if (svcDirty) {
+        var _was = svcInput.getAttribute('data-current') || '(unknown)';
+        /* Anchor at midday so a date never slips a day either side of the
+           timezone boundary — the same trap the lifecycle date maths avoids. */
+        var _newTs = new Date(newSvcDate + 'T12:00:00');
+        var _upd = {
+          createdAt: firebase.firestore.Timestamp.fromDate(_newTs),
+          dateChangedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          dateChangedBy: (window.currentUserData && window.currentUserData.displayName) || '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        /* Keep the ORIGINAL entry time, once. Overwriting it on a second edit
+           would lose the only record of when this was really typed. */
+        var _cur = await db.collection('interactions').doc(_ixViewDocId).get();
+        if (_cur.exists && !(_cur.data() || {}).createdAtOriginal && (_cur.data() || {}).createdAt) {
+          _upd.createdAtOriginal = (_cur.data() || {}).createdAt;
+        }
+        await db.collection('interactions').doc(_ixViewDocId).update(_upd);
+        svcInput.setAttribute('data-current', newSvcDate);
+        if (window.auditLog) window.auditLog('Changed interaction date', _was + ' \u2192 ' + newSvcDate);
       }
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
