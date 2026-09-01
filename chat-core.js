@@ -124,6 +124,8 @@ window.LDAHChat = (function () {
     '            <div class="chat-modal-audit-text">All messages are logged with timestamps for audit compliance.</div>' +
     '          </div>' +
     '          <div class="chat-client-link">' +
+    '            <button type="button" id="chatNewRequest" class="chat-new-request" style="display:none;"' +
+    '                    title="Start a new help request \u2014 answer the four questions again">+ New request</button>' +
     '            <label for="chatClientSelect">📎 Link to client:</label>' +
     '            <select id="chatClientSelect">' +
     '              <option value="">None (general chat)</option>' +
@@ -1542,15 +1544,30 @@ window.LDAHChat = (function () {
       _ciConvId = null;
     }
 
-    /* Shown only when the thread is genuinely empty. An ongoing conversation is
-       never interrupted — asked once, at the start, or not at all. */
+    /* Shown per HELP REQUEST, not per thread.
+       It first checked only that the thread was empty — which meant it appeared
+       once, ever, because nobody starts a fresh chat window with IT_Help; they
+       reuse the same thread forever. The form would have been dead after the
+       first question. (Caught by Daniel, 2026-09-01.)
+       So: empty thread, or the last message is more than CHAT_INTAKE_IDLE_MS
+       old, which is a new request rather than a continuation. Mid-exchange it
+       stays out of the way, and _ciOpen() puts it back on demand. */
+    var CHAT_INTAKE_IDLE_MS = 2 * 60 * 60 * 1000;   // 2 hours
+
     function _ciMaybeShow(convId, otherUid) {
       _ciHide();
+      window._ciSetNewRequestVisible(otherUid);
       if (!convId || otherUid !== CHAT_HELPDESK_UID) return;
       db().collection('chatConversations').doc(convId)
-        .collection('messages').limit(1).get()
+        .collection('messages').orderBy('createdAt', 'desc').limit(1).get()
         .then(function (snap) {
-          if (!snap.empty) return;                       // already talking — leave them alone
+          if (!snap.empty) {
+            var last = snap.docs[0].data() || {};
+            var lastMs = 0;
+            try { lastMs = last.createdAt ? last.createdAt.toMillis() : 0; } catch (e) { lastMs = 0; }
+            // A message with no server timestamp yet is one just sent — mid-exchange.
+            if (!lastMs || (Date.now() - lastMs) < CHAT_INTAKE_IDLE_MS) return;
+          }
           if (_chatActiveConvId !== convId) return;      // they clicked elsewhere meanwhile
           _ciConvId = convId;
           _ciWhere = ''; _ciUrgency = '';
@@ -1564,6 +1581,29 @@ window.LDAHChat = (function () {
         })
         .catch(function (e) { console.warn('intake check:', e && e.message); });
     }
+
+    /* Open the form on demand. The idle rule above covers the common case, but a
+       second problem twenty minutes after the first is still a new request, and
+       nobody should have to wait two hours to get the form back. */
+    window._ciOpen = function () {
+      var convId = _chatActiveConvId;
+      if (!convId) return;
+      _ciConvId = convId;
+      _ciWhere = ''; _ciUrgency = '';
+      var d = document.getElementById('ciDoing'), h = document.getElementById('ciHappened');
+      if (d) d.value = ''; if (h) h.value = '';
+      _ciChips('ciWhere', CHAT_INTAKE_WHERE, function (v) { _ciWhere = v; });
+      _ciChips('ciUrgency', CHAT_INTAKE_URGENCY, function (v) { _ciUrgency = v; });
+      var el = document.getElementById('chatIntake');
+      if (el) el.style.display = 'flex';
+      if (d) setTimeout(function () { try { d.focus(); } catch (e) {} }, 60);
+    };
+
+    /* The button only makes sense in an IT_Help thread — hidden everywhere else. */
+    window._ciSetNewRequestVisible = function (otherUid) {
+      var b = document.getElementById('chatNewRequest');
+      if (b) b.style.display = (otherUid === CHAT_HELPDESK_UID) ? 'inline-block' : 'none';
+    };
 
     function _ciSubmit() {
       var convId = _ciConvId;                      // captured BEFORE the write, same reason as writeMessage
@@ -2225,6 +2265,8 @@ window.LDAHChat = (function () {
     if (chatModalMessages) chatModalMessages.addEventListener('paste', handleImagePaste);
 
     // ── IT_Help intake form (2026-09-01) ──
+    var _ciNewBtn = document.getElementById('chatNewRequest');
+    if (_ciNewBtn) _ciNewBtn.addEventListener('click', function () { window._ciOpen(); });
     var _ciSendBtn = document.getElementById('chatIntakeSend');
     if (_ciSendBtn) _ciSendBtn.addEventListener('click', _ciSubmit);
     var _ciSkipBtn = document.getElementById('chatIntakeSkip');
