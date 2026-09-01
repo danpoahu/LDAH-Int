@@ -77,6 +77,32 @@ window.LDAHChat = (function () {
     '          </div>' +
     '        </div>' +
     '' +
+    /* ── IT_Help intake (2026-09-01) ────────────────────────────────────────
+       Opens instead of an empty message box the first time someone starts a
+       thread with IT_Help. Four questions, because "what were you doing /
+       where / what happened instead" is the least that lets a problem be
+       reproduced without a round trip. IT_Help ONLY — a thread with a person
+       stays free text. */
+    '        <div class="chat-intake" id="chatIntake" style="display:none;">' +
+    '          <div class="chat-intake-card">' +
+    '            <div class="chat-intake-head">' +
+    '              <div class="chat-intake-title">Before we get help \u2014 four quick questions</div>' +
+    '              <button type="button" class="chat-intake-skip" id="chatIntakeSkip">Skip \u2014 just let me type</button>' +
+    '            </div>' +
+    '            <label class="chat-intake-lbl" for="ciDoing">1. What were you trying to do?</label>' +
+    '            <input class="chat-intake-inp" id="ciDoing" maxlength="200" placeholder="Send the September flyer to the calendar\u2026">' +
+    '            <label class="chat-intake-lbl">2. Where were you?</label>' +
+    '            <div class="chat-intake-chips" id="ciWhere"></div>' +
+    '            <label class="chat-intake-lbl" for="ciHappened">3. What happened instead?</label>' +
+    '            <input class="chat-intake-inp" id="ciHappened" maxlength="300" placeholder="It said saved but the card never appeared\u2026">' +
+    '            <label class="chat-intake-lbl">4. How stuck are you?</label>' +
+    '            <div class="chat-intake-chips" id="ciUrgency"></div>' +
+    '            <div class="chat-intake-foot">' +
+    '              <span class="chat-intake-hint">You can paste or drag a screenshot in after you send this.</span>' +
+    '              <button type="button" class="chat-intake-send" id="chatIntakeSend">Send to IT Help</button>' +
+    '            </div>' +
+    '          </div>' +
+    '        </div>' +
     '        <div class="chat-drop-hint" id="chatDropHint" aria-hidden="true">' +
     '          <div class="chat-drop-hint-inner">' +
     '            <div class="chat-drop-hint-icon">\u2b06\ufe0e</div>' +
@@ -1052,6 +1078,7 @@ window.LDAHChat = (function () {
       // client link both belong to that one, not this one.
       clearPendingImage();
       resetClientLink();
+      _ciHide();                                       // and neither does a half-filled intake
 
       // Captured at the START of this operation. Two clicks in quick succession start two
       // lookups; they can resolve out of order, and the LAST one the user clicked is the
@@ -1114,6 +1141,7 @@ window.LDAHChat = (function () {
             _chatHasMoreOlder = true;
             _lastListenerMessages = [];
             loadConversationMessages(convDoc.id, otherName, otherUid);
+            _ciMaybeShow(convDoc.id, otherUid);       // IT_Help intake, empty threads only
           } else {
             // Create new conversation
             var convData = {
@@ -1141,6 +1169,7 @@ window.LDAHChat = (function () {
               _chatHasMoreOlder = true;
               _lastListenerMessages = [];
               loadConversationMessages(docRef.id, otherName, otherUid);
+              _ciMaybeShow(docRef.id, otherUid);      // brand-new thread — definitionally empty
             });
           }
         })
@@ -1457,6 +1486,98 @@ window.LDAHChat = (function () {
       if (!file) return;                       // plain text paste — leave it alone
       e.preventDefault();
       acceptImageFile(file, 'paste');
+    }
+
+    /* ── IT_Help intake form (2026-09-01, Daniel) ──────────────────────────
+       The first message to IT_Help opens four questions instead of an empty
+       box, so a problem arrives reproducible instead of as "it's broken".
+
+       IT_Help ONLY. Daniel asked explicitly that threads with a person stay
+       free text — someone messaging him may be asking about a family, and a
+       bug-report form is the wrong shape for that. */
+    var CHAT_HELPDESK_UID = 'Lwz0SNVIRAcC68tVQdzE2BBCapt1';   // ". IT_Help"
+    var CHAT_INTAKE_WHERE = ['Home','Events & Programs','Contacts','Interactions',
+                             'Reports','Downloads','CMS','Team Messages','Somewhere else'];
+    var CHAT_INTAKE_URGENCY = ['Curious — no rush','Slowing me down','Cannot work — blocked'];
+    var _ciWhere = '', _ciUrgency = '', _ciConvId = null;
+
+    function _ciChips(hostId, items, pick) {
+      var host = document.getElementById(hostId);
+      if (!host) return;
+      host.innerHTML = '';
+      items.forEach(function (label) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chat-intake-chip';
+        b.textContent = label;
+        b.addEventListener('click', function () {
+          Array.prototype.forEach.call(host.children, function (c) { c.classList.remove('on'); });
+          b.classList.add('on');
+          pick(label);
+        });
+        host.appendChild(b);
+      });
+    }
+
+    function _ciHide() {
+      var el = document.getElementById('chatIntake');
+      if (el) el.style.display = 'none';
+      _ciConvId = null;
+    }
+
+    /* Shown only when the thread is genuinely empty. An ongoing conversation is
+       never interrupted — asked once, at the start, or not at all. */
+    function _ciMaybeShow(convId, otherUid) {
+      _ciHide();
+      if (!convId || otherUid !== CHAT_HELPDESK_UID) return;
+      db().collection('chatConversations').doc(convId)
+        .collection('messages').limit(1).get()
+        .then(function (snap) {
+          if (!snap.empty) return;                       // already talking — leave them alone
+          if (_chatActiveConvId !== convId) return;      // they clicked elsewhere meanwhile
+          _ciConvId = convId;
+          _ciWhere = ''; _ciUrgency = '';
+          var d = document.getElementById('ciDoing'), h = document.getElementById('ciHappened');
+          if (d) d.value = ''; if (h) h.value = '';
+          _ciChips('ciWhere', CHAT_INTAKE_WHERE, function (v) { _ciWhere = v; });
+          _ciChips('ciUrgency', CHAT_INTAKE_URGENCY, function (v) { _ciUrgency = v; });
+          var el = document.getElementById('chatIntake');
+          if (el) el.style.display = 'flex';
+          if (d) setTimeout(function () { try { d.focus(); } catch (e) {} }, 60);
+        })
+        .catch(function (e) { console.warn('intake check:', e && e.message); });
+    }
+
+    function _ciSubmit() {
+      var convId = _ciConvId;                      // captured BEFORE the write, same reason as writeMessage
+      if (!convId) { _ciHide(); return; }
+      var doing = (document.getElementById('ciDoing') || {}).value || '';
+      var happened = (document.getElementById('ciHappened') || {}).value || '';
+      doing = doing.trim(); happened = happened.trim();
+      if (!doing && !happened) {                   // nothing to send — treat as skip
+        hostToast('Add a line about what you were doing, or use Skip.', '#B45309');
+        return;
+      }
+      var lines = [];
+      if (doing)     lines.push('Trying to: ' + doing);
+      if (_ciWhere)  lines.push('Where: ' + _ciWhere);
+      if (happened)  lines.push('Instead: ' + happened);
+      if (_ciUrgency)lines.push('Urgency: ' + _ciUrgency);
+      var text = lines.join('\n');
+
+      var btn = document.getElementById('chatIntakeSend');
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+      writeMessage(text, {
+        helpRequest: {
+          doing: doing, where: _ciWhere, happened: happened, urgency: _ciUrgency,
+          source: 'intake-form'
+        }
+      }, convId, null)
+        .then(function () { _ciHide(); })
+        .catch(function (e) { hostToast('Could not send that: ' + (e && e.message), '#DC2626'); })
+        .then(function () {
+          if (btn) { btn.disabled = false; btn.textContent = 'Send to IT Help'; }
+        });
     }
 
     /* ── Drag and drop (2026-09-01, Daniel) ────────────────────────────────
@@ -2085,6 +2206,12 @@ window.LDAHChat = (function () {
     // ── Screenshot paste (Task 8) ──
     if (chatModalInput)    chatModalInput.addEventListener('paste', handleImagePaste);
     if (chatModalMessages) chatModalMessages.addEventListener('paste', handleImagePaste);
+
+    // ── IT_Help intake form (2026-09-01) ──
+    var _ciSendBtn = document.getElementById('chatIntakeSend');
+    if (_ciSendBtn) _ciSendBtn.addEventListener('click', _ciSubmit);
+    var _ciSkipBtn = document.getElementById('chatIntakeSkip');
+    if (_ciSkipBtn) _ciSkipBtn.addEventListener('click', _ciHide);
 
     // ── Screenshot drag-and-drop (2026-09-01) ──
     // Bound to the overlay so the whole open chat is a target: dropping on the
