@@ -897,7 +897,10 @@
     .grid{
       margin-top:16px;
       display:grid;
-      grid-template-columns: 1.72fr .58fr;
+      /* Split is a variable so the drag divider can move it. Set on <body>, never
+         inline on .grid — an inline style would outrank the single-column media
+         queries below and force two cramped columns onto a 1366px laptop. */
+      grid-template-columns: var(--dash-split, 1.72fr .58fr);
       gap:16px;
       align-items:start;
     }
@@ -988,6 +991,60 @@
     @media (orientation: landscape) and (pointer: coarse) and (min-width: 960px) and (max-width: 1400px) {
       #dashRightColToggleBar { display: none; }
     }
+
+    /* Drag divider between the main content and the right column (2026-09-01).
+       Lives in the 16px gutter as a strip on the right column's left edge, so it
+       tracks the boundary without being a grid item and changing the column count.
+
+       Only offered at >=1401px. Below that every rule above collapses .grid to a
+       single stacked column, so there is no boundary to drag and a handle would
+       be a control that does nothing. Also gone when the column is hidden. */
+    #dashRightColumn { position: relative; }
+
+    .dash-split-handle { display: none; }
+
+    @media (min-width: 1401px) {
+      .dash-split-handle {
+        display: block;
+        position: absolute;
+        left: -16px;
+        top: 0;
+        bottom: 0;
+        width: 16px;
+        cursor: col-resize;
+        z-index: 5;
+        background: none;
+        border: 0;
+        padding: 0;
+        touch-action: none;
+      }
+      /* The grip itself: a hairline that thickens on hover, so the divider is
+         findable without drawing a permanent rule down the dashboard. */
+      .dash-split-handle::before {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        border-radius: 2px;
+        background: rgba(8,145,178,.20);
+        transition: background .15s, transform .15s;
+      }
+      .dash-split-handle:hover::before,
+      .dash-split-handle:focus-visible::before,
+      body.dash-resizing .dash-split-handle::before {
+        background: rgba(8,145,178,.55);
+        transform: scaleX(2);
+      }
+      .dash-split-handle:focus-visible { outline: 2px solid var(--ocean-deep); outline-offset: -2px; }
+      body.dash-hide-rightcol .dash-split-handle { display: none; }
+    }
+
+    /* While dragging, kill text selection everywhere and keep the resize cursor
+       even when the pointer outruns the 16px strip. */
+    body.dash-resizing { user-select: none; cursor: col-resize; }
+    body.dash-resizing * { cursor: col-resize !important; }
 
     /* Hide the print-only host on screen. It's only visible during
        window.print() (see @media print rules below). */
@@ -5093,7 +5150,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.6</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.7</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5187,6 +5244,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         /* Applied inline, before the grid below is parsed, so a staff member who
            has hidden the column never sees it flash in on load. */
         try {
+          var _drcS = parseFloat(localStorage.getItem('ldah_dashSplit'));
+          if (_drcS >= 0.60 && _drcS <= 0.86) {
+            document.body.style.setProperty('--dash-split',
+              _drcS.toFixed(4) + 'fr ' + (1 - _drcS).toFixed(4) + 'fr');
+          }
           if (localStorage.getItem('ldah_hideRightCol') === '1') {
             document.body.classList.add('dash-hide-rightcol');
             var _drcB = document.getElementById('dashRightColToggle');
@@ -6617,6 +6679,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
         <!-- Right column: calendar + resources + audit -->
         <div id="dashRightColumn">
+          <div class="dash-split-handle" id="dashSplitHandle"
+               role="separator" aria-orientation="vertical" tabindex="0"
+               aria-label="Column width — drag, or use the left and right arrow keys. Double-click to reset."
+               title="Drag to resize &middot; double-click to reset"></div>
           <div class="card" id="dashCalendarCard">
             <div class="card-header">
               <div>
@@ -47756,6 +47822,119 @@ window._CMS_REPORT_PANELS = [
 
    The preference is per browser, not per user. Staff share machines here, and
    this is about the screen in front of you, not about who you are. */
+/* Drag divider for the dashboard split (2026-09-01). Daniel asked to be able to
+   nudge the boundary left or right while the calendar is in view.
+
+   Stored as ONE number — column one's share of the width — rather than two
+   widths, so it cannot drift into a pair that does not add up. Written to the
+   --dash-split custom property on <body>, never as an inline style on .grid:
+   an inline style would outrank the single-column media queries and force two
+   cramped columns onto a 1366px laptop. Same reasoning as the CSS comment. */
+var DASH_SPLIT_DEFAULT = 0.748;   /* 1.72fr / (1.72 + .58) — the original ratio */
+var DASH_SPLIT_MIN = 0.60;        /* right column at its widest, ~40% */
+var DASH_SPLIT_MAX = 0.86;        /* right column at its narrowest, ~14% */
+
+function _dashApplySplit(f, persist) {
+  f = Math.min(DASH_SPLIT_MAX, Math.max(DASH_SPLIT_MIN, f));
+  document.body.style.setProperty('--dash-split',
+    f.toFixed(4) + 'fr ' + (1 - f).toFixed(4) + 'fr');
+  if (persist) {
+    try { localStorage.setItem('ldah_dashSplit', f.toFixed(4)); } catch (e) {}
+  }
+  return f;
+}
+
+/* Turn a pointer x into column one's share. With `Xfr Yfr` and a gap, the
+   free space is (gridWidth - gap), so the boundary sits at gridLeft + X*free.
+   Both the drag and the read-back use this one formula — an earlier version had
+   the drag ignore the gap and the read-back include it, which made the columns
+   jump by the gap width the moment you let go. */
+function _dashSplitFromX(grid, x) {
+  var r = grid.getBoundingClientRect();
+  var gap = parseFloat(getComputedStyle(grid).columnGap) || 16;
+  var free = r.width - gap;
+  if (free <= 0) return DASH_SPLIT_DEFAULT;
+  return (x - r.left - gap / 2) / free;
+}
+
+function _dashCurrentSplit() {
+  var grid = document.querySelector('.grid');
+  var col = document.getElementById('dashRightColumn');
+  if (!grid || !col) return DASH_SPLIT_DEFAULT;
+  var cr = col.getBoundingClientRect();
+  if (!grid.getBoundingClientRect().width || !cr.width) return DASH_SPLIT_DEFAULT;
+  /* Measured off the RIGHT column, not the left one. The left column's first
+     child is hidden on report views (the report is hosted in a sibling), so
+     measuring it there returned 0 and every drag snapped to the minimum. */
+  return _dashSplitFromX(grid, cr.left - (parseFloat(getComputedStyle(grid).columnGap) || 16) / 2);
+}
+
+function _dashResetSplit() {
+  document.body.style.removeProperty('--dash-split');
+  try { localStorage.removeItem('ldah_dashSplit'); } catch (e) {}
+  try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+}
+
+(function initDashSplit() {
+  function wire() {
+    var h = document.getElementById('dashSplitHandle');
+    var grid = document.querySelector('.grid');
+    if (!h || !grid || h._wired) return;
+    h._wired = true;
+
+    var dragging = false;
+
+    h.addEventListener('pointerdown', function (ev) {
+      /* Left button only — a right-click here should open the context menu. */
+      if (ev.button !== 0) return;
+      dragging = true;
+      document.body.classList.add('dash-resizing');
+      try { h.setPointerCapture(ev.pointerId); } catch (e) {}
+      ev.preventDefault();
+    });
+
+    h.addEventListener('pointermove', function (ev) {
+      if (!dragging) return;
+      if (!grid.getBoundingClientRect().width) return;
+      _dashApplySplit(_dashSplitFromX(grid, ev.clientX), false);
+    });
+
+    function endDrag(ev) {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('dash-resizing');
+      try { h.releasePointerCapture(ev.pointerId); } catch (e) {}
+      /* Persist once, on release — not on every move, which would hammer
+         localStorage a few hundred times per drag. */
+      _dashApplySplit(_dashCurrentSplit(), true);
+      /* Charts size to their container and only measure on resize. */
+      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+    }
+    h.addEventListener('pointerup', endDrag);
+    h.addEventListener('pointercancel', endDrag);
+
+    /* Double-click puts it back. Cheaper than a reset button nobody would find. */
+    h.addEventListener('dblclick', function (ev) { ev.preventDefault(); _dashResetSplit(); });
+
+    /* Keyboard: the handle is a focusable separator, so arrows have to work. */
+    h.addEventListener('keydown', function (ev) {
+      var step = ev.shiftKey ? 0.05 : 0.02;
+      if (ev.key === 'ArrowLeft')       _dashApplySplit(_dashCurrentSplit() - step, true);
+      else if (ev.key === 'ArrowRight') _dashApplySplit(_dashCurrentSplit() + step, true);
+      else if (ev.key === 'Home')       _dashResetSplit();
+      else return;
+      ev.preventDefault();
+      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
+
 window.cmsToggleRightColumn = function () {
   var hidden = document.body.classList.toggle('dash-hide-rightcol');
   var btn = document.getElementById('dashRightColToggle');
