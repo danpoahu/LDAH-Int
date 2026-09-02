@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.0-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.1-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6332,6 +6332,12 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Member summary &amp; totals, CSV export, quick-pay pending memberships, and PayPal reconciliation.</div>
             </div>
 
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #0891B2;" data-roles="superAdmin,admin" onclick="cmsBuildParticipationReport()">
+              <div style="font-size:1.4rem;margin-bottom:6px;">&#128202;</div>
+              <div style="font-weight:700;font-size:.92rem;">Participation</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Signups vs attendance vs feedback over any date range. Group by month, event type, individual event, or who registered.</div>
+            </div>
+
             <!-- v146.4.37 — who has taken a child's confidential documents off the
                  platform. Bordered red: this is the one report about data leaving. -->
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #DC2626;" data-roles="superAdmin,admin" onclick="cmsBuildDocDownloadReport()">
@@ -6473,6 +6479,23 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
           <div id="nhrBody">
             <div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading survey data...</div>
+          </div>
+        </div>
+
+        <!-- Participation Report (STAGE 2026-09-02). Rosie's ask from the 1 Sept
+             meeting: one place to compare signups against attendance, and
+             attendance against feedback, over any date range she chooses. -->
+        <div id="participationReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost cd-back-print-hide" style="font-size:.85rem;" onclick="cmsCloseParticipationReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:var(--ocean-deep);margin:0;flex:1;">Participation</h2>
+            <span id="prGeneratedAt" style="font-size:.82rem;color:var(--text-soft);"></span>
+            <button class="btn btn-ghost cd-back-print-hide" style="font-size:.85rem;" onclick="prExportCsv()" title="Download the table as CSV">Export CSV</button>
+            <button class="btn btn-ghost cd-back-print-hide" style="font-size:.85rem;" onclick="window.print()" title="Print / Save as PDF">Print / Save as PDF</button>
+          </div>
+          <div id="prControls"></div>
+          <div id="prBody">
+            <div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading participation data...</div>
           </div>
         </div>
 
@@ -47728,7 +47751,7 @@ window._CMS_REPORT_PANELS = [
   'eventAttendanceInGrid', 'contactDemographicsInGrid', 'interactionsSummaryInGrid',
   'docDownloadReportInGrid', 'certReportInGrid', 'staffTrainingReportInGrid',
   'membershipReportInGrid', 'caseAdvocacyReportInGrid', 'websiteAppAnalyticsInGrid',
-  'nhSurveyReportInGrid'
+  'nhSurveyReportInGrid', 'participationReportInGrid'
 ];
 
 /* Show one report panel and hide the rest (plus the Reports grid).
@@ -47742,6 +47765,343 @@ window._cmsShowOnlyReport = function (panelId) {
     var rg = document.getElementById('reportsInGrid');
     if (rg) rg.style.display = panelId ? 'none' : 'block';
   } catch (e) { console.warn('_cmsShowOnlyReport:', e && e.message); }
+};
+
+/* ── Participation Report ──────────────────────────────────────────────────────
+   Rosie's ask from the 1 Sept meeting: compare signups against attendance, and
+   attendance against feedback, over a date range she picks — plus the ability to
+   slice it other ways rather than one fixed table.
+
+   Where the numbers come from, because none of it is obvious:
+     signups    events/{id}/signups            (status 'cancelled' excluded)
+     attendance signup.sessionAttendance{}     per-session, or signup.attendanceStatus
+                for a single-date event. Values are 'attended' / 'no-show'.
+     feedback   eventFeedback, joined on eventId
+
+   "Not marked" is its own column on purpose. Attendance is only marked on about
+   two thirds of events, so folding unmarked signups into no-show would invent
+   no-shows that were never observed and quietly flatter the attendance rate. */
+var _prRows = [], _prTotals = null, _prOrphanFeedback = 0, _prLoading = false;
+var _prAllEventIds = {};
+var _prState = { from: '', to: '', group: 'month',
+                 metrics: { signups: true, attended: true, noshow: true, unmarked: true, feedback: true } };
+
+function _prISO(d) { return d.toISOString().slice(0, 10); }
+function _prMonthKey(iso) { return String(iso || '').slice(0, 7); }
+function _prMonthLabel(k) {
+  if (!/^\d{4}-\d{2}$/.test(k)) return k || '(no date)';
+  return new Date(k + '-01T00:00:00').toLocaleString('en-US', { month: 'short', year: 'numeric' });
+}
+function _prEsc(v) { return (typeof rsEscape === 'function') ? rsEscape(String(v == null ? '' : v)) : String(v == null ? '' : v); }
+
+/* One verdict per PERSON, not per session.
+
+   Rosie's question is "of the people who signed up, how many came" — so a
+   signup is one unit on both sides of that comparison. Counting each marked
+   session separately made someone who attended both Learning Labs sessions
+   count as two attendees against one signup, which pushed May to a 103%
+   attendance rate and made attended + no-show + not-marked (298) overshoot
+   total signups (229). A rate over 100% is how a report loses its reader.
+
+   Attending ANY session counts as attended: someone who came to one of two
+   sessions turned up, and filing them as a no-show would be false. */
+function _prAttendance(sig) {
+  var a = 0, n = 0;
+  var sa = sig.sessionAttendance || {};
+  Object.keys(sa).forEach(function(k) {
+    var st = sa[k] && sa[k].status;
+    if (st === 'attended') a++; else if (st === 'no-show') n++;
+  });
+  if (!Object.keys(sa).length && sig.attendanceStatus) {
+    if (sig.attendanceStatus === 'attended') a++; else if (sig.attendanceStatus === 'no-show') n++;
+  }
+  var marked = (a + n) > 0;
+  return { verdict: !marked ? 'unmarked' : (a > 0 ? 'attended' : 'noshow'),
+           marked: marked, sessionsAttended: a, sessionsMissed: n };
+}
+
+window.cmsCloseParticipationReport = function() { _cmsShowOnlyReport(null); };
+
+window.cmsBuildParticipationReport = async function() {
+  _cmsShowOnlyReport('participationReportInGrid');
+  if (!_prState.from) {
+    /* Default to the last twelve months: long enough that the monthly view has
+       something to show, short enough not to read every signup ever on open. */
+    var t = new Date(), f = new Date(); f.setMonth(f.getMonth() - 11); f.setDate(1);
+    _prState.from = _prISO(f); _prState.to = _prISO(t);
+  }
+  _prRenderControls();
+  await _prLoad();
+};
+
+function _prRenderControls() {
+  var host = document.getElementById('prControls'); if (!host) return;
+  var G = [['month','Month'],['type','Event type'],['event','Individual event'],
+           ['registrant','Who registered'],['mode','Virtual / in person']];
+  var M = [['signups','Signups'],['attended','Attended'],['noshow','No-show'],
+           ['unmarked','Not marked'],['feedback','Feedback']];
+  host.innerHTML =
+    '<div class="cd-back-print-hide" style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px 16px;margin-bottom:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">' +
+      '<div><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">From</label>' +
+        '<input type="date" id="prFrom" value="' + _prEsc(_prState.from) + '" onchange="prSet(\'from\',this.value)" style="font-size:.82rem;padding:5px 7px;border:1px solid #CBD5E1;border-radius:6px;font-family:inherit;"></div>' +
+      '<div><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">To</label>' +
+        '<input type="date" id="prTo" value="' + _prEsc(_prState.to) + '" onchange="prSet(\'to\',this.value)" style="font-size:.82rem;padding:5px 7px;border:1px solid #CBD5E1;border-radius:6px;font-family:inherit;"></div>' +
+      '<div><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">Quick</label>' +
+        '<select onchange="prPreset(this.value);this.selectedIndex=0;" style="font-size:.82rem;padding:5px 7px;border:1px solid #CBD5E1;border-radius:6px;font-family:inherit;">' +
+          '<option value="">Choose…</option><option value="tm">This month</option><option value="lm">Last month</option>' +
+          '<option value="q">Last 3 months</option><option value="ytd">Year to date</option><option value="y">Last 12 months</option>' +
+        '</select></div>' +
+      '<div><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">Group by</label>' +
+        '<select onchange="prSet(\'group\',this.value)" style="font-size:.82rem;padding:5px 7px;border:1px solid #CBD5E1;border-radius:6px;font-family:inherit;">' +
+          G.map(function(g) { return '<option value="' + g[0] + '"' + (_prState.group === g[0] ? ' selected' : '') + '>' + g[1] + '</option>'; }).join('') +
+        '</select></div>' +
+      '<div style="flex:1;min-width:220px;"><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">Show</label>' +
+        '<div style="display:flex;gap:11px;flex-wrap:wrap;">' +
+        M.map(function(m) {
+          return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:4px;cursor:pointer;">' +
+            '<input type="checkbox" ' + (_prState.metrics[m[0]] ? 'checked' : '') + ' onchange="prMetric(\'' + m[0] + '\',this.checked)"> ' + m[1] + '</label>';
+        }).join('') + '</div></div>' +
+    '</div>';
+}
+
+window.prSet = function(k, v) {
+  _prState[k] = v;
+  if (k === 'group') { _prRender(); } else { _prLoad(); }
+};
+window.prMetric = function(k, on) { _prState.metrics[k] = !!on; _prRender(); };
+window.prPreset = function(p) {
+  if (!p) return;
+  var now = new Date(), f = new Date(), t = new Date();
+  if (p === 'tm') { f = new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if (p === 'lm') { f = new Date(now.getFullYear(), now.getMonth() - 1, 1); t = new Date(now.getFullYear(), now.getMonth(), 0); }
+  else if (p === 'q') { f = new Date(now.getFullYear(), now.getMonth() - 2, 1); }
+  else if (p === 'ytd') { f = new Date(now.getFullYear(), 0, 1); }
+  else if (p === 'y') { f = new Date(now.getFullYear(), now.getMonth() - 11, 1); }
+  _prState.from = _prISO(f); _prState.to = _prISO(t);
+  _prRenderControls(); _prLoad();
+};
+
+async function _prLoad() {
+  var body = document.getElementById('prBody'); if (!body) return;
+  if (_prLoading) return;
+  _prLoading = true;
+  body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Reading events, signups and feedback…</div>';
+  try {
+    var from = _prState.from, to = _prState.to;
+    var evSnap = await db.collection('events').get();
+    var events = [];
+    _prAllEventIds = {};
+    evSnap.forEach(function(d) {
+      var v = d.data() || {};
+      /* Every id is remembered, archived or not and in range or not, so that
+         "orphaned feedback" below means the event DOCUMENT is gone — not merely
+         that it falls outside the chosen dates. Without this, narrowing the
+         range would make the orphan count climb, which is nonsense. */
+      _prAllEventIds[d.id] = 1;
+      if (v.archived === true) return;
+      var ed = v.eventDate || '';
+      if (!ed || ed < from || ed > to) return;
+      events.push({ id: d.id, v: v });
+    });
+
+    var fbSnap = await db.collection('eventFeedback').get();
+    var fbByEvent = {}, fbIds = {};
+    fbSnap.forEach(function(d) {
+      var x = d.data() || {};
+      if (!x.eventId) return;
+      fbByEvent[x.eventId] = (fbByEvent[x.eventId] || 0) + 1;
+      fbIds[x.eventId] = 1;
+    });
+
+    /* Feedback whose event no longer exists cannot be attributed to any row.
+       Counted and shown as a footnote rather than dropped in silence — 13 of
+       them exist today and a total that quietly omits them is a wrong total. */
+    _prOrphanFeedback = 0;
+    Object.keys(fbByEvent).forEach(function(eid) {
+      if (!_prAllEventIds[eid]) _prOrphanFeedback += fbByEvent[eid];
+    });
+
+    var rows = [];
+    for (var i = 0; i < events.length; i++) {
+      var e = events[i];
+      var suSnap = await db.collection('events').doc(e.id).collection('signups').get();
+      var sigs = [];
+      suSnap.forEach(function(sd) { var x = sd.data() || {}; x._id = sd.id; sigs.push(x); });
+      rows.push({ ev: e, sigs: sigs, feedback: fbByEvent[e.id] || 0 });
+    }
+    _prRows = rows;
+    _prLoading = false;
+    _prRender();
+    var g = document.getElementById('prGeneratedAt');
+    if (g) g.textContent = 'Generated ' + new Date().toLocaleString();
+  } catch (err) {
+    _prLoading = false;
+    body.innerHTML = '<div style="padding:20px;color:#DC2626;background:#fff;border-radius:var(--radius);">Could not load: ' + _prEsc(err.message) + '</div>';
+  }
+}
+
+function _prBuckets() {
+  var g = _prState.group, out = {};
+  function bucket(key, label) {
+    if (!out[key]) out[key] = { key: key, label: label, signups: 0, attended: 0, noshow: 0, unmarked: 0, feedback: 0, cancelled: 0, events: {} };
+    return out[key];
+  }
+  _prRows.forEach(function(r) {
+    var v = r.ev.v;
+    var evKey, evLabel;
+    if (g === 'month')      { evKey = _prMonthKey(v.eventDate); evLabel = _prMonthLabel(evKey); }
+    else if (g === 'type')  { evKey = v.eventType || 'other'; evLabel = (typeof _CMS_TYPE_META !== 'undefined' && _CMS_TYPE_META[evKey] && _CMS_TYPE_META[evKey].label) || evKey; }
+    else if (g === 'event') { evKey = r.ev.id; evLabel = (v.title || '(untitled)') + ' · ' + (v.eventDate || ''); }
+
+    r.sigs.forEach(function(sig) {
+      if (sig.status === 'cancelled') {
+        var cb = (g === 'registrant' || g === 'mode') ? null : bucket(evKey, evLabel);
+        if (cb) { cb.cancelled++; cb.events[r.ev.id] = 1; }
+        return;
+      }
+      var key = evKey, label = evLabel;
+      if (g === 'registrant') { key = (sig.registrantType || 'not stated'); label = key; }
+      else if (g === 'mode')  { key = (sig.participationType || 'not stated'); label = key; }
+      var b = bucket(key, label);
+      b.signups++;
+      b.events[r.ev.id] = 1;
+      /* Mutually exclusive by construction, so the three always sum to
+         signups and the attendance rate can never exceed 100%. */
+      var at = _prAttendance(sig);
+      if (at.verdict === 'attended')      b.attended++;
+      else if (at.verdict === 'noshow')   b.noshow++;
+      else                                b.unmarked++;
+    });
+
+    /* Feedback is per EVENT, so it can only be attributed to event-shaped
+       groupings. Splitting one event's feedback across parent/professional
+       would be a guess, so those two views say so rather than inventing a
+       split. */
+    if (g === 'month' || g === 'type' || g === 'event') {
+      var fb = bucket(evKey, evLabel);
+      fb.feedback += r.feedback;
+      fb.events[r.ev.id] = 1;
+    }
+  });
+  var arr = Object.keys(out).map(function(k) { return out[k]; });
+  if (g === 'month') arr.sort(function(a, b) { return a.key.localeCompare(b.key); });
+  else if (g === 'event') arr.sort(function(a, b) { return String(a.label).localeCompare(String(b.label)); });
+  else arr.sort(function(a, b) { return b.signups - a.signups; });
+  return arr;
+}
+
+function _prRender() {
+  var body = document.getElementById('prBody'); if (!body) return;
+  var g = _prState.group;
+  var rows = _prBuckets();
+  var M = _prState.metrics;
+  var fbMeaningful = (g === 'month' || g === 'type' || g === 'event');
+
+  if (!rows.length) {
+    body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">No events with signups between ' + _prEsc(_prState.from) + ' and ' + _prEsc(_prState.to) + '.</div>';
+    return;
+  }
+
+  var T = { signups: 0, attended: 0, noshow: 0, unmarked: 0, feedback: 0, cancelled: 0, events: {} };
+  rows.forEach(function(r) {
+    T.signups += r.signups; T.attended += r.attended; T.noshow += r.noshow;
+    T.unmarked += r.unmarked; T.feedback += r.feedback; T.cancelled += r.cancelled;
+    Object.keys(r.events).forEach(function(k) { T.events[k] = 1; });
+  });
+  _prTotals = T;
+
+  var head = '<th style="text-align:left;">' +
+    (g === 'month' ? 'Month' : g === 'type' ? 'Event type' : g === 'event' ? 'Event' : g === 'registrant' ? 'Registered as' : 'Attended as') + '</th>';
+  if (M.signups)  head += '<th>Signups</th>';
+  if (M.attended) head += '<th>Attended</th>';
+  if (M.noshow)   head += '<th>No-show</th>';
+  if (M.unmarked) head += '<th>Not marked</th>';
+  if (M.signups && M.attended) head += '<th>Attendance rate</th>';
+  if (M.feedback && fbMeaningful) head += '<th>Feedback</th>';
+  if (M.feedback && M.attended && fbMeaningful) head += '<th>Feedback rate</th>';
+
+  function pct(n, d) { return d > 0 ? Math.round(n / d * 100) + '%' : '—'; }
+
+  var trs = rows.map(function(r) {
+    var over = r.feedback > r.attended && r.attended > 0;
+    var tds = '<td style="text-align:left;">' + _prEsc(r.label) + '</td>';
+    if (M.signups)  tds += '<td>' + r.signups + '</td>';
+    if (M.attended) tds += '<td>' + r.attended + '</td>';
+    if (M.noshow)   tds += '<td>' + r.noshow + '</td>';
+    if (M.unmarked) tds += '<td' + (r.unmarked ? ' style="color:#B45309;"' : '') + '>' + r.unmarked + '</td>';
+    if (M.signups && M.attended) tds += '<td>' + pct(r.attended, r.signups) + '</td>';
+    if (M.feedback && fbMeaningful) tds += '<td>' + r.feedback + '</td>';
+    if (M.feedback && M.attended && fbMeaningful) {
+      tds += '<td' + (over ? ' style="color:#B45309;font-weight:700;" title="More feedback than people marked attended — attendance was not fully marked for this group."' : '') + '>' +
+        pct(r.feedback, r.attended) + (over ? ' &#9888;' : '') + '</td>';
+    }
+    return '<tr>' + tds + '</tr>';
+  }).join('');
+
+  var tot = '<td style="text-align:left;">Total</td>';
+  if (M.signups)  tot += '<td>' + T.signups + '</td>';
+  if (M.attended) tot += '<td>' + T.attended + '</td>';
+  if (M.noshow)   tot += '<td>' + T.noshow + '</td>';
+  if (M.unmarked) tot += '<td>' + T.unmarked + '</td>';
+  if (M.signups && M.attended) tot += '<td>' + pct(T.attended, T.signups) + '</td>';
+  if (M.feedback && fbMeaningful) tot += '<td>' + T.feedback + '</td>';
+  if (M.feedback && M.attended && fbMeaningful) tot += '<td>' + pct(T.feedback, T.attended) + '</td>';
+
+  var notes = [];
+  if (T.unmarked) notes.push('<b>' + T.unmarked + '</b> signup' + (T.unmarked === 1 ? ' has' : 's have') +
+    ' no attendance marked. They are counted as signups but are neither attended nor no-show, so the attendance rate is a floor, not a final figure.');
+  if (!fbMeaningful) notes.push('Feedback is recorded per event, not per person, so it cannot be split across this grouping. Switch to Month, Event type or Individual event to see it.');
+  if (_prOrphanFeedback) notes.push('<b>' + _prOrphanFeedback + '</b> feedback response' + (_prOrphanFeedback === 1 ? '' : 's') +
+    ' belong to events that no longer exist and are not counted in any row.');
+  if (T.cancelled) notes.push('<b>' + T.cancelled + '</b> cancelled signup' + (T.cancelled === 1 ? ' is' : 's are') + ' excluded throughout.');
+
+  body.innerHTML =
+    '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px 18px;">' +
+      '<div style="font-size:.82rem;color:var(--text-soft);margin-bottom:10px;">' +
+        _prEsc(_prState.from) + ' to ' + _prEsc(_prState.to) + ' &middot; ' +
+        Object.keys(T.events).length + ' event' + (Object.keys(T.events).length === 1 ? '' : 's') + '</div>' +
+      '<div style="overflow-x:auto;">' +
+        '<table style="width:100%;border-collapse:collapse;font-size:.85rem;">' +
+          '<thead><tr style="background:#EEF4F6;">' + head.replace(/<th>/g, '<th style="text-align:right;padding:7px 9px;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#075985;">')
+                                                        .replace(/<th style="text-align:left;">/, '<th style="text-align:left;padding:7px 9px;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#075985;">') + '</tr></thead>' +
+          '<tbody>' + trs.replace(/<td>/g, '<td style="text-align:right;padding:6px 9px;border-top:1px solid #F1F5F9;">')
+                         .replace(/<td style="text-align:left;">/g, '<td style="text-align:left;padding:6px 9px;border-top:1px solid #F1F5F9;">')
+                         .replace(/<td style="color:#B45309;">/g, '<td style="text-align:right;padding:6px 9px;border-top:1px solid #F1F5F9;color:#B45309;">') + '</tbody>' +
+          '<tfoot><tr style="font-weight:800;background:#F8FAFC;">' + tot.replace(/<td>/g, '<td style="text-align:right;padding:8px 9px;border-top:2px solid #CBD5E1;">')
+                                                                        .replace(/<td style="text-align:left;">/, '<td style="text-align:left;padding:8px 9px;border-top:2px solid #CBD5E1;">') + '</tr></tfoot>' +
+        '</table>' +
+      '</div>' +
+      (notes.length ? '<div style="margin-top:12px;font-size:.78rem;color:var(--text-soft);line-height:1.6;">' +
+        notes.map(function(n) { return '&bull; ' + n; }).join('<br>') + '</div>' : '') +
+    '</div>';
+}
+
+window.prExportCsv = function() {
+  var rows = _prBuckets(), M = _prState.metrics;
+  var g = _prState.group;
+  var fbMeaningful = (g === 'month' || g === 'type' || g === 'event');
+  var hdr = ['Group'];
+  if (M.signups) hdr.push('Signups');
+  if (M.attended) hdr.push('Attended');
+  if (M.noshow) hdr.push('No-show');
+  if (M.unmarked) hdr.push('Not marked');
+  if (M.feedback && fbMeaningful) hdr.push('Feedback');
+  var q = function(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+  var lines = [hdr.map(q).join(',')];
+  rows.forEach(function(r) {
+    var line = [r.label];
+    if (M.signups) line.push(r.signups);
+    if (M.attended) line.push(r.attended);
+    if (M.noshow) line.push(r.noshow);
+    if (M.unmarked) line.push(r.unmarked);
+    if (M.feedback && fbMeaningful) line.push(r.feedback);
+    lines.push(line.map(q).join(','));
+  });
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'participation-' + _prState.from + '-to-' + _prState.to + '-by-' + g + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 };
 
   window.cmsCloseEventAttendanceReport = function() {
