@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.4-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -47881,86 +47881,84 @@ window.prPreset = function(p) {
   _prRenderControls(); _prLoad();
 };
 
+/* Everything is read ONCE and cached, then filtered in memory.
+
+   Two reasons. Changing the date range no longer re-reads every signup in the
+   database, so the controls feel instant. And "new vs returning" is unanswerable
+   from a filtered read: deciding whether someone is new to LDAH means knowing
+   whether they attended anything BEFORE the range began. */
+var _prCache = null;
+
+function _prSignupDate(sig, ev, basis) {
+  if (basis === 'recurring') {
+    try { return sig.timestamp && sig.timestamp.toDate ? sig.timestamp.toDate().toISOString().slice(0, 10) : (sig.signupDate || ''); }
+    catch (e) { return sig.signupDate || ''; }
+  }
+  return ev.v.eventDate || '';
+}
+
+async function _prLoadAll() {
+  if (_prCache) return _prCache;
+  var evSnap  = await db.collection('events').get();
+  var recSnap = await db.collection('recurringEvents').get();
+  var allIds = {}, sources = [];
+  evSnap.forEach(function(d) {
+    var v = d.data() || {}; allIds[d.id] = 1;
+    if (v.archived === true) return;
+    sources.push({ id: d.id, v: v, coll: 'events', basis: 'event' });
+  });
+  recSnap.forEach(function(d) {
+    var v = d.data() || {}; allIds[d.id] = 1;
+    if (v.archived === true || v.active === false) return;
+    /* Connect-Gen lives here, not in `events`. An earlier cut of this report
+       read only `events` and lost the whole programme. */
+    sources.push({ id: d.id, v: v, coll: 'recurringEvents', basis: 'recurring' });
+  });
+
+  var rows = [];
+  for (var i = 0; i < sources.length; i++) {
+    var e = sources[i];
+    var su = await db.collection(e.coll).doc(e.id).collection('signups').get();
+    var sigs = [];
+    su.forEach(function(sd) {
+      var x = sd.data() || {}; x._id = sd.id;
+      x._prDate = _prSignupDate(x, e, e.basis);
+      sigs.push(x);
+    });
+    rows.push({ ev: e, sigs: sigs, basis: e.basis, feedback: 0, fbDates: [] });
+  }
+
+  var fbSnap = await db.collection('eventFeedback').get();
+  var fb = [];
+  fbSnap.forEach(function(d) {
+    var x = d.data() || {};
+    var t = '';
+    try { t = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate().toISOString().slice(0, 10) : ''; } catch (e) { t = ''; }
+    fb.push({ eventId: x.eventId || '', coll: x.eventCollection || 'events',
+              contactId: x.linkedContactId || '', when: t });
+  });
+
+  /* Advocacy families. The marker is on interactionType, and the stored strings
+     are not consistent — "Individual Assistance:  Advocacy" appears with one
+     space and with two — so it is matched loosely rather than by equality. */
+  var ixSnap = await db.collection('interactions').get();
+  var advocacy = {};
+  ixSnap.forEach(function(d) {
+    var x = d.data() || {};
+    if (x.contactId && /advocacy/i.test(x.interactionType || '')) advocacy[x.contactId] = 1;
+  });
+
+  _prCache = { rows: rows, fb: fb, allIds: allIds, advocacy: advocacy };
+  return _prCache;
+}
+
 async function _prLoad() {
   var body = document.getElementById('prBody'); if (!body) return;
   if (_prLoading) return;
   _prLoading = true;
-  body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Reading events, signups and feedback…</div>';
+  body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Reading events, signups, feedback and advocacy records…</div>';
   try {
-    var from = _prState.from, to = _prState.to;
-    /* TWO collections, not one. Connect-Gen is a recurringEvents doc, and it is
-       not a rounding error: 60 signups and 13 feedback responses. An earlier cut
-       of this report read only `events`, which dropped Connect-Gen entirely AND
-       mislabelled its 13 responses as "belonging to a deleted event". */
-    var evSnap  = await db.collection('events').get();
-    var recSnap = await db.collection('recurringEvents').get();
-    var events = [], recurring = [];
-    _prAllEventIds = {};
-    evSnap.forEach(function(d) {
-      var v = d.data() || {};
-      _prAllEventIds[d.id] = 1;
-      if (v.archived === true) return;
-      var ed = v.eventDate || '';
-      if (!ed || ed < from || ed > to) return;
-      events.push({ id: d.id, v: v });
-    });
-    recSnap.forEach(function(d) {
-      var v = d.data() || {};
-      _prAllEventIds[d.id] = 1;
-      if (v.archived === true || v.active === false) return;
-      recurring.push({ id: d.id, v: v });
-    });
-
-    var fbSnap = await db.collection('eventFeedback').get();
-    var fbByEvent = {}, fbRecurringDated = {};
-    _prOrphanFeedback = 0;
-    fbSnap.forEach(function(d) {
-      var x = d.data() || {};
-      if (!x.eventId) return;
-      if (!_prAllEventIds[x.eventId]) { _prOrphanFeedback++; return; }
-      if (x.eventCollection === 'recurringEvents') {
-        /* An ongoing programme has no single event date, so its feedback is
-           placed by WHEN IT WAS SUBMITTED. Anything else would put a year of
-           Connect-Gen responses on one arbitrary day. */
-        var t = '';
-        try { t = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate().toISOString().slice(0, 10) : ''; } catch (e) { t = ''; }
-        if (!t || t < from || t > to) return;
-        if (!fbRecurringDated[x.eventId]) fbRecurringDated[x.eventId] = [];
-        fbRecurringDated[x.eventId].push(t);
-        return;
-      }
-      fbByEvent[x.eventId] = (fbByEvent[x.eventId] || 0) + 1;
-    });
-
-    var rows = [];
-    for (var i = 0; i < events.length; i++) {
-      var e = events[i];
-      var suSnap = await db.collection('events').doc(e.id).collection('signups').get();
-      var sigs = [];
-      suSnap.forEach(function(sd) { var x = sd.data() || {}; x._id = sd.id; sigs.push(x); });
-      rows.push({ ev: e, sigs: sigs, feedback: fbByEvent[e.id] || 0, basis: 'event' });
-    }
-    /* Ongoing programmes are dated by each SIGNUP's own timestamp, since the
-       programme itself has no date to filter on. */
-    for (var j = 0; j < recurring.length; j++) {
-      var rp = recurring[j];
-      var rsu = await db.collection('recurringEvents').doc(rp.id).collection('signups').get();
-      var rsigs = [];
-      rsu.forEach(function(sd) {
-        var x = sd.data() || {}; x._id = sd.id;
-        var t = '';
-        try { t = x.timestamp && x.timestamp.toDate ? x.timestamp.toDate().toISOString().slice(0, 10) : (x.signupDate || ''); } catch (e) { t = ''; }
-        x._prDate = t;
-        if (!t || t < from || t > to) return;
-        rsigs.push(x);
-      });
-      var rfb = (fbRecurringDated[rp.id] || []).length;
-      if (rsigs.length || rfb) {
-        rows.push({ ev: rp, sigs: rsigs, feedback: rfb, basis: 'recurring',
-                    fbDates: fbRecurringDated[rp.id] || [] });
-      }
-    }
-    _prRows = rows;
+    await _prLoadAll();
     _prLoading = false;
     _prRender();
     var g = document.getElementById('prGeneratedAt');
@@ -47971,12 +47969,39 @@ async function _prLoad() {
   }
 }
 
+/* Reduce the cache to just what falls inside the chosen range. An event-based
+   signup is dated by its event; an ongoing-programme signup by its own date. */
+function _prInRange() {
+  var from = _prState.from, to = _prState.to;
+  var out = [];
+  (_prCache ? _prCache.rows : []).forEach(function(r) {
+    var sigs = r.sigs.filter(function(x) { return x._prDate && x._prDate >= from && x._prDate <= to; });
+    var fbDates = [], fbCount = 0;
+    (_prCache.fb || []).forEach(function(f) {
+      if (f.eventId !== r.ev.id) return;
+      if (r.basis === 'recurring') {
+        if (f.when && f.when >= from && f.when <= to) { fbDates.push(f.when); fbCount++; }
+      } else {
+        var ed = r.ev.v.eventDate || '';
+        if (ed >= from && ed <= to) fbCount++;
+      }
+    });
+    if (sigs.length || fbCount) out.push({ ev: r.ev, sigs: sigs, basis: r.basis, feedback: fbCount, fbDates: fbDates });
+  });
+  _prOrphanFeedback = 0;
+  (_prCache ? _prCache.fb : []).forEach(function(f) {
+    if (f.eventId && !_prCache.allIds[f.eventId]) _prOrphanFeedback++;
+  });
+  return out;
+}
+
 function _prBuckets() {
   var g = _prState.group, out = {};
   function bucket(key, label) {
     if (!out[key]) out[key] = { key: key, label: label, signups: 0, attended: 0, noshow: 0, unmarked: 0, feedback: 0, cancelled: 0, events: {} };
     return out[key];
   }
+  _prRows = _prInRange();
   _prRows.forEach(function(r) {
     var v = r.ev.v;
     var evKey, evLabel;
@@ -48031,6 +48056,97 @@ function _prBuckets() {
   else if (g === 'event') arr.sort(function(a, b) { return String(a.label).localeCompare(String(b.label)); });
   else arr.sort(function(a, b) { return b.signups - a.signups; });
   return arr;
+}
+
+function _prAttendedSig(sig) { return _prAttendance(sig).verdict === 'attended'; }
+
+/* People, not signups.
+
+   "Out of 239 registered, only 30% answered" counts forms. Rosie's real
+   question underneath was whether the same faces keep coming back, and that
+   needs de-duplicating by person. Every signup carries linkedContactId — all
+   of them, checked — so this needs no name matching or guesswork.
+
+   New vs returning is judged against ALL of history, not the chosen range: a
+   family who first attended in 2025 is returning even if this range is their
+   only visit this year. That is why the cache holds everything. */
+function _prPeople() {
+  var from = _prState.from, to = _prState.to;
+  var firstEver = {};            // contactId -> earliest attended date, all time
+  var inRange = {}, signedInRange = {};
+  (_prCache ? _prCache.rows : []).forEach(function(r) {
+    r.sigs.forEach(function(sig) {
+      if (sig.status === 'cancelled') return;
+      var cid = sig.linkedContactId || '';
+      if (!cid) return;
+      var d = sig._prDate || '';
+      if (d >= from && d <= to) signedInRange[cid] = 1;
+      if (!_prAttendedSig(sig)) return;
+      if (!firstEver[cid] || (d && d < firstEver[cid])) firstEver[cid] = d;
+      if (d >= from && d <= to) inRange[cid] = 1;
+    });
+  });
+  var attendees = Object.keys(inRange);
+  var newly = attendees.filter(function(c) { return firstEver[c] >= from; });
+
+  /* How far back the evidence actually goes.
+
+     Attendance marking began on 3 April 2026. Ask for a range starting before
+     that and EVERY attendee looks new — not because they are, but because there
+     is no earlier record to have been returning from. Reported as a fact about
+     the records rather than presented as a finding, because "100% of our
+     attendees are new families" is exactly the sort of number that gets quoted
+     to a funder and then falls apart. */
+  var earliest = '';
+  Object.keys(firstEver).forEach(function(c) {
+    if (firstEver[c] && (!earliest || firstEver[c] < earliest)) earliest = firstEver[c];
+  });
+  return { signedUp: Object.keys(signedInRange).length,
+           attended: attendees.length,
+           newFamilies: newly.length,
+           returning: attendees.length - newly.length,
+           earliestRecord: earliest,
+           unreliable: !!(earliest && from <= earliest) };
+}
+
+/* Advocacy families: do the people we case-advocate for also come to events,
+   and do they tell us what they thought? */
+function _prAdvocacy() {
+  var from = _prState.from, to = _prState.to;
+  var adv = (_prCache && _prCache.advocacy) || {};
+  var total = Object.keys(adv).length;
+  var people = {}, signups = 0, attended = 0;
+  (_prCache ? _prCache.rows : []).forEach(function(r) {
+    r.sigs.forEach(function(sig) {
+      if (sig.status === 'cancelled') return;
+      var cid = sig.linkedContactId || '';
+      if (!cid || !adv[cid]) return;
+      var d = sig._prDate || '';
+      if (!(d >= from && d <= to)) return;
+      people[cid] = people[cid] || { att: 0 };
+      signups++;
+      if (_prAttendedSig(sig)) { attended++; people[cid].att++; }
+    });
+  });
+  var fb = 0;
+  (_prCache ? _prCache.fb : []).forEach(function(f) {
+    if (f.contactId && adv[f.contactId] && f.when >= from && f.when <= to) fb++;
+  });
+  return { total: total, engaged: Object.keys(people).length,
+           signups: signups, attended: attended, feedback: fb };
+}
+
+function _prStrip(title, cells, note) {
+  return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px 16px;margin-bottom:14px;">' +
+    '<div style="font-size:.8rem;font-weight:800;color:#075985;margin-bottom:9px;">' + title + '</div>' +
+    '<div style="display:flex;gap:26px;flex-wrap:wrap;">' +
+      cells.map(function(c) {
+        return '<div><div style="font-size:1.35rem;font-weight:800;color:' + (c.color || '#0f172a') + ';line-height:1.1;">' + c.v + '</div>' +
+          '<div style="font-size:.72rem;color:var(--text-soft);">' + c.l + '</div></div>';
+      }).join('') +
+    '</div>' +
+    (note ? '<div style="font-size:.75rem;color:var(--text-soft);margin-top:9px;line-height:1.55;">' + note + '</div>' : '') +
+  '</div>';
 }
 
 function _prRender() {
@@ -48098,7 +48214,31 @@ function _prRender() {
     ' point at an event or programme that no longer exists and cannot be placed in any row.');
   if (T.cancelled) notes.push('<b>' + T.cancelled + '</b> cancelled signup' + (T.cancelled === 1 ? ' is' : 's are') + ' excluded throughout.');
 
+  var P = _prPeople(), A = _prAdvocacy();
+  var peopleStrip = _prStrip('People &mdash; counted once each, not per signup', [
+    { v: P.signedUp, l: 'signed up' },
+    { v: P.attended, l: 'actually attended' },
+    { v: P.newFamilies, l: 'new to LDAH', color: '#0F7B4F' },
+    { v: P.returning, l: 'returning', color: '#0891B2' },
+    { v: P.attended ? Math.round(P.newFamilies / P.attended * 100) + '%' : '—', l: 'of attendees were new' }
+  ], 'New means this is the first event they have <b>ever</b> attended, judged against all of history &mdash; not just this date range. Someone who first came in 2025 counts as returning.' +
+     (P.unreliable
+       ? '<br><span style="color:#B42318;font-weight:700;">Read this split with care.</span> The oldest attendance record is <b>' + _prEsc(P.earliestRecord) +
+         '</b>, and this range starts on or before it &mdash; so everyone is counted as new simply because there is nothing earlier to have returned from. ' +
+         'Pick a range starting after ' + _prEsc(P.earliestRecord) + ' for a split that means something.'
+       : ''));
+
+  var advStrip = _prStrip('Advocacy families', [
+    { v: A.total, l: 'families in case advocacy (all time)' },
+    { v: A.engaged, l: 'came to an event in this range', color: '#0891B2' },
+    { v: A.signups, l: 'their signups' },
+    { v: A.attended, l: 'attended', color: '#0F7B4F' },
+    { v: A.feedback, l: 'gave feedback', color: '#B45309' },
+    { v: A.attended ? Math.round(A.feedback / A.attended * 100) + '%' : '—', l: 'feedback rate' }
+  ], 'A family counts as advocacy if any interaction on their record is an advocacy type. Matched loosely, because the stored labels are inconsistent &mdash; "Individual Assistance:&nbsp;&nbsp;Advocacy" exists with one space and with two.');
+
   body.innerHTML =
+    peopleStrip + advStrip +
     '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px 18px;">' +
       '<div style="font-size:.82rem;color:var(--text-soft);margin-bottom:10px;">' +
         _prEsc(_prState.from) + ' to ' + _prEsc(_prState.to) + ' &middot; ' +
