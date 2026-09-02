@@ -940,6 +940,55 @@
       .grid { grid-template-columns: 1fr; }
     }
 
+    /* Right-column show/hide (2026-09-01, asked for by Rosie after the staff
+       meeting). Puts the Community Calendar / Recent Signups / Yearly audit
+       column away and gives the width back to My Day and the reports.
+
+       Everyone gets it, not just Rosie. The choice is remembered per browser
+       (localStorage), NOT per Firestore user — it is a viewing preference on
+       the machine you happen to be sitting at, and several staff share one.
+
+       Deliberately a class on <body> rather than an inline style on the column
+       itself, so the .grid reflow and the column hide key off one thing and
+       cannot drift apart. Specificity (0,2,1) beats the bare `.grid` rules in
+       the media queries above, so it holds at every width. */
+    body.dash-hide-rightcol .grid { grid-template-columns: 1fr; }
+    body.dash-hide-rightcol #dashRightColumn { display: none !important; }
+
+    #dashRightColToggleBar {
+      display: flex;
+      justify-content: flex-end;
+      margin: 14px 0 -8px;
+    }
+    #dashRightColToggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font: 700 .74rem/1 'Outfit', system-ui, -apple-system, sans-serif;
+      letter-spacing: .01em;
+      color: var(--ocean-deep);
+      background: rgba(8,145,178,.07);
+      border: 1px solid rgba(8,145,178,.22);
+      border-radius: 999px;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    #dashRightColToggle:hover { background: rgba(8,145,178,.14); border-color: rgba(8,145,178,.38); }
+    #dashRightColToggle:focus-visible { outline: 2px solid var(--ocean-deep); outline-offset: 2px; }
+    #dashRightColToggle .drc-chev { font-size: .8rem; line-height: 1; transition: transform .15s; }
+    body.dash-hide-rightcol #dashRightColToggle .drc-chev { transform: rotate(180deg); }
+
+    /* Where the column is already gone for reasons the user did not choose,
+       the button would be a lie — a control that visibly does nothing. Hide it
+       in the Event Attendance fullwidth mode and on iPad landscape, both of
+       which force the column off above. The small-laptop rule only STACKS the
+       column, so the toggle stays useful there and is left alone. */
+    body.ea-fullwidth-mode #dashRightColToggleBar { display: none; }
+    @media (orientation: landscape) and (pointer: coarse) and (min-width: 960px) and (max-width: 1400px) {
+      #dashRightColToggleBar { display: none; }
+    }
+
     /* Hide the print-only host on screen. It's only visible during
        window.print() (see @media print rules below). */
     #eaPrintHost { display: none; }
@@ -5044,7 +5093,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5123,6 +5172,31 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div class="trend"></div>
         </div>
       </section>
+
+      <!-- Right-column show/hide. Sits between the KPIs and the content grid so
+           it reads as a control over the layout below it, not over the KPIs. -->
+      <div id="dashRightColToggleBar">
+        <button type="button" id="dashRightColToggle" onclick="cmsToggleRightColumn()"
+                aria-controls="dashRightColumn" aria-expanded="true"
+                title="Show or hide the Community Calendar, Recent Signups and Yearly audit column">
+          <span class="drc-chev" aria-hidden="true">&#9656;</span>
+          <span class="drc-label">Hide calendar &amp; signups</span>
+        </button>
+      </div>
+      <script>
+        /* Applied inline, before the grid below is parsed, so a staff member who
+           has hidden the column never sees it flash in on load. */
+        try {
+          if (localStorage.getItem('ldah_hideRightCol') === '1') {
+            document.body.classList.add('dash-hide-rightcol');
+            var _drcB = document.getElementById('dashRightColToggle');
+            if (_drcB) {
+              _drcB.setAttribute('aria-expanded', 'false');
+              _drcB.querySelector('.drc-label').textContent = 'Show calendar & signups';
+            }
+          }
+        } catch (e) { /* private browsing / storage blocked — just show it */ }
+      </script>
 
       <section class="grid" aria-label="Main content">
         <!-- My Day (STAGE v123: replaces Recent interactions) -->
@@ -9980,7 +10054,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       closeMenu();
       // Show profile, hide everything else
       document.querySelectorAll('.nav a').forEach(a => a.classList.remove('active'));
-      ['section.kpis', 'section.grid'].forEach(sel => {
+      ['section.kpis', '#dashRightColToggleBar', 'section.grid'].forEach(sel => {
         document.querySelectorAll(sel).forEach(el => el.style.display = 'none');
       });
       ['userRolesSection','webDashboardSection','emergencySection','resourcesSection',
@@ -12117,7 +12191,12 @@ var _photoPendingByIsland = {};
   };
 
   // ── Sidebar Nav Section Toggle ──
-  const dashboardSections = ['section.kpis', 'section.grid'];
+  /* The right-column toggle bar rides with the dashboard. It sits BETWEEN
+     section.kpis and section.grid, so it is caught by neither selector and
+     would otherwise stay on screen above every other page — the same shape
+     of bug as the report panels that would not close. Added to the one
+     array all four call sites read, not to a new list. (2026-09-01) */
+  const dashboardSections = ['section.kpis', '#dashRightColToggleBar', 'section.grid'];
 
   document.querySelectorAll('.nav a[data-section]').forEach(link => {
     link.addEventListener('click', () => {
@@ -47666,6 +47745,33 @@ window._CMS_REPORT_PANELS = [
    panels — Case Advocacy, Staff Training, Certification, Doc Download and
    IT Help stayed on screen when you navigated away, overlapping whatever came
    next. Staff were watching it happen. (2026-09-01) */
+/* Show / hide the dashboard right column (Community Calendar, Recent Signups,
+   Yearly audit & reports). Rosie asked for this after the 1 Sept staff meeting;
+   shipped for everyone rather than for her alone.
+
+   The column stays in the DOM — this only flips a body class. That matters:
+   the calendar and the signups feed keep rendering and keep their live
+   listeners, so unhiding is instant and shows current data rather than an
+   empty card waiting to reload.
+
+   The preference is per browser, not per user. Staff share machines here, and
+   this is about the screen in front of you, not about who you are. */
+window.cmsToggleRightColumn = function () {
+  var hidden = document.body.classList.toggle('dash-hide-rightcol');
+  var btn = document.getElementById('dashRightColToggle');
+  if (btn) {
+    btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    var lbl = btn.querySelector('.drc-label');
+    if (lbl) lbl.textContent = hidden ? 'Show calendar & signups' : 'Hide calendar & signups';
+  }
+  try {
+    localStorage.setItem('ldah_hideRightCol', hidden ? '1' : '0');
+  } catch (e) { /* storage blocked — the toggle still works for this session */ }
+  /* Charts inside the widened column size themselves to their container and
+     only measure on resize, so nudge them. */
+  try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+};
+
 window._cmsHideReportPanels = function () {
   try {
     (window._CMS_REPORT_PANELS || []).forEach(function (id) {
