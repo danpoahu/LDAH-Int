@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.1-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.2-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -47888,37 +47888,48 @@ async function _prLoad() {
   body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Reading events, signups and feedback…</div>';
   try {
     var from = _prState.from, to = _prState.to;
-    var evSnap = await db.collection('events').get();
-    var events = [];
+    /* TWO collections, not one. Connect-Gen is a recurringEvents doc, and it is
+       not a rounding error: 60 signups and 13 feedback responses. An earlier cut
+       of this report read only `events`, which dropped Connect-Gen entirely AND
+       mislabelled its 13 responses as "belonging to a deleted event". */
+    var evSnap  = await db.collection('events').get();
+    var recSnap = await db.collection('recurringEvents').get();
+    var events = [], recurring = [];
     _prAllEventIds = {};
     evSnap.forEach(function(d) {
       var v = d.data() || {};
-      /* Every id is remembered, archived or not and in range or not, so that
-         "orphaned feedback" below means the event DOCUMENT is gone — not merely
-         that it falls outside the chosen dates. Without this, narrowing the
-         range would make the orphan count climb, which is nonsense. */
       _prAllEventIds[d.id] = 1;
       if (v.archived === true) return;
       var ed = v.eventDate || '';
       if (!ed || ed < from || ed > to) return;
       events.push({ id: d.id, v: v });
     });
+    recSnap.forEach(function(d) {
+      var v = d.data() || {};
+      _prAllEventIds[d.id] = 1;
+      if (v.archived === true || v.active === false) return;
+      recurring.push({ id: d.id, v: v });
+    });
 
     var fbSnap = await db.collection('eventFeedback').get();
-    var fbByEvent = {}, fbIds = {};
+    var fbByEvent = {}, fbRecurringDated = {};
+    _prOrphanFeedback = 0;
     fbSnap.forEach(function(d) {
       var x = d.data() || {};
       if (!x.eventId) return;
+      if (!_prAllEventIds[x.eventId]) { _prOrphanFeedback++; return; }
+      if (x.eventCollection === 'recurringEvents') {
+        /* An ongoing programme has no single event date, so its feedback is
+           placed by WHEN IT WAS SUBMITTED. Anything else would put a year of
+           Connect-Gen responses on one arbitrary day. */
+        var t = '';
+        try { t = x.submittedAt && x.submittedAt.toDate ? x.submittedAt.toDate().toISOString().slice(0, 10) : ''; } catch (e) { t = ''; }
+        if (!t || t < from || t > to) return;
+        if (!fbRecurringDated[x.eventId]) fbRecurringDated[x.eventId] = [];
+        fbRecurringDated[x.eventId].push(t);
+        return;
+      }
       fbByEvent[x.eventId] = (fbByEvent[x.eventId] || 0) + 1;
-      fbIds[x.eventId] = 1;
-    });
-
-    /* Feedback whose event no longer exists cannot be attributed to any row.
-       Counted and shown as a footnote rather than dropped in silence — 13 of
-       them exist today and a total that quietly omits them is a wrong total. */
-    _prOrphanFeedback = 0;
-    Object.keys(fbByEvent).forEach(function(eid) {
-      if (!_prAllEventIds[eid]) _prOrphanFeedback += fbByEvent[eid];
     });
 
     var rows = [];
@@ -47927,7 +47938,27 @@ async function _prLoad() {
       var suSnap = await db.collection('events').doc(e.id).collection('signups').get();
       var sigs = [];
       suSnap.forEach(function(sd) { var x = sd.data() || {}; x._id = sd.id; sigs.push(x); });
-      rows.push({ ev: e, sigs: sigs, feedback: fbByEvent[e.id] || 0 });
+      rows.push({ ev: e, sigs: sigs, feedback: fbByEvent[e.id] || 0, basis: 'event' });
+    }
+    /* Ongoing programmes are dated by each SIGNUP's own timestamp, since the
+       programme itself has no date to filter on. */
+    for (var j = 0; j < recurring.length; j++) {
+      var rp = recurring[j];
+      var rsu = await db.collection('recurringEvents').doc(rp.id).collection('signups').get();
+      var rsigs = [];
+      rsu.forEach(function(sd) {
+        var x = sd.data() || {}; x._id = sd.id;
+        var t = '';
+        try { t = x.timestamp && x.timestamp.toDate ? x.timestamp.toDate().toISOString().slice(0, 10) : (x.signupDate || ''); } catch (e) { t = ''; }
+        x._prDate = t;
+        if (!t || t < from || t > to) return;
+        rsigs.push(x);
+      });
+      var rfb = (fbRecurringDated[rp.id] || []).length;
+      if (rsigs.length || rfb) {
+        rows.push({ ev: rp, sigs: rsigs, feedback: rfb, basis: 'recurring',
+                    fbDates: fbRecurringDated[rp.id] || [] });
+      }
     }
     _prRows = rows;
     _prLoading = false;
@@ -47949,19 +47980,23 @@ function _prBuckets() {
   _prRows.forEach(function(r) {
     var v = r.ev.v;
     var evKey, evLabel;
-    if (g === 'month')      { evKey = _prMonthKey(v.eventDate); evLabel = _prMonthLabel(evKey); }
-    else if (g === 'type')  { evKey = v.eventType || 'other'; evLabel = (typeof _CMS_TYPE_META !== 'undefined' && _CMS_TYPE_META[evKey] && _CMS_TYPE_META[evKey].label) || evKey; }
+    var isRec = r.basis === 'recurring';
+    if (g === 'month')      { evKey = isRec ? null : _prMonthKey(v.eventDate); evLabel = isRec ? null : _prMonthLabel(evKey); }
+    else if (g === 'type')  { evKey = isRec ? 'connect_gen' : (v.eventType || 'other'); evLabel = (typeof _CMS_TYPE_META !== 'undefined' && _CMS_TYPE_META[evKey] && _CMS_TYPE_META[evKey].label) || evKey; }
     else if (g === 'event') { evKey = r.ev.id; evLabel = (v.title || '(untitled)') + ' · ' + (v.eventDate || ''); }
 
     r.sigs.forEach(function(sig) {
       if (sig.status === 'cancelled') {
-        var cb = (g === 'registrant' || g === 'mode') ? null : bucket(evKey, evLabel);
+        var ck = (g === 'month' && isRec) ? _prMonthKey(sig._prDate) : evKey;
+        var cl = (g === 'month' && isRec) ? _prMonthLabel(ck) : evLabel;
+        var cb = (g === 'registrant' || g === 'mode') ? null : bucket(ck, cl);
         if (cb) { cb.cancelled++; cb.events[r.ev.id] = 1; }
         return;
       }
       var key = evKey, label = evLabel;
       if (g === 'registrant') { key = (sig.registrantType || 'not stated'); label = key; }
       else if (g === 'mode')  { key = (sig.participationType || 'not stated'); label = key; }
+      else if (g === 'month' && isRec) { key = _prMonthKey(sig._prDate); label = _prMonthLabel(key); }
       var b = bucket(key, label);
       b.signups++;
       b.events[r.ev.id] = 1;
@@ -47978,9 +48013,17 @@ function _prBuckets() {
        would be a guess, so those two views say so rather than inventing a
        split. */
     if (g === 'month' || g === 'type' || g === 'event') {
-      var fb = bucket(evKey, evLabel);
-      fb.feedback += r.feedback;
-      fb.events[r.ev.id] = 1;
+      if (isRec && g === 'month') {
+        /* Each ongoing-programme response lands in the month it was submitted. */
+        (r.fbDates || []).forEach(function(t) {
+          var mb = bucket(_prMonthKey(t), _prMonthLabel(_prMonthKey(t)));
+          mb.feedback++; mb.events[r.ev.id] = 1;
+        });
+      } else {
+        var fb = bucket(evKey, evLabel);
+        fb.feedback += r.feedback;
+        fb.events[r.ev.id] = 1;
+      }
     }
   });
   var arr = Object.keys(out).map(function(k) { return out[k]; });
@@ -48052,7 +48095,7 @@ function _prRender() {
     ' no attendance marked. They are counted as signups but are neither attended nor no-show, so the attendance rate is a floor, not a final figure.');
   if (!fbMeaningful) notes.push('Feedback is recorded per event, not per person, so it cannot be split across this grouping. Switch to Month, Event type or Individual event to see it.');
   if (_prOrphanFeedback) notes.push('<b>' + _prOrphanFeedback + '</b> feedback response' + (_prOrphanFeedback === 1 ? '' : 's') +
-    ' belong to events that no longer exist and are not counted in any row.');
+    ' point at an event or programme that no longer exists and cannot be placed in any row.');
   if (T.cancelled) notes.push('<b>' + T.cancelled + '</b> cancelled signup' + (T.cancelled === 1 ? ' is' : 's are') + ' excluded throughout.');
 
   body.innerHTML =
