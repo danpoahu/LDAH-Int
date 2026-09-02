@@ -899,8 +899,15 @@
       display:grid;
       /* Split is a variable so the drag divider can move it. Set on <body>, never
          inline on .grid — an inline style would outrank the single-column media
-         queries below and force two cramped columns onto a 1366px laptop. */
-      grid-template-columns: var(--dash-split, 1.72fr .58fr);
+         queries below and force two cramped columns onto a 1366px laptop.
+
+         minmax(0, ...) is load-bearing, not decoration. A bare `fr` track has an
+         automatic minimum of MIN-CONTENT, so the right column could not shrink
+         past the mini-calendar's 7-day grid: dragging right, the pointer kept
+         moving and the boundary stopped dead, then snapped when you came back.
+         That read as "won't go right very far" AND as jumpiness — one cause,
+         both symptoms. minmax(0, ...) lets the track follow the pointer. */
+      grid-template-columns: var(--dash-split, minmax(0, 1.72fr) minmax(0, .58fr));
       gap:16px;
       align-items:start;
     }
@@ -5150,7 +5157,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.7</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.8</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5245,9 +5252,9 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
            has hidden the column never sees it flash in on load. */
         try {
           var _drcS = parseFloat(localStorage.getItem('ldah_dashSplit'));
-          if (_drcS >= 0.60 && _drcS <= 0.86) {
+          if (_drcS >= 0.60 && _drcS <= 0.90) {
             document.body.style.setProperty('--dash-split',
-              _drcS.toFixed(4) + 'fr ' + (1 - _drcS).toFixed(4) + 'fr');
+              'minmax(0, ' + _drcS.toFixed(4) + 'fr) minmax(0, ' + (1 - _drcS).toFixed(4) + 'fr)');
           }
           if (localStorage.getItem('ldah_hideRightCol') === '1') {
             document.body.classList.add('dash-hide-rightcol');
@@ -47832,12 +47839,12 @@ window._CMS_REPORT_PANELS = [
    cramped columns onto a 1366px laptop. Same reasoning as the CSS comment. */
 var DASH_SPLIT_DEFAULT = 0.748;   /* 1.72fr / (1.72 + .58) — the original ratio */
 var DASH_SPLIT_MIN = 0.60;        /* right column at its widest, ~40% */
-var DASH_SPLIT_MAX = 0.86;        /* right column at its narrowest, ~14% */
+var DASH_SPLIT_MAX = 0.90;        /* right column at its narrowest, ~10% */
 
 function _dashApplySplit(f, persist) {
   f = Math.min(DASH_SPLIT_MAX, Math.max(DASH_SPLIT_MIN, f));
   document.body.style.setProperty('--dash-split',
-    f.toFixed(4) + 'fr ' + (1 - f).toFixed(4) + 'fr');
+    'minmax(0, ' + f.toFixed(4) + 'fr) minmax(0, ' + (1 - f).toFixed(4) + 'fr)');
   if (persist) {
     try { localStorage.setItem('ldah_dashSplit', f.toFixed(4)); } catch (e) {}
   }
@@ -47893,15 +47900,29 @@ function _dashResetSplit() {
       ev.preventDefault();
     });
 
+    /* Coalesce to one layout per frame. Pointermove fires far faster than the
+       screen refreshes, and each apply reflows the whole dashboard — doing that
+       120+ times a second on a page this size is its own source of stutter. */
+    var pendingX = null, rafId = 0;
+    function flush() {
+      rafId = 0;
+      if (pendingX === null || !dragging) return;
+      if (grid.getBoundingClientRect().width) {
+        _dashApplySplit(_dashSplitFromX(grid, pendingX), false);
+      }
+      pendingX = null;
+    }
     h.addEventListener('pointermove', function (ev) {
       if (!dragging) return;
-      if (!grid.getBoundingClientRect().width) return;
-      _dashApplySplit(_dashSplitFromX(grid, ev.clientX), false);
+      pendingX = ev.clientX;
+      if (!rafId) rafId = requestAnimationFrame(flush);
     });
 
     function endDrag(ev) {
       if (!dragging) return;
       dragging = false;
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+      pendingX = null;
       document.body.classList.remove('dash-resizing');
       try { h.releasePointerCapture(ev.pointerId); } catch (e) {}
       /* Persist once, on release — not on every move, which would hammer
