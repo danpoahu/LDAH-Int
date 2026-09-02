@@ -5157,7 +5157,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.10</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.11</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -40079,6 +40079,11 @@ async function _cmsClearStaleRotation(snaps) {
   });
   if (writes.length) { try { await Promise.all(writes); } catch (e) {} }
 }
+/* Session labels carry dots and slashes ("2026-09-09|5:00 PM|Zoom"), and a dot in
+   a Firestore map key is read as a path separator. Sanitise before using one as a
+   key, the same way composite session keys are handled elsewhere. */
+function _hrKey(lbl) { return String(lbl || '').replace(/[^A-Za-z0-9]+/g, '_'); }
+
 window.cmsLoadDisseminate = async function() {
   var host = document.getElementById('cmsDissemBody'); if (!host) return;
   host.innerHTML = '<div style="padding:20px;color:var(--text-soft);">Loading…</div>';
@@ -40124,7 +40129,12 @@ window.cmsLoadDisseminate = async function() {
             label: (typeof evSessionLabel === 'function' && evSessionLabel(lbl)) || lbl,
             image: v.imageUrl || '', special: v.specialEvent === true,
             on: picked.indexOf(lbl) !== -1,
-            pinned: String(v.homePinned || '') === lbl
+            pinned: String(v.homePinned || '') === lbl,
+            /* A session's run always ends on the day it happens — advertising a
+               workshop after it ran is never wanted — so only the start is set
+               by hand. (2026-09-02) */
+            from: (v.homeRotationSessionFrom || {})[_hrKey(lbl)] || '',
+            to: iso, cap: iso, autoEnd: true
           });
         });
         return;
@@ -40153,7 +40163,11 @@ window.cmsLoadDisseminate = async function() {
         id: d.id, coll: 'events', title: v.title || '(untitled)', type: type,
         date: one || '', session: null, label: '',
         image: v.imageUrl || '', special: v.specialEvent === true,
-        on: v.homeRotation === true, pinned: v.homePinned === true
+        on: v.homeRotation === true, pinned: v.homePinned === true,
+        from: v.homeRotationFrom || '', to: v.homeRotationTo || '',
+        /* Hard ceiling: a run can never outlast the date the event card itself
+           says it moves to Past. */
+        cap: v.moveToPastDate || v.removeDate || '', autoEnd: false
       });
     });
 
@@ -40164,7 +40178,9 @@ window.cmsLoadDisseminate = async function() {
       items.push({
         id: d.id, coll: 'recurringEvents', title: v.title || '(untitled)', type: type,
         date: '', session: null, label: '', image: v.imageUrl || '',
-        special: false, on: v.homeRotation === true, pinned: v.homePinned === true
+        special: false, on: v.homeRotation === true, pinned: v.homePinned === true,
+        /* Ongoing programmes have no end date of their own, so no ceiling. */
+        from: v.homeRotationFrom || '', to: v.homeRotationTo || '', cap: '', autoEnd: false
       });
     });
 
@@ -40179,47 +40195,190 @@ window.cmsLoadDisseminate = async function() {
 
 var _cmsDissemItems = [];
 
+/* ── Coverage ────────────────────────────────────────────────────────────────
+   The home page shows TWO items at a time, so "covered" is not simply "something
+   is scheduled". A day with only one item live shows the same flyer in both
+   slots, which reads as a mistake to a visitor. The bar therefore has three
+   states, not two: nothing, thin (one), and covered (two or more). */
+function _cmsDissemLive(it, iso) {
+  if (!it.on) return false;
+  if (it.from && String(it.from) > iso) return false;
+  if (it.to && String(it.to) < iso) return false;
+  return true;
+}
+function _cmsDissemCoverage(days) {
+  var out = [], t = _localToday();
+  var d = new Date(t + 'T00:00:00');
+  for (var i = 0; i < days; i++) {
+    var iso = d.toISOString().slice(0, 10);
+    var n = 0;
+    _cmsDissemItems.forEach(function(it) { if (_cmsDissemLive(it, iso)) n++; });
+    out.push({ iso: iso, n: n });
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+function _cmsDissemBar() {
+  var DAYS = 120;
+  var cov = _cmsDissemCoverage(DAYS);
+  var anyOn = _cmsDissemItems.some(function(i) { return i.on; });
+  if (!anyOn) {
+    return '<div style="background:#FEF6E7;border:1px solid #f3d9a8;border-left:4px solid #B45309;' +
+      'border-radius:10px;padding:12px 15px;margin-bottom:14px;font-size:.86rem;color:#7a4d09;">' +
+      'Nothing is in the rotation, so the home page falls back to showing its two newest flyers.' +
+      '</div>';
+  }
+  /* Collapse the day array into runs so the caption can name real date ranges
+     instead of making Daniel count pixels. */
+  var runs = [], cur = null;
+  cov.forEach(function(c) {
+    var band = c.n >= 2 ? 2 : (c.n === 1 ? 1 : 0);
+    if (!cur || cur.band !== band) { cur = { band: band, from: c.iso, to: c.iso }; runs.push(cur); }
+    else cur.to = c.iso;
+  });
+  var COL = { 0: '#FCA5A5', 1: '#FCD34D', 2: '#34D399' };
+  var bar = runs.map(function(r) {
+    var w = (_dayDiff(r.from, r.to) + 1) / DAYS * 100;
+    return '<span title="' + _fmtRange(r.from, r.to) + ' — ' +
+      (r.band === 0 ? 'nothing scheduled' : r.band === 1 ? 'only one item' : 'two or more') +
+      '" style="display:inline-block;height:100%;width:' + w.toFixed(3) + '%;background:' + COL[r.band] + ';"></span>';
+  }).join('');
+
+  var gaps = runs.filter(function(r) { return r.band === 0; });
+  var thin = runs.filter(function(r) { return r.band === 1; });
+  var msg;
+  if (!gaps.length && !thin.length) {
+    msg = '<span style="color:#0F7B4F;font-weight:700;">Full coverage for the next ' + DAYS + ' days.</span>';
+  } else {
+    msg = '';
+    if (gaps.length) msg += '<span style="color:#B42318;font-weight:700;">Nothing scheduled:</span> ' +
+      gaps.map(function(r) { return _fmtRange(r.from, r.to); }).join(', ') + '. ';
+    if (thin.length) msg += '<span style="color:#B45309;font-weight:700;">Only one item:</span> ' +
+      thin.map(function(r) { return _fmtRange(r.from, r.to); }).join(', ') +
+      ' <span style="color:var(--text-soft);">(a visitor sees it in both slots)</span>';
+  }
+
+  /* Month ticks so a position on the bar means something. */
+  var ticks = '', seen = {};
+  cov.forEach(function(c, i) {
+    var mk = c.iso.slice(0, 7);
+    if (seen[mk]) return; seen[mk] = 1;
+    ticks += '<span style="position:absolute;left:' + (i / DAYS * 100).toFixed(2) + '%;font-size:.62rem;color:#94A3B8;">' +
+      new Date(c.iso + 'T00:00:00').toLocaleString('en-US', { month: 'short' }) + '</span>';
+  });
+
+  return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:13px 15px;margin-bottom:14px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:7px;">' +
+      '<b style="font-size:.85rem;color:#075985;">Coverage &mdash; next ' + DAYS + ' days</b>' +
+      '<span style="font-size:.7rem;color:var(--text-soft);">' +
+        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#34D399;"></span> two or more &nbsp;' +
+        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#FCD34D;"></span> only one &nbsp;' +
+        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#FCA5A5;"></span> nothing' +
+      '</span>' +
+    '</div>' +
+    '<div style="height:16px;border-radius:5px;overflow:hidden;background:#F1F5F9;font-size:0;">' + bar + '</div>' +
+    '<div style="position:relative;height:13px;margin-top:2px;">' + ticks + '</div>' +
+    '<div style="font-size:.79rem;margin-top:5px;line-height:1.5;">' + msg + '</div>' +
+  '</div>';
+}
+function _dayDiff(a, b) {
+  return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+}
+function _fmtRange(a, b) {
+  var f = function(iso) {
+    return new Date(iso + 'T00:00:00').toLocaleString('en-US', { month: 'short', day: 'numeric' });
+  };
+  return a === b ? f(a) : f(a) + '–' + f(b);
+}
+
 function _cmsRenderDisseminate() {
   var host = document.getElementById('cmsDissemBody'); if (!host) return;
   var meta = (typeof _CMS_TYPE_META !== 'undefined') ? _CMS_TYPE_META : {};
   var picked = _cmsDissemItems.filter(function(i) { return i.on; }).length;
+  var today = _localToday();
 
   var html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">' +
     '<span style="font-weight:700;color:' + (picked ? '#16A34A' : '#B45309') + ';">' +
       (picked ? picked + ' in the rotation' : 'Nothing ticked — the home page falls back to its usual two newest') +
     '</span></div>';
 
-  html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow:hidden;">';
+  html += _cmsDissemBar();
+
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;">';
   _cmsDissemItems.forEach(function(it) {
     var m = meta[it.type] || {};
-    html += '<label style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #F1F5F9;cursor:pointer;">' +
-      '<input type="checkbox" ' + (it.on ? 'checked' : '') + ' style="width:17px;height:17px;cursor:pointer;flex:0 0 auto;" ' +
-        'onchange="cmsToggleDisseminate(decodeURIComponent(\'' + _attrJsArg(it.coll) + '\'),decodeURIComponent(\'' + _attrJsArg(it.id) + '\'),this.checked,decodeURIComponent(\'' + _attrJsArg(it.session || '') + '\'))">' +
-      (it.image
-        ? '<img src="' + rsEscape(it.image) + '" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:6px;flex:0 0 auto;">'
-        : '<span style="width:38px;height:38px;border-radius:6px;background:#F1F5F9;display:grid;place-items:center;font-size:.65rem;color:#94A3B8;flex:0 0 auto;">no<br>flyer</span>') +
-      '<span style="flex:1;min-width:0;">' +
-        '<span style="display:block;font-weight:600;font-size:.88rem;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
-          rsEscape(it.title) + (it.label ? ' <span style="color:#0891B2;">&middot; ' + rsEscape(it.label) + '</span>' : '') + '</span>' +
-        '<span style="display:block;font-size:.75rem;color:var(--text-soft);">' + rsEscape(it.date || 'ongoing') + '</span>' +
-      '</span>' +
-      '<span style="font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:999px;flex:0 0 auto;background:' +
-        ((m.color || '#94A3B8') + '22') + ';color:' + (m.color || '#64748B') + ';">' + rsEscape(m.label || it.type) + '</span>' +
-      /* Pin = "put this in front of everyone now". Rosie announces something and
-         it should not wait its turn behind seven other flyers. A pinned item is
-         shown to every visitor on every visit until it is unpinned, and is
-         exempt from the already-seen rule — that IS the point of pinning.
-         Only offered on rows that are already in the rotation. */
-      (it.on
-        ? '<button type="button" title="' + (it.pinned ? 'Pinned — shown to everyone, every visit' : 'Pin to the top: shown to everyone until unpinned') + '" ' +
-            'style="border:1px solid ' + (it.pinned ? '#B45309' : '#E2E8F0') + ';background:' + (it.pinned ? '#FEF3C7' : '#fff') + ';' +
-            'color:' + (it.pinned ? '#92400E' : '#94A3B8') + ';border-radius:999px;font-size:.68rem;font-weight:700;padding:2px 10px;cursor:pointer;flex:0 0 auto;" ' +
-            'onclick="event.preventDefault();cmsPinDisseminate(decodeURIComponent(\'' + _attrJsArg(it.coll) + '\'),decodeURIComponent(\'' + _attrJsArg(it.id) + '\'),decodeURIComponent(\'' + _attrJsArg(it.session || '') + '\'),' + (it.pinned ? 'false' : 'true') + ')">' +
-            (it.pinned ? 'PINNED' : 'Pin') + '</button>'
-        : '') +
-      (it.special ? '<span title="Screening and Outreach Booth events are calendar-only by design. Ticking this puts it on the home page anyway." style="font-size:.68rem;color:#B45309;flex:0 0 auto;">calendar-only</span>' : '') +
-      (!it.image ? '<span title="Without a flyer image there is nothing to show in the rotation." style="font-size:.68rem;color:#DC2626;flex:0 0 auto;">needs a flyer</span>' : '') +
-    '</label>';
+    var arg = function(v) { return "decodeURIComponent('" + _attrJsArg(v == null ? '' : v) + "')"; };
+    var ids = arg(it.coll) + ',' + arg(it.id) + ',' + arg(it.session || '');
+    /* cmsToggleDisseminate takes (coll, id, on, session) — session LAST — while
+       the others take it third. Build its arguments separately rather than
+       reusing `ids` and silently passing the session as the boolean. */
+    var idsToggle = arg(it.coll) + ',' + arg(it.id);
+    var live = _cmsDissemLive(it, today);
+
+    html += '<div style="background:#fff;border:1px solid ' + (it.on ? 'rgba(8,145,178,.35)' : '#E2E8F0') + ';' +
+      'border-left:4px solid ' + (it.on ? (live ? '#0F7B4F' : '#B45309') : '#E2E8F0') + ';' +
+      'border-radius:10px;padding:12px 13px;box-shadow:var(--shadow-soft);">' +
+
+      '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">' +
+        '<input type="checkbox" ' + (it.on ? 'checked' : '') + ' style="width:17px;height:17px;cursor:pointer;flex:0 0 auto;margin-top:2px;" ' +
+          'onchange="cmsToggleDisseminate(' + idsToggle + ',this.checked,' + arg(it.session || '') + ')">' +
+        (it.image
+          ? '<img src="' + rsEscape(it.image) + '" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex:0 0 auto;">'
+          : '<span style="width:44px;height:44px;border-radius:6px;background:#F1F5F9;display:grid;place-items:center;font-size:.6rem;color:#94A3B8;flex:0 0 auto;text-align:center;">no<br>flyer</span>') +
+        '<span style="flex:1;min-width:0;">' +
+          '<span style="display:block;font-weight:600;font-size:.86rem;color:#0f172a;line-height:1.35;">' +
+            rsEscape(it.title) + (it.label ? ' <span style="color:#0891B2;">&middot; ' + rsEscape(it.label) + '</span>' : '') + '</span>' +
+          '<span style="display:block;font-size:.73rem;color:var(--text-soft);margin-top:2px;">' +
+            rsEscape(it.date || 'ongoing') +
+            ' &nbsp;<span style="font-weight:700;padding:1px 7px;border-radius:999px;background:' +
+              ((m.color || '#94A3B8') + '22') + ';color:' + (m.color || '#64748B') + ';">' + rsEscape(m.label || it.type) + '</span>' +
+          '</span>' +
+        '</span>' +
+      '</label>';
+
+    if (it.on) {
+      /* Dates only matter once something is ticked; showing them on every card
+         would be eleven sets of empty inputs. */
+      html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid #F1F5F9;">' +
+        '<span style="font-size:.72rem;color:var(--text-soft);font-weight:700;">Show from</span>' +
+        '<input type="date" value="' + rsEscape(it.from || '') + '"' +
+          (it.cap ? ' max="' + rsEscape(it.cap) + '"' : '') +
+          ' onchange="cmsDissemSetDate(' + ids + ",'from',this.value)\"" +
+          ' style="font-size:.75rem;padding:3px 6px;border:1px solid #CBD5E1;border-radius:6px;font-family:inherit;">';
+
+      if (it.autoEnd) {
+        html += '<span style="font-size:.72rem;color:var(--text-soft);">to <b>' + rsEscape(it.to) +
+          '</b> <span style="color:#94A3B8;">(session date)</span></span>';
+      } else {
+        html += '<span style="font-size:.72rem;color:var(--text-soft);font-weight:700;">to</span>' +
+          '<input type="date" value="' + rsEscape(it.to || '') + '"' +
+            (it.cap ? ' max="' + rsEscape(it.cap) + '"' : '') +
+            ' onchange="cmsDissemSetDate(' + ids + ",'to',this.value)\"" +
+            ' style="font-size:.75rem;padding:3px 6px;border:1px solid #CBD5E1;border-radius:6px;font-family:inherit;">' +
+          (it.cap
+            ? '<span title="From this item\'s event card. The rotation can never run past it." style="font-size:.68rem;color:#94A3B8;">max ' + rsEscape(it.cap) + '</span>'
+            : '<span style="font-size:.68rem;color:#94A3B8;">no end date &mdash; ongoing</span>');
+      }
+
+      html += '<span style="flex:1;"></span>' +
+        (live
+          ? '<span style="font-size:.68rem;font-weight:700;color:#0F7B4F;">live now</span>'
+          : '<span style="font-size:.68rem;font-weight:700;color:#B45309;">' +
+              (it.from && it.from > today ? 'starts ' + rsEscape(it.from) : 'window has passed') + '</span>') +
+        '<button type="button" title="' + (it.pinned ? 'Pinned — shown to everyone, every visit' : 'Pin to the top: shown to everyone until unpinned') + '" ' +
+          'style="border:1px solid ' + (it.pinned ? '#B45309' : '#E2E8F0') + ';background:' + (it.pinned ? '#FEF3C7' : '#fff') + ';' +
+          'color:' + (it.pinned ? '#92400E' : '#94A3B8') + ';border-radius:999px;font-size:.66rem;font-weight:700;padding:2px 10px;cursor:pointer;" ' +
+          'onclick="cmsPinDisseminate(' + ids + ',' + (it.pinned ? 'false' : 'true') + ')">' +
+          (it.pinned ? 'PINNED' : 'Pin') + '</button>' +
+      '</div>';
+    }
+
+    var warn = '';
+    if (it.special) warn += '<span title="Screening and Outreach Booth events are calendar-only by design. Ticking this puts it on the home page anyway." style="font-size:.68rem;color:#B45309;">calendar-only</span> ';
+    if (!it.image) warn += '<span title="Without a flyer image there is nothing to show in the rotation." style="font-size:.68rem;color:#DC2626;">needs a flyer</span>';
+    if (warn) html += '<div style="margin-top:7px;">' + warn + '</div>';
+
+    html += '</div>';
   });
   html += '</div>';
   host.innerHTML = html;
@@ -40261,6 +40420,66 @@ window.cmsPinDisseminate = async function(coll, id, session, on) {
     cmsLoadDisseminate();
   } catch (e) {
     if (typeof _showToast === 'function') _showToast('Could not pin: ' + e.message, '#DC2626');
+  }
+};
+
+/* Set one end of an item's rotation window.
+
+   The ceiling is enforced HERE as well as with the date input's max attribute.
+   A max= only stops the picker; typing a date straight into the field, or an
+   old browser, walks right past it — and the whole point of the ceiling is that
+   a flyer can never outlive the date its own event card says it moves to Past. */
+window.cmsDissemSetDate = async function(coll, id, session, which, value) {
+  var _r = (window.currentUserData && currentUserData.role) || '';
+  if (['superAdmin', 'admin', 'webAdmin', 'appAdmin'].indexOf(_r) === -1) {
+    alert('Home Rotation is limited to Super Admin, Admin, Web Admin and App Admin.');
+    return;
+  }
+  var it = _cmsDissemItems.filter(function(x) {
+    return x.id === id && x.coll === coll && (x.session || '') === (session || '');
+  })[0];
+  if (!it) return;
+
+  var v = String(value || '');
+  if (v && it.cap && v > it.cap) {
+    v = it.cap;
+    if (typeof _showToast === 'function') {
+      _showToast('Capped at ' + it.cap + ' — that is when "' + it.title + '" moves to Past.', '#B45309');
+    }
+  }
+  /* A backwards window shows nothing at all and looks like a bug rather than a
+     setting, so nudge the other end instead of saving something inert. */
+  if (v && which === 'from' && it.to && !it.autoEnd && v > it.to) {
+    if (typeof _showToast === 'function') _showToast('Start moved past the end date — end date cleared.', '#B45309');
+    it.to = '';
+  }
+  if (v && which === 'to' && it.from && v < it.from) {
+    if (typeof _showToast === 'function') _showToast('End is before the start date — not saved.', '#DC2626');
+    _cmsRenderDisseminate();
+    return;
+  }
+
+  try {
+    var upd = {};
+    if (session) {
+      /* Sessions end on their own date, so only a start is stored, in a map
+         keyed by the sanitised session label. */
+      upd['homeRotationSessionFrom.' + _hrKey(session)] = v || firebase.firestore.FieldValue.delete();
+    } else if (which === 'from') {
+      upd.homeRotationFrom = v;
+      if (it.to === '') upd.homeRotationTo = '';
+    } else {
+      upd.homeRotationTo = v;
+    }
+    await db.collection(coll).doc(id).update(upd);
+    if (which === 'from') it.from = v; else it.to = v;
+    _cmsRenderDisseminate();
+    if (typeof auditLog === 'function') {
+      auditLog('Home rotation window changed', it.title + (session ? ' — ' + session : '') +
+        ': ' + which + ' = ' + (v || 'cleared'));
+    }
+  } catch (e) {
+    if (typeof _showToast === 'function') _showToast('Could not save: ' + e.message, '#DC2626');
   }
 };
 
