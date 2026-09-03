@@ -5157,7 +5157,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.16</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.17</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -50010,6 +50010,11 @@ window.ihExportCSV = function () {
     try {
       var sessSnap = await db.collection('trainingSessions').get();
       var userSnap = await db.collection('userRoles').get();
+      /* The Pacific Partners deck at ldahawaii.org/PIP/ has no login, so it
+         cannot write userRoles.trainingProgress (keyed by Firebase uid). It
+         writes its own collection keyed by the email typed on slide one, and
+         is merged in here. (2026-09-02) */
+      var deckSnap = await db.collection('partnerTrainingProgress').get();
 
       /* A withdrawn session is not something anyone owes, so it leaves the
          denominator. It stays in each person's history — retiring a session
@@ -50024,6 +50029,22 @@ window.ihExportCSV = function () {
           publishedAt: String(s.publishedAt || ''),
           slides: (s.slides || []).length
         });
+      });
+      /* The deck is a session too, but it lives outside trainingSessions, so
+         its column is derived from the records themselves. */
+      var _deckRecs = [], _deckSessions = {};
+      deckSnap.forEach(function(d) {
+        var x = d.data() || {};
+        var sid = String(x.sessionId || '').trim();
+        if (!sid || !x.personEmail) return;
+        _deckRecs.push(x);
+        if (!_deckSessions[sid]) {
+          _deckSessions[sid] = { id: sid, title: String(x.sessionTitle || sid),
+            publishedAt: String(x.sessionDate || ''), slides: Number(x.total) || 0, fromDeck: true };
+        }
+      });
+      Object.keys(_deckSessions).forEach(function(k) {
+        if (!_stSessions.some(function(s) { return s.id === k; })) _stSessions.push(_deckSessions[k]);
       });
       _stSessions.sort(function(a, b) { return a.publishedAt.localeCompare(b.publishedAt); });
 
@@ -50067,6 +50088,47 @@ window.ihExportCSV = function () {
           if (p && p.at && String(p.at) > row.lastAt) row.lastAt = String(p.at);
         });
         _stRows.push(row);
+      });
+
+      /* Match on email. Everyone with an -Int account gets the deck's progress
+         folded into their existing row; anyone else (a partner without a login,
+         or someone who typed a different address) becomes a row of their own so
+         the work is not invisible. */
+      var _byEmail = {};
+      _stRows.forEach(function(r) { if (r.email) _byEmail[r.email.toLowerCase()] = r; });
+      _deckRecs.forEach(function(x) {
+        var em = String(x.personEmail || '').toLowerCase();
+        var row = _byEmail[em];
+        if (!row) {
+          row = { uid: 'deck:' + em, name: String(x.personName || em.split('@')[0]),
+                  email: String(x.personEmail || ''), role: 'partner', isPartner: true,
+                  noAccount: true, per: {}, completed: 0, skipped: 0, never: 0,
+                  totalSkips: 0, lastAt: '' };
+          _stSessions.forEach(function(s) {
+            if (!row.per[s.id]) { row.per[s.id] = { status: 'never', at: '', skips: 0 }; row.never++; }
+          });
+          _stRows.push(row); _byEmail[em] = row;
+        }
+        var sid = String(x.sessionId || '');
+        var prevStatus = (row.per[sid] || {}).status;
+        if (prevStatus === 'completed') row.completed--;
+        else if (prevStatus === 'skipped') row.skipped--;
+        else if (prevStatus === 'never') row.never--;
+        var done = String(x.status || '') === 'completed';
+        var sk = Number(x.skips) || 0;
+        row.per[sid] = {
+          status: done ? 'completed' : (Number(x.furthest) > 0 ? 'skipped' : 'never'),
+          at: String(x.completedAt || x.updatedAt || ''),
+          skips: sk,
+          /* the detail the older sessions cannot supply */
+          furthest: Number(x.furthest) || 0, total: Number(x.total) || 0,
+          percent: Number(x.percent) || 0, fromDeck: true
+        };
+        if (row.per[sid].status === 'completed') row.completed++;
+        else if (row.per[sid].status === 'skipped') row.skipped++;
+        else row.never++;
+        row.totalSkips += sk;
+        if (row.per[sid].at && row.per[sid].at > row.lastAt) row.lastAt = row.per[sid].at;
       });
 
       var stamp = document.getElementById('stGeneratedAt');
@@ -50159,6 +50221,7 @@ window.ihExportCSV = function () {
       html += '<tr style="border-top:1px solid #F1F5F9;">'
            +  '<td style="padding:6px 4px;"><div style="font-weight:600;">' + rsEscape(r.name)
            +    (r.isPartner ? ' <span style="font-weight:400;font-size:.72rem;color:var(--text-soft);">partner</span>' : '')
+           +    (r.noAccount ? ' <span title="Did the walkthrough but has no -Int login — matched by the email they typed." style="font-weight:400;font-size:.7rem;color:#B45309;">no login</span>' : '')
            +    '</div><div style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(r.email) + '</div></td>';
       _stSessions.forEach(function(s) {
         var p = r.per[s.id] || { status: 'never', skips: 0, at: '' };
@@ -50166,7 +50229,16 @@ window.ihExportCSV = function () {
         if (p.status === 'completed') {
           cell = pill(_ST_DONE, 'Completed') + (p.at ? '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">' + rsEscape(_stDay(p.at)) + '</div>' : '');
         } else if (p.status === 'skipped') {
-          cell = pill(_ST_SKIP, 'Skipped' + (p.skips > 1 ? ' ×' + p.skips : ''));
+          /* The deck reports how far they actually got. "Skipped" alone cannot
+             tell apart someone who closed it on slide 2 from someone who
+             stopped on slide 27, and those need different follow-up. */
+          cell = pill(_ST_SKIP, p.fromDeck ? 'Stopped' : ('Skipped' + (p.skips > 1 ? ' ×' + p.skips : '')));
+          if (p.fromDeck && p.total) {
+            cell += '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">slide ' +
+              p.furthest + ' of ' + p.total + ' &middot; ' + p.percent + '%' +
+              (p.skips > 1 ? ' &middot; ×' + p.skips : '') + '</div>';
+          }
+          if (p.at) cell += '<div style="font-size:.7rem;color:var(--text-soft);">' + rsEscape(_stDay(p.at)) + '</div>';
         } else {
           cell = '<span style="color:var(--text-soft);">&mdash;</span>';
         }
