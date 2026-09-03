@@ -5157,7 +5157,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.12</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.13</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -48911,6 +48911,33 @@ window.ihExportCSV = function () {
     var t = new Date();
     dEl.value = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
     var nb = document.getElementById('oneOffNewContactBox'); if (nb) nb.style.display = 'none';
+    /* Partner variant. Everything else about the form is identical, so this
+       swaps two controls rather than branching the whole modal. */
+    var _isPartner = !!(window.isPartnerUser && window.isPartnerUser());
+    var _pSel = document.getElementById('oneOffPresenter');
+    var _pTxt = document.getElementById('oneOffPresenterText');
+    var _pCntBox = document.getElementById('oneOffPartnerCountBox');
+    var _pCnt = document.getElementById('oneOffPartnerCount');
+    var _attSearchWrap = document.getElementById('oneOffAttendeeSearch');
+    if (_pTxt) _pTxt.value = '';
+    if (_pCnt) _pCnt.value = '';
+    if (_isPartner) {
+      if (_pSel) _pSel.style.display = 'none';
+      if (_pTxt) _pTxt.style.display = '';
+      if (_pCntBox) _pCntBox.style.display = '';
+      /* Hide the whole contact-picker row, its "+ New contact" button and the
+         quick-add box — a partner has no business browsing the contact list. */
+      if (_attSearchWrap && _attSearchWrap.parentElement) _attSearchWrap.parentElement.style.display = 'none';
+      var _newBtn = document.querySelector('button[onclick="cmsOoToggleNewContact()"]');
+      if (_newBtn) _newBtn.style.display = 'none';
+    } else {
+      if (_pSel) _pSel.style.display = '';
+      if (_pTxt) _pTxt.style.display = 'none';
+      if (_pCntBox) _pCntBox.style.display = 'none';
+      if (_attSearchWrap && _attSearchWrap.parentElement) _attSearchWrap.parentElement.style.display = '';
+      var _newBtn2 = document.querySelector('button[onclick="cmsOoToggleNewContact()"]');
+      if (_newBtn2) _newBtn2.style.display = '';
+    }
     /* Fill the tier options before the edit branch below sets .value — assigning a
        value that has no matching option silently leaves the select blank. */
     window.populateTierDropdowns();
@@ -48921,6 +48948,11 @@ window.ihExportCSV = function () {
           var d = doc.data();
           document.getElementById('oneOffName').value = d.title || '';
           presenterSel = (d.summary && d.summary.presenter) || '';
+          if (_isPartner) {
+            if (_pTxt) _pTxt.value = presenterSel;
+            var _ov = (d.summary && d.summary.attendanceOverrides) || {};
+            if (_pCnt && typeof _ov.attTotal === 'number') _pCnt.value = _ov.attTotal;
+          }
           matPacked = (d.summary && d.summary.materialsPacked) || {};
           matDiss = (d.summary && d.summary.materialsDisseminated) || {};
           document.getElementById('oneOffLocation').value = d.location || '';
@@ -48958,7 +48990,16 @@ window.ihExportCSV = function () {
     var dateIso = document.getElementById('oneOffDate').value;
     if (!name) { _showToast('Event name is required.', '#DC2626'); return; }
     if (!dateIso) { _showToast('Date is required.', '#DC2626'); return; }
-    var presenter = (document.getElementById('oneOffPresenter').value || '').trim();
+    var _isPartnerSave = !!(window.isPartnerUser && window.isPartnerUser());
+    var _pTxtEl = document.getElementById('oneOffPresenterText');
+    var presenter = _isPartnerSave
+      ? ((_pTxtEl && _pTxtEl.value) || '').trim()
+      : (document.getElementById('oneOffPresenter').value || '').trim();
+    /* Blank stays blank rather than becoming 0 — a partner who leaves the
+       headcount empty has not told us the attendance was zero. */
+    var _pCntEl = document.getElementById('oneOffPartnerCount');
+    var _pCntRaw = _isPartnerSave ? String((_pCntEl && _pCntEl.value) || '').trim() : '';
+    var partnerCount = _pCntRaw === '' ? null : Math.max(0, parseInt(_pCntRaw, 10) || 0);
     var location = (document.getElementById('oneOffLocation').value || '').trim();
     var tier = document.getElementById('oneOffTier').value || '';
     var description = (document.getElementById('oneOffDescription').value || '').trim();
@@ -48976,10 +49017,15 @@ window.ihExportCSV = function () {
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, archived: true, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
         });
+        if (partnerCount !== null) {
+          await db.collection('events').doc(eventId)
+            .update({ 'summary.attendanceOverrides.attTotal': partnerCount });
+        }
       } else {
         var evRef = await db.collection('events').add(window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, summary: { presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments }, signupDates: [], archived: true,
+          isOneOff: true, summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments },
+            partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [], archived: true,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
         }));
         eventId = evRef.id;
@@ -51851,6 +51897,11 @@ window.cmsBuildMembershipReport = async function() {
           <select id="oneOffPresenter" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;background:#fff;">
             <option value="">&mdash; Select presenter &mdash;</option>
           </select>
+          <!-- Partners present their own sessions; the dropdown lists LDAH staff,
+               so there is nobody in it for them to pick. Free text instead, shown
+               only for partners. (2026-09-02) -->
+          <input id="oneOffPresenterText" type="text" placeholder="First and last name"
+                 style="display:none;width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -51920,6 +51971,17 @@ window.cmsBuildMembershipReport = async function() {
           <button type="button" id="ooNewSaveBtn" onclick="cmsOoQuickAddContact()" style="font-size:.82rem;background:#16A34A;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600;">Create &amp; add</button>
         </div>
         <div id="oneOffAttendeeList"></div>
+        <!-- Partners record a headcount, not names. They run a table at someone
+             else's event and do not collect contact details, so the picker above
+             is hidden for them and this is shown instead. The number is stored in
+             summary.attendanceOverrides.attTotal, which the Event Attendance
+             report already reads when an event has no per-person signups. -->
+        <div id="oneOffPartnerCountBox" style="display:none;">
+          <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">How many people attended?</label>
+          <input id="oneOffPartnerCount" type="number" min="0" step="1" placeholder="e.g. 24"
+                 style="width:160px;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+          <div style="font-size:.75rem;color:#64748B;margin-top:5px;">Just the total is fine &mdash; names are not needed.</div>
+        </div>
       </div>
     </div>
     <div style="padding:12px 18px;border-top:1px solid #F1F5F9;display:flex;justify-content:flex-end;gap:10px;background:#fff;">
