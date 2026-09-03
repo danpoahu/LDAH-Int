@@ -5030,7 +5030,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.5-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.7-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17481,7 +17481,7 @@ var _photoPendingByIsland = {};
     }
     try {
       // Reveal the (always-emitted, hidden-by-default) slot now that there's a
-      // real Connect-Gen signup to show — for online-consent AND in-person families.
+      // real Connect-Gen signup to show — whether or not consent is on file yet.
       slot.style.display = '';
       // Load signup + parent event in parallel.
       var sigRef = db.collection('recurringEvents').doc(cg.eventId).collection('signups').doc(cg.signupId);
@@ -17571,9 +17571,10 @@ var _photoPendingByIsland = {};
     }
 
     var detailId = 'ctCgDetail_' + (cg.signupId || Date.now());
-    // Header: keep the green "Signed … by …" when there's an online consent;
-    // otherwise (in-person families sign on arrival, no connectGenConsent) show a
-    // neutral/amber status header inferred from the session modality.
+    // Header: keep the green "Signed … by …" when consent is on file, otherwise
+    // an amber "Not signed". Every Connect-Gen family owes a signed consent form
+    // (one intake procedure), so the modality of the session does not soften
+    // this and there is no longer any modality-based pass to infer.
     var html;
     if (cg && cg.signedAt) {
       html =
@@ -17581,12 +17582,9 @@ var _photoPendingByIsland = {};
         'Signed <strong>' + rsEscape(when) + '</strong> by <strong>' + rsEscape(cg.signedName || '') + '</strong>' +
         (cg.version ? '<br><span style="font-size:.78rem;color:#64748B;">Form revision: ' + rsEscape(cg.version) + '</span>' : '');
     } else {
-      var _cgVirtual = /virtual|zoom|all islands/i.test(sessionDates || '');
-      html = _cgVirtual
-        ? '<span style="display:inline-block;background:#FEF3C7;color:#92400E;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">Not signed</span>' +
-          'Online consent: <strong>not signed yet</strong>'
-        : '<span style="display:inline-block;background:#FEF3C7;color:#92400E;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">In-person</span>' +
-          'Consent: <strong>signed on arrival (in-person)</strong>';
+      html =
+        '<span style="display:inline-block;background:#FEF3C7;color:#92400E;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:999px;margin-right:8px;">Not signed</span>' +
+        'Online consent: <strong>not signed yet</strong>';
     }
 
     if (event && event.title) {
@@ -18332,8 +18330,8 @@ window.openContactDetail = async function(contactId) {
       // Reserves a slot here; full content is rendered async below once we've
       // fetched the signup doc.
       // Always emit the Connect-Gen slot but keep it hidden; it's unhidden by
-      // cmsRenderConnectGenContactBlock only when a real CG signup exists — so
-      // in-person families (no online connectGenConsent) still get the block + pill.
+      // cmsRenderConnectGenContactBlock only when a real CG signup exists — so a
+      // family who has not signed consent yet still gets the block + pill.
       var connectGenSlot = '<div id="ctConnectGenBlock" class="ct-info-card" style="display:none;background:#F0FDF4;border:1px solid #86EFAC;margin:0 0 12px;">' +
         '<div class="ct-info-field span2"><label style="color:#166534;">Connect-Gen Session</label>' +
         '<div class="val" style="color:var(--text-soft);font-size:.85rem;">Loading session details…</div>' +
@@ -18526,9 +18524,9 @@ window.openContactDetail = async function(contactId) {
         window._ctContactSignups.push(sData);
       });
 
-      // In-person Connect-Gen families sign consent on arrival (online consent is
-      // only for the Monday virtual session), so they have no connectGenConsent —
-      // but their completed Parent Worksheet must still be reviewable here.
+      // A Connect-Gen family who has not signed consent yet carries no
+      // connectGenConsent on their contact — but their completed Parent Report
+      // Worksheet must still be reviewable here.
       if (!(c.connectGenConsent && c.connectGenConsent.signedAt)) {
         var _cgSu = (window._ctContactSignups || []).find(function(su){
           return su.eventTitle === 'Connect-Gen' || su.prepToken || su.parentWorksheet || su.cgReadyAt || su.cgWorksheetRequestEmailSentAt;
@@ -31421,21 +31419,10 @@ function cmsRegStatusBadge(s) {
   // Connect-Gen consent gate: registration is complete but the parent
   // hasn't signed the consent form yet — distinguish from "Pending Registration"
   // (which means the registration form itself is still outstanding).
+  // Every Connect-Gen family owes a signed consent form now (one intake
+  // procedure), so this reads the same for all of them — no fork on modality.
   if (s.status === 'pending' && s.registrationCompletedAt && !s.consentSignedAt) {
-    // Consent is only required of Monday "All Islands Virtual" families. A
-    // Thursday / Hilo / Kona family signs on arrival and is never sent a form,
-    // so naming consent here sent staff chasing a signature nobody asked for —
-    // same mistake as cmsRegAdminNote had. Ask what this family actually owes.
-    var _sbEv = (typeof _cmsSignupsModalData !== 'undefined' && _cmsSignupsModalData)
-      ? (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc) : null;
-    var _sbRd = (typeof window._cgSignupReadiness === 'function')
-      ? window._cgSignupReadiness(s, _sbEv, { assumeConnectGen: !!(s.prepToken || s.parentWorksheet) })
-      : null;
-    if (!_sbRd || !_sbRd.isConnectGen || _sbRd.required.indexOf('consent') > -1) {
-      return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#E0F2FE;color:#0C4A6E;">Awaiting Consent</span>';
-    }
-    var _sbWait = (_sbRd.outstanding || []).indexOf('worksheet') > -1 ? 'Awaiting Worksheet' : 'Pending';
-    return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#FEF3C7;color:#92400E;">' + _sbWait + '</span>';
+    return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#E0F2FE;color:#0C4A6E;">Awaiting Consent</span>';
   }
   if (s.status === 'pending') return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#FEF3C7;color:#92400E;">Pending Registration</span>';
   return '<span style="display:inline-block;padding:4px 12px;border-radius:50px;font-size:12px;font-weight:700;background:#F3F4F6;color:#374151;">Signed Up</span>';
@@ -31444,13 +31431,11 @@ function cmsRegStatusBadge(s) {
 function cmsRegAdminNote(s) {
   var h = '';
   // Connect-Gen readiness gate: registration is in but the family still owes
-  // something. WHICH thing depends on the session, so this must not name consent
-  // unconditionally. Monday "All Islands Virtual" families owe a signed consent,
-  // their IEP/Evaluation and the worksheet. Thursday Oahu / Hilo / Kona families
-  // attend in person, sign consent on arrival, and owe ONLY the Parent Report
-  // Worksheet -- they are never sent a consent form at all. Previously every
-  // pending Connect-Gen family was reported as "awaiting consent signature",
-  // which sent staff chasing a signature that had never been requested.
+  // something. One intake procedure for everyone — every Connect-Gen family
+  // owes a signed consent form, their child's IEP + Evaluation and the Parent
+  // Report Worksheet, whatever the modality of their session. This still reads
+  // `outstanding` rather than naming all three, so staff are told only what is
+  // actually missing.
   // Mirrors _cgRequirements() in W2 functions/index.js.
   if (s.status === 'pending' && s.registrationCompletedAt) {
     var _cgEv = (typeof _cmsSignupsModalData !== 'undefined' && _cmsSignupsModalData)
@@ -32176,7 +32161,7 @@ function cmsRenderSignupCard(s, statusColors, collection, eventId, isArchived, s
   var _regType = s.registrantType || (s.registration && s.registration.role) || '';
   if (_regType) h += '<span style="font-size:.72rem;font-weight:600;color:#0369A1;background:#E0F2FE;border-radius:12px;padding:1px 8px;white-space:nowrap;">' + rsEscape(_regType) + '</span>';
   h += cmsRegStatusBadge(s);
-  /* Nudge button, right beside the Awaiting Worksheet chip. The automatic
+  /* Nudge button, right beside the registration status badge. The automatic
      reminder is every 3 days (daily inside 4 days of the session, capped at 3),
      so there was no way for staff to chase a family sooner — asked for
      2026-07-29. Only shown when a worksheet is genuinely outstanding and the
@@ -32955,14 +32940,19 @@ window._cgDocList = function(connectGenDocuments, type) {
 };
 
 // ── "Is this family ready?" — client mirror (v146.4.40) ─────────────────────
-// MIRRORS _cgRequirements() / _cgIsMondayVirtual() / _isWorksheetComplete() in
-// the Cloud Functions (search "THE single definition"). The functions own the
-// rules; this exists only so staff can SEE readiness without a round trip. If
-// the server rules change, change these too — two copies that disagree would
-// have the dashboard and the family's email telling different stories.
+// MIRRORS _cgRequirements() / _isWorksheetComplete() in the Cloud Functions
+// (search "THE single definition"). The functions own the rules; this exists
+// only so staff can SEE readiness without a round trip. If the server rules
+// change, change these too — two copies that disagree would have the dashboard
+// and the family's email telling different stories.
 //
-//   Monday virtual : consent + documents + worksheet
-//   In person      : worksheet only (they bring the IEP; they sign nothing)
+//   Every Connect-Gen family : consent + documents + worksheet
+//
+// ONE intake procedure for everyone (2026-09-03). There is no Monday-virtual
+// vs in-person split any more: the modality of a session does not change what
+// a family owes, so nothing here may branch on it. Families who attend in
+// person still countersign on arrival, but that is a paper formality — it does
+// not replace the signed consent form and does not clear this gate.
 //
 // opts.assumeConnectGen lets a caller that already knows it is in a Connect-Gen
 // context (cmsIsConnectGenContext) get an answer even if the event doc has not
@@ -32971,14 +32961,12 @@ window._cgSignupReadiness = function(signup, event, opts) {
   var o = opts || {};
   var isCg = !!(event && event.zoomMode === 'program') || !!o.assumeConnectGen;
   if (!isCg || !signup) {
-    return { isConnectGen: false, mondayVirtual: false, required: [], done: [], outstanding: [], ready: true,
+    return { isConnectGen: false, required: [], done: [], outstanding: [], ready: true,
              hasConsent: false, hasDocs: false, hasWorksheet: false };
   }
 
-  var mondayVirtual = _cgIsMondayVirtualClient(signup, event);
-
-  var required = ['worksheet'];                       // every family
-  if (mondayVirtual) required.unshift('consent', 'documents');
+  // One procedure for every Connect-Gen family. Not conditional on anything.
+  var required = ['consent', 'documents', 'worksheet'];
 
   var hasConsent = !!signup.consentSignedAt;
   var hasDocs = _cgDocList(signup.connectGenDocuments, 'iep').length > 0
@@ -32992,7 +32980,6 @@ window._cgSignupReadiness = function(signup, event, opts) {
 
   return {
     isConnectGen: true,
-    mondayVirtual: mondayVirtual,
     required: required,
     done: done,
     outstanding: outstanding,
@@ -33013,31 +33000,6 @@ function _cgWorksheetCompleteClient(concerns) {
   return list.some(function(c) {
     return fields.every(function(f) { return !!(c && String(c[f] || '').trim()); });
   });
-}
-
-// Monday + virtual? Consent and upload apply only to those. Mirrors
-// _cgIsMondayVirtual() server-side, which reads the FIRST session of the
-// signup — so we do the same rather than scanning every selected date.
-// cmsIsDateVirtual() returns null when it cannot tell; only an explicit true
-// counts (an unknown location must not invent a consent requirement).
-function _cgIsMondayVirtualClient(signup, event) {
-  try {
-    var keys = [];
-    if (Array.isArray(signup.selectedSessions) && signup.selectedSessions.length) keys = signup.selectedSessions;
-    else if (Array.isArray(signup.selectedDates) && signup.selectedDates.length) keys = signup.selectedDates;
-    var key = String(keys[0] || '');
-    var dm = key.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!dm) return false;
-    // Day-of-week from Y-M-D components (calendar day; HST has no DST, so this
-    // is tz-agnostic). new Date("YYYY-MM-DD") would be UTC midnight = 2pm the
-    // previous day in Honolulu.
-    var dow = new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3])).getUTCDay();
-    if (dow !== 1) return false;                        // 1 = Monday
-    return cmsIsDateVirtual(event, key) === true;
-  } catch (e) {
-    console.warn('_cgIsMondayVirtualClient failed:', e.message);
-    return false;
-  }
 }
 
 // The pill staff scan for: green "Ready", or amber "Waiting on: documents,
@@ -33064,10 +33026,10 @@ window._cgReadinessHidden = function(signup, sessionDateKey) {
 };
 
 /* The three requirements as a row, so it is clear at a glance what a family
-   still owes AND what was never asked of them. A Thursday in-person family
-   shows consent and documents as "n/a" rather than as outstanding items — the
+   still owes. Every Connect-Gen family owes all three, so every chip is either
+   done or outstanding — there is no "not required" state left to render (the
    old single pill said "Waiting on: worksheet" and left staff guessing whether
-   the other two were missing or irrelevant. */
+   the other two were missing or irrelevant). */
 window._cgRequirementsRowHtml = function(signup, event, opts) {
   var r = _cgSignupReadiness(signup, event, opts);
   if (!r.isConnectGen) return '';
@@ -33076,22 +33038,17 @@ window._cgRequirementsRowHtml = function(signup, event, opts) {
   var base = 'font-size:.68rem;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap;';
   var done = base + 'background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;';
   var wait = base + 'background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;';
-  var na   = base + 'background:#F8FAFC;color:#94A3B8;border:1px solid #E2E8F0;';
 
-  function chip(label, req, has, naNote, doneNote) {
-    if (!req) return '<span style="' + na + '" title="Not required for this family.">' + label + ' n/a' +
-      (naNote ? ' (' + naNote + ')' : '') + '</span>';
+  function chip(label, has, doneNote) {
     if (has) return '<span style="' + done + '" title="' + rsEscape(doneNote || '') + '">' + label + ' &#10003;</span>';
     return '<span style="' + wait + '" title="Still outstanding.">' + label + ' &mdash; outstanding</span>';
   }
 
-  var needsConsent = r.required.indexOf('consent') > -1;
-  var needsDocs = r.required.indexOf('documents') > -1;
   return '<span style="display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center;">' +
-    chip('Worksheet', true, r.hasWorksheet, '', 'Parent Report Worksheet complete.') +
-    chip('Consent', needsConsent, r.hasConsent, 'signed in person', 'Consent signed online.') +
-    chip('Documents', needsDocs, r.hasDocs, 'in person', 'IEP and Evaluation both on file.') +
-    (r.ready ? '<span style="' + base + 'background:#16A34A;color:#fff;" title="Everything that applies to this family is done.">Ready</span>' : '') +
+    chip('Worksheet', r.hasWorksheet, 'Parent Report Worksheet complete.') +
+    chip('Consent', r.hasConsent, 'Consent signed.') +
+    chip('Documents', r.hasDocs, 'IEP and Evaluation both on file.') +
+    (r.ready ? '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet are all done.">Ready</span>' : '') +
     '</span>';
 };
 
@@ -33103,7 +33060,7 @@ window._cgReadinessPillHtml = function(signup, event, opts) {
   if (_cgReadinessHidden(signup, (opts && opts.sessionDateKey) || '')) return '';
   var base = 'display:inline-block;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;';
   if (r.ready) {
-    return '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet — everything that applies to this family is done.">Ready</span>';
+    return '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet are all done.">Ready</span>';
   }
   var labels = { consent: 'consent', documents: 'documents', worksheet: 'worksheet' };
   var parts = r.outstanding.map(function(k) { return labels[k] || k; });
@@ -33116,8 +33073,8 @@ window._cgReadinessPillHtml = function(signup, event, opts) {
 // the visible label.
 // ── Parent Report Worksheet button (v146.4.39) ──────────────────────────────
 // Shown on every Connect-Gen signup card, next to the documents button. The
-// worksheet is required of ALL families (including in-person, who upload no
-// documents at all), so it must not hide behind the documents row's branches.
+// worksheet is required of ALL families, so it must not hide behind the
+// documents row's branches.
 function cmsCgWorksheetBtn(s, collection, eventId) {
   var ws = (s && s.parentWorksheet) || {};
   var n = Array.isArray(ws.concerns) ? ws.concerns.length : 0;
@@ -33220,11 +33177,13 @@ window.cmsOpenContactCaseSummary = async function(contactId) {
 // Sends a Connect-Gen family the document-upload email (the standard
 // "Upload your Connect-Gen documents" lifecycle email) via
 // sendConnectGenUploadLaterEmail. Shows ONLY when the family has a live upload
-// token — i.e. they have signed consent (consent-submit mints the token) and
-// the case is still open. This covers the "moved sessions, docs email never
-// went out" case (mint exists, email skipped).
+// token and the case is still open. The server mints that token for every
+// Connect-Gen signup at registration, so a missing token is an anomaly (a
+// signup from before the mint, or a token already cleared) — it does NOT mean
+// "consent not signed". This covers the "moved sessions, docs email never went
+// out" case (mint exists, email skipped).
 function cmsCgUploadReqBtn(s, collection, eventId) {
-  if (!s || !s.uploadAuthToken) return '';                 // no consent yet = no token
+  if (!s || !s.uploadAuthToken) return '';                 // defensive: no token, nothing to send
   if (s.connectGenDocumentsDestroyedAt || s.connectGenDisposition) return '';
   return '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#0891B2;color:#fff;border:none;font-weight:600;" onclick="event.stopPropagation();cgResendUploadRequest(' +
     _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ',' + _jsArg(s.name || s.firstName || 'this family') +
@@ -33235,7 +33194,7 @@ window.cgResendUploadRequest = async function(collection, eventId, signupId, who
   try {
     var snap = await db.collection(collection).doc(eventId).collection('signups').doc(signupId).get();
     var s = snap.exists ? snap.data() : null;
-    if (!s || !s.uploadAuthToken) { alert('No upload link on file — the family may not have signed consent yet.'); return; }
+    if (!s || !s.uploadAuthToken) { alert('No upload link on file for this family. One has to be minted before an upload request can be sent.'); return; }
     var exp = (s.uploadAuthExpiresAt && s.uploadAuthExpiresAt.toMillis) ? s.uploadAuthExpiresAt.toMillis() : 0;
     if (exp && exp < Date.now()) { alert('This family\'s upload link has expired. It needs to be re-minted before resending.'); return; }
     var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendConnectGenUploadLaterEmail', {
@@ -38220,10 +38179,14 @@ window.cmsResendRegistrationEmail = async function(btn, collection, eventId, sig
   }
 };
 
-/* ── Connect-Gen Monday-virtual docs gate (v122.0.8) ──
- * Block staff from confirming a CG signup when the session is Monday + virtual
- * and the IEP + Evaluation documents are not on file. Returns the session key
- * that triggered the block, or '' if confirmation is allowed.
+/* ── Connect-Gen documents gate (v122.0.8, widened 2026-09-03) ──
+ * Block staff from confirming a CG signup when the IEP + Evaluation documents
+ * are not on file. This applies to EVERY Connect-Gen session — one intake
+ * procedure, so an in-person family with nothing on file must not be
+ * confirmable either. It used to skip anything that was not Monday + virtual,
+ * which is how staff could confirm an in-person family with no documents at
+ * all. Returns the session key that triggered the block, or '' if confirmation
+ * is allowed.
  *
  * sessionDateKey is the per-date key when the action came from
  * cmsUpdateSignupModeForDate; otherwise '' (signup-level dropdown) — in which
@@ -38248,13 +38211,9 @@ function cmsCgConfirmBlockedKey(event, signup, sessionDateKey) {
   }
   for (var i = 0; i < keys.length; i++) {
     var k = String(keys[i] || '');
-    var dm = k.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!dm) continue;
-    // Day-of-week from Y-M-D components (calendar day; tz-agnostic since HST has no DST).
-    var dow = new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3])).getUTCDay();
-    if (dow !== 1) continue;
-    var virtual = cmsIsDateVirtual(event, k);
-    if (virtual !== true) continue;
+    // No YYYY-MM-DD prefix = not a session we could name in the toast; skip it
+    // rather than blocking on something we cannot identify to the staff member.
+    if (!/^\d{4}-\d{2}-\d{2}/.test(k)) continue;
     return k;
   }
   return '';
@@ -38269,8 +38228,8 @@ window.cmsUpdateSignupStatus = async function(collection, eventId, signupId, sta
   var _prevStatus = _s0 ? (_s0.status || 'new') : 'new';
   if (status === _prevStatus) return;
 
-  // v122.0.8: CG Monday-virtual docs gate. Block before any write when the
-  // staff member is moving a signup to confirmed without docs on file.
+  // v122.0.8: CG documents gate (every session). Block before any write when
+  // the staff member is moving a signup to confirmed without docs on file.
   // Runs synchronously before any modal so staff see the toast, not a confirm.
   if (status === 'confirmed') {
     var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
@@ -38380,8 +38339,8 @@ window.cmsUpdateSignupModeForDate = async function(collection, eventId, signupId
     : (s ? (s.status || 'new') : 'new');
   if (newValue === currentMode) return;
 
-  // v122.0.8: CG Monday-virtual docs gate. Block any transition to a
-  // confirmed-* value on a Monday-virtual session without docs on file.
+  // v122.0.8: CG documents gate (every session). Block any transition to a
+  // confirmed-* value on any Connect-Gen session without docs on file.
   // Runs synchronously before the modal so staff see the toast, not a confirm.
   if (newValue === 'confirmed' || isOverride) {
     var ev = (_cmsSignupsModalData && (_cmsSignupsModalData.programDoc || _cmsSignupsModalData.eventDoc)) || null;
@@ -47783,7 +47742,7 @@ window._cmsShowOnlyReport = function (panelId) {
    no-shows that were never observed and quietly flatter the attendance rate. */
 var _prRows = [], _prTotals = null, _prOrphanFeedback = 0, _prLoading = false;
 var _prAllEventIds = {};
-var _prState = { from: '', to: '', group: 'month',
+var _prState = { from: '', to: '', group: 'month', includeArchived: false,
                  metrics: { signups: true, attended: true, noshow: true, unmarked: true, feedback: true } };
 
 function _prISO(d) { return d.toISOString().slice(0, 10); }
@@ -47862,6 +47821,11 @@ function _prRenderControls() {
         '<select onchange="prSet(\'group\',this.value)" style="font-size:.82rem;padding:5px 7px;border:1px solid #CBD5E1;border-radius:6px;font-family:inherit;">' +
           G.map(function(g) { return '<option value="' + g[0] + '"' + (_prState.group === g[0] ? ' selected' : '') + '>' + g[1] + '</option>'; }).join('') +
         '</select></div>' +
+      '<div><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">&nbsp;</label>' +
+        '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:4px;cursor:pointer;">' +
+          '<input type="checkbox" ' + (_prState.includeArchived ? 'checked' : '') + ' onchange="prArchived(this.checked)"> Include archived</label></div>' +
+      '<div><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">&nbsp;</label>' +
+        '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 10px;" onclick="prRefresh()" title="Re-read everything from the database">&#x21bb; Refresh</button></div>' +
       '<div style="flex:1;min-width:220px;"><label style="display:block;font-size:.7rem;font-weight:700;color:var(--text-soft);margin-bottom:3px;">Show</label>' +
         '<div style="display:flex;gap:11px;flex-wrap:wrap;">' +
         M.map(function(m) {
@@ -47876,6 +47840,11 @@ window.prSet = function(k, v) {
   if (k === 'group') { _prRender(); } else { _prLoad(); }
 };
 window.prMetric = function(k, on) { _prState.metrics[k] = !!on; _prRender(); };
+window.prArchived = function(on) { _prState.includeArchived = !!on; _prRender(); };
+/* Everything is cached on first open, so an event added while the report is
+   sitting there will not appear until the cache is thrown away. Without this
+   button the only way to see new work was to reload the whole page. */
+window.prRefresh = function() { _prCache = null; _prRenderControls(); _prLoad(); };
 window.prPreset = function(p) {
   if (!p) return;
   var now = new Date(), f = new Date(), t = new Date();
@@ -47909,17 +47878,21 @@ async function _prLoadAll() {
   var evSnap  = await db.collection('events').get();
   var recSnap = await db.collection('recurringEvents').get();
   var allIds = {}, sources = [];
+  /* Archived events are LOADED and tagged, not dropped at read time. Dropping
+     them here is how a staff member's newly added event silently disappeared
+     from the report with nothing to explain it — the answer was that someone
+     had archived it. Whether they are counted is decided at render, where the
+     exclusion can be shown and reversed. */
   evSnap.forEach(function(d) {
     var v = d.data() || {}; allIds[d.id] = 1;
-    if (v.archived === true) return;
-    sources.push({ id: d.id, v: v, coll: 'events', basis: 'event' });
+    sources.push({ id: d.id, v: v, coll: 'events', basis: 'event', archived: v.archived === true });
   });
   recSnap.forEach(function(d) {
     var v = d.data() || {}; allIds[d.id] = 1;
-    if (v.archived === true || v.active === false) return;
+    if (v.active === false && v.archived !== true) return;   // deactivated, never archived
     /* Connect-Gen lives here, not in `events`. An earlier cut of this report
        read only `events` and lost the whole programme. */
-    sources.push({ id: d.id, v: v, coll: 'recurringEvents', basis: 'recurring' });
+    sources.push({ id: d.id, v: v, coll: 'recurringEvents', basis: 'recurring', archived: v.archived === true });
   });
 
   var rows = [];
@@ -47932,7 +47905,7 @@ async function _prLoadAll() {
       x._prDate = _prSignupDate(x, e, e.basis);
       sigs.push(x);
     });
-    rows.push({ ev: e, sigs: sigs, basis: e.basis, feedback: 0, fbDates: [] });
+    rows.push({ ev: e, sigs: sigs, basis: e.basis, archived: e.archived, feedback: 0, fbDates: [] });
   }
 
   var fbSnap = await db.collection('eventFeedback').get();
@@ -47978,10 +47951,17 @@ async function _prLoad() {
 
 /* Reduce the cache to just what falls inside the chosen range. An event-based
    signup is dated by its event; an ongoing-programme signup by its own date. */
+var _prHiddenArchived = { events: 0, signups: 0 };
 function _prInRange() {
   var from = _prState.from, to = _prState.to;
   var out = [];
+  _prHiddenArchived = { events: 0, signups: 0 };
   (_prCache ? _prCache.rows : []).forEach(function(r) {
+    if (r.archived && !_prState.includeArchived) {
+      var hid = r.sigs.filter(function(x) { return x._prDate && x._prDate >= from && x._prDate <= to && x.status !== 'cancelled'; });
+      if (hid.length) { _prHiddenArchived.events++; _prHiddenArchived.signups += hid.length; }
+      return;
+    }
     var sigs = r.sigs.filter(function(x) { return x._prDate && x._prDate >= from && x._prDate <= to; });
     var fbDates = [], fbCount = 0;
     (_prCache.fb || []).forEach(function(f) {
@@ -48220,6 +48200,9 @@ function _prRender() {
   if (_prOrphanFeedback) notes.push('<b>' + _prOrphanFeedback + '</b> feedback response' + (_prOrphanFeedback === 1 ? '' : 's') +
     ' point at an event or programme that no longer exists and cannot be placed in any row.');
   if (T.cancelled) notes.push('<b>' + T.cancelled + '</b> cancelled signup' + (T.cancelled === 1 ? ' is' : 's are') + ' excluded throughout.');
+  if (_prHiddenArchived.events) notes.push('<b>' + _prHiddenArchived.events + '</b> archived event' +
+    (_prHiddenArchived.events === 1 ? '' : 's') + ' with <b>' + _prHiddenArchived.signups + '</b> signup' +
+    (_prHiddenArchived.signups === 1 ? ' is' : 's are') + ' excluded. Tick <b>Include archived</b> above to count them.');
 
   var P = _prPeople(), A = _prAdvocacy();
   var peopleStrip = _prStrip('People &mdash; counted once each, not per signup', [
