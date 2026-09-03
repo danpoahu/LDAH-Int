@@ -5157,7 +5157,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.17</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.18</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -50003,6 +50003,7 @@ window.ihExportCSV = function () {
     _cmsShowOnlyReport(null);
   };
 
+  var _stDeckRecs = [];
   window.cmsBuildStaffTrainingReport = async function() {
     _cmsShowOnlyReport('staffTrainingReportInGrid');
     var body = document.getElementById('stBody');
@@ -50122,7 +50123,8 @@ window.ihExportCSV = function () {
           skips: sk,
           /* the detail the older sessions cannot supply */
           furthest: Number(x.furthest) || 0, total: Number(x.total) || 0,
-          percent: Number(x.percent) || 0, fromDeck: true
+          percent: Number(x.percent) || 0, fromDeck: true,
+          slideSeconds: x.slideSeconds || {}, slideVisits: x.slideVisits || {}
         };
         if (row.per[sid].status === 'completed') row.completed++;
         else if (row.per[sid].status === 'skipped') row.skipped++;
@@ -50130,6 +50132,8 @@ window.ihExportCSV = function () {
         row.totalSkips += sk;
         if (row.per[sid].at && row.per[sid].at > row.lastAt) row.lastAt = row.per[sid].at;
       });
+
+      _stDeckRecs = _deckRecs;
 
       var stamp = document.getElementById('stGeneratedAt');
       if (stamp) stamp.textContent = 'Generated ' + new Date().toLocaleString();
@@ -50139,6 +50143,110 @@ window.ihExportCSV = function () {
         + rsEscape(err && err.message ? err.message : String(err)) + '</p></div>';
     }
   };
+
+/* ── Slide-by-slide ───────────────────────────────────────────────────────────
+   Only the Pacific Partners deck reports this. The older sign-in walkthroughs
+   record a single verdict per session and cannot say where anyone spent their
+   time, so this section does not appear until deck records exist.
+
+   Reads as: which slides people linger on, which they skim, and where they give
+   up. A long average next to a lot of drop-off is the slide to rewrite. */
+function _stSecs(n) {
+  n = Math.round(Number(n) || 0);
+  if (n < 60) return n + 's';
+  var m = Math.floor(n / 60), r = n % 60;
+  return m + 'm' + (r ? ' ' + r + 's' : '');
+}
+function _stSlideDetail() {
+  var recs = _stDeckRecs || [];
+  if (!recs.length) return '';
+  var total = 0;
+  recs.forEach(function(r) { total = Math.max(total, Number(r.total) || 0); });
+  if (!total) return '';
+
+  var reach = [], secs = [], visits = [], stopped = [];
+  for (var k = 0; k <= total; k++) { reach[k] = 0; secs[k] = 0; visits[k] = 0; stopped[k] = 0; }
+  var people = 0, finished = 0, grand = 0;
+  recs.forEach(function(r) {
+    people++;
+    if (String(r.status) === 'completed') finished++;
+    var f = Number(r.furthest) || 0;
+    for (var n = 1; n <= f && n <= total; n++) reach[n]++;
+    if (String(r.status) !== 'completed' && f >= 1 && f <= total) stopped[f]++;
+    var ss = r.slideSeconds || {}, sv = r.slideVisits || {};
+    Object.keys(ss).forEach(function(key) {
+      var idx = parseInt(key, 10);
+      if (!(idx >= 1 && idx <= total)) return;
+      var v = Number(ss[key]) || 0;
+      secs[idx] += v; grand += v;
+      visits[idx] += Number(sv[key]) || 0;
+    });
+  });
+  var avgAll = people ? grand / people : 0, maxAvg = 0;
+  for (var a = 1; a <= total; a++) { var mm = reach[a] ? secs[a] / reach[a] : 0; if (mm > maxAvg) maxAvg = mm; }
+
+  var rowsHtml = '';
+  for (var n2 = 1; n2 <= total; n2++) {
+    var avg = reach[n2] ? secs[n2] / reach[n2] : 0;
+    var w = maxAvg ? (avg / maxAvg * 100) : 0;
+    var rev = visits[n2] > reach[n2] ? (visits[n2] - reach[n2]) : 0;
+    rowsHtml += '<tr>'
+      + '<td style="padding:5px 8px;text-align:right;color:var(--text-soft);">' + n2 + '</td>'
+      + '<td style="padding:5px 8px;"><div style="background:#E2E8F0;border-radius:4px;height:9px;width:100%;">'
+      +   '<div style="background:#0891B2;height:9px;border-radius:4px;width:' + w.toFixed(1) + '%;"></div></div></td>'
+      + '<td style="padding:5px 8px;text-align:right;font-weight:600;">' + (reach[n2] ? _stSecs(avg) : '&mdash;') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + (reach[n2] || '&mdash;') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;color:' + (rev ? '#B45309' : 'var(--text-soft)') + ';">' + (rev || '&mdash;') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-weight:' + (stopped[n2] ? '800' : '400') + ';color:' + (stopped[n2] ? '#B42318' : 'var(--text-soft)') + ';">' + (stopped[n2] || '&mdash;') + '</td>'
+      + '</tr>';
+  }
+
+  var perPerson = recs.slice().sort(function(a, b) {
+    return (Number(b.furthest) || 0) - (Number(a.furthest) || 0);
+  }).map(function(r) {
+    var ss = r.slideSeconds || {}, mine = 0, longest = '', longestV = 0;
+    Object.keys(ss).forEach(function(k) {
+      var v = Number(ss[k]) || 0; mine += v;
+      if (v > longestV) { longestV = v; longest = k; }
+    });
+    var chips = '';
+    for (var q = 1; q <= total; q++) {
+      var v2 = Number(ss[String(q)]) || 0;
+      var bg = !v2 ? '#F1F5F9' : (v2 >= 60 ? '#0891B2' : v2 >= 20 ? '#7DD3FC' : '#E0F2FE');
+      chips += '<span title="Slide ' + q + (v2 ? ': ' + _stSecs(v2) : ': not reached')
+        + '" style="display:inline-block;width:15px;height:15px;margin:1px;border-radius:3px;background:' + bg + ';"></span>';
+    }
+    return '<div style="border-top:1px solid #F1F5F9;padding:9px 0;">'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;">'
+      +   '<b style="font-size:.86rem;">' + rsEscape(r.personName || r.personEmail || '') + '</b>'
+      +   '<span style="font-size:.75rem;color:var(--text-soft);">' + rsEscape(r.personEmail || '') + '</span>'
+      +   '<span style="flex:1;"></span>'
+      +   '<span style="font-size:.75rem;color:var(--text-soft);">reached <b>' + (Number(r.furthest) || 0) + '</b> of ' + (Number(r.total) || total)
+      +     ' &middot; total <b>' + _stSecs(mine) + '</b>'
+      +     (longest ? ' &middot; longest on slide <b>' + rsEscape(longest) + '</b> (' + _stSecs(longestV) + ')' : '')
+      +     (Number(r.skips) ? ' &middot; stopped ' + r.skips + '&times;' : '') + '</span>'
+      + '</div><div style="margin-top:5px;line-height:1;">' + chips + '</div></div>';
+  }).join('');
+
+  return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px 18px;margin-top:16px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px;">'
+    +   '<h3 style="margin:0;font-size:.98rem;color:var(--ocean-deep);">Slide by slide &mdash; Getting Started (Pacific Partners)</h3>'
+    +   '<span style="font-size:.76rem;color:var(--text-soft);">' + people + ' ' + (people === 1 ? 'person' : 'people')
+    +     ' &middot; ' + finished + ' finished &middot; average ' + _stSecs(avgAll) + ' each</span></div>'
+    + '<p style="font-size:.78rem;color:var(--text-soft);margin:0 0 10px;">Only this deck reports timings &mdash; the sign-in walkthroughs record one verdict per session and cannot say where the time went.</p>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    +   '<thead><tr style="background:#EEF4F6;">'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;">SLIDE</th>'
+    +     '<th style="padding:6px 8px;text-align:left;font-size:.7rem;color:#075985;">AVERAGE TIME</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;">AVG</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="How many people got this far">REACHED</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="Extra visits beyond the first">RE-READ</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="People whose furthest slide was this one">STOPPED HERE</th>'
+    +   '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + '<h4 style="margin:16px 0 0;font-size:.86rem;color:#075985;">Each person</h4>'
+    + '<p style="font-size:.75rem;color:var(--text-soft);margin:2px 0 0;">One square per slide, darker means longer. Hover for the time.</p>'
+    + perPerson + '</div>';
+}
 
   window.cmsRenderStaffTrainingReport = function() {
     var body = document.getElementById('stBody');
@@ -50248,6 +50356,7 @@ window.ihExportCSV = function () {
            +  (r.totalSkips || '—') + '</td></tr>';
     });
     html += '</tbody></table></div>';
+    html += _stSlideDetail();
     body.innerHTML = html;
 
     // Charts go in after the markup exists, or getElementById finds nothing.
