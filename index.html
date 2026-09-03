@@ -4278,6 +4278,35 @@ table[aria-label="Recent interactions list"] tbody tr:hover { background: rgba(8
 .es-presenter-other input { width:100%; padding:8px 12px; border:1px solid #CBD5E1; border-radius:8px; font-size:.88rem; background:#fff; }
 .es-presenter-other input:focus { outline:none; border-color:#1a3c6e; box-shadow:0 0 0 3px rgba(26,60,110,.12); }
 /* ── CMS Info Bubble Popups ── */
+/* ── Hover hints (2026-09-03) ─────────────────────────────────────────────
+   Replaces the circled-i. Same copy, no click: hover the heading and the hint
+   appears; it stays while the pointer is on it, so the long step-by-step ones
+   are actually readable rather than vanishing the moment you move.
+
+   Built in JS rather than as a CSS [data-tip] tooltip because most of this copy
+   is multi-paragraph HTML — a CSS tooltip renders through content:attr(), which
+   is text only, so every <b> and <br> would print as literal characters. */
+[data-hint] {
+  cursor: help;
+  text-decoration: underline dotted rgba(100,116,139,.55);
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+}
+[data-hint]:hover { text-decoration-color: #0891B2; }
+.cms-hint-pop {
+  position: fixed; z-index: 99999; background: #0F172A; color: #E2E8F0;
+  border-radius: 10px; padding: 13px 16px; width: min(400px, 90vw);
+  max-height: min(60vh, 440px); overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0,0,0,.32); font-size: .86rem; line-height: 1.6;
+  opacity: 0; transition: opacity .12s ease;
+}
+.cms-hint-pop.in { opacity: 1; }
+.cms-hint-pop b { color: #7DD3FC; }        /* the cyan used on white is unreadable here */
+.cms-hint-pop::after {
+  content: ''; position: absolute; bottom: -5px; left: 22px;
+  width: 11px; height: 11px; background: #0F172A; transform: rotate(45deg);
+}
+.cms-hint-pop[style*="--hint-arrow: top"]::after { bottom: auto; top: -5px; }
 .cms-ib {
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border-radius: 50%; background: #0891B2;
@@ -5167,7 +5196,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.22</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.23</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9063,7 +9092,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <section id="cmsTrainingVideosSection" style="display:none;">
       <div class="cms-sticky-header">
-      <h2>Training Videos <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Training videos help staff learn how to use the dashboard, log interactions, manage events, and more.<br><br><b>To add a video:</b><br>1. Upload your video to Google Drive<br>2. In Google Drive, right-click the file, choose <b>Share</b>, and set it to &quot;Anyone with the link&quot;. Copy the link.<br>3. Back here, click Add Video and paste the link<br>4. Give it a title and one-sentence description, pick a category<br>5. Click Save')">i</span></h2>
+      <h2 data-hint="Training videos help staff learn how to use the dashboard, log interactions, manage events, and more.<br><br><b>To add a video:</b><br>1. Upload your video to Google Drive<br>2. In Google Drive, right-click the file, choose <b>Share</b>, and set it to &quot;Anyone with the link&quot;. Copy the link.<br>3. Back here, click Add Video and paste the link<br>4. Give it a title and one-sentence description, pick a category<br>5. Click Save">Training Videos</h2>
       </div>
 
       <!-- v146.4.28 — search-first toolbar. The category <select> is replaced by
@@ -25327,6 +25356,71 @@ var db = firebase.firestore();
 var storage = firebase.storage();
 
 /* ── CMS: Info Bubble Popup System ── */
+/* ── Hover hints ── the mechanism behind [data-hint] (2026-09-03) ──────────
+   Bound by DELEGATION on document, not per element, so hints attached to markup
+   built later in JS (the Page Editor's sidebar and island tabs) work with no
+   registration step — setting the attribute is enough.
+
+   The "bridge" is the fiddly part: a hint you cannot move onto is useless for
+   anything longer than a sentence, so leaving the trigger starts a short timer
+   rather than closing, and entering the hint cancels it. */
+var _cmsHintPop = null, _cmsHintEl = null, _cmsHintIn = null, _cmsHintOut = null;
+
+function _cmsHintPlace(el, pop) {
+  var r = el.getBoundingClientRect();
+  var h = pop.offsetHeight || 200;
+  pop.style.left = Math.max(10, Math.min(r.left - 10, window.innerWidth - pop.offsetWidth - 10)) + 'px';
+  if (r.top - h - 10 < 10) {                       // no room above, drop below
+    pop.style.top = (r.bottom + 10) + 'px';
+    pop.style.transform = 'none';
+    pop.style.setProperty('--hint-arrow', 'top');
+  } else {
+    pop.style.top = (r.top - 10) + 'px';
+    pop.style.transform = 'translateY(-100%)';
+  }
+}
+
+function cmsHintShow(el) {
+  var text = el && el.getAttribute && el.getAttribute('data-hint');
+  if (!text) return;
+  if (_cmsHintEl === el && _cmsHintPop) { clearTimeout(_cmsHintOut); return; }
+  cmsHintClose();
+  try { gaTrack('info_bubble_view', { event_category: 'help', event_label: text.substring(0, 80) }); } catch (e) {}
+  var pop = document.createElement('div');
+  pop.className = 'cms-hint-pop';
+  pop.innerHTML = text;                             // the copy is HTML, by design
+  pop.addEventListener('mouseenter', function(){ clearTimeout(_cmsHintOut); });
+  pop.addEventListener('mouseleave', cmsHintDelayedClose);
+  document.body.appendChild(pop);
+  _cmsHintPlace(el, pop);
+  requestAnimationFrame(function(){ pop.classList.add('in'); });
+  _cmsHintPop = pop; _cmsHintEl = el;
+}
+
+function cmsHintClose() {
+  clearTimeout(_cmsHintIn); clearTimeout(_cmsHintOut);
+  if (_cmsHintPop && _cmsHintPop.parentNode) _cmsHintPop.parentNode.removeChild(_cmsHintPop);
+  _cmsHintPop = null; _cmsHintEl = null;
+}
+function cmsHintDelayedClose() { clearTimeout(_cmsHintOut); _cmsHintOut = setTimeout(cmsHintClose, 220); }
+
+document.addEventListener('mouseover', function(e) {
+  var t = e.target && e.target.closest ? e.target.closest('[data-hint]') : null;
+  if (!t) return;
+  clearTimeout(_cmsHintOut);
+  clearTimeout(_cmsHintIn);
+  _cmsHintIn = setTimeout(function(){ cmsHintShow(t); }, 110);
+});
+document.addEventListener('mouseout', function(e) {
+  var t = e.target && e.target.closest ? e.target.closest('[data-hint]') : null;
+  if (!t) return;
+  clearTimeout(_cmsHintIn);
+  cmsHintDelayedClose();
+});
+/* A hint anchored to a fixed position would drift away from its heading, and a
+   modal closing under it would strand it. */
+window.addEventListener('scroll', cmsHintClose, true);
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') cmsHintClose(); });
 var _cmsIbPop = null;
 function cmsIbShow(el, text) {
   cmsIbClose();
