@@ -2813,6 +2813,16 @@
 .ed-wp-link.draft{ border-color:#0891B2; background:#ECFEFF; color:#0E5F7A; }
 .ed-wp-link.done{ border-color:#CBD5E1; background:#F8FAFC; color:#475569; }
 .ed-wp-link:hover{ filter:brightness(.96); }
+/* Signup count on the card (v149.20). Violet, so it is read as neither the
+   teal "presenter assigned" nor the amber "needs a presenter" border. It sits
+   on the meta row and the meta text ellipsises rather than wraps, so a counted
+   card is exactly as tall as an uncounted one — staff screens are 1366x768 and
+   a month of Connect-Gen is ten cards in four cells. */
+.ed-ev-m.has-sig{ display:flex; align-items:center; justify-content:space-between; gap:5px; }
+.ed-ev-m.has-sig > .ed-m-txt{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ed-sig{ flex:0 0 auto; font-size:.62rem; font-weight:800; line-height:1.55; padding:0 6px; border-radius:999px;
+         border:1px solid #DDD6FE; background:#F5F3FF; color:#7C3AED; white-space:nowrap; cursor:default; }
+.ed-sig.pend{ border-color:#E2E8F0; background:#F8FAFC; color:#94A3B8; font-weight:700; }
 @media(max-width:900px){ .ed-grid{ grid-template-columns:repeat(7,minmax(120px,1fr)); } .ed-cell{ min-height:96px; } }
 
 /* ── Resource Activity Tracking ── */
@@ -5030,7 +5040,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.7-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.8-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -30370,6 +30380,7 @@ var _edMonth = null;                 // first of the displayed month
 var _edPresenters = [];              // [{name, uid}]
 var _edEvents = [];                  // flattened, dated
 var _edWpForms = {};                 // eventId -> {started, submitted}
+var _edSigToken = 0;                 // guards a late count against a month change
 
 function edMonthStart(d) { var x = new Date(d.getFullYear(), d.getMonth(), 1); x.setHours(0,0,0,0); return x; }
 function edIso(d) {
@@ -30447,7 +30458,7 @@ async function edLoadEvents(fromIso, toIso) {
         coll: 'recurringEvents', id: doc.id, title: e.title || 'Programme',
         date: sess.date, key: key,
         when: cmsFmt12(sess.startTime), where: sess.location || '',
-        presenter: summ.presenter || '', single: false
+        presenter: summ.presenter || '', single: false, eventType: e.eventType || ''
       });
     });
   });
@@ -30463,7 +30474,7 @@ async function edLoadEvents(fromIso, toIso) {
         var summ = (e.sessionSummaries && e.sessionSummaries[lbl]) || (e.sessionSummaries && e.sessionSummaries[k]) || {};
         list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: k, key: lbl,
                     when: '', where: e.location || '', presenter: summ.presenter || '',
-                    single: false, offsite: _edIsOffsiteEvent(e) });
+                    single: false, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '' });
       });
     } else {
       var d = String(e.eventDate || '').slice(0,10);
@@ -30471,7 +30482,7 @@ async function edLoadEvents(fromIso, toIso) {
       list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: d, key: '',
                   when: e.time || '', where: e.location || '',
                   presenter: (e.summary && e.summary.presenter) || '',
-                  single: true, offsite: _edIsOffsiteEvent(e) });
+                  single: true, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '' });
     }
   });
 
@@ -30605,6 +30616,100 @@ function _edShowWorkshopPrompt(edEv, isDraft) {
   }
 }
 
+/* ── Signup counts on the calendar cards (v149.20) ───────────────────────────
+   Every card that takes signups shows how many it has, EXCEPT Learning Labs
+   and Parent Talk Cafe — their numbers are followed in their own reports and
+   would only crowd the cell. Stated as an exclusion rather than an allow-list
+   because a new signup-taking event type should start counting on its own. */
+var _ED_NO_COUNT_TYPES = ['learning_labs', 'parent_talk_cafe'];
+function _edCountsSignups(ev) {
+  return !!ev && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
+}
+
+// A signup stores its session as "YYYY-MM-DD|Location – Venue|H:MM AM – H:MM PM",
+// so the location half is "Hilo – Easter Seals" while the card only ever knows
+// "Hilo". Compare the part before the first spaced dash; en dash, em dash and
+// plain hyphen all appear in the data.
+function _edLocKey(s) {
+  return String(s || '').split(/\s+[–—-]\s+/)[0].trim().toLowerCase();
+}
+
+function _edSigLabel(n) { return n + (n === 1 ? ' signup' : ' signups'); }
+
+/* Count the signups on ONE rendered card.
+     recurring session      — date AND location. A date alone does not identify
+                              a Connect-Gen session: 2026-09-10 is Hilo at 09:00
+                              AND Oahu at 11:00, and matching on the date only
+                              prints the same wrong number on both cards.
+     single-date one-time   — the whole subcollection.
+     multi-date one-time    — the signups that chose this date's label.
+   Archived and cancelled signups never count, on any path. */
+function _edCountForCard(ev, snap) {
+  var wantLoc = _edLocKey(ev.where);
+  var out = { count: 0, heads: 0 };
+  snap.forEach(function(doc) {
+    var d = doc.data() || {};
+    if (d.archived === true || d.status === 'cancelled') return;
+    var hit;
+    if (ev.coll === 'recurringEvents') {
+      var keys = (Array.isArray(d.selectedSessions) && d.selectedSessions.length)
+        ? d.selectedSessions
+        : (Array.isArray(d.selectedDates) ? d.selectedDates : []);
+      hit = keys.some(function(k) {
+        var parts = String(k || '').split('|');
+        if (parts[0] !== ev.date) return false;
+        return wantLoc ? (_edLocKey(parts[1]) === wantLoc) : true;
+      });
+    } else if (ev.single) {
+      hit = true;
+    } else {
+      hit = (Array.isArray(d.selectedDates) ? d.selectedDates : []).indexOf(ev.key) >= 0;
+    }
+    if (hit) { out.count++; out.heads += (window._cmsSignupHeads ? window._cmsSignupHeads(d) : 1); }
+  });
+  return out;
+}
+
+/* Counts are read AFTER the grid is painted, and each pill is filled in when
+   its read resolves — the calendar must never come up empty or slow because a
+   count is pending. One read per event DOCUMENT even when a programme has ten
+   sessions in the month, so a month costs ten or twenty subcollection reads
+   rather than one per card or one per event in the database. */
+async function _edFillSignupCounts(token) {
+  var order = [], byDoc = {};
+  _edEvents.forEach(function(ev, i) {
+    if (!_edCountsSignups(ev)) return;
+    var k = ev.coll + '/' + ev.id;
+    if (!byDoc[k]) { byDoc[k] = []; order.push(k); }
+    byDoc[k].push(i);
+  });
+  if (!order.length) return;
+  var settled = await Promise.allSettled(order.map(function(k) {
+    var p = k.split('/');
+    return db.collection(p[0]).doc(p[1]).collection('signups').get();
+  }));
+  if (token !== _edSigToken) return;   // the month moved on while we were reading
+  settled.forEach(function(res, di) {
+    byDoc[order[di]].forEach(function(i) {
+      var el = document.getElementById('edSig' + i);
+      if (!el) return;
+      if (res.status !== 'fulfilled') {
+        el.className = 'ed-sig pend';
+        el.textContent = 'signups ?';
+        el.title = 'The signup count could not be read: ' + ((res.reason && res.reason.message) || 'unknown error');
+        return;
+      }
+      var ev = _edEvents[i];
+      var t = _edCountForCard(ev, res.value);
+      el.className = 'ed-sig';
+      el.textContent = _edSigLabel(t.count);
+      el.title = _edSigLabel(t.count) + (t.heads !== t.count ? ' (' + t.heads + ' people)' : '')
+        + ' for this ' + (ev.single ? 'event' : 'session')
+        + '. Cancelled and archived signups are not counted.';
+    });
+  });
+}
+
 window.edRender = async function() {
   var grid = document.getElementById('edGrid');
   if (!grid) return;
@@ -30670,7 +30775,17 @@ window.edRender = async function() {
         var meta = [ev.when, ev.where].filter(Boolean).join(' · ');
         html += '<div class="ed-ev" style="border-left-color:' + (ev.presenter ? '#0d9488' : '#F59E0B') + ';">';
         html += '<div class="ed-ev-t" title="' + rsEscape(ev.title) + '">' + rsEscape(String(ev.title).slice(0, 46)) + '</div>';
-        if (meta) html += '<div class="ed-ev-m">' + rsEscape(meta) + '</div>';
+        /* The count shares the meta row, so a counted card gains no height. It
+           renders as a placeholder and _edFillSignupCounts() fills it in. */
+        if (meta || _edCountsSignups(ev)) {
+          html += '<div class="ed-ev-m' + (_edCountsSignups(ev) ? ' has-sig' : '') + '"'
+               + (meta ? ' title="' + rsEscape(meta) + '"' : '') + '>';
+          html += _edCountsSignups(ev) ? ('<span class="ed-m-txt">' + rsEscape(meta) + '</span>') : rsEscape(meta);
+          if (_edCountsSignups(ev)) {
+            html += '<span class="ed-sig pend" id="edSig' + idx + '" title="Counting signups…">…</span>';
+          }
+          html += '</div>';
+        }
         html += '<select class="ed-sel' + (ev.presenter ? '' : ' unassigned') + '" onchange="edSetPresenter(this,' + idx + ')">';
         html += '<option value=""' + (ev.presenter ? '' : ' selected') + '>— unassigned —</option>';
         var known = false;
@@ -30705,11 +30820,17 @@ window.edRender = async function() {
     html += '</div>';
     grid.innerHTML = html;
 
+    // Deliberately not awaited: the calendar is already usable, and the counts
+    // land a moment later. A stale month's reads are discarded by the token.
+    _edSigToken++;
+    _edFillSignupCounts(_edSigToken);
+
     var assigned = _edEvents.filter(function(e){ return !!e.presenter; }).length;
     var lg = document.getElementById('edLegend');
     if (lg) lg.innerHTML =
       '<span><i style="background:#0d9488;"></i>Presenter assigned (' + assigned + ')</span>' +
       '<span><i style="background:#F59E0B;"></i>Needs a presenter (' + (_edEvents.length - assigned) + ')</span>' +
+      '<span><i style="background:#7C3AED;"></i>Signups taken (not shown for Learning Labs or Parent Talk Cafe)</span>' +
       '<span>Presenters come from List Management &rarr; Presenters.</span>';
   } catch (e) {
     grid.innerHTML = '<div class="cms-empty" style="color:#DC2626;">Could not load the calendar: ' + rsEscape(e.message) + '</div>';
