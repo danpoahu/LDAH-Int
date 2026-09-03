@@ -5157,7 +5157,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.13</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.14</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -47771,10 +47771,15 @@ window.cmsBuildStaffActivityReport = async function() {
     var _todayIso = _td.getFullYear() + '-' +
       String(_td.getMonth() + 1).padStart(2, '0') + '-' +
       String(_td.getDate()).padStart(2, '0');
-    _eaCache.filters = { search: '', year: String(new Date().getFullYear()), program: '__programs__', tier: '', from: '', to: _todayIso };
+    /* Clear resets to the same default the report opens with, which for a
+       partner is All — otherwise clearing filters would empty their report. */
+    var _eaPartnerClear = !!(window.isPartnerUser && window.isPartnerUser());
+    _eaCache.filters = { search: '', year: String(new Date().getFullYear()),
+                         program: _eaPartnerClear ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
     _eaCache.showZero = false; // v125.0.0 — reset the 0-attendance toggle on clear
     _renderFilterBar();
-    _renderCardList();
+    if (_eaPartnerClear && !_eaCache.oneOffsLoaded) { _ensureOneOffsLoaded(); }
+    else { _renderCardList(); }
   };
 
   // Open the Event Summary modal for a given row. Reuses cmsViewSignups
@@ -48442,11 +48447,23 @@ window.ihExportCSV = function () {
       var _todayIso = _td.getFullYear() + '-' +
         String(_td.getMonth() + 1).padStart(2, '0') + '-' +
         String(_td.getDate()).padStart(2, '0');
-      _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '', program: '__programs__', tier: '', from: '', to: _todayIso };
+      /* Partners record their work as one-off events almost exclusively, so the
+         standard "Programs & Events" default showed them an empty report. They
+         open on All. (2026-09-02) */
+      var _eaPartner = !!(window.isPartnerUser && window.isPartnerUser());
+      _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '',
+                           program: _eaPartner ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
       _eaCache.showZero = false; // v125.0.0 default OFF on every build
       _eaCache.oneOffsLoaded = false; _eaCache.oneOffsLoading = false; // One-Offs deferred until the user asks
       _renderFilterBar();
-      _renderCardList();
+      if (_eaPartner) {
+        /* One-Offs are lazy-loaded when that filter is CHOSEN, so defaulting to
+           All without this would render the filter correctly and then show
+           nothing. _ensureOneOffsLoaded redraws the bar and the list itself. */
+        await _ensureOneOffsLoaded();
+      } else {
+        _renderCardList();
+      }
       auditLog('Generated Event Attendance Report', built.rows.length + ' event-dates');
     } catch (err) {
       console.error('cmsBuildEventAttendanceReport error:', err);
