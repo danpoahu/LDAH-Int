@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.29</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.30</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -46965,7 +46965,14 @@ window.cmsBuildStaffActivityReport = async function() {
     }
 
     // Partner scope: only events stamped to one of the six Pacific partners.
-    if (window.isPartnerUser()) allEvents = allEvents.filter(window.isPartnerRecord);
+    if (window.isPartnerUser()) {
+      allEvents = allEvents.filter(window.isPartnerRecord);
+    } else if (_eaIsSuperAdmin()) {
+      // The superAdmin toggle. PIP = partner-stamped only; LDAH = everything else.
+      allEvents = (_eaCache.scope === 'pip')
+        ? allEvents.filter(window.isPartnerRecord)
+        : allEvents.filter(function(e) { return !window.isPartnerRecord(e); });
+    }
 
     // Group feedback by event id for fast lookup
     var fbByEvent = {};
@@ -47323,6 +47330,17 @@ window.cmsBuildStaffActivityReport = async function() {
     html += '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;cursor:pointer;white-space:nowrap;">';
     html += '<input type="checkbox" id="eaFilterShowZero"' + (_eaCache.showZero ? ' checked' : '') + ' style="width:16px;height:16px;cursor:pointer;accent-color:#0891B2;flex-shrink:0;">';
     html += '<span>Show 0-attendance</span></label></div>';
+    /* superAdmin only: which organisation's events this report is about. */
+    if (_eaIsSuperAdmin()) {
+      var _pip = _eaCache.scope === 'pip';
+      html += '<div><label style="display:block;font-size:.72rem;color:var(--text-soft);font-weight:600;margin-bottom:3px;">SHOWING</label>';
+      html += '<div style="display:flex;border:1px solid #CBD5E1;border-radius:6px;overflow:hidden;background:#fff;">';
+      html += '<button type="button" onclick="cmsEASetScope(\'ldah\')" style="flex:1;border:none;cursor:pointer;font-size:.8rem;font-weight:700;padding:7px 4px;'
+           + (!_pip ? 'background:#0891B2;color:#fff;' : 'background:#fff;color:#475569;') + '">LDAH</button>';
+      html += '<button type="button" onclick="cmsEASetScope(\'pip\')" style="flex:1;border:none;cursor:pointer;font-size:.8rem;font-weight:700;padding:7px 4px;'
+           + (_pip ? 'background:#7C3AED;color:#fff;' : 'background:#fff;color:#475569;') + '">PIP</button>';
+      html += '</div></div>';
+    }
     html += '<div><button class="btn btn-ghost" style="width:100%;font-size:.82rem;" onclick="cmsEAClearFilters()">Clear</button></div>';
     bar.innerHTML = html;
 
@@ -48067,6 +48085,22 @@ window.cmsBuildStaffActivityReport = async function() {
     }
   };
 
+  function _eaIsSuperAdmin() {
+    return !!(currentUserData && currentUserData.role === 'superAdmin');
+  }
+
+  /* Switch the whole report between LDAH's own events and the Pacific partners'.
+     Rebuilds rather than re-filtering the cached list: the scope decides which
+     events are loaded at all, so the counts, the year list and the event-date
+     total in the header have to be recomputed for it to be honest. */
+  window.cmsEASetScope = function(scope) {
+    if (!_eaIsSuperAdmin()) return;
+    if (_eaCache.scope === scope) return;
+    _eaCache.scope = (scope === 'pip') ? 'pip' : 'ldah';
+    _renderFilterBar();
+    window.cmsBuildEventAttendanceReport();
+  };
+
   window.cmsEAClearFilters = function() {
     var _td = new Date();
     var _todayIso = _td.getFullYear() + '-' +
@@ -48078,6 +48112,10 @@ window.cmsBuildStaffActivityReport = async function() {
     _eaCache.filters = { search: '', year: String(new Date().getFullYear()),
                          program: _eaPartnerClear ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
     _eaCache.showZero = false; // v125.0.0 — reset the 0-attendance toggle on clear
+    /* Scope deliberately survives Clear. It answers "whose events is this
+       report about", not "which of them am I looking at", and silently
+       switching a superAdmin back to LDAH while they were reading PIP would
+       look like the data had vanished. */
     _renderFilterBar();
     if (_eaPartnerClear && !_eaCache.oneOffsLoaded) { _ensureOneOffsLoaded(); }
     else { _renderCardList(); }
@@ -48755,6 +48793,12 @@ window.ihExportCSV = function () {
       _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '',
                            program: _eaPartner ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
       _eaCache.showZero = false; // v125.0.0 default OFF on every build
+      /* superAdmins used to see LDAH and Pacific-partner events mixed into one
+         list with nothing to tell them apart. Default to LDAH's own work; the
+         toggle below switches the whole report to PIP. Everyone else is
+         unaffected — a partner is still forced to their own records and never
+         sees the control. (2026-09-04) */
+      _eaCache.scope = 'ldah';
       _eaCache.oneOffsLoaded = false; _eaCache.oneOffsLoading = false; // One-Offs deferred until the user asks
       _renderFilterBar();
       if (_eaPartner) {
