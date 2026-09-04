@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.35</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.36</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21509,18 +21509,24 @@ window.openContactDetail = async function(contactId) {
 
       snap.forEach(function(doc) {
         var d = doc.data();
-        var _countsForClosed = !_kpiPartner || (window.isPartnerRecord && window.isPartnerRecord(d));
+        /* Every card is scoped for a partner, not just Closed (2026-09-04).
+           Previously a partner's home screen reported LDAH's whole workload:
+           Sandy was shown "14 follow-ups due, 9 overdue" when not one of them
+           was hers. For staff _kpiPartner is false, so _inScope is always true
+           and none of these numbers move. */
+        var _inScope = !_kpiPartner || (window.isPartnerRecord && window.isPartnerRecord(d));
+        var _countsForClosed = _inScope;
         // Count interactions logged this week
-        if (d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
+        if (_inScope && d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
           wtdCount++;
         }
         // Count follow-ups due (open items with followUpDate in next 7 days or overdue)
-        if (d.status === 'Open' && d.followUpDate) {
+        if (_inScope && d.status === 'Open' && d.followUpDate) {
           if (d.followUpDate <= todayStr) fuOverdue++;
           else if (d.followUpDate <= futureStr) fuDue++;
         }
         // Count interactions needing review
-        if (d.status === 'Needs admin review') reviewCount++;
+        if (_inScope && d.status === 'Needs admin review') reviewCount++;
         // Count closed interactions
         if (_countsForClosed) {
           closedTotal++;
@@ -21560,10 +21566,23 @@ window.openContactDetail = async function(contactId) {
       var _kpiEvResults = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
       // Prefer authoritative per-event signup cache built by cmsGetAlertCounts
       // (denormalized pendingCount on parent docs is known to drift out of sync)
+      /* Build the cache directly rather than via cmsGetAlertCounts, which
+         returns null for any role outside _cmsAlertRoles — so a partner never
+         got one and fell through to the stale denormalized pendingCount below.
+         That is not a rounding error: on 2026-09-04 the September Learning Labs
+         doc claimed 27 pending against 1 real, and a partner's home screen read
+         "31 pending signups" where staff correctly saw 3. cmsRefreshSignupCounts
+         has no role gate and `allow list` on signups is any signed-in user, so
+         it works for partners; the snapshots we already hold are passed in so
+         this costs no extra event reads. (2026-09-04) */
       var sigCache = window._cmsSignupCountCache;
-      if (!sigCache && typeof window.cmsGetAlertCounts === 'function') {
-        try { await window.cmsGetAlertCounts(); sigCache = window._cmsSignupCountCache; } catch (e) {}
+      if (!sigCache && typeof window.cmsRefreshSignupCounts === 'function') {
+        try { sigCache = await window.cmsRefreshSignupCounts(_kpiEvResults[0], _kpiEvResults[1]); } catch (e) {}
       }
+      /* With a cache in hand, trust ONLY the cache. A missing entry means that
+         event's signups query was rejected, and contributing 0 understates by a
+         little where the stale field overstated by 26. */
+      var _sigFresh = !!(sigCache && sigCache.events);
       var evPC = (sigCache && sigCache.events) || {};
       var pgPC = (sigCache && sigCache.programs) || {};
       var activeCount = 0, pendingCount = 0;
@@ -21575,13 +21594,13 @@ window.openContactDetail = async function(contactId) {
         if (removeDate && /^\d{4}-\d{2}-\d{2}$/.test(removeDate) && removeDate <= today) return;
         if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast <= today) return;
         activeCount++;
-        pendingCount += (evPC[doc.id] ? evPC[doc.id].pendingCount : (d.pendingCount || 0));
+        pendingCount += evPC[doc.id] ? evPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
       _kpiEvResults[1].forEach(function(doc) {
         var d = doc.data();
         if (d.archived === true) return;
         activeCount++;
-        pendingCount += (pgPC[doc.id] ? pgPC[doc.id].pendingCount : (d.pendingCount || 0));
+        pendingCount += pgPC[doc.id] ? pgPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
       var kpiEv = document.getElementById('kpiActiveEvents');
       if (kpiEv) {
