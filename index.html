@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.26</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.27</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -30730,6 +30730,12 @@ async function edLoadEvents(fromIso, toIso) {
 }
 
 window.edSetPresenter = async function(sel, idx) {
+  /* idx is normally one index. For an outreach booth it is an ARRAY of every
+     session that day: LDAH puts one person on the table, and that one choice is
+     written to all of them so any later lookup — a task, a report, the workshop
+     form — finds the person who was actually there rather than an empty slot. */
+  var _group = Array.isArray(idx) ? idx : [idx];
+  idx = _group[0];
   var ev = _edEvents[idx];
   if (!ev) return;
   var name = sel.value;
@@ -30748,10 +30754,13 @@ window.edSetPresenter = async function(sel, idx) {
       payload = { summary: { presenter: name, presenterUid: uid } };
     } else {
       payload = { sessionSummaries: {} };
-      payload.sessionSummaries[ev.key] = { presenter: name, presenterUid: uid };
+      _group.forEach(function(i) {
+        var s2 = _edEvents[i];
+        if (s2 && s2.key) payload.sessionSummaries[s2.key] = { presenter: name, presenterUid: uid };
+      });
     }
     await db.collection(ev.coll).doc(ev.id).set(payload, { merge: true });
-    ev.presenter = name;
+    _group.forEach(function(i) { if (_edEvents[i]) _edEvents[i].presenter = name; });
     sel.className = 'ed-sel' + (name ? '' : ' unassigned');
     auditLog('Set event presenter', ev.title + ' — ' + ev.date + ' → ' + (name || 'unassigned'));
     if (typeof _showToast === 'function') _showToast(name ? (name + ' assigned to ' + ev.title) : 'Presenter cleared', '#16A34A');
@@ -31041,13 +31050,19 @@ window.edRender = async function() {
       _edGroups.forEach(function(idxs) {
         var idx = idxs[0];
         var ev = _edEvents[idx];
-        var multi = idxs.length > 1;
+        /* An outreach booth is not a programme LDAH runs. Those time slots are
+           the HOST event's agenda — presentations, a legislators' Q&A — and LDAH
+           is staffing a table through the day. One person is in charge of the
+           booth, so one dropdown, not one per talk. (Daniel, 2026-09-04) */
+        var booth = String(ev.eventType || '') === 'outreach_booth';
+        var multi = idxs.length > 1 && !booth;
         /* Teal only when EVERY session that day has someone. One assigned talk
            out of three is not a solved day. */
         var _allAssigned = idxs.every(function(i){ return !!_edEvents[i].presenter; });
+        if (String(ev.eventType || '') === 'outreach_booth') _allAssigned = !!ev.presenter;
         var meta = multi
           ? (idxs.length + ' sessions · ' + (ev.where || ''))
-          : [ev.when, ev.where].filter(Boolean).join(' · ');
+          : (booth ? (ev.where || '') : [ev.when, ev.where].filter(Boolean).join(' · '));
         html += '<div class="ed-ev" style="border-left-color:' + (_allAssigned ? '#0d9488' : '#F59E0B') + ';">';
         html += '<div class="ed-ev-t" title="' + rsEscape(ev.title) + '">' + rsEscape(String(ev.title).slice(0, 46)) + '</div>';
         /* The count shares the meta row, so a counted card gains no height. It
@@ -31064,12 +31079,17 @@ window.edRender = async function() {
         /* A dropdown per session. On a single-session day this is exactly what
            it always was; on a multi-session day each talk gets its own, labelled
            with its time so it is obvious which is which. */
-        idxs.forEach(function(i) {
+        var _rows = booth ? [idx] : idxs;
+        _rows.forEach(function(i) {
           var s2 = _edEvents[i];
           if (multi) {
             html += '<div class="ed-slot">' + rsEscape(_edSlotLabel(s2)) + '</div>';
           }
-          html += '<select class="ed-sel' + (s2.presenter ? '' : ' unassigned') + '" onchange="edSetPresenter(this,' + i + ')">';
+          /* A booth writes the one choice to every session on the day, so
+             whichever session anything downstream looks up — a task, a report,
+             the workshop form — finds the person who was actually there. */
+          var _target = booth ? ('[' + idxs.join(',') + ']') : i;
+          html += '<select class="ed-sel' + (s2.presenter ? '' : ' unassigned') + '" onchange="edSetPresenter(this,' + _target + ')">';
           html += '<option value=""' + (s2.presenter ? '' : ' selected') + '>— unassigned —</option>';
           var known = false;
           _edPresenters.forEach(function(p) {
