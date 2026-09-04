@@ -12,6 +12,38 @@ window.LDAHChat = (function () {
   var _host = {};
   var _mode = 'modal';
 
+  /* ── Hidden presence ──────────────────────────────────────────────────
+     SECOND COPY. index.html carries the same three constants and the same
+     two functions (search it for _PRESENCE_OFFICE_HOURS_UIDS). They must
+     stay identical — change one, change the other, or the roster here and
+     the presence strip there will disagree about who is on screen.
+     Two independent reasons to hide someone; either one is enough:
+       1. `invisible: true` on their chatPresence doc — set by hand from the
+          dashboard's "Viewing as" bar and persists until it is turned off.
+       2. Office hours — one uid is shown 8am-3pm HST on weekdays only.
+     Office hours can only hide, never reveal: a person who has switched
+     themselves off stays off inside their working hours too.
+     By uid, not name, because this file is public and served. HST is read
+     explicitly rather than from the viewer's clock so the hours are his,
+     not whoever happens to be looking. (2026-09-04) */
+  var _PRESENCE_OFFICE_HOURS_UIDS = ['YmGV2TlBGqR01dVdxZ0rtFLEFCG3'];
+  var _PRESENCE_OFFICE_OPEN_HOUR = 8;    // 8am HST
+  var _PRESENCE_OFFICE_SHUT_HOUR = 15;   // 3pm HST
+
+  function _presenceWithinOfficeHours() {
+    var hst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }));
+    var day = hst.getDay();                       // 0 Sun .. 6 Sat
+    if (day === 0 || day === 6) return false;     // never at the weekend
+    var h = hst.getHours();
+    return h >= _PRESENCE_OFFICE_OPEN_HOUR && h < _PRESENCE_OFFICE_SHUT_HOUR;
+  }
+
+  function _presenceHidden(uid, data) {
+    if (data && data.invisible === true) return true;
+    if (_PRESENCE_OFFICE_HOURS_UIDS.indexOf(uid) === -1) return false;
+    return !_presenceWithinOfficeHours();
+  }
+
   // ── markup, moved verbatim out of index.html ──
   var MODAL_MARKUP = '' +
     '  <div class="chat-modal-overlay" id="chatModalOverlay">' +
@@ -774,6 +806,9 @@ window.LDAHChat = (function () {
           var d = doc.data();
           if (d.uid === myUid) return; // exclude self
           if (_chatArchivedUids.has(d.uid || doc.id)) return; // exclude archived
+          // Hidden people are not rendered at all — not online, not offline.
+          // An entry in either list is still their name on someone's screen.
+          if (_presenceHidden(d.uid || doc.id, d)) return;
           // Treat as offline if lastSeen is stale (> 15 min) even if online flag is true
           var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
           var isStale = lastSeenMs < staleThreshold;
@@ -1203,6 +1238,14 @@ window.LDAHChat = (function () {
       _chatHeaderPresenceUnsub = db().collection('chatPresence').doc(otherUid).onSnapshot(function(doc) {
         if (!doc.exists) { if (chatHeaderStatus) chatHeaderStatus.textContent = 'Offline'; return; }
         var d = doc.data();
+        /* Hidden reads as a plain "Offline" with no time attached. A
+           "Last seen 9:42am" is the very fact being withheld — it would
+           report activity to the minute for someone who has switched
+           themselves off. Deliberately before the alwaysOnline branch. */
+        if (_presenceHidden(otherUid, d)) {
+          if (chatHeaderStatus) chatHeaderStatus.textContent = 'Offline';
+          return;
+        }
         var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
         var isStale = lastSeenMs < (Date.now() - 15 * 60 * 1000);
         /* Same alwaysOnline exemption as the roster — otherwise the roster would

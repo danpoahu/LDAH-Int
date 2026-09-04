@@ -5201,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.39</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.40</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5319,6 +5319,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div id="myDayViewAsBar" style="display:none;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid rgba(8,145,178,.12);font-size:.8rem;color:var(--text-soft);font-weight:600;">
               <span>Viewing as</span>
               <select id="myDayViewAsSelect" onchange="cmsMyDayViewAsChange()" style="font-size:.8rem;padding:3px 6px;border:1px solid rgba(8,145,178,.25);border-radius:6px;font-family:inherit;"></select>
+              <!-- Invisible mode. This bar is shown to four uids; the toggle is for ONE
+                   of them and carries its own gate in cmsSetupMyDayInvisible(). Starts
+                   hidden and stays hidden for everybody else. -->
+              <button type="button" id="myDayInvisibleToggle" onclick="cmsToggleMyDayInvisible()" aria-pressed="false"
+                style="display:none;align-items:center;gap:6px;margin-left:auto;font-family:inherit;font-size:.75rem;font-weight:800;letter-spacing:.02em;padding:4px 12px;border-radius:999px;border:1px solid rgba(8,145,178,.25);background:#fff;color:var(--text-soft);cursor:pointer;">Visible to the team</button>
             </div>
             <!-- Weather overlay preserved — toggled by existing weather toolbar button -->
             <div id="weatherOverlay" class="weather-overlay">
@@ -6474,6 +6479,67 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if (typeof window.loadMyDay === 'function') window.loadMyDay();
               // Refresh the Alerts panel too so the bell mirrors the selection.
               if (typeof window.loadNotifications === 'function') window.loadNotifications();
+            };
+
+            /* ── Invisible mode ──────────────────────────────────────────
+               Own uid list, deliberately NOT MYDAY_VIEWAS_OWNERS: that list
+               is four people and this control is one person's. Adding a uid
+               to the picker above must not hand out a hide switch as well.
+               Writes a single boolean, `invisible`, onto chatPresence/{uid}
+               with merge:true — the 5-minute heartbeat owns `online` and
+               `lastSeen` on that same doc and neither write touches the
+               other's fields. Every roster reads it back through
+               _presenceHidden(), in this file and in chat-core.js.
+               It survives sign-out and stays set until it is turned off, so
+               the button has to say so loudly. (2026-09-04) */
+            var MYDAY_INVISIBLE_UIDS = ['YmGV2TlBGqR01dVdxZ0rtFLEFCG3'];
+            var _myDayInvisible = false;
+            var _myDayInvisibleUnsub = null;
+
+            function _paintMyDayInvisible(on) {
+              var btn = document.getElementById('myDayInvisibleToggle');
+              _myDayInvisible = on === true;
+              if (!btn) return;
+              btn.setAttribute('aria-pressed', _myDayInvisible ? 'true' : 'false');
+              btn.textContent = _myDayInvisible ? 'HIDDEN — nobody can see you' : 'Visible to the team';
+              btn.title = _myDayInvisible
+                ? 'You are hidden from the presence strip, the chat roster and User Roles. This stays on until you turn it off. Click to become visible again.'
+                : 'Everyone can see whether you are online. Click to hide yourself.';
+              btn.style.background = _myDayInvisible ? '#B91C1C' : '#fff';
+              btn.style.color = _myDayInvisible ? '#fff' : 'var(--text-soft)';
+              btn.style.borderColor = _myDayInvisible ? '#B91C1C' : 'rgba(8,145,178,.25)';
+              btn.style.boxShadow = _myDayInvisible ? '0 0 0 3px rgba(185,28,28,.18)' : 'none';
+            }
+
+            window.cmsSetupMyDayInvisible = function() {
+              var btn = document.getElementById('myDayInvisibleToggle');
+              if (!btn) return;
+              var me = window.currentUserData || {};
+              if (MYDAY_INVISIBLE_UIDS.indexOf(me.uid) === -1) { btn.style.display = 'none'; return; }
+              btn.style.display = 'inline-flex';
+              if (_myDayInvisibleUnsub) { try { _myDayInvisibleUnsub(); } catch (_) {} }
+              /* A live listener rather than one read: writing the flag is itself
+                 a snapshot change, so this repaints on its own — including when
+                 the switch is thrown in another tab. No timer anywhere. */
+              _myDayInvisibleUnsub = db.collection('chatPresence').doc(me.uid).onSnapshot(function(doc) {
+                var d = (doc && doc.exists) ? (doc.data() || {}) : {};
+                _paintMyDayInvisible(d.invisible === true);
+              }, function(e) { console.warn('cmsSetupMyDayInvisible:', e && e.message); });
+            };
+
+            window.cmsToggleMyDayInvisible = async function() {
+              var me = window.currentUserData || {};
+              if (MYDAY_INVISIBLE_UIDS.indexOf(me.uid) === -1) return;
+              var btn = document.getElementById('myDayInvisibleToggle');
+              var next = !_myDayInvisible;
+              if (btn) btn.disabled = true;
+              try {
+                await db.collection('chatPresence').doc(me.uid).set({ invisible: next }, { merge: true });
+                _paintMyDayInvisible(next); // the listener repaints too — this is just instant feedback
+              } catch (e) {
+                alert('Could not change your visibility: ' + (e && e.message ? e.message : e));
+              }
+              if (btn) btn.disabled = false;
             };
 
             // Recent-signup row click → open that event's signups modal.
@@ -10228,7 +10294,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- Internal chat — see chat-core.js -->
-<script src="chat-core.js?v=149.0"></script>
+<script src="chat-core.js?v=149.40"></script>
 <script>
   LDAHChat.mount(document.getElementById('chatMount'), {
     mode: 'modal',
@@ -11861,6 +11927,7 @@ var _photoPendingByIsland = {};
     if (typeof loadMyDay === 'function') loadMyDay();
     if (typeof loadMyDayRecentSignups === 'function') loadMyDayRecentSignups();
     if (typeof cmsSetupMyDayViewAs === 'function') cmsSetupMyDayViewAs();
+    if (typeof cmsSetupMyDayInvisible === 'function') cmsSetupMyDayInvisible();
     // Load lookup lists (channels, types, grants) and seed defaults if needed
     if (typeof loadLookupLists === 'function') {
       seedLookupListsIfNeeded().then(function() { loadLookupLists(); });
@@ -13052,7 +13119,19 @@ var _photoPendingByIsland = {};
     return h >= _PRESENCE_OFFICE_OPEN_HOUR && h < _PRESENCE_OFFICE_SHUT_HOUR;
   }
 
-  function _presenceHidden(uid) {
+  /* Two independent reasons to hide someone; either one is enough:
+       1. `invisible: true` on their own chatPresence doc — set by hand from
+          the toggle in the "Viewing as" bar, and it persists across sessions
+          until it is turned off again.
+       2. The office hours above.
+     Office hours can only hide, never reveal: a person who has switched
+     themselves off stays off inside their working hours too.
+
+     SECOND COPY: chat-core.js carries the same constants and the same two
+     functions verbatim (it is a separate file, loaded by the pop-out window
+     as well, so it cannot call this one). Change one, change the other. */
+  function _presenceHidden(uid, data) {
+    if (data && data.invisible === true) return true;
     if (_PRESENCE_OFFICE_HOURS_UIDS.indexOf(uid) === -1) return false;
     return !_presenceWithinOfficeHours();
   }
@@ -13068,7 +13147,7 @@ var _photoPendingByIsland = {};
     snap.forEach(function(doc) {
       var d = doc.data();
       if (!d.displayName) return;
-      if (_presenceHidden(doc.id)) return;
+      if (_presenceHidden(doc.id, d)) return;
       var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
       var isStale = lastSeenMs < staleThreshold;
       var displayLabel = _presenceLabel(d.displayName);
@@ -13567,6 +13646,12 @@ var _photoPendingByIsland = {};
       var staleThreshold = Date.now() - (15 * 60 * 1000); // 15 min
       presenceSnap.forEach(function(doc) {
         var d = doc.data();
+        /* Hidden people get no presence entry, so their row falls through to
+           the "never seen" branch below and shows a plain offline dot. The row
+           itself has to stay — this table is how roles are administered — but
+           it must not report activity. Force Offline drops off it too, which
+           is right: there is nothing live to clear. */
+        if (_presenceHidden(doc.id, d)) return;
         var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
         var isStale = lastSeenMs < staleThreshold;
         presenceMap[doc.id] = {
