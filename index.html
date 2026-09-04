@@ -2955,6 +2955,7 @@
 .ed-ev-m.has-sig > .ed-m-txt{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ed-sig{ flex:0 0 auto; font-size:.62rem; font-weight:800; line-height:1.55; padding:0 6px; border-radius:999px;
          border:1px solid #DDD6FE; background:#F5F3FF; color:#7C3AED; white-space:nowrap; cursor:default; }
+.ed-slot{font-size:.7rem;font-weight:600;color:#475569;margin:5px 0 2px;line-height:1.25;}
 .ed-sig.pend{ border-color:#E2E8F0; background:#F8FAFC; color:#94A3B8; font-weight:700; }
 @media(max-width:900px){ .ed-grid{ grid-template-columns:repeat(7,minmax(120px,1fr)); } .ed-cell{ min-height:96px; } }
 
@@ -5200,7 +5201,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.25</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.26</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -30859,6 +30860,21 @@ function _edShowWorkshopPrompt(edEv, isDraft) {
    and Parent Talk Cafe — their numbers are followed in their own reports and
    would only crowd the cell. Stated as an exclusion rather than an allow-list
    because a new signup-taking event type should start counting on its own. */
+/* "3:00 PM — Q&A with Legislators" out of a signupDates label like
+   "October 21, 2026, 3:00 PM - Q&A with Legislators". The time and the topic
+   are the only parts that distinguish one talk from another; the date is
+   already the calendar cell it sits in. */
+function _edSlotLabel(ev) {
+  var raw = String(ev.key || ev.when || '').trim();
+  var m = raw.match(/(\d{1,2}:\d{2}\s*[AaPp]\.?[Mm]\.?)\s*[-–—:]?\s*(.*)$/);
+  if (m) {
+    var t = m[1].replace(/\s+/g, ' ').toUpperCase().replace(/\./g, '');
+    var rest = (m[2] || '').replace(/^[-–—\s]+/, '').trim();
+    return rest ? (t + ' — ' + rest) : t;
+  }
+  return raw || (ev.when || '');
+}
+
 var _ED_NO_COUNT_TYPES = ['learning_labs', 'parent_talk_cafe'];
 function _edCountsSignups(ev) {
   return !!ev && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
@@ -31008,10 +31024,31 @@ window.edRender = async function() {
       html += '<div class="' + cls + '"><div class="ed-daynum"><span>' + c.d.getDate() + '</span>'
         + (c.out ? '' : '<button class="ed-add" title="Add an event on this date" onclick="edAddOnDate(\'' + iso + '\')">+</button>')
         + '</div>';
+      /* One EVENT per card, even when it runs several sessions that day.
+         The Kauai Transition Fair has three talks on 21 October — presentations,
+         a legislators' Q&A and a mayoral Q&A — and rendering a card each made it
+         look like the same event had been entered three times. It is one event;
+         each talk still needs its own presenter, so those become rows inside the
+         single card rather than cards of their own. (2026-09-04) */
+      var _edGroups = [], _edSeenKey = {};
       (byDate[iso] || []).forEach(function(idx) {
+        var e = _edEvents[idx];
+        var k = e.coll + '/' + e.id;
+        if (_edSeenKey[k] === undefined) { _edSeenKey[k] = _edGroups.length; _edGroups.push([]); }
+        _edGroups[_edSeenKey[k]].push(idx);
+      });
+
+      _edGroups.forEach(function(idxs) {
+        var idx = idxs[0];
         var ev = _edEvents[idx];
-        var meta = [ev.when, ev.where].filter(Boolean).join(' · ');
-        html += '<div class="ed-ev" style="border-left-color:' + (ev.presenter ? '#0d9488' : '#F59E0B') + ';">';
+        var multi = idxs.length > 1;
+        /* Teal only when EVERY session that day has someone. One assigned talk
+           out of three is not a solved day. */
+        var _allAssigned = idxs.every(function(i){ return !!_edEvents[i].presenter; });
+        var meta = multi
+          ? (idxs.length + ' sessions · ' + (ev.where || ''))
+          : [ev.when, ev.where].filter(Boolean).join(' · ');
+        html += '<div class="ed-ev" style="border-left-color:' + (_allAssigned ? '#0d9488' : '#F59E0B') + ';">';
         html += '<div class="ed-ev-t" title="' + rsEscape(ev.title) + '">' + rsEscape(String(ev.title).slice(0, 46)) + '</div>';
         /* The count shares the meta row, so a counted card gains no height. It
            renders as a placeholder and _edFillSignupCounts() fills it in. */
@@ -31024,17 +31061,26 @@ window.edRender = async function() {
           }
           html += '</div>';
         }
-        html += '<select class="ed-sel' + (ev.presenter ? '' : ' unassigned') + '" onchange="edSetPresenter(this,' + idx + ')">';
-        html += '<option value=""' + (ev.presenter ? '' : ' selected') + '>— unassigned —</option>';
-        var known = false;
-        _edPresenters.forEach(function(p) {
-          if (p.name === ev.presenter) known = true;
-          html += '<option value="' + rsEscape(p.name) + '"' + (p.name === ev.presenter ? ' selected' : '') + '>' + rsEscape(p.name) + '</option>';
+        /* A dropdown per session. On a single-session day this is exactly what
+           it always was; on a multi-session day each talk gets its own, labelled
+           with its time so it is obvious which is which. */
+        idxs.forEach(function(i) {
+          var s2 = _edEvents[i];
+          if (multi) {
+            html += '<div class="ed-slot">' + rsEscape(_edSlotLabel(s2)) + '</div>';
+          }
+          html += '<select class="ed-sel' + (s2.presenter ? '' : ' unassigned') + '" onchange="edSetPresenter(this,' + i + ')">';
+          html += '<option value=""' + (s2.presenter ? '' : ' selected') + '>— unassigned —</option>';
+          var known = false;
+          _edPresenters.forEach(function(p) {
+            if (p.name === s2.presenter) known = true;
+            html += '<option value="' + rsEscape(p.name) + '"' + (p.name === s2.presenter ? ' selected' : '') + '>' + rsEscape(p.name) + '</option>';
+          });
+          // Someone assigned before they left the Presenters list still shows, so
+          // an old assignment is never silently rewritten to unassigned.
+          if (s2.presenter && !known) html += '<option value="' + rsEscape(s2.presenter) + '" selected>' + rsEscape(s2.presenter) + ' (not on list)</option>';
+          html += '</select>';
         });
-        // Someone assigned before they left the Presenters list still shows, so
-        // an old assignment is never silently rewritten to unassigned.
-        if (ev.presenter && !known) html += '<option value="' + rsEscape(ev.presenter) + '" selected>' + rsEscape(ev.presenter) + ' (not on list)</option>';
-        html += '</select>';
 
         /* Off-site events carry a Workshop & Presentation form. Until now the
            only ways in were an OPEN task and the slide-in that fires once on
