@@ -7883,7 +7883,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div class="field"><label>Name <span style="color:#DC2626;">*</span></label><input id="cmsResourceName" placeholder="Organization name"></div>
             <div class="field"><label>Type</label><select id="cmsResourceType" multiple size="5"></select><small style="color:#666;">Hold Ctrl (Cmd on Mac) to select more than one.</small></div>
             <div class="field"><label>City</label><input id="cmsResourceCity" placeholder="e.g. Honolulu"></div>
-            <div class="field"><label>Island <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Set to a specific island if the resource is location-specific. Defaults to Statewide for resources available across all islands.')">i</span></label><select id="cmsResourceIsland"><option value="Oahu">Oʻahu</option><option value="Hawaii">Hawaiʻi (Big Island)</option><option value="Maui">Maui</option><option value="Kauai">Kauaʻi</option><option value="Molokai">Molokaʻi</option><option value="Lanai">Lānaʻi</option><option value="Statewide" selected>Statewide</option><option value="Off Island">Off Island</option></select></div>
+            <div class="field"><label>Island <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Pick every island this resource actually serves \u2014 hold Cmd to choose more than one. Statewide means all islands; use it on its own.')">i</span></label><select id="cmsResourceIsland" multiple size="5"><option value="Oahu">Oʻahu</option><option value="Hawaii">Hawaiʻi (Big Island)</option><option value="Maui">Maui</option><option value="Kauai">Kauaʻi</option><option value="Molokai">Molokaʻi</option><option value="Lanai">Lānaʻi</option><option value="Statewide">Statewide</option><option value="Off Island">Off Island</option></select>
+              <small style="color:#666;">Hold Ctrl (Cmd on Mac) to select more than one.</small></div>
             <div class="field"><label>Phone</label><input id="cmsResourcePhone" placeholder="Phone number"></div>
             <div class="field"><label>Email</label><input id="cmsResourceEmail" placeholder="Email address"></div>
             <div class="field" style="grid-column: span 2;"><label>Website URL <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'The website link for this resource. Visitors can click to visit the resource\'s website.')">i</span></label><input type="url" id="cmsResourceWebsite" placeholder="https://example.com"></div>
@@ -15022,6 +15023,36 @@ var _photoPendingByIsland = {};
     });
     setResourceTypeSelection(current);
   }
+
+  /* Island is multi-value (2026-09-04): an agency can have an Oʻahu office and
+     a Kauaʻi one, and "Statewide" was the only way to say that — which reads to
+     a family as "everywhere", not "these two". `islands` is the truth; the old
+     singular `island` is still written and still read as the fallback, exactly
+     as `types`/`type` has always worked on this same form. */
+  window.cmsResourceIslands = function(r) {
+    if (!r) return [];
+    if (Array.isArray(r.islands) && r.islands.length) return r.islands;
+    return r.island ? [r.island] : [];
+  };
+
+  window.cmsSetMultiSelect = function(selectId, values) {
+    var sel = document.getElementById(selectId);
+    if (!sel) return;
+    var wanted = Array.isArray(values) ? values : [];
+    Array.from(sel.options).forEach(function(opt) {
+      opt.selected = wanted.indexOf(opt.value) !== -1;
+    });
+  };
+
+  /* One label for a card, a table cell or an export. Statewide anywhere in the
+     list wins outright — it already means every island, so listing it beside
+     two of them would contradict itself. */
+  window.cmsResourceIslandLabel = function(r) {
+    var list = window.cmsResourceIslands(r);
+    if (!list.length) return 'Statewide';
+    if (list.some(function(i) { return String(i).toLowerCase() === 'statewide'; })) return 'Statewide';
+    return list.join(' & ');
+  };
 
   window.setResourceTypeSelection = function(typesArray) {
     var sel = document.getElementById('cmsResourceType');
@@ -26828,7 +26859,7 @@ window.cmsOpenResourceModal = async function(docId) {
   setResourceTypeSelection([]);
   document.getElementById('cmsResourceServices').value = '';
   document.getElementById('cmsResourceCity').value = '';
-  document.getElementById('cmsResourceIsland').value = 'Statewide';
+  cmsSetMultiSelect('cmsResourceIsland', ['Statewide']);
   document.getElementById('cmsResourcePhone').value = '';
   document.getElementById('cmsResourceEmail').value = '';
   document.getElementById('cmsResourceWebsite').value = '';
@@ -26849,7 +26880,7 @@ window.cmsOpenResourceModal = async function(docId) {
         setResourceTypeSelection(Array.isArray(d.types) ? d.types : (d.type ? [d.type] : []));
         document.getElementById('cmsResourceServices').value = d.services || '';
         document.getElementById('cmsResourceCity').value = d.city || '';
-        document.getElementById('cmsResourceIsland').value = d.island || 'Statewide';
+        cmsSetMultiSelect('cmsResourceIsland', cmsResourceIslands(d));
         document.getElementById('cmsResourcePhone').value = d.phone || '';
         document.getElementById('cmsResourceEmail').value = d.email || '';
         document.getElementById('cmsResourceWebsite').value = d.website || '';
@@ -26923,6 +26954,8 @@ window.cmsSaveResource = async function() {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
 
   var selectedTypes = Array.from(document.getElementById('cmsResourceType').selectedOptions).map(function(o) { return o.value; });
+  var selectedIslands = Array.from(document.getElementById('cmsResourceIsland').selectedOptions).map(function(o) { return o.value; });
+  if (!selectedIslands.length) selectedIslands = ['Statewide'];
 
   var data = {
     name: name,
@@ -26930,7 +26963,8 @@ window.cmsSaveResource = async function() {
     type: selectedTypes[0] || '',
     services: document.getElementById('cmsResourceServices').value.trim(),
     city: document.getElementById('cmsResourceCity').value.trim(),
-    island: document.getElementById('cmsResourceIsland').value.trim() || 'Statewide',
+    islands: selectedIslands,
+    island: selectedIslands[0] || 'Statewide',
     phone: document.getElementById('cmsResourcePhone').value.trim(),
     email: document.getElementById('cmsResourceEmail').value.trim(),
     website: websiteCheck.normalized,
