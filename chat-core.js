@@ -2049,16 +2049,28 @@ window.LDAHChat = (function () {
        so a missing or throwing helper degrades to {} and nothing else.
        JSON round-tripped because Firestore rejects a document containing
        `undefined` anywhere in it, and this object is written by other code. */
-    var CI_CONTEXT_MAX = 4000;
+    var CI_CONTEXT_MAX = 20000;      // characters of JSON, well inside Firestore's 1MB doc
     function _ciContext() {
       try {
         if (typeof window.ldahIssueContext !== 'function') return {};
         var raw = window.ldahIssueContext();
-        if (!raw || typeof raw !== 'object') return {};
-        var json = JSON.stringify(raw);
-        if (!json || json.length > CI_CONTEXT_MAX) return {};
-        var clean = JSON.parse(json);
-        return (clean && typeof clean === 'object' && !Array.isArray(clean)) ? clean : {};
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        var clean = JSON.parse(JSON.stringify(raw));
+        if (!clean || typeof clean !== 'object' || Array.isArray(clean)) return {};
+        /* Oversize DEGRADES, it does not discard. The context carries two ring
+           buffers of recent errors and clicks, and a report with several errors
+           in it is the biggest one AND the one most worth having — throwing the
+           whole object away over its size would lose the build number and the
+           screen size too, which are three lines and always useful. */
+        if (JSON.stringify(clean).length > CI_CONTEXT_MAX) {
+          if (Array.isArray(clean.errors)) clean.errors = clean.errors.slice(-6);
+          if (Array.isArray(clean.breadcrumbs)) clean.breadcrumbs = clean.breadcrumbs.slice(-6);
+          clean.truncated = true;
+        }
+        if (JSON.stringify(clean).length > CI_CONTEXT_MAX) {
+          delete clean.errors; delete clean.breadcrumbs;
+        }
+        return (JSON.stringify(clean).length > CI_CONTEXT_MAX) ? {} : clean;
       } catch (e) {
         console.warn('issue context unavailable:', e && e.message);
         return {};
