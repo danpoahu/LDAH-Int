@@ -109,31 +109,53 @@ window.LDAHChat = (function () {
     '          </div>' +
     '        </div>' +
     '' +
-    /* ── IT_Help intake (2026-09-01) ────────────────────────────────────────
-       Opens instead of an empty message box the first time someone starts a
-       thread with IT_Help. Four questions, because "what were you doing /
-       where / what happened instead" is the least that lets a problem be
-       reproduced without a round trip. IT_Help ONLY — a thread with a person
-       stays free text. */
+    /* ── IT_Help intake — button tree (v2, 2026-09-04) ───────────────────
+       Replaces the two free-text questions ("what were you trying to do" /
+       "what happened instead") with a two-press button tree. Staff wrote
+       "it's broken" into those boxes and the round trip started anyway; the
+       ten first-press buttons are the ten shapes of every report actually
+       received, so one press already says more than a paragraph did.
+
+       Everything below the head is rendered by JS — see CI_TREE. The shell
+       only has to exist so the CSS and the ids are stable. */
     '        <div class="chat-intake" id="chatIntake" style="display:none;">' +
-    '          <div class="chat-intake-card">' +
+    '          <div class="chat-intake-card" id="ciCard">' +
     '            <div class="chat-intake-head">' +
-    '              <div class="chat-intake-title">Before we get help \u2014 four quick questions</div>' +
-    '              <button type="button" class="chat-intake-skip" id="chatIntakeSkip">Skip \u2014 just let me type</button>' +
+    '              <div class="chat-intake-title" id="ciTitle">What is happening?</div>' +
+    '              <button type="button" class="chat-intake-skip" id="chatIntakeSkip">Skip — just let me type</button>' +
     '            </div>' +
-    '            <label class="chat-intake-lbl" for="ciDoing">1. What were you trying to do?</label>' +
-    '            <input class="chat-intake-inp" id="ciDoing" maxlength="200" placeholder="Send the September flyer to the calendar\u2026">' +
-    '            <label class="chat-intake-lbl">2. Where were you?</label>' +
-    '            <div class="chat-intake-chips" id="ciWhere"></div>' +
-    '            <label class="chat-intake-lbl" for="ciHappened">3. What happened instead?</label>' +
-    '            <input class="chat-intake-inp" id="ciHappened" maxlength="300" placeholder="It said saved but the card never appeared\u2026">' +
-    '            <label class="chat-intake-lbl">4. How stuck are you?</label>' +
-    '            <div class="chat-intake-chips" id="ciUrgency"></div>' +
-    '            <div class="chat-intake-foot">' +
-    '              <span class="chat-intake-hint">You can paste or drag a screenshot in after you send this.</span>' +
-    '              <button type="button" class="chat-intake-send" id="chatIntakeSend">Send to IT Help</button>' +
+    '            <button type="button" class="ci-back" id="ciBack" style="display:none;">‹ Back</button>' +
+    '            <div class="ci-step" id="ciStep"></div>' +
+    '            <div class="ci-send" id="ciSend" style="display:none;">' +
+    '              <div class="ci-chosen" id="ciChosen"></div>' +
+    '              <label class="chat-intake-lbl" for="ciNote">Anything you want to add</label>' +
+    '              <input class="chat-intake-inp" id="ciNote" maxlength="200" placeholder="">' +
+    '              <div class="ci-note-hint">One line is plenty. You can leave this blank.</div>' +
+    '              <div class="ci-shot" id="ciShot">' +
+    '                <div class="chat-intake-lbl" id="ciShotHead">A picture of your screen</div>' +
+    '                <div class="ci-warn">The picture will show whatever is on your screen right now — that can include families’ names, emails and phone numbers. Only Daniel sees it. Close anything private first if you would rather not send it.</div>' +
+    '                <div class="ci-howto" id="ciHowTo"></div>' +
+    '                <div class="ci-shotbox" id="ciShotBox" tabindex="0">' +
+    '                  <img class="ci-shot-thumb" id="ciShotThumb" alt="Picture you are about to send" style="display:none;">' +
+    '                  <div class="ci-shot-empty" id="ciShotEmpty">Nothing here yet.</div>' +
+    '                  <div class="ci-shot-size" id="ciShotSize"></div>' +
+    '                </div>' +
+    '                <div class="ci-shot-actions">' +
+    '                  <button type="button" class="ci-file-btn" id="ciPickBtn">Choose a picture</button>' +
+    '                  <button type="button" class="ci-file-btn" id="ciShotClear" style="display:none;">Remove this picture</button>' +
+    '                </div>' +
+    '                <input type="file" accept="image/*" id="ciFile" class="ci-file-input" tabindex="-1" aria-hidden="true">' +
+    '                <div class="ci-skipnote">You can send this without a picture.</div>' +
+    '              </div>' +
+    '              <div class="ci-noshot" id="ciNoShot" style="display:none;">Please do not send a picture of this one. Photographing someone else’s information spreads it further. Send this on its own and Daniel will look straight away.</div>' +
+    '              <label class="ci-check"><input type="checkbox" id="ciBlocked"><span>I cannot carry on until this is fixed</span></label>' +
+    '              <label class="ci-check"><input type="checkbox" id="ciCall"><span>I would rather talk this through</span></label>' +
+    '              <div class="chat-intake-foot">' +
+    '                <button type="button" class="chat-intake-send" id="chatIntakeSend">Send this to Daniel</button>' +
+    '              </div>' +
     '            </div>' +
     '          </div>' +
+    '        </div>' +
     '        </div>' +
     '        <div class="chat-drop-hint" id="chatDropHint" aria-hidden="true">' +
     '          <div class="chat-drop-hint-inner">' +
@@ -157,7 +179,7 @@ window.LDAHChat = (function () {
     '          </div>' +
     '          <div class="chat-client-link">' +
     '            <button type="button" id="chatNewRequest" class="chat-new-request" style="display:none;"' +
-    '                    title="Start a new help request \u2014 answer the four questions again">+ New request</button>' +
+    '                    title="Start a new help request">+ New request</button>' +
     '            <label for="chatClientSelect">📎 Link to client:</label>' +
     '            <select id="chatClientSelect">' +
     '              <option value="">None (general chat)</option>' +
@@ -1510,6 +1532,16 @@ window.LDAHChat = (function () {
     // paste in conversation A followed by a switch to B before the decode resolved got
     // stamped for B and would have been sent there.
     var _pendingImageGen = 0;
+    /* The intake card paints its own copy of the pending screenshot (the footer
+       preview strip is underneath the overlay). It must never show — or send —
+       an image stamped for a different conversation, so the same convId check
+       sendWithImage() makes is made here too rather than reading _pendingImage
+       raw. */
+    function _ciPending() {
+      if (!_pendingImage || !_chatActiveConvId) return null;
+      if (_pendingImage.convId !== _chatActiveConvId) return null;
+      return _pendingImage;
+    }
     var _sendingImage = false;  // in-flight guard — separate from setSendBusy()'s visual state,
                                  // because the Enter-key handler bypasses the disabled button.
     var MAX_RAW_BYTES = 10 * 1024 * 1024;
@@ -1520,6 +1552,13 @@ window.LDAHChat = (function () {
     // downscale are identical either way, and having two copies is how they drift.
     function acceptImageFile(file, how) {
       if (!file) return;
+      // The "it is showing me someone else's information" leaf hides the picture
+      // area, but paste and drag-drop are bound wider than that area is — without
+      // this, a drop still armed a screenshot of the leak.
+      if (_ciVisible() && _ciShotSuppressed()) {
+        hostToast('Please do not send a picture of this one — just send the report.', '#B45309');
+        return;
+      }
       if (!/^image\//.test(file.type || '')) {
         hostToast('That is not an image \u2014 drop a PNG or JPG screenshot.', '#DC2626');
         return;
@@ -1550,41 +1589,412 @@ window.LDAHChat = (function () {
       acceptImageFile(file, 'paste');
     }
 
-    /* ── IT_Help intake form (2026-09-01, Daniel) ──────────────────────────
-       The first message to IT_Help opens four questions instead of an empty
-       box, so a problem arrives reproducible instead of as "it's broken".
+    /* ── IT_Help intake — button tree (v2, 2026-09-04, Daniel) ────────────
+       v1 asked "what were you trying to do" and "what happened instead" as
+       free text. What came back was "it's broken" and "it didn't work", so
+       the round trip it was meant to save happened anyway.
+
+       v2 asks nothing that has to be typed. Ten buttons, then at most one
+       more, then send. Every one of the ten first-press labels is the shape
+       of a report that was genuinely received — they are worded the way the
+       person said it, not the way a developer would file it.
 
        IT_Help ONLY. Daniel asked explicitly that threads with a person stay
        free text — someone messaging him may be asking about a family, and a
-       bug-report form is the wrong shape for that. */
+       report form is the wrong shape for that. */
     var CHAT_HELPDESK_UID = 'Lwz0SNVIRAcC68tVQdzE2BBCapt1';   // ". IT_Help"
-    var CHAT_INTAKE_WHERE = ['Home','Events & Programs','Contacts','Interactions',
-                             'Reports','Downloads','CMS','Team Messages','Somewhere else'];
-    var CHAT_INTAKE_URGENCY = ['Curious — no rush','Slowing me down','Cannot work — blocked'];
-    var _ciWhere = '', _ciUrgency = '', _ciConvId = null;
 
-    function _ciChips(hostId, items, pick) {
-      var host = document.getElementById(hostId);
-      if (!host) return;
-      host.innerHTML = '';
-      items.forEach(function (label) {
-        var b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'chat-intake-chip';
-        b.textContent = label;
-        b.addEventListener('click', function () {
-          Array.prototype.forEach.call(host.children, function (c) { c.classList.remove('on'); });
-          b.classList.add('on');
-          pick(label);
-        });
-        host.appendChild(b);
+    /* The tree. `key` is the stable contract value and must never change once
+       shipped — it is what any report or triage rule will group on; `label` is
+       what the person reads and may be reworded freely.
+
+       `ph`   — placeholder for the one optional line on the send screen.
+       `shot` — replaces the standard screenshot heading where a picture is
+                the whole answer.
+       `noShot` on a LEAF suppresses the picture area entirely. */
+    var CI_TREE = [
+      { key: 'no-response', label: 'Nothing happens when I click',
+        ph: 'Which button, if you remember',
+        detail: [
+          /* The obvious second press here is a pointer-picker — "show me the
+             button" — and that is deliberately out of scope. The one thing
+             the tree must not do is trap someone who just wants to type. */
+          { key: 'rather-type', label: 'I would rather just type it' }
+        ] },
+      { key: 'error-message', label: 'A message came up on the screen',
+        ph: 'What the message said, if you remember',
+        shot: 'A picture of that message is the fastest way to fix this.',
+        detail: [] },
+      { key: 'looks-wrong', label: 'Something looks wrong or is missing',
+        ph: 'Which page you were on',
+        detail: [
+          { key: 'missing',      label: 'Something that should be here is missing' },
+          { key: 'not-right',    label: 'Something here is not right' },
+          { key: 'someone-else', label: 'It is showing me someone else’s information',
+            noShot: true }
+        ] },
+      { key: 'will-not-save', label: 'It will not save',
+        ph: 'What you were saving',
+        detail: [
+          { key: 'still-on-screen', label: 'My work is still on the screen' },
+          { key: 'work-gone',       label: 'My work is gone' }
+        ] },
+      { key: 'unexpected', label: 'It did something different from what I expected',
+        ph: 'What you expected it to do',
+        detail: [] },
+      { key: 'system-auto', label: 'Something the system does on its own went wrong',
+        ph: 'Who it was for, and roughly when',
+        detail: [
+          { key: 'email-sent',   label: 'A message went out that should not have' },
+          { key: 'not-arrived',  label: 'Something did not arrive' },
+          { key: 'no-task',      label: 'A task or reminder did not appear' }
+        ] },
+      { key: 'slow', label: 'It is very slow, or it will not finish loading',
+        ph: 'Which page is slow',
+        detail: [
+          { key: 'this-page',      label: 'Only this page is slow' },
+          { key: 'whole-internet', label: 'Everything on the internet is slow right now' },
+          { key: 'not-sure',       label: 'I am not sure' }
+        ] },
+      { key: 'signed-out', label: 'It signed me out, or it will not let me in',
+        ph: 'What you were doing when it happened',
+        detail: [
+          { key: 'signed-out-working', label: 'It signed me out while I was working' },
+          { key: 'password',           label: 'It will not accept my password' },
+          { key: 'no-permission',      label: 'It says I do not have permission' }
+        ] },
+      { key: 'do-for-me', label: 'I need you to do something for me',
+        ph: 'What you would like done',
+        detail: [] },
+      /* Separated by a rule in the UI: the nine above are "something is wrong",
+         this one is not, and running them together made people pick the nearest
+         wrong-sounding button rather than admitting they had a question. */
+      { key: 'question', label: 'I am not sure how to do this — I have a question',
+        ph: 'What you would like to know',
+        rule: true, detail: [] }
+    ];
+
+    var _ci = null;        // { branch, detail, note, blocked, wantsCall } — live answer
+    var _ciConvId = null;
+    var _ciPasteBound = false;
+
+    /* ── Severity is DERIVED, never asked ──────────────────────────────────
+       Asking "how urgent is this?" measures how assertive someone is, not how
+       broken the system is. The two people most likely to be blocked are the
+       two least likely to say so. So it is read off the answers instead, and
+       the "I cannot carry on" tickbox may only ever RAISE it — someone who
+       ticks it on a slow page is still blocked; someone who leaves it unticked
+       on a data leak is still an incident. */
+    var CI_SEV_RANK = { watching: 0, slowing: 1, blocked: 2, incident: 3 };
+
+    function _ciSeverity(branchKey, detailKey, blocked) {
+      var sev = 'slowing';
+      if (detailKey === 'someone-else') sev = 'incident';
+      else if (detailKey === 'work-gone' || branchKey === 'signed-out') sev = 'blocked';
+      else if (detailKey === 'whole-internet') sev = 'watching';
+      if (blocked && CI_SEV_RANK['blocked'] > CI_SEV_RANK[sev]) sev = 'blocked';
+      return sev;
+    }
+
+    /* ── Which keyboard is in front of them ────────────────────────────────
+       Getting this wrong is worse than saying nothing: telling a Windows user
+       to press Cmd is the moment they decide the help desk does not know what
+       it is doing. iPadOS reports itself as MacIntel, so touch points are the
+       only reliable separator. */
+    function _ciPlatform() {
+      var ua = navigator.userAgent || '';
+      var plat = navigator.platform || '';
+      var touch = navigator.maxTouchPoints || 0;
+      if (/iPad|iPhone|iPod/.test(ua) || (plat === 'MacIntel' && touch > 1)) return 'ipad';
+      if (/Mac/.test(plat) || /Mac OS X/.test(ua)) return 'mac';
+      if (/Win/.test(plat) || /Windows/.test(ua)) return 'win';
+      return 'other';
+    }
+    function _ciHowToText() {
+      switch (_ciPlatform()) {
+        case 'win':
+          return 'Hold Windows + Shift + S, drag a box around what you can see, then click the grey box above and press Ctrl + V.';
+        case 'mac':
+          return 'Hold Cmd + Shift + 4, drag a box around what you can see, then click the grey box above and press Cmd + V.';
+        case 'ipad':
+          return 'Take a screenshot the usual way, then tap Choose a picture.';
+        default:
+          return 'Take a screenshot, then click the grey box above and paste it in — or use Choose a picture.';
+      }
+    }
+
+    /* ── Styles ────────────────────────────────────────────────────────────
+       Injected from here rather than added to chat.css so the tree ships as
+       one file: chat.css is shared with two host pages that carry their own
+       cache-bust, and a form that half-renders because one of them is stale
+       is exactly the kind of thing this form exists to report.
+       Reuses .chat-intake / .chat-intake-card / -head / -title / -skip / -lbl
+       / -inp / -foot / -send, which chat.css already defines. */
+    var CI_CSS = '' +
+      '.ci-back{background:none;border:none;padding:6px 0;margin:0 0 4px;cursor:pointer;' +
+      'font-family:inherit;font-size:.8rem;font-weight:700;color:var(--ocean-mid,#0891B2);min-height:44px}' +
+      '.ci-step{display:flex;flex-direction:column;gap:7px}' +
+      '.ci-opt{display:block;width:100%;text-align:left;box-sizing:border-box;' +
+      'min-height:44px;padding:11px 13px;border:1px solid #cbd5e1;border-radius:9px;' +
+      'background:#fff;color:#1d2b32;font-family:inherit;font-size:.87rem;font-weight:600;' +
+      'line-height:1.3;cursor:pointer;white-space:normal;overflow-wrap:break-word}' +
+      '.ci-opt:hover{border-color:var(--ocean-mid,#0891B2);background:#f2fbfd}' +
+      '.ci-opt:focus-visible{outline:3px solid rgba(8,145,178,.35);outline-offset:1px}' +
+      '.ci-rule{height:1px;background:var(--line,#dfe7ea);margin:6px 0 1px}' +
+      '.ci-chosen{font-size:.82rem;font-weight:700;color:var(--ocean-deep,#075985);' +
+      'background:#f2fbfd;border:1px solid #d6eef4;border-radius:8px;padding:8px 10px;' +
+      'margin-bottom:4px;line-height:1.35;overflow-wrap:break-word}' +
+      '.ci-note-hint{font-size:.72rem;color:var(--text-soft,#64748b);margin:4px 0 2px}' +
+      '.ci-shot{margin-top:12px}' +
+      '.ci-warn{font-size:.74rem;line-height:1.4;color:#7c2d12;background:#fffbeb;' +
+      'border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin:0 0 8px}' +
+      '.ci-howto{font-size:.75rem;line-height:1.4;color:var(--text-soft,#64748b);margin:8px 0 0}' +
+      '.ci-shotbox{border:1.5px dashed #cbd5e1;border-radius:9px;background:#f8fafc;' +
+      'min-height:74px;display:flex;flex-direction:column;align-items:center;' +
+      'justify-content:center;gap:4px;padding:10px;text-align:center}' +
+      '.ci-shotbox:focus-visible{outline:3px solid rgba(8,145,178,.35);outline-offset:1px}' +
+      '.ci-shot-empty{font-size:.76rem;color:var(--text-soft,#64748b)}' +
+      '.ci-shot-size{font-size:.7rem;color:var(--text-soft,#64748b)}' +
+      '.ci-shot-thumb{max-width:100%;max-height:150px;border-radius:6px;display:block}' +
+      '.ci-shot-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}' +
+      '.ci-file-btn{min-height:44px;padding:8px 13px;border:1px solid #cbd5e1;border-radius:8px;' +
+      'background:#fff;color:#3d545e;font-family:inherit;font-size:.79rem;font-weight:700;cursor:pointer}' +
+      '.ci-file-btn:hover{border-color:var(--ocean-mid,#0891B2)}' +
+      '.ci-file-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}' +
+      '.ci-skipnote{font-size:.74rem;color:var(--text-soft,#64748b);margin-top:8px}' +
+      '.ci-noshot{font-size:.79rem;line-height:1.45;color:#7c2d12;background:#fffbeb;' +
+      'border:1px solid #fde68a;border-radius:8px;padding:9px 11px;margin-top:12px}' +
+      '.ci-check{display:flex;align-items:center;gap:9px;min-height:44px;cursor:pointer;' +
+      'font-size:.83rem;font-weight:600;color:#1d2b32;line-height:1.3}' +
+      '.ci-check input{width:19px;height:19px;flex:none;accent-color:var(--ocean-mid,#0891B2)}' +
+      /* Every target in the card clears 44px, and nothing in it may push the
+         panel sideways — 1366x768 laptops, and a horizontal scrollbar under a
+         form is how people conclude it is broken. */
+      '.chat-intake .chat-intake-send{min-height:44px}' +
+      '.chat-intake .chat-intake-skip{min-height:44px;display:inline-flex;align-items:center}' +
+      '.chat-intake .chat-intake-inp{min-height:44px;box-sizing:border-box}' +
+      '.chat-intake .chat-intake-card *{max-width:100%}' +
+      /* The card must never grow past the panel OR past the physical screen —
+         staff are on 1366x768 and a Send button below the fold reads as a
+         form that does not work. --ci-maxh is set in _ciClamp(). */
+      '.chat-intake-card{max-height:var(--ci-maxh,none);overflow-y:auto;overflow-x:hidden}' +
+      /* The drop hint sits at z-index 40 and the intake at 45, so while the
+         form is open a dragged screenshot had nothing to land on visually. */
+      '.chat-intake.ci-open ~ .chat-drop-hint{z-index:60}';
+
+    function _ciInjectCss() {
+      if (document.getElementById('ldah-ci-css')) return;
+      var st = document.createElement('style');
+      st.id = 'ldah-ci-css';
+      st.textContent = CI_CSS;
+      (document.head || document.documentElement).appendChild(st);
+    }
+
+    function _ciClamp() {
+      var h = window.innerHeight || 0;
+      try {
+        if (window.screen && screen.availHeight) h = Math.min(h || screen.availHeight, screen.availHeight);
+      } catch (e) {}
+      if (!h) return;
+      var card = document.getElementById('ciCard');
+      if (card) card.style.setProperty('--ci-maxh', Math.max(240, h - 92) + 'px');
+    }
+
+    /* ── Rendering ─────────────────────────────────────────────────────────
+       Buttons are built, never concatenated into innerHTML — the labels are
+       ours, but this file is public and served, and one future label carrying
+       a family's name through innerHTML is a class of bug worth designing out
+       rather than remembering to avoid. */
+    function _ciBtn(label, onClick) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ci-opt';
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    function _ciSetTitle(t) {
+      var el = document.getElementById('ciTitle');
+      if (el) el.textContent = t;
+    }
+
+    function _ciShowStep1() {
+      _ci.branch = null; _ci.detail = null;
+      var step = document.getElementById('ciStep');
+      var send = document.getElementById('ciSend');
+      var back = document.getElementById('ciBack');
+      if (!step) return;
+      step.style.display = '';
+      if (send) send.style.display = 'none';
+      if (back) back.style.display = 'none';
+      _ciSetTitle('What is happening?');
+      step.innerHTML = '';
+      CI_TREE.forEach(function (br) {
+        if (br.rule) {
+          var hr = document.createElement('div');
+          hr.className = 'ci-rule';
+          step.appendChild(hr);
+        }
+        step.appendChild(_ciBtn(br.label, function () { _ciPickBranch(br); }));
       });
+      _ciClamp();
+    }
+
+    function _ciPickBranch(br) {
+      _ci.branch = br; _ci.detail = null;
+      if (!br.detail || !br.detail.length) { _ciShowSend(); return; }
+      var step = document.getElementById('ciStep');
+      var back = document.getElementById('ciBack');
+      if (!step) return;
+      step.style.display = '';
+      var send = document.getElementById('ciSend');
+      if (send) send.style.display = 'none';
+      if (back) { back.style.display = ''; back.textContent = '‹ Back'; }
+      _ciSetTitle(br.label);
+      step.innerHTML = '';
+      br.detail.forEach(function (d) {
+        step.appendChild(_ciBtn(d.label, function () { _ci.detail = d; _ciShowSend(); }));
+      });
+      _ciClamp();
+      try { step.firstChild && step.firstChild.focus(); } catch (e) {}
+    }
+
+    function _ciShowSend() {
+      var br = _ci.branch, d = _ci.detail;
+      var step = document.getElementById('ciStep');
+      var send = document.getElementById('ciSend');
+      var back = document.getElementById('ciBack');
+      if (step) { step.style.display = 'none'; step.innerHTML = ''; }
+      if (send) send.style.display = '';
+      if (back) { back.style.display = ''; back.textContent = '‹ Back'; }
+      _ciSetTitle('Send this to Daniel');
+
+      var chosen = document.getElementById('ciChosen');
+      if (chosen) chosen.textContent = br.label + (d ? ' — ' + d.label : '');
+
+      // Carried on _ci, not read fresh from the DOM, so that pressing Back to
+      // check which button they chose does not throw away the line they typed.
+      var note = document.getElementById('ciNote');
+      if (note) { note.value = _ci.note || ''; note.placeholder = br.ph || ''; }
+
+      /* The one leaf that must never ask for a picture. Photographing another
+         family's details to report that you can see them puts a second copy
+         of the leak into Storage and into a chat thread. */
+      var noShot = !!(d && d.noShot);
+      var shot = document.getElementById('ciShot');
+      var noShotMsg = document.getElementById('ciNoShot');
+      if (shot) shot.style.display = noShot ? 'none' : '';
+      if (noShotMsg) noShotMsg.style.display = noShot ? '' : 'none';
+      if (noShot) clearPendingImage();
+
+      var head = document.getElementById('ciShotHead');
+      if (head) head.textContent = br.shot || 'A picture of your screen';
+      var howTo = document.getElementById('ciHowTo');
+      if (howTo) howTo.textContent = _ciHowToText();
+
+      var b1 = document.getElementById('ciBlocked'), b2 = document.getElementById('ciCall');
+      if (b1) b1.checked = !!_ci.blocked;
+      if (b2) b2.checked = !!_ci.wantsCall;
+
+      _ciSyncShot();
+      _ciClamp();
+      if (note) setTimeout(function () { try { note.focus(); } catch (e) {} }, 60);
+    }
+
+    /* Keep whatever they have typed or ticked before moving off the send
+       screen — see the note in _ciShowSend(). */
+    function _ciStash() {
+      if (!_ci) return;
+      var note = document.getElementById('ciNote');
+      _ci.note = note ? note.value : '';
+      _ci.blocked = !!(document.getElementById('ciBlocked') || {}).checked;
+      _ci.wantsCall = !!(document.getElementById('ciCall') || {}).checked;
+    }
+
+    function _ciBack() {
+      var send = document.getElementById('ciSend');
+      var onSend = send && send.style.display !== 'none';
+      if (onSend) _ciStash();
+      if (onSend && _ci.branch && _ci.branch.detail && _ci.branch.detail.length) {
+        _ciPickBranch(_ci.branch);
+      } else {
+        _ciShowStep1();
+      }
+    }
+
+    /* Mirrors the pending screenshot into the card. The footer preview strip
+       still runs untouched — it is simply behind this overlay, which covers
+       the whole main column, so without this the picture they just pasted
+       vanished and they pasted it again. */
+    function _ciSyncShot() {
+      var thumb = document.getElementById('ciShotThumb');
+      var empty = document.getElementById('ciShotEmpty');
+      var size  = document.getElementById('ciShotSize');
+      var clr   = document.getElementById('ciShotClear');
+      if (!thumb) return;
+      var pi = _ciPending();
+      if (pi) {
+        thumb.src = pi.previewUrl;
+        thumb.style.display = '';
+        if (empty) empty.style.display = 'none';
+        if (size) size.textContent = pi.w + '×' + pi.h + ' · ' + Math.round(pi.blob.size / 1024) + ' KB';
+        if (clr) clr.style.display = '';
+      } else {
+        thumb.removeAttribute('src');
+        thumb.style.display = 'none';
+        if (empty) empty.style.display = '';
+        if (size) size.textContent = '';
+        if (clr) clr.style.display = 'none';
+      }
+    }
+
+    /* True when the send screen is showing a leaf that must not carry a picture. */
+    function _ciShotSuppressed() {
+      var shot = document.getElementById('ciShot');
+      var send = document.getElementById('ciSend');
+      if (!shot || !send || send.style.display === 'none') return false;
+      return shot.style.display === 'none';
+    }
+
+    function _ciVisible() {
+      var el = document.getElementById('chatIntake');
+      return !!(el && el.style.display !== 'none');
+    }
+
+    /* Paste while the form is open: the two elements the paste handler is
+       bound to (composer, message list) are both underneath this overlay and
+       cannot take focus, so nothing would ever fire. Bound at document level
+       only while the form is on screen, and removed on hide. */
+    function _ciDocPaste(e) {
+      if (!_ciVisible()) return;
+      if (_ciShotSuppressed()) return;                       // the no-picture leaf
+      handleImagePaste(e);
+    }
+    function _ciBindPaste(on) {
+      if (on === _ciPasteBound) return;
+      if (on) document.addEventListener('paste', _ciDocPaste);
+      else document.removeEventListener('paste', _ciDocPaste);
+      _ciPasteBound = on;
     }
 
     function _ciHide() {
       var el = document.getElementById('chatIntake');
-      if (el) el.style.display = 'none';
+      if (el) { el.style.display = 'none'; el.classList.remove('ci-open'); }
+      _ciBindPaste(false);
       _ciConvId = null;
+    }
+
+    function _ciReset(convId) {
+      _ciConvId = convId;
+      _ci = { branch: null, detail: null, note: '', blocked: false, wantsCall: false };
+      clearPendingImage();
+      var el = document.getElementById('chatIntake');
+      if (el) { el.style.display = 'flex'; el.classList.add('ci-open'); }
+      _ciBindPaste(true);
+      _ciShowStep1();
+      var btn = document.getElementById('chatIntakeSend');
+      if (btn) { btn.disabled = false; btn.textContent = 'Send this to Daniel'; }
     }
 
     /* Shown per HELP REQUEST, not per thread.
@@ -1612,15 +2022,7 @@ window.LDAHChat = (function () {
             if (!lastMs || (Date.now() - lastMs) < CHAT_INTAKE_IDLE_MS) return;
           }
           if (_chatActiveConvId !== convId) return;      // they clicked elsewhere meanwhile
-          _ciConvId = convId;
-          _ciWhere = ''; _ciUrgency = '';
-          var d = document.getElementById('ciDoing'), h = document.getElementById('ciHappened');
-          if (d) d.value = ''; if (h) h.value = '';
-          _ciChips('ciWhere', CHAT_INTAKE_WHERE, function (v) { _ciWhere = v; });
-          _ciChips('ciUrgency', CHAT_INTAKE_URGENCY, function (v) { _ciUrgency = v; });
-          var el = document.getElementById('chatIntake');
-          if (el) el.style.display = 'flex';
-          if (d) setTimeout(function () { try { d.focus(); } catch (e) {} }, 60);
+          _ciReset(convId);
         })
         .catch(function (e) { console.warn('intake check:', e && e.message); });
     }
@@ -1631,15 +2033,7 @@ window.LDAHChat = (function () {
     window._ciOpen = function () {
       var convId = _chatActiveConvId;
       if (!convId) return;
-      _ciConvId = convId;
-      _ciWhere = ''; _ciUrgency = '';
-      var d = document.getElementById('ciDoing'), h = document.getElementById('ciHappened');
-      if (d) d.value = ''; if (h) h.value = '';
-      _ciChips('ciWhere', CHAT_INTAKE_WHERE, function (v) { _ciWhere = v; });
-      _ciChips('ciUrgency', CHAT_INTAKE_URGENCY, function (v) { _ciUrgency = v; });
-      var el = document.getElementById('chatIntake');
-      if (el) el.style.display = 'flex';
-      if (d) setTimeout(function () { try { d.focus(); } catch (e) {} }, 60);
+      _ciReset(convId);
     };
 
     /* The button only makes sense in an IT_Help thread — hidden everywhere else. */
@@ -1648,35 +2042,83 @@ window.LDAHChat = (function () {
       if (b) b.style.display = (otherUid === CHAT_HELPDESK_UID) ? 'inline-block' : 'none';
     };
 
+    /* ── Where they were when it broke ─────────────────────────────────────
+       window.ldahIssueContext() is provided by the host page. It is called
+       through try/catch and type-checked first: this form is the one thing
+       that has to keep working on the day the rest of the dashboard does not,
+       so a missing or throwing helper degrades to {} and nothing else.
+       JSON round-tripped because Firestore rejects a document containing
+       `undefined` anywhere in it, and this object is written by other code. */
+    var CI_CONTEXT_MAX = 4000;
+    function _ciContext() {
+      try {
+        if (typeof window.ldahIssueContext !== 'function') return {};
+        var raw = window.ldahIssueContext();
+        if (!raw || typeof raw !== 'object') return {};
+        var json = JSON.stringify(raw);
+        if (!json || json.length > CI_CONTEXT_MAX) return {};
+        var clean = JSON.parse(json);
+        return (clean && typeof clean === 'object' && !Array.isArray(clean)) ? clean : {};
+      } catch (e) {
+        console.warn('issue context unavailable:', e && e.message);
+        return {};
+      }
+    }
+
     function _ciSubmit() {
       var convId = _ciConvId;                      // captured BEFORE the write, same reason as writeMessage
-      if (!convId) { _ciHide(); return; }
-      var doing = (document.getElementById('ciDoing') || {}).value || '';
-      var happened = (document.getElementById('ciHappened') || {}).value || '';
-      doing = doing.trim(); happened = happened.trim();
-      if (!doing && !happened) {                   // nothing to send — treat as skip
-        hostToast('Add a line about what you were doing, or use Skip.', '#B45309');
-        return;
-      }
-      var lines = [];
-      if (doing)     lines.push('Trying to: ' + doing);
-      if (_ciWhere)  lines.push('Where: ' + _ciWhere);
-      if (happened)  lines.push('Instead: ' + happened);
-      if (_ciUrgency)lines.push('Urgency: ' + _ciUrgency);
+      if (!convId || !_ci || !_ci.branch) { _ciHide(); return; }
+
+      var br = _ci.branch, d = _ci.detail;
+      var note = ((document.getElementById('ciNote') || {}).value || '').trim();
+      if (note.length > 200) note = note.substring(0, 200);
+      var blocked   = !!(document.getElementById('ciBlocked') || {}).checked;
+      var wantsCall = !!(document.getElementById('ciCall') || {}).checked;
+
+      // Reads as a message, not as a form dump — this lands in a chat thread
+      // that both of them scroll through later.
+      var lines = [br.label];
+      if (d) lines.push(d.label);
+      if (note) lines.push(note);
+      if (blocked)   lines.push('I cannot carry on until this is fixed.');
+      if (wantsCall) lines.push('I would rather talk this through.');
       var text = lines.join('\n');
+      if (text.length > 500) text = text.substring(0, 500);
+
+      var extra = {
+        helpRequest: {
+          v: 2,
+          branch: br.key,
+          branchLabel: br.label,
+          detail: d ? d.key : '',
+          detailLabel: d ? d.label : '',
+          note: note,
+          blocked: blocked,
+          wantsCall: wantsCall,
+          severity: _ciSeverity(br.key, d ? d.key : '', blocked),
+          context: _ciContext(),
+          source: 'button-tree'
+        }
+      };
 
       var btn = document.getElementById('chatIntakeSend');
       if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-      writeMessage(text, {
-        helpRequest: {
-          doing: doing, where: _ciWhere, happened: happened, urgency: _ciUrgency,
-          source: 'intake-form'
-        }
-      }, convId, null)
-        .then(function () { _ciHide(); })
-        .catch(function (e) { hostToast('Could not send that: ' + (e && e.message), '#DC2626'); })
-        .then(function () {
-          if (btn) { btn.disabled = false; btn.textContent = 'Send to IT Help'; }
+      function done(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Send this to Daniel'; }
+        if (!err) _ciHide();
+      }
+
+      // A picture goes through the same upload path as any other screenshot —
+      // one pipeline, so a fix to either only has to be made once.
+      var pi = _ciPending();
+      var noShot = !!(d && d.noShot);
+      if (pi && !noShot) { sendWithImage(text, extra, done, { id: '', name: '' }); return; }
+
+      writeMessage(text, extra, convId, null)
+        .then(function () { done(null); })
+        .catch(function (e) {
+          hostToast('Could not send that: ' + (e && e.message), '#DC2626');
+          done(e);
         });
     }
 
@@ -1794,7 +2236,10 @@ window.LDAHChat = (function () {
       document.getElementById('chatImgPreviewSize').textContent =
         pi.w + '×' + pi.h + ' · ' + Math.round(pi.blob.size / 1024) + ' KB';
       box.style.display = 'flex';
-      if (chatModalInput) chatModalInput.focus();
+      _ciSyncShot();
+      // Focus belongs to the intake card while it is open — pulling it to the
+      // composer underneath the overlay loses the caret entirely.
+      if (chatModalInput && !_ciVisible()) chatModalInput.focus();
     }
 
     function clearPendingImage() {
@@ -1803,6 +2248,7 @@ window.LDAHChat = (function () {
       _pendingImageGen++;
       var box = document.getElementById('chatImgPreview');
       if (box) box.style.display = 'none';
+      _ciSyncShot();
     }
 
     // ── Send Message ──
@@ -1899,13 +2345,22 @@ window.LDAHChat = (function () {
       }
     }
 
-    function sendWithImage(caption) {
-      if (_sendingImage) return;   // in-flight guard — setSendBusy()'s disabled state alone
-                                    // doesn't stop the Enter-key handler from firing again
+    /* extraFields/cb exist for the IT_Help intake, which sends a screenshot AND a
+       structured helpRequest in one message and has its own button to re-enable.
+       The plain composer still calls sendWithImage(text) and behaves exactly as
+       before — one upload path, so a fix to it only has to be made once. */
+    function sendWithImage(caption, extraFields, cb, clientOverride) {
+      function _done(err) { if (cb) { try { cb(err || null); } catch (e) {} } }
+      if (_sendingImage) { _done(new Error('already sending')); return; }
+                                   // in-flight guard — setSendBusy()'s disabled state alone
+                                   // doesn't stop the Enter-key handler from firing again
       var pi = _pendingImage;
       var convId = _chatActiveConvId;
       // Captured here, beside convId, and carried through the upload — see writeMessage().
-      var client = currentClientLink();
+      // clientOverride is how the IT_Help intake sends with no family attached: a
+      // stale selection in the (covered) dropdown would otherwise file a broken
+      // button as an interaction on someone's case.
+      var client = clientOverride || currentClientLink();
 
       // Belt-and-braces: clearPendingImage() runs on every path that changes or leaves
       // the conversation (closeChatModal, roster click, openConversation), so this should
@@ -1914,10 +2369,12 @@ window.LDAHChat = (function () {
       if (!pi || !convId || pi.convId !== convId) {
         clearPendingImage();
         hostToast('That screenshot was for a different conversation — please paste it again.', '#DC2626');
+        _done(new Error('screenshot belonged to another conversation'));
         return;
       }
 
       _sendingImage = true;
+      var _sendErr = null;
       setSendBusy(true);
       var id = db().collection('chatConversations').doc(convId)
                  .collection('messages').doc().id;
@@ -1941,10 +2398,16 @@ window.LDAHChat = (function () {
               throw new Error('conversation changed during upload — screenshot not sent');
             });
           }
-          return writeMessage(caption, {
+          var _fields = {
             hasImage: true, imageUrl: url, imagePath: path,
             imageW: pi.w, imageH: pi.h, imageBytes: pi.blob.size
-          }, convId, client).catch(function (writeErr) {
+          };
+          if (extraFields) {
+            for (var _k in extraFields) {
+              if (extraFields.hasOwnProperty(_k)) _fields[_k] = extraFields[_k];
+            }
+          }
+          return writeMessage(caption, _fields, convId, client).catch(function (writeErr) {
             // Upload succeeded but the message doc failed to write — the Storage object
             // would otherwise be an orphan no message ever references. Clean it up so the
             // 13-month purge isn't the only thing standing between us and a leaked image.
@@ -1967,12 +2430,14 @@ window.LDAHChat = (function () {
           }
         })
         .catch(function (err) {
+          _sendErr = err;
           console.error('Chat image send error:', err);
           hostToast('Could not send that screenshot: ' + (err && err.message), '#DC2626');
         })
         .finally(function () {
           _sendingImage = false;
           setSendBusy(false);
+          _done(_sendErr);
         });
     }
 
@@ -2307,13 +2772,43 @@ window.LDAHChat = (function () {
     if (chatModalInput)    chatModalInput.addEventListener('paste', handleImagePaste);
     if (chatModalMessages) chatModalMessages.addEventListener('paste', handleImagePaste);
 
-    // ── IT_Help intake form (2026-09-01) ──
+    // ── IT_Help intake — button tree (2026-09-04) ──
     var _ciNewBtn = document.getElementById('chatNewRequest');
     if (_ciNewBtn) _ciNewBtn.addEventListener('click', function () { window._ciOpen(); });
     var _ciSendBtn = document.getElementById('chatIntakeSend');
     if (_ciSendBtn) _ciSendBtn.addEventListener('click', _ciSubmit);
     var _ciSkipBtn = document.getElementById('chatIntakeSkip');
     if (_ciSkipBtn) _ciSkipBtn.addEventListener('click', _ciHide);
+    var _ciBackBtn = document.getElementById('ciBack');
+    if (_ciBackBtn) _ciBackBtn.addEventListener('click', _ciBack);
+
+    // Third route to a screenshot, beside paste and drag-drop: on an iPad
+    // there is no clipboard paste and nothing to drag, so without a file
+    // picker the picture area is decoration on the device most likely to
+    // need it.
+    var _ciFile = document.getElementById('ciFile');
+    var _ciPickBtn = document.getElementById('ciPickBtn');
+    if (_ciPickBtn && _ciFile) _ciPickBtn.addEventListener('click', function () { _ciFile.click(); });
+    if (_ciFile) _ciFile.addEventListener('change', function () {
+      var f = _ciFile.files && _ciFile.files[0];
+      // Reset first: picking the SAME file twice fires no change event otherwise,
+      // which reads as the picker being broken.
+      _ciFile.value = '';
+      if (f) acceptImageFile(f, 'picker');
+    });
+    var _ciShotClear = document.getElementById('ciShotClear');
+    if (_ciShotClear) _ciShotClear.addEventListener('click', clearPendingImage);
+    // The paste instruction says "click the grey box, then paste" — so the box
+    // has to be able to take focus and actually receive the paste event.
+    var _ciShotBox = document.getElementById('ciShotBox');
+    if (_ciShotBox) _ciShotBox.addEventListener('click', function () {
+      try { _ciShotBox.focus(); } catch (e) {}
+    });
+    // Enter in the one free-text line sends, the same as the composer does.
+    var _ciNoteInp = document.getElementById('ciNote');
+    if (_ciNoteInp) _ciNoteInp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); _ciSubmit(); }
+    });
 
     // ── Screenshot drag-and-drop (2026-09-01) ──
     // Bound to the overlay so the whole open chat is a target: dropping on the
@@ -2424,6 +2919,7 @@ window.LDAHChat = (function () {
       var _launch = el.querySelector('.chat-launch');
       if (_slot && _launch) { _slot.appendChild(_launch); _launch.classList.add('in-topbar'); }
     } catch (_e) {}
+    _ciInjectCss();
     bindElements();
     wireEvents();
     if (_mode === 'window') {
@@ -2438,6 +2934,7 @@ window.LDAHChat = (function () {
       populateChatClientSelect();
     }
     watchViewportHeight();
+    window.addEventListener('resize', _ciClamp);
     setTimeout(tryInitChat, _mode === 'window' ? 200 : 1000);
     startOwnership();
     return { open: openChatModal, close: closeChatModal, destroy: teardown };
@@ -2449,6 +2946,8 @@ window.LDAHChat = (function () {
     if (_chatConvsUnsub) _chatConvsUnsub();
     if (_chatHeaderPresenceUnsub) _chatHeaderPresenceUnsub();
     if (_chatLocalTimeInterval) clearInterval(_chatLocalTimeInterval);
+    window.removeEventListener('resize', _ciClamp);
+    _ciBindPaste(false);
     stopOwnership();
   }
 
