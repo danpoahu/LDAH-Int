@@ -10,6 +10,212 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+  <!-- ── Issue-report recorder (v149.41) ───────────────────────────────────
+       Deliberately the FIRST script on the page: it has to be listening before
+       Firebase, before formatters.js and before any app code, or a failure
+       during startup leaves no trace at all. Nothing here touches the DOM at
+       load time and nothing here blocks; it only installs listeners.
+       Read back by window.ldahIssueContext(), defined at the end of the file. -->
+  <script>
+  (function () {
+    var MAX_ERRORS = 20;   // ring buffer: last 20 console.error / console.warn / thrown
+    var MAX_CRUMBS = 10;   // ring buffer: last 10 UI breadcrumbs
+    var MAX_TEXT   = 300;  // per recorded message
+    var MAX_LABEL  = 60;   // per breadcrumb label
+
+    window.__ldahTabOpenedAt = Date.now();
+    window.__ldahErrors = [];
+    window.__ldahCrumbs = [];
+
+    /* ── Redactor ──────────────────────────────────────────────────────────
+       WHY THIS EXISTS: this dashboard has real families' names, email
+       addresses and phone numbers on screen at all times, and an error string
+       will happily carry them off the page — a Firestore error quotes the
+       document it failed on, a control's title attribute can hold a contact's
+       details, a rejection reason can hold a whole record. An issue report is
+       read by whoever is debugging, so everything that goes into either ring
+       buffer passes through here first.
+
+       Three passes: email addresses, phone-shaped numbers, then any run of
+       seven or more digits (member ids, card fragments, anything long).
+       Separately, and just as important: NOTHING in this block ever reads the
+       value of a form field. Labels and field names only — see labelFor(). */
+    function ldahRedactForIssueLog(v) {
+      try {
+        var s = (typeof v === 'string') ? v : String(v);
+        s = s.replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, '[email removed]');
+        s = s.replace(/(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]\d{4}/g, '[number removed]');
+        s = s.replace(/\d{7,}/g, '[number removed]');
+        if (s.length > MAX_TEXT) s = s.slice(0, MAX_TEXT) + '...';
+        return s;
+      } catch (e) { return 'not reported'; }
+    }
+    window.ldahRedactForIssueLog = ldahRedactForIssueLog;
+
+    function pushCapped(arr, item, cap) {
+      try {
+        arr.push(item);
+        while (arr.length > cap) arr.shift();
+      } catch (e) {}
+    }
+
+    function nowStamp() {
+      try { return new Date().toISOString(); } catch (e) { return ''; }
+    }
+
+    function argsToText(args) {
+      var parts = [];
+      for (var i = 0; i < args.length && i < 6; i++) {
+        try {
+          var a = args[i];
+          if (a instanceof Error) parts.push((a.name || 'Error') + ': ' + a.message);
+          else if (a && typeof a === 'object') parts.push(JSON.stringify(a));
+          else parts.push(String(a));
+        } catch (e) { parts.push('[unreadable]'); }
+      }
+      return parts.join(' ');
+    }
+
+    function reasonToText(r) {
+      try {
+        var t;
+        if (r instanceof Error) t = (r.name || 'Error') + ': ' + r.message;
+        else if (r && typeof r === 'object') { try { t = JSON.stringify(r); } catch (e) { t = String(r); } }
+        else t = String(r);
+        if (r && r.code) t = '[' + r.code + '] ' + t;
+        return t;
+      } catch (e) { return 'not reported'; }
+    }
+
+    function firstStackLine(err) {
+      try { return err && err.stack ? String(err.stack).split('\n')[0] : ''; } catch (e) { return ''; }
+    }
+
+    /* Wrap, never replace — the originals must still run or the devtools
+       console stops being useful to the person we are trying to help. */
+    ['error', 'warn'].forEach(function (level) {
+      try {
+        if (!window.console || typeof console[level] !== 'function') return;
+        var original = console[level];
+        console[level] = function () {
+          try {
+            pushCapped(window.__ldahErrors, {
+              t: nowStamp(), kind: level, text: ldahRedactForIssueLog(argsToText(arguments))
+            }, MAX_ERRORS);
+          } catch (e) {}
+          try { return original.apply(console, arguments); } catch (e) {}
+        };
+      } catch (e) {}
+    });
+
+    var _priorOnError = window.onerror;
+    window.onerror = function (message, source, lineno, colno, error) {
+      try {
+        pushCapped(window.__ldahErrors, {
+          t: nowStamp(), kind: 'onerror',
+          text: ldahRedactForIssueLog(message),
+          source: ldahRedactForIssueLog(source || ''),
+          line: (typeof lineno === 'number' ? lineno : null),
+          column: (typeof colno === 'number' ? colno : null),
+          stack: ldahRedactForIssueLog(firstStackLine(error))
+        }, MAX_ERRORS);
+      } catch (e) {}
+      if (typeof _priorOnError === 'function') {
+        try { return _priorOnError.apply(window, arguments); } catch (e) {}
+      }
+      return false;
+    };
+
+    /* Firestore permission denials and every other async failure surface
+       here and NOT in window.onerror, which is why both are installed. */
+    try {
+      window.addEventListener('unhandledrejection', function (ev) {
+        try {
+          var r = ev && ev.reason;
+          pushCapped(window.__ldahErrors, {
+            t: nowStamp(), kind: 'rejection',
+            text: ldahRedactForIssueLog(reasonToText(r)),
+            stack: ldahRedactForIssueLog(firstStackLine(r))
+          }, MAX_ERRORS);
+        } catch (e) {}
+      });
+    } catch (e) {}
+
+    var FIELD_TAGS = { INPUT: 1, TEXTAREA: 1, SELECT: 1, OPTION: 1 };
+    var CONTROLISH = /(^|[\s-])(btn|button|tab|nav|chip|pill|toggle|link)/i;
+
+    /* Only labelled controls give up their text. A table row, a contact card
+       or a list item reads as a real family's name, and that is exactly what
+       must never reach a breadcrumb — anything that is not a control is
+       described structurally (tag plus id) with no text at all. A form field
+       contributes its NAME, never its value. */
+    function labelFor(el) {
+      try {
+        if (!el || el.nodeType !== 1) return '';
+        var tag = el.tagName;
+        if (FIELD_TAGS[tag] || el.isContentEditable) {
+          return tag.toLowerCase() + ' field: '
+            + (el.getAttribute('name') || el.id || el.getAttribute('aria-label') || 'unnamed');
+        }
+        var cls = '';
+        try { cls = String(el.className || ''); } catch (e) { cls = ''; }
+        var explicit = el.getAttribute('aria-label') || el.getAttribute('title') || '';
+        var isControl = tag === 'BUTTON' || tag === 'SUMMARY'
+          || el.getAttribute('role') === 'button'
+          || (tag === 'A' && !!(el.closest && el.closest('.nav')))
+          || CONTROLISH.test(cls);
+        var text = explicit || (isControl ? (el.textContent || '') : '');
+        text = String(text).replace(/\s+/g, ' ').trim();
+        if (!text) text = tag.toLowerCase() + (el.id ? '#' + el.id : '');
+        if (text.length > MAX_LABEL) text = text.slice(0, MAX_LABEL) + '...';
+        return text;
+      } catch (e) { return ''; }
+    }
+
+    function activeSection() {
+      try {
+        var a = document.querySelector('.nav a.active');
+        return a ? (a.getAttribute('data-section') || '') : '';
+      } catch (e) { return ''; }
+    }
+    window.__ldahActiveSection = activeSection;
+
+    var _lastSection = '';
+    function noteSectionChange() {
+      try {
+        var s = activeSection();
+        if (s && s !== _lastSection) {
+          _lastSection = s;
+          pushCapped(window.__ldahCrumbs, { t: nowStamp(), kind: 'section', label: s }, MAX_CRUMBS);
+        }
+      } catch (e) {}
+    }
+
+    /* Capture phase so a handler that stops propagation still leaves a trail.
+       The section is re-read on the next tick because the nav class is swapped
+       by the click handler we are running ahead of. */
+    try {
+      document.addEventListener('click', function (ev) {
+        try {
+          var t = ev && ev.target;
+          var el = (t && t.closest)
+            ? (t.closest('button, a, [role="button"], label, summary, input, select, textarea') || t)
+            : t;
+          var label = labelFor(el);
+          if (label) {
+            pushCapped(window.__ldahCrumbs, {
+              t: nowStamp(), kind: 'click', label: ldahRedactForIssueLog(label)
+            }, MAX_CRUMBS);
+          }
+        } catch (e) {}
+        try { setTimeout(noteSectionChange, 0); } catch (e) {}
+      }, true);
+      window.addEventListener('hashchange', function () { try { setTimeout(noteSectionChange, 0); } catch (e) {} });
+      document.addEventListener('DOMContentLoaded', noteSectionChange);
+    } catch (e) {}
+  })();
+  </script>
+
   <!-- Google Analytics (GA4) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-32PRRS0W85"></script>
   <script>
@@ -5201,7 +5407,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.40</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.41</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13073,8 +13279,11 @@ var _photoPendingByIsland = {};
     try {
       var now = await _staleFetchEtag();
       if (!now) return;
-      if (!_staleEtag) { _staleEtag = now; return; }   // first call sets the baseline
-      if (now === _staleEtag) return;
+      if (!_staleEtag) { _staleEtag = now; window.__ldahStale = false; return; }   // first call sets the baseline
+      if (now === _staleEtag) { window.__ldahStale = false; return; }
+      // Recorded before the nudge-hour gate below: whether this tab is behind
+      // live is a fact an issue report needs at any hour. (2026-09-04)
+      window.__ldahStale = true;
 
       /* Only surface during the 6–7am HST hour (2026-08-20). Int ships many
          times a day right now, and a reload prompt on every push is noise —
@@ -25129,13 +25338,27 @@ window.openContactDetail = async function(contactId) {
   </div>
 </div>
 <script>
+/* One canonical guide at the repo root so live and STAGE can never drift.
+   Resolved against the page's own directory rather than hard-coded, so it
+   follows the app wherever it is served from:
+     /LDAH-Int/index.html        -> /LDAH-Int/guide.html
+     /LDAH-Int/STAGE/index.html  -> /LDAH-Int/guide.html   (STAGE has no guide)
+   A bare 'guide.html' 404'd in STAGE; '../guide.html' then 404'd on live,
+   which left the only way into a 915-line reference dead. (2026-09-04) */
+window.ldahGuideUrl = function () {
+  try {
+    var dir = String(location.pathname || '/').replace(/[^/]*$/, '');  // drop the filename
+    dir = dir.replace(/\/STAGE\/$/i, '/');                             // STAGE shares the root guide
+    return location.origin + dir + 'guide.html';
+  } catch (e) {
+    return 'guide.html';
+  }
+};
+
 function openGuideModal() {
   var overlay = document.getElementById('guideOverlay');
   var frame = document.getElementById('guideFrame');
-  // STAGE has no guide of its own — one canonical guide at the repo root, so
-  // the two can never drift. Relative 'guide.html' resolved to /STAGE/guide.html
-  // and 404'd, leaving the User Guide link dead in STAGE. (2026-08-06)
-  frame.src = '../guide.html';
+  frame.src = window.ldahGuideUrl();
   overlay.classList.add('active');
   gaTrack('user_guide_open', { event_category: 'help', event_label: 'User Guide' });
 }
@@ -53032,6 +53255,153 @@ window._ctAccToggle = function(head, panelId){
     </div>
   </div>
 </div>
+
+<!-- ── Issue-report context collector (v149.41) ────────────────────────────
+     window.ldahIssueContext() gathers the things a staff member cannot be
+     expected to type into a bug report: which build their tab is running,
+     whether that build is stale, the viewport they are actually on, both
+     clocks, and the last few errors and clicks. It is defined LAST so
+     everything it reads already exists; it is read-only, never throws and
+     never blocks. The listeners that fill it live in the first script in
+     <head>. -->
+<script>
+window.ldahIssueContext = function () {
+  var out = {};
+
+  // A field that cannot be read is simply absent — never a wrong value.
+  function safe(key, fn) {
+    try {
+      var v = fn();
+      if (v === undefined || v === null || v === '') return;
+      out[key] = v;
+    } catch (e) {}
+  }
+
+  function browserName(ua) {
+    if (/edg\//i.test(ua)) return 'Edge';
+    if (/crios/i.test(ua)) return 'Chrome (iOS)';
+    if (/fxios/i.test(ua)) return 'Firefox (iOS)';
+    if (/opr\/|opera/i.test(ua)) return 'Opera';
+    if (/firefox/i.test(ua)) return 'Firefox';
+    if (/chrome|chromium/i.test(ua)) return 'Chrome';
+    if (/safari/i.test(ua)) return 'Safari';
+    return 'not reported';
+  }
+
+  try {
+    var me = window.currentUserData || {};
+
+    // ── Who ──
+    safe('uid', function () { return me.uid; });
+    safe('displayName', function () { return me.displayName; });
+    safe('role', function () { return me.role; });
+    safe('partnerIsland', function () {
+      return (typeof window.currentPartnerIsland === 'function') ? window.currentPartnerIsland() : '';
+    });
+
+    // ── Where in the app ──
+    safe('section', function () {
+      return (typeof window.__ldahActiveSection === 'function') ? window.__ldahActiveSection() : '';
+    });
+    safe('hash', function () { return location.hash || ''; });
+    safe('title', function () { return document.title || ''; });
+
+    // ── Which build ──
+    safe('version', function () {
+      var el = document.getElementById('buildVersion');
+      return el ? String(el.textContent || '').trim() : '';
+    });
+    /* Set by the stale-tab guard once it has a baseline ETag to compare
+       against. Absent until the first HEAD comes back, rather than a
+       guessed false — "we do not know yet" and "up to date" are different
+       answers and only one of them is safe to act on. */
+    safe('stale', function () {
+      return (typeof window.__ldahStale === 'boolean') ? window.__ldahStale : undefined;
+    });
+
+    // ── The machine and the window ──
+    var ua = '';
+    try { ua = String(navigator.userAgent || ''); } catch (e) {}
+    safe('ua', function () { return ua.length > 300 ? ua.slice(0, 300) + '...' : ua; });
+    safe('browser', function () { return browserName(ua); });
+    safe('screenW', function () { return screen.width; });
+    safe('screenH', function () { return screen.height; });
+    safe('innerW', function () { return window.innerWidth; });
+    safe('innerH', function () { return window.innerHeight; });
+    safe('dpr', function () { return window.devicePixelRatio; });
+    /* Browser zoom, as a percentage. Worth having: staff run 1366x768 screens
+       and a report of "the buttons are off the edge" is usually zoom. */
+    safe('zoom', function () {
+      var z;
+      if (window.visualViewport && window.visualViewport.scale && window.visualViewport.scale !== 1) {
+        z = Math.round(window.visualViewport.scale * 100);
+      } else if (window.outerWidth && window.innerWidth) {
+        z = Math.round((window.outerWidth / window.innerWidth) * 100);
+      }
+      return (typeof z === 'number' && isFinite(z) && z > 0) ? z : undefined;
+    });
+
+    /* BOTH clocks, on every report, no exceptions. The Pacific partners are
+       the far side of the dateline — a Guam Thursday is a Hawaii Wednesday —
+       so "it broke this morning" is unreadable without knowing whose morning.
+       HST is named explicitly rather than derived from the viewer's offset. */
+    safe('tz', function () { return Intl.DateTimeFormat().resolvedOptions().timeZone; });
+    safe('localTime', function () {
+      return new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'medium' });
+    });
+    safe('hstTime', function () {
+      return new Date().toLocaleString('en-US', {
+        timeZone: 'Pacific/Honolulu', dateStyle: 'medium', timeStyle: 'medium'
+      }) + ' HST';
+    });
+
+    // ── Network ──
+    safe('online', function () { return !!navigator.onLine; });
+    /* navigator.connection is Chromium-only. On Safari and iOS these three
+       are omitted entirely — an absent field reads as "not reported", a
+       zero would read as "no bandwidth" and send someone hunting. */
+    try {
+      var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (conn) {
+        if (typeof conn.effectiveType === 'string' && conn.effectiveType) out.effectiveType = conn.effectiveType;
+        if (typeof conn.downlink === 'number' && isFinite(conn.downlink)) out.downlink = conn.downlink;
+        if (typeof conn.rtt === 'number' && isFinite(conn.rtt)) out.rtt = conn.rtt;
+      }
+    } catch (e) {}
+
+    // ── Session ──
+    safe('tabOpenMs', function () {
+      return window.__ldahTabOpenedAt ? (Date.now() - window.__ldahTabOpenedAt) : undefined;
+    });
+    /* An anonymous session on this origin means a public page signed the tab
+       in and no role will resolve — worth knowing before chasing a
+       permissions bug that is really a sign-in bug. */
+    safe('isAnonymous', function () {
+      var u = (window.firebase && firebase.auth) ? firebase.auth().currentUser : null;
+      return u ? !!u.isAnonymous : undefined;
+    });
+    /* A report filed while the "Viewing as" picker is pointed at someone else
+       must not be read as that person's report. Absent when the picker is
+       parked on the viewer's own account, which is not impersonation. */
+    safe('viewingAs', function () {
+      var v = window._myDayViewAs;
+      if (!v || !v.uid) return undefined;
+      if (v.uid === me.uid) return undefined;
+      return v.displayName || v.uid;
+    });
+
+    // ── Buffers (already redacted on the way in) ──
+    try { out.errors = (window.__ldahErrors || []).slice(); } catch (e) { out.errors = []; }
+    try { out.breadcrumbs = (window.__ldahCrumbs || []).slice(); } catch (e) { out.breadcrumbs = []; }
+  } catch (e) {
+    // Whatever happened, the caller still gets an object.
+  }
+
+  if (!out.errors) out.errors = [];
+  if (!out.breadcrumbs) out.breadcrumbs = [];
+  return out;
+};
+</script>
 
 </body>
 </html>
