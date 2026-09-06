@@ -5407,7 +5407,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.43</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.44</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7446,8 +7446,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <input type="date" id="ixDateTo" onchange="resetIxFilterBtn()">
           </div>
           <div>
-            <label>Contact</label>
-            <select id="ixContactFilter" onchange="resetIxFilterBtn()"><option value="">All Contacts</option></select>
+            <label>Staff</label>
+            <select id="ixStaffFilter" onchange="resetIxFilterBtn()"><option value="">All staff</option></select>
           </div>
           <div>
             <label>Status</label>
@@ -7488,6 +7488,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div class="ix-counter"><b id="ixOpenCount">0</b> open</div>
           <div class="ix-counter"><b id="ixFollowUpCount">0</b> follow-ups due</div>
         </div>
+
+        <!-- Honest truncation note: the query is capped at 500 rows, so a count
+             here can be a slice rather than the whole picture. Shown only when
+             the cap was actually reached. -->
+        <div id="ixTruncNote" style="display:none;margin:0 0 12px;padding:8px 12px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:6px;font-size:.82rem;color:#92400E;line-height:1.4;"></div>
 
         <div class="ix-list">
           <div class="ix-list-header">
@@ -12756,7 +12761,7 @@ var _photoPendingByIsland = {};
       } else if (section === 'webdashboard') {
         _showFullWidth(wdSection, loadSiteAnalytics);
       } else if (section === 'interactions') {
-        _showFullWidth(ixSection, function() { populateIXContactFilter(); loadInteractions(); });
+        _showFullWidth(ixSection, function() { populateIXStaffFilter(); loadInteractions(); });
       } else if (section === 'listmanagement') {
         _showFullWidth(lmSection, renderAllLookupLists);
       } else if (section === 'resources') {
@@ -21921,8 +21926,8 @@ window.openContactDetail = async function(contactId) {
     document.getElementById('ixDateTo').value = '';
     document.getElementById('ixStatusFilter').value = '';
     document.getElementById('ixChannelFilter').value = '';
-    var contactF = document.getElementById('ixContactFilter');
-    if (contactF) contactF.value = '';
+    var staffF = document.getElementById('ixStaffFilter');
+    if (staffF) staffF.value = '';
     _ixFollowUpOnly = false;
 
     function _localDateStr(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
@@ -24271,8 +24276,8 @@ window.openContactDetail = async function(contactId) {
     document.getElementById('ixDateTo').value = '';
     document.getElementById('ixStatusFilter').value = '';
     document.getElementById('ixChannelFilter').value = '';
-    var contactF = document.getElementById('ixContactFilter');
-    if (contactF) contactF.value = '';
+    var staffF = document.getElementById('ixStaffFilter');
+    if (staffF) staffF.value = '';
     _ixFiltersActive = false;
     var btn = document.getElementById('ixFilterBtn');
     if (btn) {
@@ -24290,12 +24295,18 @@ window.openContactDetail = async function(contactId) {
 
     var dateFrom = document.getElementById('ixDateFrom').value;
     var dateTo = document.getElementById('ixDateTo').value;
-    var contactFilter = document.getElementById('ixContactFilter').value;
+    var _staffSel = document.getElementById('ixStaffFilter');
+    var staffFilter = _staffSel ? _staffSel.value : '';
     var statusFilter = document.getElementById('ixStatusFilter').value;
     var channelFilter = document.getElementById('ixChannelFilter').value;
 
+    // Grouping sentinels vs a real uid. Anything that is not a sentinel is one
+    // person, and one person gets a server-side owner filter (see below).
+    var _isIndividualStaff = !!staffFilter && staffFilter !== '__ldah__'
+      && staffFilter !== '__pip__' && staffFilter !== '__none__';
+
     // Smart filter button toggle
-    var anyFilter = dateFrom || dateTo || contactFilter || statusFilter || channelFilter;
+    var anyFilter = dateFrom || dateTo || staffFilter || statusFilter || channelFilter;
     var btn = document.getElementById('ixFilterBtn');
     if (anyFilter && btn) {
       _ixFiltersActive = true;
@@ -24308,40 +24319,92 @@ window.openContactDetail = async function(contactId) {
     }
 
     try {
-      var query = db.collection('interactions')
-        .orderBy('createdAt', 'desc');
-
-      if (dateFrom) {
-        var startDate = new Date(dateFrom + 'T00:00:00');
-        query = query.where('createdAt', '>=', startDate);
-      }
-      if (dateTo) {
-        var endDate = new Date(dateTo + 'T00:00:00');
-        endDate.setDate(endDate.getDate() + 1);
-        query = query.where('createdAt', '<', endDate);
+      // LDAH / PIP need the role map before the client predicate can run.
+      if (staffFilter === '__ldah__' || staffFilter === '__pip__') {
+        try { await _getIXStaffList(); } catch (e) { console.warn('staff roles:', e && e.message); }
       }
 
-      query = query.limit(500);
-      var snap = await query.get();
+      function _ixBuildQuery(ownerField, ownerVal) {
+        var q = db.collection('interactions');
+        if (ownerField) q = q.where(ownerField, '==', ownerVal);
+        q = q.orderBy('createdAt', 'desc');
+        if (dateFrom) {
+          var startDate = new Date(dateFrom + 'T00:00:00');
+          q = q.where('createdAt', '>=', startDate);
+        }
+        if (dateTo) {
+          var endDate = new Date(dateTo + 'T00:00:00');
+          endDate.setDate(endDate.getDate() + 1);
+          q = q.where('createdAt', '<', endDate);
+        }
+        return q.limit(500);
+      }
 
+      /* The 500 cap is applied by the server, BEFORE any client-side predicate.
+         Filtering to one person purely client-side would therefore answer
+         "their rows inside the org's most recent 500", which for a low-volume
+         owner over a wide date range reads as near-empty while looking
+         complete. So an individual gets a server-side owner filter and the cap
+         lands on their own rows. caseAdvocateUid is a second ownership field
+         (My Day ORs it with ownerUid), so it is fetched alongside and merged.
+         Grouping filters stay client-side: an `in` query caps at 30 values and
+         would break as the roster grows — they get an honest note instead. */
+      var _snaps;
+      try {
+        if (_isIndividualStaff) {
+          _snaps = await Promise.all([
+            _ixBuildQuery('ownerUid', staffFilter).get(),
+            _ixBuildQuery('caseAdvocateUid', staffFilter).get()
+          ]);
+        } else {
+          _snaps = [await _ixBuildQuery(null, null).get()];
+        }
+      } catch (qErr) {
+        var _qm = (qErr && qErr.message) || String(qErr);
+        var _mIdx = _qm.match(/https?:\/\/console\.firebase\.google\.com\/[^\s)]+/);
+        var _isIdx = String(qErr && qErr.code) === 'failed-precondition' || /requires an index|FAILED_PRECONDITION/i.test(_qm);
+        console.warn('Interactions query failed:', _qm);
+        if (_isIdx) {
+          if (_mIdx) {
+            console.warn('Create the required composite index here:\n' + _mIdx[0]);
+          } else {
+            console.warn('Needs composite indexes on interactions (ownerUid ASC, createdAt DESC) and (caseAdvocateUid ASC, createdAt DESC).');
+          }
+          body.innerHTML = '<div class="ix-empty" style="color:#DC2626;">This staff filter needs a database index that is not ready yet. '
+            + 'Pick <b>All staff</b> to see the list, and check the browser console for the index link.</div>';
+          _ixExportRows = [];
+          var _tnq = document.getElementById('ixTruncNote');
+          if (_tnq) _tnq.style.display = 'none';
+          return;
+        }
+        throw qErr;
+      }
+
+      var _serverRowCount = 0;
+      var _seenIxIds = {};
       var rows = [];
       var todayStr = _localToday();
       var _sd = new Date(); _sd.setDate(_sd.getDate() + 7);
       var sevenStr = _sd.getFullYear() + '-' + String(_sd.getMonth()+1).padStart(2,'0') + '-' + String(_sd.getDate()).padStart(2,'0');
 
-      snap.forEach(function(doc) {
-        var d = doc.data();
-        d._id = doc.id;
-        if (d.channel === 'Internal Chat') return;
-        if (contactFilter && d.contactId !== contactFilter) return;
-        if (statusFilter && d.status !== statusFilter) return;
-        if (channelFilter && d.channel !== channelFilter) return;
-        // Follow-up KPI filter: only show items with follow-up dates ≤ 7 days out
-        if (_ixFollowUpOnly) {
-          if (!d.followUpDate || d.status === 'Closed') return;
-          if (d.followUpDate > sevenStr) return;
-        }
-        rows.push(d);
+      _snaps.forEach(function(snap) {
+        if (snap.size > _serverRowCount) _serverRowCount = snap.size;
+        snap.forEach(function(doc) {
+          if (_seenIxIds[doc.id]) return; // owner + advocate queries can overlap
+          _seenIxIds[doc.id] = true;
+          var d = doc.data();
+          d._id = doc.id;
+          if (d.channel === 'Internal Chat') return;
+          if (staffFilter && !_ixStaffMatch(d, staffFilter)) return;
+          if (statusFilter && d.status !== statusFilter) return;
+          if (channelFilter && d.channel !== channelFilter) return;
+          // Follow-up KPI filter: only show items with follow-up dates ≤ 7 days out
+          if (_ixFollowUpOnly) {
+            if (!d.followUpDate || d.status === 'Closed') return;
+            if (d.followUpDate > sevenStr) return;
+          }
+          rows.push(d);
+        });
       });
       var _wasFollowUpFilter = _ixFollowUpOnly;
       _ixFollowUpOnly = false;
@@ -24350,7 +24413,10 @@ window.openContactDetail = async function(contactId) {
       // Skip form merge when follow-up filter is active (form entries have no follow-up dates)
       var _formChannels = ['Signup','Contact Form','Provider','Pledge','Event Request','Volunteer','Partner Application'];
       var _isFormFilter = channelFilter && _formChannels.indexOf(channelFilter) !== -1;
-      if (!_wasFollowUpFilter && (!channelFilter || _isFormFilter)) {
+      // Web-form rows are synthetic: owner is the literal 'Web Form' and there is
+      // no ownerUid, so no staff filter can ever match one. Skip the whole merge
+      // rather than fetch six collections and discard every row.
+      if (!_wasFollowUpFilter && !staffFilter && (!channelFilter || _isFormFilter)) {
         var _dfrom = dateFrom ? new Date(dateFrom + 'T00:00:00') : null;
         var _dto = dateTo ? (function(){ var e = new Date(dateTo + 'T00:00:00'); e.setDate(e.getDate()+1); return e; })() : null;
         function _tsToDate(t) { return t && t.toDate ? t.toDate() : (t ? new Date(t) : null); }
@@ -24364,7 +24430,7 @@ window.openContactDetail = async function(contactId) {
         function _pushForm(channel, name, summary, status, ts) {
           if (channelFilter && channel !== channelFilter) return;
           if (statusFilter && status !== statusFilter) return;
-          if (contactFilter) return; // form entries don't have contactId
+          if (staffFilter) return; // form entries have no ownerUid
           var dt = _tsToDate(ts);
           if (!_inDateRange(ts) && (dateFrom || dateTo)) return;
           rows.push({
@@ -24436,6 +24502,18 @@ window.openContactDetail = async function(contactId) {
         });
       }
 
+      /* The owner and case-advocate snapshots arrive one after the other, each
+         date-sorted on its own, so the concatenation is not. Re-sort. Only
+         reachable for an individual, where the form merge above is skipped, so
+         this never double-sorts. */
+      if (_snaps.length > 1) {
+        rows.sort(function(a, b) {
+          var ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+          var tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+          return tb - ta;
+        });
+      }
+
       // Counters
       var total = rows.length;
       var openCount = rows.filter(function(r) { return r.status === 'Open'; }).length;
@@ -24443,6 +24521,21 @@ window.openContactDetail = async function(contactId) {
       document.getElementById('ixTotalCount').textContent = total;
       document.getElementById('ixOpenCount').textContent = openCount;
       document.getElementById('ixFollowUpCount').textContent = fuCount;
+
+      /* Never present a truncated count as complete. A grouping filter is applied
+         after the server's 500-row cut, so its totals are a slice of the org's
+         most recent 500 — say so instead of letting the number stand. */
+      var _truncNote = document.getElementById('ixTruncNote');
+      if (_truncNote) {
+        if (_serverRowCount >= 500) {
+          _truncNote.textContent = (staffFilter && !_isIndividualStaff)
+            ? 'Showing the most recent 500 interactions for the whole organization, then filtering by staff. These totals are not the full picture — narrow the dates to see more.'
+            : 'Showing the most recent 500 interactions. Narrow the dates to see more.';
+          _truncNote.style.display = '';
+        } else {
+          _truncNote.style.display = 'none';
+        }
+      }
 
       if (rows.length === 0) {
         body.innerHTML = '<div class="ix-empty">No interactions found.</div>';
@@ -24492,26 +24585,86 @@ window.openContactDetail = async function(contactId) {
     }
   };
 
-  async function populateIXContactFilter() {
-    var sel = document.getElementById('ixContactFilter');
-    if (!sel) return;
-    sel.innerHTML = '<option value="">All Contacts</option>';
-    try {
-      // Refresh contacts cache if empty
-      if (_allContacts.length === 0) {
-        var snap = await db.collection('contacts').orderBy('displayName').get();
-        _allContacts = [];
-        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; _allContacts.push({ id: doc.id, ...d }); });
-        buildContactDatalist();
-      }
-      _allContacts.forEach(function(c) {
-        var opt = document.createElement('option');
-        opt.value = c.id;
-        opt.textContent = c.displayName;
-        sel.appendChild(opt);
-      });
-    } catch (e) {}
+  /* ── Interactions Staff filter ──────────────────────────────────────────
+     LDAH vs PIP is decided by the OWNER'S ROLE in userRoles, never by a stamp
+     on the interaction record. Only one of the write paths sets partnerIsland,
+     so a stamp-based split would silently drop case advocacy, event walk-ins,
+     volunteer attendance and system-created rows while still looking complete.
+     Role grouping is accurate by construction and needs no backfill.
+     Matching is on uid only — the stored `owner` display name is a snapshot
+     that drifts from userRoles.displayName. (v149.44) */
+  var _ixStaffCache = null;   // { ldah: [...], partners: [...] }
+  var _ixLdahUids = {};       // uid -> true, every non-partner role
+  var _ixPartnerUids = {};    // uid -> true, role === 'partner'
+
+  async function _getIXStaffList() {
+    if (_ixStaffCache) return _ixStaffCache;
+    var snap = await db.collection('userRoles').get();
+    var ldah = [], partners = [], seenEmails = {};
+    snap.forEach(function(doc) {
+      var d = doc.data() || {};
+      if (d.isArchived === true) return;
+      var role = String(d.role || '');
+      if (!role) return; // archiving blanks the role
+      var nm = d.displayName || d.email || doc.id;
+      // Skip the IT_Help break-glass account — same test the "Viewing as" picker uses.
+      if (/it[\s._-]*help/i.test(nm) || /it[\s._-]*help/i.test(d.email || '')) return;
+      // De-dupe by email so a person with two role docs shows once.
+      var emKey = String(d.email || doc.id).toLowerCase();
+      if (seenEmails[emKey]) return;
+      seenEmails[emKey] = true;
+      (role === 'partner' ? partners : ldah).push({ uid: doc.id, name: nm });
+    });
+    var byName = function(a, b) { return String(a.name).localeCompare(String(b.name)); };
+    ldah.sort(byName);
+    partners.sort(byName);
+    _ixLdahUids = {}; ldah.forEach(function(x) { _ixLdahUids[x.uid] = true; });
+    _ixPartnerUids = {}; partners.forEach(function(x) { _ixPartnerUids[x.uid] = true; });
+    _ixStaffCache = { ldah: ldah, partners: partners };
+    return _ixStaffCache;
   }
+
+  // True when this interaction belongs to the selected staff filter.
+  // ownerUid is the primary owner; caseAdvocateUid is the second ownership
+  // field, so an advocate's cases appear under their own name.
+  function _ixStaffMatch(d, sel) {
+    var ou = d.ownerUid || '';
+    var cu = d.caseAdvocateUid || '';
+    if (sel === '__none__') return !ou && !cu;
+    if (sel === '__ldah__') return !!(_ixLdahUids[ou] || _ixLdahUids[cu]);
+    if (sel === '__pip__') return !!(_ixPartnerUids[ou] || _ixPartnerUids[cu]);
+    return ou === sel || cu === sel;
+  }
+
+  async function populateIXStaffFilter() {
+    var sel = document.getElementById('ixStaffFilter');
+    if (!sel) return;
+    var keep = sel.value;
+    try {
+      var s = await _getIXStaffList();
+      var html = '<option value="">All staff</option>'
+        + '<option value="__ldah__">LDAH</option>'
+        + '<option value="__pip__">PIP</option>';
+      if (s.ldah.length) {
+        html += '<optgroup label="LDAH staff">';
+        s.ldah.forEach(function(x) { html += '<option value="' + rsEscape(x.uid) + '">' + rsEscape(x.name) + '</option>'; });
+        html += '</optgroup>';
+      }
+      if (s.partners.length) {
+        html += '<optgroup label="Pacific partners">';
+        s.partners.forEach(function(x) { html += '<option value="' + rsEscape(x.uid) + '">' + rsEscape(x.name) + '</option>'; });
+        html += '</optgroup>';
+      }
+      // ownerUid: '' is a real, intended state — auto-created interactions start
+      // unassigned, so those rows must stay reachable.
+      html += '<optgroup label="&#8203;"><option value="__none__">Unassigned</option></optgroup>';
+      sel.innerHTML = html;
+      if (keep) sel.value = keep;
+    } catch (e) {
+      console.warn('populateIXStaffFilter:', e && e.message);
+    }
+  }
+  window.populateIXStaffFilter = populateIXStaffFilter;
 
   window.exportInteractionsCSV = function() {
     if (!_ixExportRows || _ixExportRows.length === 0) {
