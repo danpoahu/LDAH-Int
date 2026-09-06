@@ -5407,7 +5407,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.44</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.45</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -24601,25 +24601,34 @@ window.openContactDetail = async function(contactId) {
     if (_ixStaffCache) return _ixStaffCache;
     var snap = await db.collection('userRoles').get();
     var ldah = [], partners = [], seenEmails = {};
+    _ixLdahUids = {};
+    _ixPartnerUids = {};
     snap.forEach(function(doc) {
       var d = doc.data() || {};
-      if (d.isArchived === true) return;
-      var role = String(d.role || '');
-      if (!role) return; // archiving blanks the role
       var nm = d.displayName || d.email || doc.id;
       // Skip the IT_Help break-glass account — same test the "Viewing as" picker uses.
       if (/it[\s._-]*help/i.test(nm) || /it[\s._-]*help/i.test(d.email || '')) return;
+      /* Archiving blanks `role` and moves the value to `previousRole`, so
+         classify on the fallback. A departed staffer still owns every
+         interaction they ever logged; leaving them out of the role map would
+         quietly drop those rows from BOTH the LDAH and the PIP totals — the
+         same silent under-report a stamp-based split would cause. Four accounts
+         are archived today (three LDAH, one partner). They stay in the role map
+         for grouping; they are simply not offered as a pickable individual. */
+      var role = String(d.role || d.previousRole || '');
+      if (!role) return;
+      var isPartner = role === 'partner';
+      if (isPartner) { _ixPartnerUids[doc.id] = true; } else { _ixLdahUids[doc.id] = true; }
+      if (d.isArchived === true) return;
       // De-dupe by email so a person with two role docs shows once.
       var emKey = String(d.email || doc.id).toLowerCase();
       if (seenEmails[emKey]) return;
       seenEmails[emKey] = true;
-      (role === 'partner' ? partners : ldah).push({ uid: doc.id, name: nm });
+      (isPartner ? partners : ldah).push({ uid: doc.id, name: nm });
     });
     var byName = function(a, b) { return String(a.name).localeCompare(String(b.name)); };
     ldah.sort(byName);
     partners.sort(byName);
-    _ixLdahUids = {}; ldah.forEach(function(x) { _ixLdahUids[x.uid] = true; });
-    _ixPartnerUids = {}; partners.forEach(function(x) { _ixPartnerUids[x.uid] = true; });
     _ixStaffCache = { ldah: ldah, partners: partners };
     return _ixStaffCache;
   }
