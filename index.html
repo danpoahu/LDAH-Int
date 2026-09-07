@@ -5407,7 +5407,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.45</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.46</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8712,6 +8712,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 <option value="parent_talk_cafe">Parent Talk Cafe (Facebook group — single confirmation, no Zoom reminders)</option>
               </select>
               <p style="font-size:0.8rem;color:var(--text-soft);margin-top:0.5rem;">Used for the confirmation &amp; reminder email links. Managed in Admin → List Management.</p>
+            </div>
+
+            <!-- Pacific partner (v149.46). Staff only — partnerPickerInit hides
+                 this whole row for a partner user. -->
+            <div class="field" id="cmsEventPartnerIslandRow" style="grid-column: span 2;">
+              <label for="cmsEventPartnerIsland">Pacific partner <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Whose event was this? Leave it on <b>Not a partner event</b> for work LDAH ran itself.<br><br>Pick an island when the event belongs to one of the six Pacific Basin partner organizations — including one you are entering on their behalf. That moves the event out of the LDAH totals and into the Pacific Islands Partners reports.')">i</span></label>
+              <select id="cmsEventPartnerIsland">
+                <option value="">Not a partner event</option>
+              </select>
+              <p style="font-size:0.8rem;color:var(--text-soft);margin-top:0.5rem;">Pick an island only when the event belongs to a Pacific Basin partner organization. It then counts as their work rather than LDAH work.</p>
             </div>
 
             <!-- Image upload (PNG, JPG, WebP, PDF) -->
@@ -12540,6 +12550,68 @@ var _photoPendingByIsland = {};
   // partner-visible reports filter on this and nothing else — all six islands
   // pooled, no Hawaiʻi records.
   window.isPartnerRecord = function(d) { return !!(d && d.partnerIsland); };
+
+  /* ── "Pacific partner" picker (v149.46) ─────────────────────────────
+     partnerStamp reads the SIGNED-IN user, so an LDAH staff member entering
+     an event that happened in a partner's territory stamped nothing, and the
+     work counted as LDAH's own — six Majuro events entered on 31 July had to
+     be corrected by hand. These helpers drive a staff-only <select> on the
+     event forms, built from the one PARTNER_ISLANDS list above.
+
+     Partner users never see the control. Their records are stamped from their
+     own account by partnerStamp, and offering them six islands would imply
+     they could file work under someone else's. */
+  function _piEsc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /* Fill the picker and record what it opened with, so the save side can tell
+     "a staff member cleared this" from "nobody touched it". */
+  window.partnerPickerInit = function(rowId, selectId, current) {
+    var row = document.getElementById(rowId);
+    var sel = document.getElementById(selectId);
+    if (!sel) return;
+    var cur = String(current || '');
+    if (window.isPartnerUser()) {
+      if (row) row.style.display = 'none';
+      sel.innerHTML = '';
+      sel.disabled = true;                    // a hidden control is still readable
+      sel.setAttribute('data-partner-original', cur);
+      return;
+    }
+    if (row) row.style.display = '';
+    sel.disabled = false;
+    var html = '<option value="">Not a partner event</option>';
+    PARTNER_ISLANDS.forEach(function(isl) {
+      html += '<option value="' + _piEsc(isl) + '">' + _piEsc(isl) + '</option>';
+    });
+    /* A stored island the list no longer carries still round-trips as its own
+       option, so opening an old record can never quietly drop its stamp. */
+    if (cur && PARTNER_ISLANDS.indexOf(cur) === -1) {
+      html += '<option value="' + _piEsc(cur) + '">' + _piEsc(cur) + '</option>';
+    }
+    sel.innerHTML = html;
+    sel.value = cur;
+    sel.setAttribute('data-partner-original', cur);
+  };
+
+  /* What to write, comparing the picker against the value it opened with:
+       null -> leave partnerIsland alone (partner user, control missing, or
+               nobody changed it — an untouched save must never restamp)
+       ''   -> the staff member chose "Not a partner event": clear the stamp
+       'X'  -> stamp island X
+     Comparing against the ORIGINAL rather than just reading the box is what
+     keeps a failed doc-load from silently clearing a real stamp. */
+  window.partnerPickerChange = function(selectId) {
+    if (window.isPartnerUser()) return null;
+    var sel = document.getElementById(selectId);
+    if (!sel || sel.disabled) return null;
+    var orig = sel.getAttribute('data-partner-original');
+    if (orig === null) return null;           // never populated — don't guess
+    var val = String(sel.value || '');
+    return val === String(orig) ? null : val;
+  };
 
   /* Who sees what in the three partner-visible reports (2026-09-04).
        partner    -> their own island's records
@@ -30512,6 +30584,12 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
   // recurring program -> Program Zoom, one-off event -> Event Zoom. Daniel can flip.
   document.getElementById('cmsEventZoomMode').value = isRec ? 'program' : 'event';
 
+  /* Pacific partner (v149.46) — open on "Not a partner event"; the edit branch
+     below refills it from the stored stamp. */
+  if (typeof window.partnerPickerInit === 'function') {
+    window.partnerPickerInit('cmsEventPartnerIslandRow', 'cmsEventPartnerIsland', '');
+  }
+
   // Reset one-time event fields
   document.getElementById('cmsEventDate').value = '';
   document.getElementById('cmsEventTime').value = '';
@@ -30568,6 +30646,11 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
         document.getElementById('cmsEventTitle').value = d.title || '';
         document.getElementById('cmsEventDescription').value = d.description || '';
         document.getElementById('cmsEventImageUrl').value = d.imageUrl || '';
+        /* Round-trip the partner stamp so a staff edit shows the current value
+           and re-saving an untouched form leaves it exactly as it was. */
+        if (typeof window.partnerPickerInit === 'function') {
+          window.partnerPickerInit('cmsEventPartnerIslandRow', 'cmsEventPartnerIsland', d.partnerIsland || '');
+        }
         // If the doc has an explicit zoomMode, use it. Otherwise inherit the
         // collection default (recurring -> program, one-off -> event) so a
         // legacy unflagged doc doesn't visually default to the wrong slot.
@@ -32107,9 +32190,21 @@ window.cmsSaveEvent = async function() {
       payload.imageUrl = existingUrl;
     }
 
+    /* Pacific partner (v149.46). null = the picker was not touched, so the
+       stored stamp is left alone; '' = the staff member deliberately chose
+       "Not a partner event", which clears it. */
+    var _evPartnerChange = (typeof window.partnerPickerChange === 'function')
+      ? window.partnerPickerChange('cmsEventPartnerIsland') : null;
+
     if (docId) {
+      if (_evPartnerChange !== null) {
+        payload.partnerIsland = (_evPartnerChange === '')
+          ? firebase.firestore.FieldValue.delete()
+          : _evPartnerChange;
+      }
       await db.collection(collection).doc(docId).update(payload);
     } else {
+      if (_evPartnerChange) payload.partnerIsland = _evPartnerChange;
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       payload.createdByUid = (window.currentUserData && window.currentUserData.uid) || '';
       payload.createdByName = (window.currentUserData && window.currentUserData.displayName) || '';
@@ -49710,6 +49805,10 @@ window.ihExportCSV = function () {
     document.getElementById('oneOffName').value = '';
     document.getElementById('oneOffLocation').value = '';
     document.getElementById('oneOffTier').value = '';
+    /* Pacific partner (v149.46) — reset; the edit branch below refills it. */
+    if (typeof window.partnerPickerInit === 'function') {
+      window.partnerPickerInit('oneOffPartnerIslandRow', 'oneOffPartnerIsland', '');
+    }
     document.getElementById('oneOffDescription').value = '';
     document.getElementById('oneOffPresenterComments').value = '';
     var dEl = document.getElementById('oneOffDate');
@@ -49777,6 +49876,9 @@ window.ihExportCSV = function () {
           matPacked = (d.summary && d.summary.materialsPacked) || {};
           matDiss = (d.summary && d.summary.materialsDisseminated) || {};
           document.getElementById('oneOffLocation').value = d.location || '';
+          if (typeof window.partnerPickerInit === 'function') {
+            window.partnerPickerInit('oneOffPartnerIslandRow', 'oneOffPartnerIsland', d.partnerIsland || '');
+          }
           document.getElementById('oneOffTier').value = (d.summary && d.summary.tierModel) || '';
           document.getElementById('oneOffDescription').value = d.description || '';
           document.getElementById('oneOffPresenterComments').value = (d.summary && d.summary.presenterComments) || '';
@@ -49830,6 +49932,10 @@ window.ihExportCSV = function () {
     var description = (document.getElementById('oneOffDescription').value || '').trim();
     var mats = _ooMaterialsFromInputs();
     var comments = (document.getElementById('oneOffPresenterComments').value || '').trim();
+    /* Pacific partner (v149.46). null = untouched (leave any stamp alone),
+       '' = deliberately set back to "Not a partner event" (clear it). */
+    var _ooPartnerChange = (typeof window.partnerPickerChange === 'function')
+      ? window.partnerPickerChange('oneOffPartnerIsland') : null;
     var btn = document.getElementById('oneOffSaveBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
     var staffName = (window.currentUserData && window.currentUserData.displayName) || 'Staff';
@@ -49838,21 +49944,32 @@ window.ihExportCSV = function () {
     try {
       var eventId = _ooEditId;
       if (eventId) {
-        await db.collection('events').doc(eventId).update({
+        var _ooUpd = {
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, archived: true, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
-        });
+        };
+        if (_ooPartnerChange !== null) {
+          _ooUpd.partnerIsland = (_ooPartnerChange === '')
+            ? firebase.firestore.FieldValue.delete()
+            : _ooPartnerChange;
+        }
+        await db.collection('events').doc(eventId).update(_ooUpd);
         if (partnerCount !== null) {
           await db.collection('events').doc(eventId)
             .update({ 'summary.attendanceOverrides.attTotal': partnerCount });
         }
       } else {
-        var evRef = await db.collection('events').add(window.partnerStamp({
+        var _ooNew = window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments },
             partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [], archived: true,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
-        }));
+        });
+        /* Staff entering a partner's event: partnerStamp is a no-op for them, so
+           the picker is the only thing that can stamp it. A partner user never
+           reaches this line with a value — partnerPickerChange returns null. */
+        if (_ooPartnerChange) _ooNew.partnerIsland = _ooPartnerChange;
+        var evRef = await db.collection('events').add(_ooNew);
         eventId = evRef.id;
       }
       var dateDisplay = (typeof _fmtFullDate === 'function') ? _fmtFullDate(new Date(dateIso + 'T00:00:00')) : dateIso;
@@ -52937,6 +53054,15 @@ window.cmsBuildMembershipReport = async function() {
             <option value="">&mdash; Select tier &mdash;</option>
           </select>
         </div>
+      </div>
+      <!-- Pacific partner (v149.46). Staff only — partnerPickerInit hides this
+           row for a partner user, whose events are stamped from their account. -->
+      <div id="oneOffPartnerIslandRow" style="margin-bottom:12px;">
+        <label for="oneOffPartnerIsland" style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Pacific partner</label>
+        <select id="oneOffPartnerIsland" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;background:#fff;">
+          <option value="">Not a partner event</option>
+        </select>
+        <div style="font-size:.75rem;color:#64748B;margin-top:5px;">Pick an island when the event belongs to one of the six Pacific Basin partner organizations, including one you are entering on their behalf. It then counts as their work rather than LDAH work.</div>
       </div>
       <div style="margin-bottom:16px;">
         <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Description</label>
