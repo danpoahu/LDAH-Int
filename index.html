@@ -5407,7 +5407,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.47</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.48</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12251,6 +12251,7 @@ var _photoPendingByIsland = {};
             role: roleDoc.data().role,
             island: roleDoc.data().island || '',
             location: roleDoc.data().location || '',
+            partnerAllIslands: roleDoc.data().partnerAllIslands === true,   // coordinator partner - sees all partner islands
             alertPrefs: roleDoc.data().alertPrefs || null,
             alertSubs: roleDoc.data().alertSubs || {}
           };
@@ -12618,8 +12619,29 @@ var _photoPendingByIsland = {};
     return val === String(orig) ? null : val;
   };
 
+  /* Partner list scoping (2026-08-24 on STAGE, promoted to live 2026-09-07).
+     Staff see everything. A COORDINATOR partner (userRoles.partnerAllIslands
+     === true) sees every partner-stamped record across all six islands. A
+     plain island partner sees only their OWN island's records.
+
+     This closes a real gap. isPartnerRecord alone means "carries ANY partner
+     stamp", so every partner account could read every other partner's records
+     -- a Guam account saw American Samoa's. The helper is substituted into the
+     PARTNER branch of each scope decision; the superAdmin (PIP/LDAH toggle)
+     and admin (LDAH-only) branches are unchanged.
+
+     Fails closed twice over: a record with no partnerIsland is hidden from any
+     partner, and an island partner whose location does not resolve to one of
+     PARTNER_ISLANDS sees nothing at all. */
+  window._partnerScopeOK = function(d) {
+    if (!window.isPartnerUser || !window.isPartnerUser()) return true;
+    if (window.currentUserData && window.currentUserData.partnerAllIslands === true) return !!(d && d.partnerIsland);
+    return !!(d && d.partnerIsland && d.partnerIsland === window.currentPartnerIsland());
+  };
+
   /* Who sees what in the three partner-visible reports (2026-09-04).
-       partner    -> their own island's records
+       partner    -> their own island's records (a coordinator partner,
+                     partnerAllIslands, sees all six partner islands)
        superAdmin -> everything, both LDAH and partner
        anything else that can open them (admin today) -> LDAH records only
      Previously there was no third branch, so an admin's totals silently
@@ -12630,7 +12652,7 @@ var _photoPendingByIsland = {};
      staff member read these collections, and always have. */
   window.scopeReportDocs = function(docs) {
     if (!Array.isArray(docs)) return docs;
-    if (window.isPartnerUser()) return docs.filter(window.isPartnerRecord);
+    if (window.isPartnerUser()) return docs.filter(window._partnerScopeOK);
     if (window.currentUserData && window.currentUserData.role === 'superAdmin') return docs;
     return docs.filter(function(d) { return !window.isPartnerRecord(d); });
   };
@@ -21864,8 +21886,8 @@ window.openContactDetail = async function(contactId) {
       /* Closed is scoped to the Pacific partner islands when a partner is
          looking. The underlying query reads every interaction — partners can
          read the list by design — so the restriction is on what gets COUNTED,
-         and it uses isPartnerRecord (the partnerIsland stamp), the same test the
-         three partner-visible reports already use. All six islands pooled; no
+         and it uses _partnerScopeOK (own island, or all six partner islands
+         for a coordinator), the same test the partner-visible reports use. No
          Hawaiʻi records. (2026-09-02) */
       var _kpiPartner = !!(window.isPartnerUser && window.isPartnerUser());
       var closedTotal = 0;
@@ -21877,7 +21899,7 @@ window.openContactDetail = async function(contactId) {
            Sandy was shown "14 follow-ups due, 9 overdue" when not one of them
            was hers. For staff _kpiPartner is false, so _inScope is always true
            and none of these numbers move. */
-        var _inScope = !_kpiPartner || (window.isPartnerRecord && window.isPartnerRecord(d));
+        var _inScope = window._partnerScopeOK(d);
         var _countsForClosed = _inScope;
         // Count interactions logged this week
         if (_inScope && d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
@@ -21916,7 +21938,7 @@ window.openContactDetail = async function(contactId) {
         kpiCl.querySelector('.value').textContent = closedCount;
         /* For staff closedTotal === snap.size, so this is unchanged for them. */
         kpiCl.querySelector('.trend').textContent = closedTotal + ' total interactions' +
-          (_kpiPartner ? ' (partner islands)' : '');
+          (_kpiPartner ? ' (your records)' : '');
       }
 
     } catch (err) {
@@ -22109,20 +22131,23 @@ window.openContactDetail = async function(contactId) {
       }
       var d = doc.data();
 
-      /* Partner scope (2026-09-02). Partners can SEE the interaction lists --
-         that is deliberate, and the Closed KPI drills straight into them -- but
-         a Hawaiʻi family's interaction must not open. This modal is the single
-         way in from every list, and it carries an append-note box, so guarding
-         here covers viewing and editing in one place rather than trying to make
-         every row in every list unclickable.
+      /* Partner scope (2026-09-02; island-scoped 2026-09-07). Partners can SEE
+         the interaction lists -- that is deliberate, and the Closed KPI drills
+         straight into them -- but another organization's interaction must not
+         open. This modal is the single way in from every list, and it carries
+         an append-note box, so guarding here covers viewing and editing in one
+         place rather than trying to make every row in every list unclickable.
+
+         _partnerScopeOK returns true for staff, so this is a no-op for them. It
+         also blocks one partner opening another partner's record, which the
+         earlier partnerIsland-stamp test did not.
 
          Same civil-message pattern as openContactForm: the Firestore rule
          refuses the write anyway, this just says so before anything is typed. */
-      if (window.isPartnerUser && window.isPartnerUser() &&
-          !(window.isPartnerRecord && window.isPartnerRecord(d))) {
+      if (!window._partnerScopeOK(d)) {
         try { document.getElementById('ixViewOverlay').classList.remove('active'); } catch (e) {}
         body.innerHTML = '';
-        alert('This interaction belongs to LDAH Hawaiʻi. You can view the list, but only your partner organization\'s own records can be opened.');
+        alert('This interaction belongs to another organization. You can view the list, but only your own records can be opened.');
         return;
       }
 
@@ -47501,7 +47526,8 @@ window.cmsBuildStaffActivityReport = async function() {
 
     // Partner scope: only events stamped to one of the six Pacific partners.
     if (window.isPartnerUser()) {
-      allEvents = allEvents.filter(window.isPartnerRecord);
+      /* Own island only, or all six for a coordinator partner. */
+      allEvents = allEvents.filter(window._partnerScopeOK);
     } else if (_eaIsSuperAdmin()) {
       // The superAdmin toggle. PIP = partner-stamped only; LDAH = everything else.
       allEvents = (_eaCache.scope === 'pip')
