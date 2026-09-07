@@ -1136,6 +1136,26 @@
       #dashRightColumn { display: none !important; }
     }
 
+    /* Small laptops (2026-09-01). The rule above reads like it covers narrow
+       screens, but `pointer: coarse` means TOUCH — a trackpad never matches it,
+       so a 14" laptop got the full desktop layout: a 280px sidebar plus a right
+       column squeezed to about 270px at 1366 wide and 245px at 1280. Rosie's
+       Inspiron 14 is exactly that machine, and per the hardware note most of the
+       team is on 1366x768.
+
+       Deliberately NOT a copy of the iPad rule: this STACKS the right column
+       under the main content instead of hiding it. On a tablet dropping it was
+       judged fine; on the machine someone works on all day, silently removing
+       the Community Calendar and Recent Signups is worse than moving them a
+       scroll down. Nothing is lost, it just goes below.
+
+       The sidebar also comes in — 44px back, free, and the nav still fits
+       because the height rules above already tighten it on short screens. */
+    @media (pointer: fine) and (min-width: 960px) and (max-width: 1400px) {
+      .app { grid-template-columns: 236px 1fr; }
+      .grid { grid-template-columns: 1fr; }
+    }
+
     /* Right-column show/hide (2026-09-01, asked for by Rosie after the staff
        meeting). Puts the Community Calendar / Recent Signups / Yearly audit
        column away and gives the width back to My Day and the reports.
@@ -5393,7 +5413,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.13-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.14-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7425,8 +7445,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <input type="date" id="ixDateTo" onchange="resetIxFilterBtn()">
           </div>
           <div>
-            <label>Contact</label>
-            <select id="ixContactFilter" onchange="resetIxFilterBtn()"><option value="">All Contacts</option></select>
+            <label>Staff</label>
+            <select id="ixStaffFilter" onchange="resetIxFilterBtn()"><option value="">All staff</option></select>
           </div>
           <div>
             <label>Status</label>
@@ -7467,6 +7487,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div class="ix-counter"><b id="ixOpenCount">0</b> open</div>
           <div class="ix-counter"><b id="ixFollowUpCount">0</b> follow-ups due</div>
         </div>
+
+        <!-- Honest truncation note: the query is capped at 500 rows, so a count
+             here can be a slice rather than the whole picture. Shown only when
+             the cap was actually reached. -->
+        <div id="ixTruncNote" style="display:none;margin:0 0 12px;padding:8px 12px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:6px;font-size:.82rem;color:#92400E;line-height:1.4;"></div>
 
         <div class="ix-list">
           <div class="ix-list-header">
@@ -12614,6 +12639,24 @@ var _photoPendingByIsland = {};
     return !!(d && d.partnerIsland && d.partnerIsland === window.currentPartnerIsland());
   };
 
+  /* Who sees what in the three partner-visible reports (2026-09-04).
+       partner    -> their own island's records (a coordinator partner,
+                     partnerAllIslands, sees all six partner islands)
+       superAdmin -> everything, both LDAH and partner
+       anything else that can open them (admin today) -> LDAH records only
+     Previously there was no third branch, so an admin's totals silently
+     included partner records — twelve American Samoa Facebook posts alone
+     carry 7,088 "attendees" between them. Partner work belongs to Rosie and
+     Noe; this keeps it off Mackenzie's and Leilani's plate. It is a workload
+     boundary, not a confidentiality one: the Firestore rules let any signed-in
+     staff member read these collections, and always have. */
+  window.scopeReportDocs = function(docs) {
+    if (!Array.isArray(docs)) return docs;
+    if (window.isPartnerUser()) return docs.filter(window._partnerScopeOK);
+    if (window.currentUserData && window.currentUserData.role === 'superAdmin') return docs;
+    return docs.filter(function(d) { return !window.isPartnerRecord(d); });
+  };
+
   // ── Role-Based Visibility ──
   function applyRolePermissions() {
     if (!currentUserData) return;
@@ -12822,7 +12865,7 @@ var _photoPendingByIsland = {};
         _showFullWidth(wdSection, loadSiteAnalytics);
         cmsShowAiHelper('Web Analytics');
       } else if (section === 'interactions') {
-        _showFullWidth(ixSection, function() { populateIXContactFilter(); loadInteractions(); });
+        _showFullWidth(ixSection, function() { populateIXStaffFilter(); loadInteractions(); });
         cmsShowAiHelper('Interactions');
       } else if (section === 'listmanagement') {
         _showFullWidth(lmSection, renderAllLookupLists);
@@ -21955,22 +21998,40 @@ window.openContactDetail = async function(contactId) {
       var fuOverdue = 0;
       var reviewCount = 0;
       var closedCount = 0;
+      /* Closed is scoped to the Pacific partner islands when a partner is
+         looking. The underlying query reads every interaction — partners can
+         read the list by design — so the restriction is on what gets COUNTED,
+         and it uses _partnerScopeOK (own island, or all six partner islands
+         for a coordinator), the same test the partner-visible reports use. No
+         Hawaiʻi records. (2026-09-02) */
+      var _kpiPartner = !!(window.isPartnerUser && window.isPartnerUser());
+      var closedTotal = 0;
 
       snap.forEach(function(doc) {
         var d = doc.data();
+        /* Every card is scoped for a partner, not just Closed (2026-09-04).
+           Previously a partner's home screen reported LDAH's whole workload:
+           Sandy was shown "14 follow-ups due, 9 overdue" when not one of them
+           was hers. For staff _kpiPartner is false, so _inScope is always true
+           and none of these numbers move. */
+        var _inScope = window._partnerScopeOK(d);
+        var _countsForClosed = _inScope;
         // Count interactions logged this week
-        if (d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
+        if (_inScope && d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
           wtdCount++;
         }
         // Count follow-ups due (open items with followUpDate in next 7 days or overdue)
-        if (d.status === 'Open' && d.followUpDate) {
+        if (_inScope && d.status === 'Open' && d.followUpDate) {
           if (d.followUpDate <= todayStr) fuOverdue++;
           else if (d.followUpDate <= futureStr) fuDue++;
         }
         // Count interactions needing review
-        if (d.status === 'Needs admin review') reviewCount++;
+        if (_inScope && d.status === 'Needs admin review') reviewCount++;
         // Count closed interactions
-        if (d.status === 'Closed') closedCount++;
+        if (_countsForClosed) {
+          closedTotal++;
+          if (d.status === 'Closed') closedCount++;
+        }
       });
 
       // Interactions KPI is updated by loadDashRecentInteractions (merged list)
@@ -21990,7 +22051,9 @@ window.openContactDetail = async function(contactId) {
       var kpiCl = document.getElementById('kpiClosed');
       if (kpiCl) {
         kpiCl.querySelector('.value').textContent = closedCount;
-        kpiCl.querySelector('.trend').textContent = snap.size + ' total interactions';
+        /* For staff closedTotal === snap.size, so this is unchanged for them. */
+        kpiCl.querySelector('.trend').textContent = closedTotal + ' total interactions' +
+          (_kpiPartner ? ' (your records)' : '');
       }
 
     } catch (err) {
@@ -22077,8 +22140,8 @@ window.openContactDetail = async function(contactId) {
     document.getElementById('ixDateTo').value = '';
     document.getElementById('ixStatusFilter').value = '';
     document.getElementById('ixChannelFilter').value = '';
-    var contactF = document.getElementById('ixContactFilter');
-    if (contactF) contactF.value = '';
+    var staffF = document.getElementById('ixStaffFilter');
+    if (staffF) staffF.value = '';
     _ixFollowUpOnly = false;
 
     function _localDateStr(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
@@ -22182,6 +22245,27 @@ window.openContactDetail = async function(contactId) {
         return;
       }
       var d = doc.data();
+
+      /* Partner scope (2026-09-02; island-scoped 2026-09-07). Partners can SEE
+         the interaction lists -- that is deliberate, and the Closed KPI drills
+         straight into them -- but another organization's interaction must not
+         open. This modal is the single way in from every list, and it carries
+         an append-note box, so guarding here covers viewing and editing in one
+         place rather than trying to make every row in every list unclickable.
+
+         _partnerScopeOK returns true for staff, so this is a no-op for them. It
+         also blocks one partner opening another partner's record, which the
+         earlier partnerIsland-stamp test did not.
+
+         Same civil-message pattern as openContactForm: the Firestore rule
+         refuses the write anyway, this just says so before anything is typed. */
+      if (!window._partnerScopeOK(d)) {
+        try { document.getElementById('ixViewOverlay').classList.remove('active'); } catch (e) {}
+        body.innerHTML = '';
+        alert('This interaction belongs to another organization. You can view the list, but only your own records can be opened.');
+        return;
+      }
+
       _ixViewInteractionType = d.interactionType || ''; // v145.0.2
       _ixViewIsCaseAdvocacy = (d.caseAdvocacy === true) || !!d.caseAdvocateUid; // v148.13
       var ts = d.createdAt ? d.createdAt.toDate() : null;
@@ -22432,9 +22516,29 @@ window.openContactDetail = async function(contactId) {
               '<div style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">' + caAdvHint + '</div>' +
             '</div></div>';
 
+        /* The date is editable in place (2026-09-01). Staff log interactions
+           after the fact — a call on Monday typed up on Wednesday — and the
+           note then files under the day it was TYPED, not the day the family
+           was served. Reports, the case-advocacy notes panel and every sort
+           read createdAt, so correcting it here corrects all of them at once;
+           adding a second "serviced" field would have meant finding every
+           reader, and missing one is how these things drift.
+           The true entry time is not lost — it is kept on createdAtOriginal
+           the first time a date is changed, with who changed it and when. */
+        var _svcIso = '';
+        try { if (ts) { _svcIso = new Date(ts.getTime() - ts.getTimezoneOffset() * 60000).toISOString().slice(0, 10); } } catch (e) {}
+        var _dateCell = canChangeStatus
+          ? '<div class="val"><input type="date" id="ixServiceDate" class="ix-edit-input" style="max-width:170px;" ' +
+              'title="The date this actually happened. Change it if you are logging it later." ' +
+              'data-current="' + rsEscape(_svcIso) + '" value="' + rsEscape(_svcIso) + '">' +
+              (d.createdAtOriginal ? '<div style="font-size:.68rem;color:var(--text-soft);margin-top:2px;">date corrected' +
+                 (d.dateChangedBy ? ' by ' + rsEscape(d.dateChangedBy) : '') + '</div>' : '') +
+            '</div>'
+          : '<div class="val">' + dateStr + '</div>';
+
         infoCard =
           '<div class="ct-info-card">' +
-            '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
+            '<div class="ct-info-field"><label>Date</label>' + _dateCell + '</div>' +
             '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
             '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
             statusFieldHtml + presenterFieldHtml +
@@ -23200,8 +23304,13 @@ window.openContactDetail = async function(contactId) {
 
     var newFollowUp  = fuInput ? fuInput.value : '';
     var fuDirty      = !!fuInput && newFollowUp !== (fuInput.getAttribute('data-current') || '');
+    var svcInput     = document.getElementById('ixServiceDate');
+    var newSvcDate   = svcInput ? (svcInput.value || '') : '';
+    /* Blank is not a change. Clearing the box would otherwise wipe the date of
+       the interaction entirely, which nothing downstream expects. */
+    var svcDirty     = !!svcInput && !!newSvcDate && newSvcDate !== (svcInput.getAttribute('data-current') || '');
 
-    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty) {
+    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty && !svcDirty) {
       if (msg) { msg.className = ''; msg.textContent = 'No changes.'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
       return;
@@ -23275,6 +23384,28 @@ window.openContactDetail = async function(contactId) {
         });
         if (fuInput) fuInput.setAttribute('data-current', newFollowUp);
         if (window.auditLog) window.auditLog('Changed follow-up date', (fuInput.getAttribute('data-current') || '(none)') + ' \u2192 ' + (newFollowUp || '(cleared)'));
+      }
+
+      if (svcDirty) {
+        var _was = svcInput.getAttribute('data-current') || '(unknown)';
+        /* Anchor at midday so a date never slips a day either side of the
+           timezone boundary — the same trap the lifecycle date maths avoids. */
+        var _newTs = new Date(newSvcDate + 'T12:00:00');
+        var _upd = {
+          createdAt: firebase.firestore.Timestamp.fromDate(_newTs),
+          dateChangedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          dateChangedBy: (window.currentUserData && window.currentUserData.displayName) || '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        /* Keep the ORIGINAL entry time, once. Overwriting it on a second edit
+           would lose the only record of when this was really typed. */
+        var _cur = await db.collection('interactions').doc(_ixViewDocId).get();
+        if (_cur.exists && !(_cur.data() || {}).createdAtOriginal && (_cur.data() || {}).createdAt) {
+          _upd.createdAtOriginal = (_cur.data() || {}).createdAt;
+        }
+        await db.collection('interactions').doc(_ixViewDocId).update(_upd);
+        svcInput.setAttribute('data-current', newSvcDate);
+        if (window.auditLog) window.auditLog('Changed interaction date', _was + ' \u2192 ' + newSvcDate);
       }
 
       if (msg) { msg.className = 'ix-status-saved'; msg.textContent = '✓ Saved'; }
@@ -24362,8 +24493,8 @@ window.openContactDetail = async function(contactId) {
     document.getElementById('ixDateTo').value = '';
     document.getElementById('ixStatusFilter').value = '';
     document.getElementById('ixChannelFilter').value = '';
-    var contactF = document.getElementById('ixContactFilter');
-    if (contactF) contactF.value = '';
+    var staffF = document.getElementById('ixStaffFilter');
+    if (staffF) staffF.value = '';
     _ixFiltersActive = false;
     var btn = document.getElementById('ixFilterBtn');
     if (btn) {
@@ -24381,12 +24512,18 @@ window.openContactDetail = async function(contactId) {
 
     var dateFrom = document.getElementById('ixDateFrom').value;
     var dateTo = document.getElementById('ixDateTo').value;
-    var contactFilter = document.getElementById('ixContactFilter').value;
+    var _staffSel = document.getElementById('ixStaffFilter');
+    var staffFilter = _staffSel ? _staffSel.value : '';
     var statusFilter = document.getElementById('ixStatusFilter').value;
     var channelFilter = document.getElementById('ixChannelFilter').value;
 
+    // Grouping sentinels vs a real uid. Anything that is not a sentinel is one
+    // person, and one person gets a server-side owner filter (see below).
+    var _isIndividualStaff = !!staffFilter && staffFilter !== '__ldah__'
+      && staffFilter !== '__pip__' && staffFilter !== '__none__';
+
     // Smart filter button toggle
-    var anyFilter = dateFrom || dateTo || contactFilter || statusFilter || channelFilter;
+    var anyFilter = dateFrom || dateTo || staffFilter || statusFilter || channelFilter;
     var btn = document.getElementById('ixFilterBtn');
     if (anyFilter && btn) {
       _ixFiltersActive = true;
@@ -24399,43 +24536,95 @@ window.openContactDetail = async function(contactId) {
     }
 
     try {
-      var query = db.collection('interactions')
-        .orderBy('createdAt', 'desc');
-
-      if (dateFrom) {
-        var startDate = new Date(dateFrom + 'T00:00:00');
-        query = query.where('createdAt', '>=', startDate);
-      }
-      if (dateTo) {
-        var endDate = new Date(dateTo + 'T00:00:00');
-        endDate.setDate(endDate.getDate() + 1);
-        query = query.where('createdAt', '<', endDate);
+      // LDAH / PIP need the role map before the client predicate can run.
+      if (staffFilter === '__ldah__' || staffFilter === '__pip__') {
+        try { await _getIXStaffList(); } catch (e) { console.warn('staff roles:', e && e.message); }
       }
 
-      query = query.limit(500);
-      var snap = await query.get();
+      function _ixBuildQuery(ownerField, ownerVal) {
+        var q = db.collection('interactions');
+        if (ownerField) q = q.where(ownerField, '==', ownerVal);
+        q = q.orderBy('createdAt', 'desc');
+        if (dateFrom) {
+          var startDate = new Date(dateFrom + 'T00:00:00');
+          q = q.where('createdAt', '>=', startDate);
+        }
+        if (dateTo) {
+          var endDate = new Date(dateTo + 'T00:00:00');
+          endDate.setDate(endDate.getDate() + 1);
+          q = q.where('createdAt', '<', endDate);
+        }
+        return q.limit(500);
+      }
 
+      /* The 500 cap is applied by the server, BEFORE any client-side predicate.
+         Filtering to one person purely client-side would therefore answer
+         "their rows inside the org's most recent 500", which for a low-volume
+         owner over a wide date range reads as near-empty while looking
+         complete. So an individual gets a server-side owner filter and the cap
+         lands on their own rows. caseAdvocateUid is a second ownership field
+         (My Day ORs it with ownerUid), so it is fetched alongside and merged.
+         Grouping filters stay client-side: an `in` query caps at 30 values and
+         would break as the roster grows — they get an honest note instead. */
+      var _snaps;
+      try {
+        if (_isIndividualStaff) {
+          _snaps = await Promise.all([
+            _ixBuildQuery('ownerUid', staffFilter).get(),
+            _ixBuildQuery('caseAdvocateUid', staffFilter).get()
+          ]);
+        } else {
+          _snaps = [await _ixBuildQuery(null, null).get()];
+        }
+      } catch (qErr) {
+        var _qm = (qErr && qErr.message) || String(qErr);
+        var _mIdx = _qm.match(/https?:\/\/console\.firebase\.google\.com\/[^\s)]+/);
+        var _isIdx = String(qErr && qErr.code) === 'failed-precondition' || /requires an index|FAILED_PRECONDITION/i.test(_qm);
+        console.warn('Interactions query failed:', _qm);
+        if (_isIdx) {
+          if (_mIdx) {
+            console.warn('Create the required composite index here:\n' + _mIdx[0]);
+          } else {
+            console.warn('Needs composite indexes on interactions (ownerUid ASC, createdAt DESC) and (caseAdvocateUid ASC, createdAt DESC).');
+          }
+          body.innerHTML = '<div class="ix-empty" style="color:#DC2626;">This staff filter needs a database index that is not ready yet. '
+            + 'Pick <b>All staff</b> to see the list, and check the browser console for the index link.</div>';
+          _ixExportRows = [];
+          var _tnq = document.getElementById('ixTruncNote');
+          if (_tnq) _tnq.style.display = 'none';
+          return;
+        }
+        throw qErr;
+      }
+
+      var _serverRowCount = 0;
+      var _seenIxIds = {};
       var rows = [];
       var todayStr = _localToday();
       var _sd = new Date(); _sd.setDate(_sd.getDate() + 7);
       var sevenStr = _sd.getFullYear() + '-' + String(_sd.getMonth()+1).padStart(2,'0') + '-' + String(_sd.getDate()).padStart(2,'0');
 
-      snap.forEach(function(doc) {
-        var d = doc.data();
-        d._id = doc.id;
-        // Partner scoping (2026-08-24): island partner → own island only;
-        // coordinator partner (Sandy) → all partner islands; staff → everything.
-        if (!window._partnerScopeOK(d)) return;
-        if (d.channel === 'Internal Chat') return;
-        if (contactFilter && d.contactId !== contactFilter) return;
-        if (statusFilter && d.status !== statusFilter) return;
-        if (channelFilter && d.channel !== channelFilter) return;
-        // Follow-up KPI filter: only show items with follow-up dates ≤ 7 days out
-        if (_ixFollowUpOnly) {
-          if (!d.followUpDate || d.status === 'Closed') return;
-          if (d.followUpDate > sevenStr) return;
-        }
-        rows.push(d);
+      _snaps.forEach(function(snap) {
+        if (snap.size > _serverRowCount) _serverRowCount = snap.size;
+        snap.forEach(function(doc) {
+          if (_seenIxIds[doc.id]) return; // owner + advocate queries can overlap
+          _seenIxIds[doc.id] = true;
+          var d = doc.data();
+          d._id = doc.id;
+          // Partner scoping (2026-08-24): island partner → own island only;
+          // coordinator partner → all partner islands; staff → everything.
+          if (!window._partnerScopeOK(d)) return;
+          if (d.channel === 'Internal Chat') return;
+          if (staffFilter && !_ixStaffMatch(d, staffFilter)) return;
+          if (statusFilter && d.status !== statusFilter) return;
+          if (channelFilter && d.channel !== channelFilter) return;
+          // Follow-up KPI filter: only show items with follow-up dates ≤ 7 days out
+          if (_ixFollowUpOnly) {
+            if (!d.followUpDate || d.status === 'Closed') return;
+            if (d.followUpDate > sevenStr) return;
+          }
+          rows.push(d);
+        });
       });
       var _wasFollowUpFilter = _ixFollowUpOnly;
       _ixFollowUpOnly = false;
@@ -24444,7 +24633,7 @@ window.openContactDetail = async function(contactId) {
       // Skip form merge when follow-up filter is active (form entries have no follow-up dates)
       var _formChannels = ['Signup','Contact Form','Provider','Pledge','Event Request','Volunteer','Partner Application'];
       var _isFormFilter = channelFilter && _formChannels.indexOf(channelFilter) !== -1;
-      if (!_wasFollowUpFilter && (!channelFilter || _isFormFilter) && !(window.isPartnerUser && window.isPartnerUser())) {   // partners: no web-form entries, only their own interactions
+      if (!_wasFollowUpFilter && !staffFilter && (!channelFilter || _isFormFilter) && !(window.isPartnerUser && window.isPartnerUser())) {   // partners: no web-form entries, only their own interactions
         var _dfrom = dateFrom ? new Date(dateFrom + 'T00:00:00') : null;
         var _dto = dateTo ? (function(){ var e = new Date(dateTo + 'T00:00:00'); e.setDate(e.getDate()+1); return e; })() : null;
         function _tsToDate(t) { return t && t.toDate ? t.toDate() : (t ? new Date(t) : null); }
@@ -24458,7 +24647,7 @@ window.openContactDetail = async function(contactId) {
         function _pushForm(channel, name, summary, status, ts) {
           if (channelFilter && channel !== channelFilter) return;
           if (statusFilter && status !== statusFilter) return;
-          if (contactFilter) return; // form entries don't have contactId
+          if (staffFilter) return; // form entries have no ownerUid
           var dt = _tsToDate(ts);
           if (!_inDateRange(ts) && (dateFrom || dateTo)) return;
           rows.push({
@@ -24530,6 +24719,18 @@ window.openContactDetail = async function(contactId) {
         });
       }
 
+      /* The owner and case-advocate snapshots arrive one after the other, each
+         date-sorted on its own, so the concatenation is not. Re-sort. Only
+         reachable for an individual, where the form merge above is skipped, so
+         this never double-sorts. */
+      if (_snaps.length > 1) {
+        rows.sort(function(a, b) {
+          var ta = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+          var tb = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+          return tb - ta;
+        });
+      }
+
       // Counters
       var total = rows.length;
       var openCount = rows.filter(function(r) { return r.status === 'Open'; }).length;
@@ -24537,6 +24738,21 @@ window.openContactDetail = async function(contactId) {
       document.getElementById('ixTotalCount').textContent = total;
       document.getElementById('ixOpenCount').textContent = openCount;
       document.getElementById('ixFollowUpCount').textContent = fuCount;
+
+      /* Never present a truncated count as complete. A grouping filter is applied
+         after the server's 500-row cut, so its totals are a slice of the org's
+         most recent 500 — say so instead of letting the number stand. */
+      var _truncNote = document.getElementById('ixTruncNote');
+      if (_truncNote) {
+        if (_serverRowCount >= 500) {
+          _truncNote.textContent = (staffFilter && !_isIndividualStaff)
+            ? 'Showing the most recent 500 interactions for the whole organization, then filtering by staff. These totals are not the full picture — narrow the dates to see more.'
+            : 'Showing the most recent 500 interactions. Narrow the dates to see more.';
+          _truncNote.style.display = '';
+        } else {
+          _truncNote.style.display = 'none';
+        }
+      }
 
       if (rows.length === 0) {
         body.innerHTML = '<div class="ix-empty">No interactions found.</div>';
@@ -24586,26 +24802,95 @@ window.openContactDetail = async function(contactId) {
     }
   };
 
-  async function populateIXContactFilter() {
-    var sel = document.getElementById('ixContactFilter');
-    if (!sel) return;
-    sel.innerHTML = '<option value="">All Contacts</option>';
-    try {
-      // Refresh contacts cache if empty
-      if (_allContacts.length === 0) {
-        var snap = await db.collection('contacts').orderBy('displayName').get();
-        _allContacts = [];
-        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; if (!window._partnerScopeOK(d)) return; _allContacts.push({ id: doc.id, ...d }); });
-        buildContactDatalist();
-      }
-      _allContacts.forEach(function(c) {
-        var opt = document.createElement('option');
-        opt.value = c.id;
-        opt.textContent = c.displayName;
-        sel.appendChild(opt);
-      });
-    } catch (e) {}
+  /* ── Interactions Staff filter ──────────────────────────────────────────
+     LDAH vs PIP is decided by the OWNER'S ROLE in userRoles, never by a stamp
+     on the interaction record. Only one of the write paths sets partnerIsland,
+     so a stamp-based split would silently drop case advocacy, event walk-ins,
+     volunteer attendance and system-created rows while still looking complete.
+     Role grouping is accurate by construction and needs no backfill.
+     Matching is on uid only — the stored `owner` display name is a snapshot
+     that drifts from userRoles.displayName. (v149.44) */
+  var _ixStaffCache = null;   // { ldah: [...], partners: [...] }
+  var _ixLdahUids = {};       // uid -> true, every non-partner role
+  var _ixPartnerUids = {};    // uid -> true, role === 'partner'
+
+  async function _getIXStaffList() {
+    if (_ixStaffCache) return _ixStaffCache;
+    var snap = await db.collection('userRoles').get();
+    var ldah = [], partners = [], seenEmails = {};
+    _ixLdahUids = {};
+    _ixPartnerUids = {};
+    snap.forEach(function(doc) {
+      var d = doc.data() || {};
+      var nm = d.displayName || d.email || doc.id;
+      // Skip the IT_Help break-glass account — same test the "Viewing as" picker uses.
+      if (/it[\s._-]*help/i.test(nm) || /it[\s._-]*help/i.test(d.email || '')) return;
+      /* Archiving blanks `role` and moves the value to `previousRole`, so
+         classify on the fallback. A departed staffer still owns every
+         interaction they ever logged; leaving them out of the role map would
+         quietly drop those rows from BOTH the LDAH and the PIP totals — the
+         same silent under-report a stamp-based split would cause. Four accounts
+         are archived today (three LDAH, one partner). They stay in the role map
+         for grouping; they are simply not offered as a pickable individual. */
+      var role = String(d.role || d.previousRole || '');
+      if (!role) return;
+      var isPartner = role === 'partner';
+      if (isPartner) { _ixPartnerUids[doc.id] = true; } else { _ixLdahUids[doc.id] = true; }
+      if (d.isArchived === true) return;
+      // De-dupe by email so a person with two role docs shows once.
+      var emKey = String(d.email || doc.id).toLowerCase();
+      if (seenEmails[emKey]) return;
+      seenEmails[emKey] = true;
+      (isPartner ? partners : ldah).push({ uid: doc.id, name: nm });
+    });
+    var byName = function(a, b) { return String(a.name).localeCompare(String(b.name)); };
+    ldah.sort(byName);
+    partners.sort(byName);
+    _ixStaffCache = { ldah: ldah, partners: partners };
+    return _ixStaffCache;
   }
+
+  // True when this interaction belongs to the selected staff filter.
+  // ownerUid is the primary owner; caseAdvocateUid is the second ownership
+  // field, so an advocate's cases appear under their own name.
+  function _ixStaffMatch(d, sel) {
+    var ou = d.ownerUid || '';
+    var cu = d.caseAdvocateUid || '';
+    if (sel === '__none__') return !ou && !cu;
+    if (sel === '__ldah__') return !!(_ixLdahUids[ou] || _ixLdahUids[cu]);
+    if (sel === '__pip__') return !!(_ixPartnerUids[ou] || _ixPartnerUids[cu]);
+    return ou === sel || cu === sel;
+  }
+
+  async function populateIXStaffFilter() {
+    var sel = document.getElementById('ixStaffFilter');
+    if (!sel) return;
+    var keep = sel.value;
+    try {
+      var s = await _getIXStaffList();
+      var html = '<option value="">All staff</option>'
+        + '<option value="__ldah__">LDAH</option>'
+        + '<option value="__pip__">PIP</option>';
+      if (s.ldah.length) {
+        html += '<optgroup label="LDAH staff">';
+        s.ldah.forEach(function(x) { html += '<option value="' + rsEscape(x.uid) + '">' + rsEscape(x.name) + '</option>'; });
+        html += '</optgroup>';
+      }
+      if (s.partners.length) {
+        html += '<optgroup label="Pacific partners">';
+        s.partners.forEach(function(x) { html += '<option value="' + rsEscape(x.uid) + '">' + rsEscape(x.name) + '</option>'; });
+        html += '</optgroup>';
+      }
+      // ownerUid: '' is a real, intended state — auto-created interactions start
+      // unassigned, so those rows must stay reachable.
+      html += '<optgroup label="&#8203;"><option value="__none__">Unassigned</option></optgroup>';
+      sel.innerHTML = html;
+      if (keep) sel.value = keep;
+    } catch (e) {
+      console.warn('populateIXStaffFilter:', e && e.message);
+    }
+  }
+  window.populateIXStaffFilter = populateIXStaffFilter;
 
   window.exportInteractionsCSV = function() {
     if (!_ixExportRows || _ixExportRows.length === 0) {
@@ -47062,6 +47347,12 @@ window.cmsBuildStaffActivityReport = async function() {
   // Module-level cache for the report build. Populated on first open and
   // reused for all client-side filter changes.
   var _eaCache = {
+    /* Which organisation's events this report is about: 'ldah' or 'pip'.
+       superAdmin only; a partner is always forced to their own records.
+       Declared HERE, not in the build function — switching scope rebuilds the
+       report, so a per-build default reset it the instant it was changed and
+       the toggle snapped straight back. (2026-09-04) */
+    scope: 'ldah',
     built: false,
     oneOffsLoaded: false,   // lazy-load: One-Off events are deferred until the One-Off/All filter is picked
     oneOffsLoading: false,
@@ -47333,7 +47624,23 @@ window.cmsBuildStaffActivityReport = async function() {
     }
 
     // Partner scope: only events stamped to one of the six Pacific partners.
-    if (window.isPartnerUser()) allEvents = allEvents.filter(window._partnerScopeOK);
+    if (window.isPartnerUser()) {
+      /* Own island only, or all six for a coordinator partner. */
+      allEvents = allEvents.filter(window._partnerScopeOK);
+    } else if (_eaIsSuperAdmin()) {
+      // The superAdmin toggle. PIP = partner-stamped only; LDAH = everything else.
+      allEvents = (_eaCache.scope === 'pip')
+        ? allEvents.filter(window.isPartnerRecord)
+        : allEvents.filter(function(e) { return !window.isPartnerRecord(e); });
+    } else {
+      /* Everyone else who can open this report — admin today — sees LDAH events
+         only (2026-09-04). There was no else here at all, so an admin got NO
+         filter: partner and LDAH events pooled into one list with nothing on
+         screen saying so, which quietly put partner attendance into any total
+         they pulled. Partner work is Rosie's and Noe's to manage; this keeps it
+         off Mackenzie's and Leilani's plate rather than hiding anything secret. */
+      allEvents = allEvents.filter(function(e) { return !window.isPartnerRecord(e); });
+    }
 
     // Group feedback by event id for fast lookup
     var fbByEvent = {};
@@ -47691,6 +47998,17 @@ window.cmsBuildStaffActivityReport = async function() {
     html += '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;cursor:pointer;white-space:nowrap;">';
     html += '<input type="checkbox" id="eaFilterShowZero"' + (_eaCache.showZero ? ' checked' : '') + ' style="width:16px;height:16px;cursor:pointer;accent-color:#0891B2;flex-shrink:0;">';
     html += '<span>Show 0-attendance</span></label></div>';
+    /* superAdmin only: which organisation's events this report is about. */
+    if (_eaIsSuperAdmin()) {
+      var _pip = _eaCache.scope === 'pip';
+      html += '<div><label style="display:block;font-size:.72rem;color:var(--text-soft);font-weight:600;margin-bottom:3px;">SHOWING</label>';
+      html += '<div style="display:flex;border:1px solid #CBD5E1;border-radius:6px;overflow:hidden;background:#fff;">';
+      html += '<button type="button" onclick="cmsEASetScope(\'ldah\')" style="flex:1;border:none;cursor:pointer;font-size:.8rem;font-weight:700;padding:7px 4px;'
+           + (!_pip ? 'background:#0891B2;color:#fff;' : 'background:#fff;color:#475569;') + '">LDAH</button>';
+      html += '<button type="button" onclick="cmsEASetScope(\'pip\')" style="flex:1;border:none;cursor:pointer;font-size:.8rem;font-weight:700;padding:7px 4px;'
+           + (_pip ? 'background:#7C3AED;color:#fff;' : 'background:#fff;color:#475569;') + '">PIP</button>';
+      html += '</div></div>';
+    }
     html += '<div><button class="btn btn-ghost" style="width:100%;font-size:.82rem;" onclick="cmsEAClearFilters()">Clear</button></div>';
     bar.innerHTML = html;
 
@@ -48435,15 +48753,40 @@ window.cmsBuildStaffActivityReport = async function() {
     }
   };
 
+  function _eaIsSuperAdmin() {
+    return !!(currentUserData && currentUserData.role === 'superAdmin');
+  }
+
+  /* Switch the whole report between LDAH's own events and the Pacific partners'.
+     Rebuilds rather than re-filtering the cached list: the scope decides which
+     events are loaded at all, so the counts, the year list and the event-date
+     total in the header have to be recomputed for it to be honest. */
+  window.cmsEASetScope = function(scope) {
+    if (!_eaIsSuperAdmin()) return;
+    if (_eaCache.scope === scope) return;
+    _eaCache.scope = (scope === 'pip') ? 'pip' : 'ldah';
+    _renderFilterBar();
+    window.cmsBuildEventAttendanceReport();
+  };
+
   window.cmsEAClearFilters = function() {
     var _td = new Date();
     var _todayIso = _td.getFullYear() + '-' +
       String(_td.getMonth() + 1).padStart(2, '0') + '-' +
       String(_td.getDate()).padStart(2, '0');
-    _eaCache.filters = { search: '', year: String(new Date().getFullYear()), program: '__programs__', tier: '', from: '', to: _todayIso };
+    /* Clear resets to the same default the report opens with, which for a
+       partner is All — otherwise clearing filters would empty their report. */
+    var _eaPartnerClear = !!(window.isPartnerUser && window.isPartnerUser());
+    _eaCache.filters = { search: '', year: String(new Date().getFullYear()),
+                         program: _eaPartnerClear ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
     _eaCache.showZero = false; // v125.0.0 — reset the 0-attendance toggle on clear
+    /* Scope deliberately survives Clear. It answers "whose events is this
+       report about", not "which of them am I looking at", and silently
+       switching a superAdmin back to LDAH while they were reading PIP would
+       look like the data had vanished. */
     _renderFilterBar();
-    _renderCardList();
+    if (_eaPartnerClear && !_eaCache.oneOffsLoaded) { _ensureOneOffsLoaded(); }
+    else { _renderCardList(); }
   };
 
   // Open the Event Summary modal for a given row. Reuses cmsViewSignups
@@ -49634,11 +49977,29 @@ window.prExportCsv = function() {
       var _todayIso = _td.getFullYear() + '-' +
         String(_td.getMonth() + 1).padStart(2, '0') + '-' +
         String(_td.getDate()).padStart(2, '0');
-      _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '', program: '__programs__', tier: '', from: '', to: _todayIso };
+      /* Partners record their work as one-off events almost exclusively, so the
+         standard "Programs & Events" default showed them an empty report. They
+         open on All. (2026-09-02) */
+      var _eaPartner = !!(window.isPartnerUser && window.isPartnerUser());
+      /* PIP scope needs the same treatment as a partner user, for the same
+         reason: partner events are entered through Add One-Off Event, and the
+         default "Programs & Events" filter deliberately EXCLUDES one-offs. A
+         superAdmin switching to PIP therefore got an empty report and a filter
+         that appeared to reset itself. Default both to All. (2026-09-04) */
+      var _eaWantsAll = _eaPartner || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
+      _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '',
+                           program: _eaWantsAll ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
       _eaCache.showZero = false; // v125.0.0 default OFF on every build
       _eaCache.oneOffsLoaded = false; _eaCache.oneOffsLoading = false; // One-Offs deferred until the user asks
       _renderFilterBar();
-      _renderCardList();
+      if (_eaWantsAll) {
+        /* One-Offs are lazy-loaded when that filter is CHOSEN, so defaulting to
+           All without this would render the filter correctly and then show
+           nothing. _ensureOneOffsLoaded redraws the bar and the list itself. */
+        await _ensureOneOffsLoaded();
+      } else {
+        _renderCardList();
+      }
       auditLog('Generated Event Attendance Report', built.rows.length + ' event-dates');
     } catch (err) {
       console.error('cmsBuildEventAttendanceReport error:', err);
@@ -50543,7 +50904,7 @@ window.prExportCsv = function() {
       var snap = await db.collection('contacts').get();
       var docs = [];
       snap.forEach(function(d){ docs.push(d.data() || {}); });
-      if (window.isPartnerUser()) docs = docs.filter(window._partnerScopeOK);
+      docs = window.scopeReportDocs(docs);
       var agg = _cdAggregate(docs);
       _cdRenderContactDemographics(agg);
 
@@ -52350,7 +52711,7 @@ window.cmsBuildMembershipReport = async function() {
         .get();
       var docs = [];
       snap.forEach(function(d){ docs.push(d.data() || {}); });
-      if (window.isPartnerUser()) docs = docs.filter(window._partnerScopeOK);
+      docs = window.scopeReportDocs(docs);
       var agg = _isAggregate(docs);
       _isRenderInteractionsSummary(agg);
 
