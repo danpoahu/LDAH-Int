@@ -10,6 +10,212 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+  <!-- ── Issue-report recorder (v149.42) ───────────────────────────────────
+       Deliberately the FIRST script on the page: it has to be listening before
+       Firebase, before formatters.js and before any app code, or a failure
+       during startup leaves no trace at all. Nothing here touches the DOM at
+       load time and nothing here blocks; it only installs listeners.
+       Read back by window.ldahIssueContext(), defined at the end of the file. -->
+  <script>
+  (function () {
+    var MAX_ERRORS = 20;   // ring buffer: last 20 console.error / console.warn / thrown
+    var MAX_CRUMBS = 10;   // ring buffer: last 10 UI breadcrumbs
+    var MAX_TEXT   = 300;  // per recorded message
+    var MAX_LABEL  = 60;   // per breadcrumb label
+
+    window.__ldahTabOpenedAt = Date.now();
+    window.__ldahErrors = [];
+    window.__ldahCrumbs = [];
+
+    /* ── Redactor ──────────────────────────────────────────────────────────
+       WHY THIS EXISTS: this dashboard has real families' names, email
+       addresses and phone numbers on screen at all times, and an error string
+       will happily carry them off the page — a Firestore error quotes the
+       document it failed on, a control's title attribute can hold a contact's
+       details, a rejection reason can hold a whole record. An issue report is
+       read by whoever is debugging, so everything that goes into either ring
+       buffer passes through here first.
+
+       Three passes: email addresses, phone-shaped numbers, then any run of
+       seven or more digits (member ids, card fragments, anything long).
+       Separately, and just as important: NOTHING in this block ever reads the
+       value of a form field. Labels and field names only — see labelFor(). */
+    function ldahRedactForIssueLog(v) {
+      try {
+        var s = (typeof v === 'string') ? v : String(v);
+        s = s.replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, '[email removed]');
+        s = s.replace(/(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]\d{4}/g, '[number removed]');
+        s = s.replace(/\d{7,}/g, '[number removed]');
+        if (s.length > MAX_TEXT) s = s.slice(0, MAX_TEXT) + '...';
+        return s;
+      } catch (e) { return 'not reported'; }
+    }
+    window.ldahRedactForIssueLog = ldahRedactForIssueLog;
+
+    function pushCapped(arr, item, cap) {
+      try {
+        arr.push(item);
+        while (arr.length > cap) arr.shift();
+      } catch (e) {}
+    }
+
+    function nowStamp() {
+      try { return new Date().toISOString(); } catch (e) { return ''; }
+    }
+
+    function argsToText(args) {
+      var parts = [];
+      for (var i = 0; i < args.length && i < 6; i++) {
+        try {
+          var a = args[i];
+          if (a instanceof Error) parts.push((a.name || 'Error') + ': ' + a.message);
+          else if (a && typeof a === 'object') parts.push(JSON.stringify(a));
+          else parts.push(String(a));
+        } catch (e) { parts.push('[unreadable]'); }
+      }
+      return parts.join(' ');
+    }
+
+    function reasonToText(r) {
+      try {
+        var t;
+        if (r instanceof Error) t = (r.name || 'Error') + ': ' + r.message;
+        else if (r && typeof r === 'object') { try { t = JSON.stringify(r); } catch (e) { t = String(r); } }
+        else t = String(r);
+        if (r && r.code) t = '[' + r.code + '] ' + t;
+        return t;
+      } catch (e) { return 'not reported'; }
+    }
+
+    function firstStackLine(err) {
+      try { return err && err.stack ? String(err.stack).split('\n')[0] : ''; } catch (e) { return ''; }
+    }
+
+    /* Wrap, never replace — the originals must still run or the devtools
+       console stops being useful to the person we are trying to help. */
+    ['error', 'warn'].forEach(function (level) {
+      try {
+        if (!window.console || typeof console[level] !== 'function') return;
+        var original = console[level];
+        console[level] = function () {
+          try {
+            pushCapped(window.__ldahErrors, {
+              t: nowStamp(), kind: level, text: ldahRedactForIssueLog(argsToText(arguments))
+            }, MAX_ERRORS);
+          } catch (e) {}
+          try { return original.apply(console, arguments); } catch (e) {}
+        };
+      } catch (e) {}
+    });
+
+    var _priorOnError = window.onerror;
+    window.onerror = function (message, source, lineno, colno, error) {
+      try {
+        pushCapped(window.__ldahErrors, {
+          t: nowStamp(), kind: 'onerror',
+          text: ldahRedactForIssueLog(message),
+          source: ldahRedactForIssueLog(source || ''),
+          line: (typeof lineno === 'number' ? lineno : null),
+          column: (typeof colno === 'number' ? colno : null),
+          stack: ldahRedactForIssueLog(firstStackLine(error))
+        }, MAX_ERRORS);
+      } catch (e) {}
+      if (typeof _priorOnError === 'function') {
+        try { return _priorOnError.apply(window, arguments); } catch (e) {}
+      }
+      return false;
+    };
+
+    /* Firestore permission denials and every other async failure surface
+       here and NOT in window.onerror, which is why both are installed. */
+    try {
+      window.addEventListener('unhandledrejection', function (ev) {
+        try {
+          var r = ev && ev.reason;
+          pushCapped(window.__ldahErrors, {
+            t: nowStamp(), kind: 'rejection',
+            text: ldahRedactForIssueLog(reasonToText(r)),
+            stack: ldahRedactForIssueLog(firstStackLine(r))
+          }, MAX_ERRORS);
+        } catch (e) {}
+      });
+    } catch (e) {}
+
+    var FIELD_TAGS = { INPUT: 1, TEXTAREA: 1, SELECT: 1, OPTION: 1 };
+    var CONTROLISH = /(^|[\s-])(btn|button|tab|nav|chip|pill|toggle|link)/i;
+
+    /* Only labelled controls give up their text. A table row, a contact card
+       or a list item reads as a real family's name, and that is exactly what
+       must never reach a breadcrumb — anything that is not a control is
+       described structurally (tag plus id) with no text at all. A form field
+       contributes its NAME, never its value. */
+    function labelFor(el) {
+      try {
+        if (!el || el.nodeType !== 1) return '';
+        var tag = el.tagName;
+        if (FIELD_TAGS[tag] || el.isContentEditable) {
+          return tag.toLowerCase() + ' field: '
+            + (el.getAttribute('name') || el.id || el.getAttribute('aria-label') || 'unnamed');
+        }
+        var cls = '';
+        try { cls = String(el.className || ''); } catch (e) { cls = ''; }
+        var explicit = el.getAttribute('aria-label') || el.getAttribute('title') || '';
+        var isControl = tag === 'BUTTON' || tag === 'SUMMARY'
+          || el.getAttribute('role') === 'button'
+          || (tag === 'A' && !!(el.closest && el.closest('.nav')))
+          || CONTROLISH.test(cls);
+        var text = explicit || (isControl ? (el.textContent || '') : '');
+        text = String(text).replace(/\s+/g, ' ').trim();
+        if (!text) text = tag.toLowerCase() + (el.id ? '#' + el.id : '');
+        if (text.length > MAX_LABEL) text = text.slice(0, MAX_LABEL) + '...';
+        return text;
+      } catch (e) { return ''; }
+    }
+
+    function activeSection() {
+      try {
+        var a = document.querySelector('.nav a.active');
+        return a ? (a.getAttribute('data-section') || '') : '';
+      } catch (e) { return ''; }
+    }
+    window.__ldahActiveSection = activeSection;
+
+    var _lastSection = '';
+    function noteSectionChange() {
+      try {
+        var s = activeSection();
+        if (s && s !== _lastSection) {
+          _lastSection = s;
+          pushCapped(window.__ldahCrumbs, { t: nowStamp(), kind: 'section', label: s }, MAX_CRUMBS);
+        }
+      } catch (e) {}
+    }
+
+    /* Capture phase so a handler that stops propagation still leaves a trail.
+       The section is re-read on the next tick because the nav class is swapped
+       by the click handler we are running ahead of. */
+    try {
+      document.addEventListener('click', function (ev) {
+        try {
+          var t = ev && ev.target;
+          var el = (t && t.closest)
+            ? (t.closest('button, a, [role="button"], label, summary, input, select, textarea') || t)
+            : t;
+          var label = labelFor(el);
+          if (label) {
+            pushCapped(window.__ldahCrumbs, {
+              t: nowStamp(), kind: 'click', label: ldahRedactForIssueLog(label)
+            }, MAX_CRUMBS);
+          }
+        } catch (e) {}
+        try { setTimeout(noteSectionChange, 0); } catch (e) {}
+      }, true);
+      window.addEventListener('hashchange', function () { try { setTimeout(noteSectionChange, 0); } catch (e) {} });
+      document.addEventListener('DOMContentLoaded', noteSectionChange);
+    } catch (e) {}
+  })();
+  </script>
+
   <!-- Google Analytics (GA4) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-32PRRS0W85"></script>
   <script>
@@ -897,7 +1103,17 @@
     .grid{
       margin-top:16px;
       display:grid;
-      grid-template-columns: 1.72fr .58fr;
+      /* Split is a variable so the drag divider can move it. Set on <body>, never
+         inline on .grid — an inline style would outrank the single-column media
+         queries below and force two cramped columns onto a 1366px laptop.
+
+         minmax(0, ...) is load-bearing, not decoration. A bare `fr` track has an
+         automatic minimum of MIN-CONTENT, so the right column could not shrink
+         past the mini-calendar's 7-day grid: dragging right, the pointer kept
+         moving and the boundary stopped dead, then snapped when you came back.
+         That read as "won't go right very far" AND as jumpiness — one cause,
+         both symptoms. minmax(0, ...) lets the track follow the pointer. */
+      grid-template-columns: var(--dash-split, minmax(0, 1.72fr) minmax(0, .58fr));
       gap:16px;
       align-items:start;
     }
@@ -919,6 +1135,109 @@
       .grid { grid-template-columns: 1fr; }
       #dashRightColumn { display: none !important; }
     }
+
+    /* Right-column show/hide (2026-09-01, asked for by Rosie after the staff
+       meeting). Puts the Community Calendar / Recent Signups / Yearly audit
+       column away and gives the width back to My Day and the reports.
+
+       Everyone gets it, not just Rosie. The choice is remembered per browser
+       (localStorage), NOT per Firestore user — it is a viewing preference on
+       the machine you happen to be sitting at, and several staff share one.
+
+       Deliberately a class on <body> rather than an inline style on the column
+       itself, so the .grid reflow and the column hide key off one thing and
+       cannot drift apart. Specificity (0,2,1) beats the bare `.grid` rules in
+       the media queries above, so it holds at every width. */
+    body.dash-hide-rightcol .grid { grid-template-columns: 1fr; }
+    body.dash-hide-rightcol #dashRightColumn { display: none !important; }
+
+    #dashRightColToggleBar {
+      display: flex;
+      justify-content: flex-end;
+      margin: 14px 0 -8px;
+    }
+    #dashRightColToggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font: 700 .74rem/1 'Outfit', system-ui, -apple-system, sans-serif;
+      letter-spacing: .01em;
+      color: var(--ocean-deep);
+      background: rgba(8,145,178,.07);
+      border: 1px solid rgba(8,145,178,.22);
+      border-radius: 999px;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    #dashRightColToggle:hover { background: rgba(8,145,178,.14); border-color: rgba(8,145,178,.38); }
+    #dashRightColToggle:focus-visible { outline: 2px solid var(--ocean-deep); outline-offset: 2px; }
+    #dashRightColToggle .drc-chev { font-size: .8rem; line-height: 1; transition: transform .15s; }
+    body.dash-hide-rightcol #dashRightColToggle .drc-chev { transform: rotate(180deg); }
+
+    /* Where the column is already gone for reasons the user did not choose,
+       the button would be a lie — a control that visibly does nothing. Hide it
+       in the Event Attendance fullwidth mode and on iPad landscape, both of
+       which force the column off above. The small-laptop rule only STACKS the
+       column, so the toggle stays useful there and is left alone. */
+    body.ea-fullwidth-mode #dashRightColToggleBar { display: none; }
+    @media (orientation: landscape) and (pointer: coarse) and (min-width: 960px) and (max-width: 1400px) {
+      #dashRightColToggleBar { display: none; }
+    }
+
+    /* Drag divider between the main content and the right column (2026-09-01).
+       Lives in the 16px gutter as a strip on the right column's left edge, so it
+       tracks the boundary without being a grid item and changing the column count.
+
+       Only offered at >=1401px. Below that every rule above collapses .grid to a
+       single stacked column, so there is no boundary to drag and a handle would
+       be a control that does nothing. Also gone when the column is hidden. */
+    #dashRightColumn { position: relative; }
+
+    .dash-split-handle { display: none; }
+
+    @media (min-width: 1401px) {
+      .dash-split-handle {
+        display: block;
+        position: absolute;
+        left: -16px;
+        top: 0;
+        bottom: 0;
+        width: 16px;
+        cursor: col-resize;
+        z-index: 5;
+        background: none;
+        border: 0;
+        padding: 0;
+        touch-action: none;
+      }
+      /* The grip itself: a hairline that thickens on hover, so the divider is
+         findable without drawing a permanent rule down the dashboard. */
+      .dash-split-handle::before {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        border-radius: 2px;
+        background: rgba(8,145,178,.20);
+        transition: background .15s, transform .15s;
+      }
+      .dash-split-handle:hover::before,
+      .dash-split-handle:focus-visible::before,
+      body.dash-resizing .dash-split-handle::before {
+        background: rgba(8,145,178,.55);
+        transform: scaleX(2);
+      }
+      .dash-split-handle:focus-visible { outline: 2px solid var(--ocean-deep); outline-offset: -2px; }
+      body.dash-hide-rightcol .dash-split-handle { display: none; }
+    }
+
+    /* While dragging, kill text selection everywhere and keep the resize cursor
+       even when the pointer outruns the 16px strip. */
+    body.dash-resizing { user-select: none; cursor: col-resize; }
+    body.dash-resizing * { cursor: col-resize !important; }
 
     /* Hide the print-only host on screen. It's only visible during
        window.print() (see @media print rules below). */
@@ -2801,6 +3120,7 @@
 .ed-ev{ border-left:3px solid #94A3B8; background:#F8FAFC; border-radius:0 6px 6px 0; padding:4px 6px; margin-bottom:5px; }
 .ed-ev-t{ font-size:.72rem; font-weight:700; color:#1E293B; line-height:1.25; }
 .ed-ev-m{ font-size:.68rem; color:#64748B; margin-top:1px; }
+.ed-slot{font-size:.7rem;font-weight:600;color:#475569;margin:5px 0 2px;line-height:1.25;}
 .ed-sel{ width:100%; margin-top:4px; font-size:.68rem; padding:2px 4px; border:1px solid #CBD5E1; border-radius:5px; background:#fff; color:#334155; cursor:pointer; }
 .ed-sel.unassigned{ border-color:#F59E0B; background:#FFFBEB; color:#92400E; font-weight:700; }
 .ed-sel:disabled{ opacity:.6; cursor:progress; }
@@ -5073,7 +5393,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.12-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.13-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5153,6 +5473,36 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         </div>
       </section>
 
+      <!-- Right-column show/hide. Sits between the KPIs and the content grid so
+           it reads as a control over the layout below it, not over the KPIs. -->
+      <div id="dashRightColToggleBar">
+        <button type="button" id="dashRightColToggle" onclick="cmsToggleRightColumn()"
+                aria-controls="dashRightColumn" aria-expanded="true"
+                title="Show or hide the Community Calendar, Recent Signups and Yearly audit column">
+          <span class="drc-chev" aria-hidden="true">&#9656;</span>
+          <span class="drc-label">Hide calendar &amp; signups</span>
+        </button>
+      </div>
+      <script>
+        /* Applied inline, before the grid below is parsed, so a staff member who
+           has hidden the column never sees it flash in on load. */
+        try {
+          var _drcS = parseFloat(localStorage.getItem('ldah_dashSplit'));
+          if (_drcS >= 0.60 && _drcS <= 0.90) {
+            document.body.style.setProperty('--dash-split',
+              'minmax(0, ' + _drcS.toFixed(4) + 'fr) minmax(0, ' + (1 - _drcS).toFixed(4) + 'fr)');
+          }
+          if (localStorage.getItem('ldah_hideRightCol') === '1') {
+            document.body.classList.add('dash-hide-rightcol');
+            var _drcB = document.getElementById('dashRightColToggle');
+            if (_drcB) {
+              _drcB.setAttribute('aria-expanded', 'false');
+              _drcB.querySelector('.drc-label').textContent = 'Show calendar & signups';
+            }
+          }
+        } catch (e) { /* private browsing / storage blocked — just show it */ }
+      </script>
+
       <section class="grid" aria-label="Main content">
         <!-- My Day (STAGE v123: replaces Recent interactions) -->
         <div class="card my-day-card" id="dashInteractionsCard">
@@ -5161,6 +5511,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div id="myDayViewAsBar" style="display:none;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid rgba(8,145,178,.12);font-size:.8rem;color:var(--text-soft);font-weight:600;">
               <span>Viewing as</span>
               <select id="myDayViewAsSelect" onchange="cmsMyDayViewAsChange()" style="font-size:.8rem;padding:3px 6px;border:1px solid rgba(8,145,178,.25);border-radius:6px;font-family:inherit;"></select>
+              <!-- Invisible mode. This bar is shown to four uids; the toggle is for ONE
+                   of them and carries its own gate in cmsSetupMyDayInvisible(). Starts
+                   hidden and stays hidden for everybody else. -->
+              <button type="button" id="myDayInvisibleToggle" onclick="cmsToggleMyDayInvisible()" aria-pressed="false"
+                style="display:none;align-items:center;gap:6px;margin-left:auto;font-family:inherit;font-size:.75rem;font-weight:800;letter-spacing:.02em;padding:4px 12px;border-radius:999px;border:1px solid rgba(8,145,178,.25);background:#fff;color:var(--text-soft);cursor:pointer;">Visible to the team</button>
             </div>
             <!-- Weather overlay preserved — toggled by existing weather toolbar button -->
             <div id="weatherOverlay" class="weather-overlay">
@@ -6290,6 +6645,67 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if (typeof window.loadNotifications === 'function') window.loadNotifications();
             };
 
+            /* ── Invisible mode ──────────────────────────────────────────
+               Own uid list, deliberately NOT MYDAY_VIEWAS_OWNERS: that list
+               is four people and this control is one person's. Adding a uid
+               to the picker above must not hand out a hide switch as well.
+               Writes a single boolean, `invisible`, onto chatPresence/{uid}
+               with merge:true — the 5-minute heartbeat owns `online` and
+               `lastSeen` on that same doc and neither write touches the
+               other's fields. Every roster reads it back through
+               _presenceHidden(), in this file and in chat-core.js.
+               It survives sign-out and stays set until it is turned off, so
+               the button has to say so loudly. (2026-09-04) */
+            var MYDAY_INVISIBLE_UIDS = ['YmGV2TlBGqR01dVdxZ0rtFLEFCG3'];
+            var _myDayInvisible = false;
+            var _myDayInvisibleUnsub = null;
+
+            function _paintMyDayInvisible(on) {
+              var btn = document.getElementById('myDayInvisibleToggle');
+              _myDayInvisible = on === true;
+              if (!btn) return;
+              btn.setAttribute('aria-pressed', _myDayInvisible ? 'true' : 'false');
+              btn.textContent = _myDayInvisible ? 'HIDDEN — nobody can see you' : 'Visible to the team';
+              btn.title = _myDayInvisible
+                ? 'You are hidden from the presence strip, the chat roster and User Roles. This stays on until you turn it off. Click to become visible again.'
+                : 'Everyone can see whether you are online. Click to hide yourself.';
+              btn.style.background = _myDayInvisible ? '#B91C1C' : '#fff';
+              btn.style.color = _myDayInvisible ? '#fff' : 'var(--text-soft)';
+              btn.style.borderColor = _myDayInvisible ? '#B91C1C' : 'rgba(8,145,178,.25)';
+              btn.style.boxShadow = _myDayInvisible ? '0 0 0 3px rgba(185,28,28,.18)' : 'none';
+            }
+
+            window.cmsSetupMyDayInvisible = function() {
+              var btn = document.getElementById('myDayInvisibleToggle');
+              if (!btn) return;
+              var me = window.currentUserData || {};
+              if (MYDAY_INVISIBLE_UIDS.indexOf(me.uid) === -1) { btn.style.display = 'none'; return; }
+              btn.style.display = 'inline-flex';
+              if (_myDayInvisibleUnsub) { try { _myDayInvisibleUnsub(); } catch (_) {} }
+              /* A live listener rather than one read: writing the flag is itself
+                 a snapshot change, so this repaints on its own — including when
+                 the switch is thrown in another tab. No timer anywhere. */
+              _myDayInvisibleUnsub = db.collection('chatPresence').doc(me.uid).onSnapshot(function(doc) {
+                var d = (doc && doc.exists) ? (doc.data() || {}) : {};
+                _paintMyDayInvisible(d.invisible === true);
+              }, function(e) { console.warn('cmsSetupMyDayInvisible:', e && e.message); });
+            };
+
+            window.cmsToggleMyDayInvisible = async function() {
+              var me = window.currentUserData || {};
+              if (MYDAY_INVISIBLE_UIDS.indexOf(me.uid) === -1) return;
+              var btn = document.getElementById('myDayInvisibleToggle');
+              var next = !_myDayInvisible;
+              if (btn) btn.disabled = true;
+              try {
+                await db.collection('chatPresence').doc(me.uid).set({ invisible: next }, { merge: true });
+                _paintMyDayInvisible(next); // the listener repaints too — this is just instant feedback
+              } catch (e) {
+                alert('Could not change your visibility: ' + (e && e.message ? e.message : e));
+              }
+              if (btn) btn.disabled = false;
+            };
+
             // Recent-signup row click → open that event's signups modal.
             // Delegated on document because #dashRecentSignups is parsed
             // after this script block; data-ev gates it to our rows only.
@@ -6324,6 +6740,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-size:1.4rem;margin-bottom:6px;">🩺</div>
               <div style="font-weight:700;font-size:.92rem;">Screenings</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Who signed up (filter by Today), add Vision/Hearing results per child, and track consent &amp; results status.</div>
+            </div>
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #92400E;" data-roles="superAdmin" onclick="cmsBuildItHelpReport()">
+              <div style="font-size:1.4rem;margin-bottom:6px;">🤖</div>
+              <div style="font-weight:700;font-size:.92rem;">IT Help Assistant</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">What the automatic IT_Help answers are being used for &mdash; who asked, what it cost, and the ones it left for a person.</div>
             </div>
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin,partner" onclick="cmsBuildInteractionsSummaryReport()">
               <div style="font-size:1.4rem;margin-bottom:6px;">📊</div>
@@ -6433,6 +6854,21 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="btn btn-ghost" style="font-size:.82rem;" onclick="crExportCSV()">Export CSV</button>
           </div>
           <div id="crBody"><div class="cms-empty"><p>Loading&hellip;</p></div></div>
+        </div>
+
+        <div id="itHelpReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseItHelpReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#92400E;margin:0;">IT Help Assistant</h2>
+            <span id="ihGeneratedAt" style="margin-left:auto;font-size:.78rem;color:var(--text-soft);"></span>
+          </div>
+          <div style="font-size:.8rem;color:var(--text-soft);margin-bottom:14px;">Every question sent to IT_Help that the assistant looked at &mdash; including the ones it deliberately stayed out of because a person answered first.</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsBuildItHelpReport()">Refresh</button>
+            <button class="btn btn-ghost" style="font-size:.82rem;" onclick="ihExportCSV()">Export CSV</button>
+            <span id="ihStatus" style="font-size:.8rem;color:var(--text-soft);"></span>
+          </div>
+          <div id="ihBody"></div>
         </div>
 
         <!-- Staff Training report (in-grid; toggled from Reports card).
@@ -6576,6 +7012,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
         <!-- Right column: calendar + resources + audit -->
         <div id="dashRightColumn">
+          <div class="dash-split-handle" id="dashSplitHandle"
+               role="separator" aria-orientation="vertical" tabindex="0"
+               aria-label="Column width — drag, or use the left and right arrow keys. Double-click to reset."
+               title="Drag to resize &middot; double-click to reset"></div>
           <div class="card" id="dashCalendarCard">
             <div class="card-header">
               <div>
@@ -8246,6 +8686,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 <option value="parent_talk_cafe">Parent Talk Cafe (Facebook group — single confirmation, no Zoom reminders)</option>
               </select>
               <p style="font-size:0.8rem;color:var(--text-soft);margin-top:0.5rem;">Used for the confirmation &amp; reminder email links. Managed in Admin → List Management.</p>
+            </div>
+
+            <!-- Pacific partner (v149.46). Staff only — partnerPickerInit hides
+                 this whole row for a partner user. -->
+            <div class="field" id="cmsEventPartnerIslandRow" style="grid-column: span 2;">
+              <label for="cmsEventPartnerIsland">Pacific partner <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Whose event was this? Leave it on <b>Not a partner event</b> for work LDAH ran itself.<br><br>Pick an island when the event belongs to one of the six Pacific Basin partner organizations — including one you are entering on their behalf.<br><br><b>Where it happened does not decide this. LDAH staff running a session in a partner's islands is still LDAH work.</b><br><br>That moves the event out of the LDAH totals and into the Pacific Islands Partners reports.')">i</span></label>
+              <select id="cmsEventPartnerIsland">
+                <option value="">Not a partner event</option>
+              </select>
+              <p style="font-size:0.8rem;color:var(--text-soft);margin-top:0.5rem;">Pick an island only when the event belongs to a Pacific Basin partner organization. Where it happened does not decide this. LDAH staff running a session in a partner's islands is still LDAH work.</p>
             </div>
 
             <!-- Image upload (PNG, JPG, WebP, PDF) -->
@@ -10016,7 +10466,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       closeMenu();
       // Show profile, hide everything else
       document.querySelectorAll('.nav a').forEach(a => a.classList.remove('active'));
-      ['section.kpis', 'section.grid'].forEach(sel => {
+      ['section.kpis', '#dashRightColToggleBar', 'section.grid'].forEach(sel => {
         document.querySelectorAll(sel).forEach(el => el.style.display = 'none');
       });
       ['userRolesSection','webDashboardSection','emergencySection','resourcesSection',
@@ -11681,6 +12131,7 @@ var _photoPendingByIsland = {};
     if (typeof loadMyDay === 'function') loadMyDay();
     if (typeof loadMyDayRecentSignups === 'function') loadMyDayRecentSignups();
     if (typeof cmsSetupMyDayViewAs === 'function') cmsSetupMyDayViewAs();
+    if (typeof cmsSetupMyDayInvisible === 'function') cmsSetupMyDayInvisible();
     // Load lookup lists (channels, types, grants) and seed defaults if needed
     if (typeof loadLookupLists === 'function') {
       seedLookupListsIfNeeded().then(function() { loadLookupLists(); });
@@ -12084,6 +12535,73 @@ var _photoPendingByIsland = {};
   // pooled, no Hawaiʻi records.
   window.isPartnerRecord = function(d) { return !!(d && d.partnerIsland); };
 
+  /* ── "Pacific partner" picker (v149.46) ─────────────────────────────
+     ⚠ The stamp is OWNERSHIP, not geography. Six events LDAH staff ran in
+     Majuro were wrongly filed as the Marshall Islands partner's work on
+     2026-09-07 purely because the location said Majuro; reverted the same
+     day. Staff travel. Only set this when the PARTNER ran the event.
+     ─────────────────────────────────────────────────────────────────────
+     partnerStamp reads the SIGNED-IN user, so an LDAH staff member entering
+     an event that happened in a partner's territory stamped nothing, and the
+     work counted as LDAH's own — six Majuro events entered on 31 July had to
+     be corrected by hand. These helpers drive a staff-only <select> on the
+     event forms, built from the one PARTNER_ISLANDS list above.
+
+     Partner users never see the control. Their records are stamped from their
+     own account by partnerStamp, and offering them six islands would imply
+     they could file work under someone else's. */
+  function _piEsc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /* Fill the picker and record what it opened with, so the save side can tell
+     "a staff member cleared this" from "nobody touched it". */
+  window.partnerPickerInit = function(rowId, selectId, current) {
+    var row = document.getElementById(rowId);
+    var sel = document.getElementById(selectId);
+    if (!sel) return;
+    var cur = String(current || '');
+    if (window.isPartnerUser()) {
+      if (row) row.style.display = 'none';
+      sel.innerHTML = '';
+      sel.disabled = true;                    // a hidden control is still readable
+      sel.setAttribute('data-partner-original', cur);
+      return;
+    }
+    if (row) row.style.display = '';
+    sel.disabled = false;
+    var html = '<option value="">Not a partner event</option>';
+    PARTNER_ISLANDS.forEach(function(isl) {
+      html += '<option value="' + _piEsc(isl) + '">' + _piEsc(isl) + '</option>';
+    });
+    /* A stored island the list no longer carries still round-trips as its own
+       option, so opening an old record can never quietly drop its stamp. */
+    if (cur && PARTNER_ISLANDS.indexOf(cur) === -1) {
+      html += '<option value="' + _piEsc(cur) + '">' + _piEsc(cur) + '</option>';
+    }
+    sel.innerHTML = html;
+    sel.value = cur;
+    sel.setAttribute('data-partner-original', cur);
+  };
+
+  /* What to write, comparing the picker against the value it opened with:
+       null -> leave partnerIsland alone (partner user, control missing, or
+               nobody changed it — an untouched save must never restamp)
+       ''   -> the staff member chose "Not a partner event": clear the stamp
+       'X'  -> stamp island X
+     Comparing against the ORIGINAL rather than just reading the box is what
+     keeps a failed doc-load from silently clearing a real stamp. */
+  window.partnerPickerChange = function(selectId) {
+    if (window.isPartnerUser()) return null;
+    var sel = document.getElementById(selectId);
+    if (!sel || sel.disabled) return null;
+    var orig = sel.getAttribute('data-partner-original');
+    if (orig === null) return null;           // never populated — don't guess
+    var val = String(sel.value || '');
+    return val === String(orig) ? null : val;
+  };
+
   // Partner list scoping (2026-08-24). Staff see everything. A COORDINATOR
   // partner (userRoles.partnerAllIslands === true — Sandy: "like Noe, but for
   // all partner islands") sees every partner-stamped record across all six
@@ -12174,7 +12692,7 @@ var _photoPendingByIsland = {};
   };
 
   // ── Sidebar Nav Section Toggle ──
-  const dashboardSections = ['section.kpis', 'section.grid'];
+  const dashboardSections = ['section.kpis', '#dashRightColToggleBar', 'section.grid'];
 
   document.querySelectorAll('.nav a[data-section]').forEach(link => {
     link.addEventListener('click', () => {
@@ -12825,8 +13343,11 @@ var _photoPendingByIsland = {};
     try {
       var now = await _staleFetchEtag();
       if (!now) return;
-      if (!_staleEtag) { _staleEtag = now; return; }   // first call sets the baseline
-      if (now === _staleEtag) return;
+      if (!_staleEtag) { _staleEtag = now; window.__ldahStale = false; return; }   // first call sets the baseline
+      if (now === _staleEtag) { window.__ldahStale = false; return; }
+      // Recorded before the nudge-hour gate below: whether this tab is behind
+      // live is a fact an issue report needs at any hour. (2026-09-04)
+      window.__ldahStale = true;
 
       /* Only surface during the 6–7am HST hour (2026-08-20). Int ships many
          times a day right now, and a reload prompt on every push is noise —
@@ -13398,6 +13919,12 @@ var _photoPendingByIsland = {};
       var staleThreshold = Date.now() - (15 * 60 * 1000); // 15 min
       presenceSnap.forEach(function(doc) {
         var d = doc.data();
+        /* Hidden people get no presence entry, so their row falls through to
+           the "never seen" branch below and shows a plain offline dot. The row
+           itself has to stay — this table is how roles are administered — but
+           it must not report activity. Force Offline drops off it too, which
+           is right: there is nothing live to clear. */
+        if (_presenceHidden(doc.id, d)) return;
         var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
         var isStale = lastSeenMs < staleThreshold;
         presenceMap[doc.id] = {
@@ -21476,10 +22003,23 @@ window.openContactDetail = async function(contactId) {
       var _kpiEvResults = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
       // Prefer authoritative per-event signup cache built by cmsGetAlertCounts
       // (denormalized pendingCount on parent docs is known to drift out of sync)
+      /* Build the cache directly rather than via cmsGetAlertCounts, which
+         returns null for any role outside _cmsAlertRoles — so a partner never
+         got one and fell through to the stale denormalized pendingCount below.
+         That is not a rounding error: on 2026-09-04 the September Learning Labs
+         doc claimed 27 pending against 1 real, and a partner's home screen read
+         "31 pending signups" where staff correctly saw 3. cmsRefreshSignupCounts
+         has no role gate and `allow list` on signups is any signed-in user, so
+         it works for partners; the snapshots we already hold are passed in so
+         this costs no extra event reads. (2026-09-04) */
       var sigCache = window._cmsSignupCountCache;
-      if (!sigCache && typeof window.cmsGetAlertCounts === 'function') {
-        try { await window.cmsGetAlertCounts(); sigCache = window._cmsSignupCountCache; } catch (e) {}
+      if (!sigCache && typeof window.cmsRefreshSignupCounts === 'function') {
+        try { sigCache = await window.cmsRefreshSignupCounts(_kpiEvResults[0], _kpiEvResults[1]); } catch (e) {}
       }
+      /* With a cache in hand, trust ONLY the cache. A missing entry means that
+         event's signups query was rejected, and contributing 0 understates by a
+         little where the stale field overstated by 26. */
+      var _sigFresh = !!(sigCache && sigCache.events);
       var evPC = (sigCache && sigCache.events) || {};
       var pgPC = (sigCache && sigCache.programs) || {};
       var activeCount = 0, pendingCount = 0;
@@ -21491,13 +22031,13 @@ window.openContactDetail = async function(contactId) {
         if (removeDate && /^\d{4}-\d{2}-\d{2}$/.test(removeDate) && removeDate <= today) return;
         if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast <= today) return;
         activeCount++;
-        pendingCount += (evPC[doc.id] ? evPC[doc.id].pendingCount : (d.pendingCount || 0));
+        pendingCount += evPC[doc.id] ? evPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
       _kpiEvResults[1].forEach(function(doc) {
         var d = doc.data();
         if (d.archived === true) return;
         activeCount++;
-        pendingCount += (pgPC[doc.id] ? pgPC[doc.id].pendingCount : (d.pendingCount || 0));
+        pendingCount += pgPC[doc.id] ? pgPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
       var kpiEv = document.getElementById('kpiActiveEvents');
       if (kpiEv) {
@@ -24862,13 +25402,27 @@ window.openContactDetail = async function(contactId) {
   </div>
 </div>
 <script>
+/* One canonical guide at the repo root so live and STAGE can never drift.
+   Resolved against the page's own directory rather than hard-coded, so it
+   follows the app wherever it is served from:
+     /LDAH-Int/index.html        -> /LDAH-Int/guide.html
+     /LDAH-Int/STAGE/index.html  -> /LDAH-Int/guide.html   (STAGE has no guide)
+   A bare 'guide.html' 404'd in STAGE; '../guide.html' then 404'd on live,
+   which left the only way into a 915-line reference dead. (2026-09-04) */
+window.ldahGuideUrl = function () {
+  try {
+    var dir = String(location.pathname || '/').replace(/[^/]*$/, '');  // drop the filename
+    dir = dir.replace(/\/STAGE\/$/i, '/');                             // STAGE shares the root guide
+    return location.origin + dir + 'guide.html';
+  } catch (e) {
+    return 'guide.html';
+  }
+};
+
 function openGuideModal() {
   var overlay = document.getElementById('guideOverlay');
   var frame = document.getElementById('guideFrame');
-  // STAGE has no guide of its own — one canonical guide at the repo root, so
-  // the two can never drift. Relative 'guide.html' resolved to /STAGE/guide.html
-  // and 404'd, leaving the User Guide link dead in STAGE. (2026-08-06)
-  frame.src = '../guide.html';
+  frame.src = window.ldahGuideUrl();
   overlay.classList.add('active');
   gaTrack('user_guide_open', { event_category: 'help', event_label: 'User Guide' });
 }
@@ -26136,6 +26690,7 @@ window.cmsApproveResourceApplication = async function(appId) {
       type: _aTypes[0] || '',
       services: a.services || '',
       city: a.city || '',
+      islands: cmsResourceIslands(a).length ? cmsResourceIslands(a) : ['Statewide'],
       island: a.island || 'Statewide',
       phone: a.phone || '',
       email: a.email || '',
@@ -29889,6 +30444,12 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
   // recurring program -> Program Zoom, one-off event -> Event Zoom. Daniel can flip.
   document.getElementById('cmsEventZoomMode').value = isRec ? 'program' : 'event';
 
+  /* Pacific partner (v149.46) — open on "Not a partner event"; the edit branch
+     below refills it from the stored stamp. */
+  if (typeof window.partnerPickerInit === 'function') {
+    window.partnerPickerInit('cmsEventPartnerIslandRow', 'cmsEventPartnerIsland', '');
+  }
+
   // Reset one-time event fields
   document.getElementById('cmsEventDate').value = '';
   document.getElementById('cmsEventTime').value = '';
@@ -29945,6 +30506,11 @@ window.cmsOpenEventModal = async function(docId, isRecurring, isSpecial, isFlyer
         document.getElementById('cmsEventTitle').value = d.title || '';
         document.getElementById('cmsEventDescription').value = d.description || '';
         document.getElementById('cmsEventImageUrl').value = d.imageUrl || '';
+        /* Round-trip the partner stamp so a staff edit shows the current value
+           and re-saving an untouched form leaves it exactly as it was. */
+        if (typeof window.partnerPickerInit === 'function') {
+          window.partnerPickerInit('cmsEventPartnerIslandRow', 'cmsEventPartnerIsland', d.partnerIsland || '');
+        }
         // If the doc has an explicit zoomMode, use it. Otherwise inherit the
         // collection default (recurring -> program, one-off -> event) so a
         // legacy unflagged doc doesn't visually default to the wrong slot.
@@ -30659,6 +31225,12 @@ async function edLoadEvents(fromIso, toIso) {
 }
 
 window.edSetPresenter = async function(sel, idx) {
+  /* idx is normally one index. For an outreach booth it is an ARRAY of every
+     session that day: LDAH puts one person on the table, and that one choice is
+     written to all of them so any later lookup — a task, a report, the workshop
+     form — finds the person who was actually there rather than an empty slot. */
+  var _group = Array.isArray(idx) ? idx : [idx];
+  idx = _group[0];
   var ev = _edEvents[idx];
   if (!ev) return;
   var name = sel.value;
@@ -30677,10 +31249,13 @@ window.edSetPresenter = async function(sel, idx) {
       payload = { summary: { presenter: name, presenterUid: uid } };
     } else {
       payload = { sessionSummaries: {} };
-      payload.sessionSummaries[ev.key] = { presenter: name, presenterUid: uid };
+      _group.forEach(function(i) {
+        var s2 = _edEvents[i];
+        if (s2 && s2.key) payload.sessionSummaries[s2.key] = { presenter: name, presenterUid: uid };
+      });
     }
     await db.collection(ev.coll).doc(ev.id).set(payload, { merge: true });
-    ev.presenter = name;
+    _group.forEach(function(i) { if (_edEvents[i]) _edEvents[i].presenter = name; });
     sel.className = 'ed-sel' + (name ? '' : ' unassigned');
     auditLog('Set event presenter', ev.title + ' — ' + ev.date + ' → ' + (name || 'unassigned'));
     if (typeof _showToast === 'function') _showToast(name ? (name + ' assigned to ' + ev.title) : 'Presenter cleared', '#16A34A');
@@ -30789,6 +31364,21 @@ function _edShowWorkshopPrompt(edEv, isDraft) {
    and Parent Talk Cafe — their numbers are followed in their own reports and
    would only crowd the cell. Stated as an exclusion rather than an allow-list
    because a new signup-taking event type should start counting on its own. */
+/* "3:00 PM — Q&A with Legislators" out of a signupDates label like
+   "October 21, 2026, 3:00 PM - Q&A with Legislators". The time and the topic
+   are the only parts that distinguish one talk from another; the date is
+   already the calendar cell it sits in. */
+function _edSlotLabel(ev) {
+  var raw = String(ev.key || ev.when || '').trim();
+  var m = raw.match(/(\d{1,2}:\d{2}\s*[AaPp]\.?[Mm]\.?)\s*[-–—:]?\s*(.*)$/);
+  if (m) {
+    var t = m[1].replace(/\s+/g, ' ').toUpperCase().replace(/\./g, '');
+    var rest = (m[2] || '').replace(/^[-–—\s]+/, '').trim();
+    return rest ? (t + ' — ' + rest) : t;
+  }
+  return raw || (ev.when || '');
+}
+
 var _ED_NO_COUNT_TYPES = ['learning_labs', 'parent_talk_cafe'];
 function _edCountsSignups(ev) {
   return !!ev && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
@@ -30938,10 +31528,37 @@ window.edRender = async function() {
       html += '<div class="' + cls + '"><div class="ed-daynum"><span>' + c.d.getDate() + '</span>'
         + (c.out ? '' : '<button class="ed-add" title="Add an event on this date" onclick="edAddOnDate(\'' + iso + '\')">+</button>')
         + '</div>';
+      /* One EVENT per card, even when it runs several sessions that day.
+         The Kauai Transition Fair has three talks on 21 October — presentations,
+         a legislators' Q&A and a mayoral Q&A — and rendering a card each made it
+         look like the same event had been entered three times. It is one event;
+         each talk still needs its own presenter, so those become rows inside the
+         single card rather than cards of their own. (2026-09-04) */
+      var _edGroups = [], _edSeenKey = {};
       (byDate[iso] || []).forEach(function(idx) {
+        var e = _edEvents[idx];
+        var k = e.coll + '/' + e.id;
+        if (_edSeenKey[k] === undefined) { _edSeenKey[k] = _edGroups.length; _edGroups.push([]); }
+        _edGroups[_edSeenKey[k]].push(idx);
+      });
+
+      _edGroups.forEach(function(idxs) {
+        var idx = idxs[0];
         var ev = _edEvents[idx];
-        var meta = [ev.when, ev.where].filter(Boolean).join(' · ');
-        html += '<div class="ed-ev" style="border-left-color:' + (ev.presenter ? '#0d9488' : '#F59E0B') + ';">';
+        /* An outreach booth is not a programme LDAH runs. Those time slots are
+           the HOST event's agenda — presentations, a legislators' Q&A — and LDAH
+           is staffing a table through the day. One person is in charge of the
+           booth, so one dropdown, not one per talk. (Daniel, 2026-09-04) */
+        var booth = String(ev.eventType || '') === 'outreach_booth';
+        var multi = idxs.length > 1 && !booth;
+        /* Teal only when EVERY session that day has someone. One assigned talk
+           out of three is not a solved day. */
+        var _allAssigned = idxs.every(function(i){ return !!_edEvents[i].presenter; });
+        if (String(ev.eventType || '') === 'outreach_booth') _allAssigned = !!ev.presenter;
+        var meta = multi
+          ? (idxs.length + ' sessions · ' + (ev.where || ''))
+          : (booth ? (ev.where || '') : [ev.when, ev.where].filter(Boolean).join(' · '));
+        html += '<div class="ed-ev" style="border-left-color:' + (_allAssigned ? '#0d9488' : '#F59E0B') + ';">';
         html += '<div class="ed-ev-t" title="' + rsEscape(ev.title) + '">' + rsEscape(String(ev.title).slice(0, 46)) + '</div>';
         /* The count shares the meta row, so a counted card gains no height. It
            renders as a placeholder and _edFillSignupCounts() fills it in. */
@@ -30954,17 +31571,31 @@ window.edRender = async function() {
           }
           html += '</div>';
         }
-        html += '<select class="ed-sel' + (ev.presenter ? '' : ' unassigned') + '" onchange="edSetPresenter(this,' + idx + ')">';
-        html += '<option value=""' + (ev.presenter ? '' : ' selected') + '>— unassigned —</option>';
-        var known = false;
-        _edPresenters.forEach(function(p) {
-          if (p.name === ev.presenter) known = true;
-          html += '<option value="' + rsEscape(p.name) + '"' + (p.name === ev.presenter ? ' selected' : '') + '>' + rsEscape(p.name) + '</option>';
+        /* A dropdown per session. On a single-session day this is exactly what
+           it always was; on a multi-session day each talk gets its own, labelled
+           with its time so it is obvious which is which. */
+        var _rows = booth ? [idx] : idxs;
+        _rows.forEach(function(i) {
+          var s2 = _edEvents[i];
+          if (multi) {
+            html += '<div class="ed-slot">' + rsEscape(_edSlotLabel(s2)) + '</div>';
+          }
+          /* A booth writes the one choice to every session on the day, so
+             whichever session anything downstream looks up — a task, a report,
+             the workshop form — finds the person who was actually there. */
+          var _target = booth ? ('[' + idxs.join(',') + ']') : i;
+          html += '<select class="ed-sel' + (s2.presenter ? '' : ' unassigned') + '" onchange="edSetPresenter(this,' + _target + ')">';
+          html += '<option value=""' + (s2.presenter ? '' : ' selected') + '>— unassigned —</option>';
+          var known = false;
+          _edPresenters.forEach(function(p) {
+            if (p.name === s2.presenter) known = true;
+            html += '<option value="' + rsEscape(p.name) + '"' + (p.name === s2.presenter ? ' selected' : '') + '>' + rsEscape(p.name) + '</option>';
+          });
+          // Someone assigned before they left the Presenters list still shows, so
+          // an old assignment is never silently rewritten to unassigned.
+          if (s2.presenter && !known) html += '<option value="' + rsEscape(s2.presenter) + '" selected>' + rsEscape(s2.presenter) + ' (not on list)</option>';
+          html += '</select>';
         });
-        // Someone assigned before they left the Presenters list still shows, so
-        // an old assignment is never silently rewritten to unassigned.
-        if (ev.presenter && !known) html += '<option value="' + rsEscape(ev.presenter) + '" selected>' + rsEscape(ev.presenter) + ' (not on list)</option>';
-        html += '</select>';
 
         /* Off-site events carry a Workshop & Presentation form. Until now the
            only ways in were an OPEN task and the slide-in that fires once on
@@ -31419,9 +32050,21 @@ window.cmsSaveEvent = async function() {
       payload.imageUrl = existingUrl;
     }
 
+    /* Pacific partner (v149.46). null = the picker was not touched, so the
+       stored stamp is left alone; '' = the staff member deliberately chose
+       "Not a partner event", which clears it. */
+    var _evPartnerChange = (typeof window.partnerPickerChange === 'function')
+      ? window.partnerPickerChange('cmsEventPartnerIsland') : null;
+
     if (docId) {
+      if (_evPartnerChange !== null) {
+        payload.partnerIsland = (_evPartnerChange === '')
+          ? firebase.firestore.FieldValue.delete()
+          : _evPartnerChange;
+      }
       await db.collection(collection).doc(docId).update(payload);
     } else {
+      if (_evPartnerChange) payload.partnerIsland = _evPartnerChange;
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       payload.createdByUid = (window.currentUserData && window.currentUserData.uid) || '';
       payload.createdByName = (window.currentUserData && window.currentUserData.displayName) || '';
@@ -40340,6 +40983,102 @@ window.cmsLoadDisseminate = async function() {
 
 var _cmsDissemItems = [];
 
+/* ── Coverage ────────────────────────────────────────────────────────────────
+   The home page shows TWO items at a time, so "covered" is not simply "something
+   is scheduled". A day with only one item live shows the same flyer in both
+   slots, which reads as a mistake to a visitor. The bar therefore has three
+   states, not two: nothing, thin (one), and covered (two or more). */
+function _cmsDissemLive(it, iso) {
+  if (!it.on) return false;
+  if (it.from && String(it.from) > iso) return false;
+  if (it.to && String(it.to) < iso) return false;
+  return true;
+}
+function _cmsDissemCoverage(days) {
+  var out = [], t = _localToday();
+  var d = new Date(t + 'T00:00:00');
+  for (var i = 0; i < days; i++) {
+    var iso = d.toISOString().slice(0, 10);
+    var n = 0;
+    _cmsDissemItems.forEach(function(it) { if (_cmsDissemLive(it, iso)) n++; });
+    out.push({ iso: iso, n: n });
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+function _cmsDissemBar() {
+  var DAYS = 120;
+  var cov = _cmsDissemCoverage(DAYS);
+  var anyOn = _cmsDissemItems.some(function(i) { return i.on; });
+  if (!anyOn) {
+    return '<div style="background:#FEF6E7;border:1px solid #f3d9a8;border-left:4px solid #B45309;' +
+      'border-radius:10px;padding:12px 15px;margin-bottom:14px;font-size:.86rem;color:#7a4d09;">' +
+      'Nothing is in the rotation, so the home page falls back to showing its two newest flyers.' +
+      '</div>';
+  }
+  /* Collapse the day array into runs so the caption can name real date ranges
+     instead of making Daniel count pixels. */
+  var runs = [], cur = null;
+  cov.forEach(function(c) {
+    var band = c.n >= 2 ? 2 : (c.n === 1 ? 1 : 0);
+    if (!cur || cur.band !== band) { cur = { band: band, from: c.iso, to: c.iso }; runs.push(cur); }
+    else cur.to = c.iso;
+  });
+  var COL = { 0: '#FCA5A5', 1: '#FCD34D', 2: '#34D399' };
+  var bar = runs.map(function(r) {
+    var w = (_dayDiff(r.from, r.to) + 1) / DAYS * 100;
+    return '<span title="' + _fmtRange(r.from, r.to) + ' — ' +
+      (r.band === 0 ? 'nothing scheduled' : r.band === 1 ? 'only one item' : 'two or more') +
+      '" style="display:inline-block;height:100%;width:' + w.toFixed(3) + '%;background:' + COL[r.band] + ';"></span>';
+  }).join('');
+
+  var gaps = runs.filter(function(r) { return r.band === 0; });
+  var thin = runs.filter(function(r) { return r.band === 1; });
+  var msg;
+  if (!gaps.length && !thin.length) {
+    msg = '<span style="color:#0F7B4F;font-weight:700;">Full coverage for the next ' + DAYS + ' days.</span>';
+  } else {
+    msg = '';
+    if (gaps.length) msg += '<span style="color:#B42318;font-weight:700;">Nothing scheduled:</span> ' +
+      gaps.map(function(r) { return _fmtRange(r.from, r.to); }).join(', ') + '. ';
+    if (thin.length) msg += '<span style="color:#B45309;font-weight:700;">Only one item:</span> ' +
+      thin.map(function(r) { return _fmtRange(r.from, r.to); }).join(', ') +
+      ' <span style="color:var(--text-soft);">(a visitor sees it in both slots)</span>';
+  }
+
+  /* Month ticks so a position on the bar means something. */
+  var ticks = '', seen = {};
+  cov.forEach(function(c, i) {
+    var mk = c.iso.slice(0, 7);
+    if (seen[mk]) return; seen[mk] = 1;
+    ticks += '<span style="position:absolute;left:' + (i / DAYS * 100).toFixed(2) + '%;font-size:.62rem;color:#94A3B8;">' +
+      new Date(c.iso + 'T00:00:00').toLocaleString('en-US', { month: 'short' }) + '</span>';
+  });
+
+  return '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:13px 15px;margin-bottom:14px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:7px;">' +
+      '<b style="font-size:.85rem;color:#075985;">Coverage &mdash; next ' + DAYS + ' days</b>' +
+      '<span style="font-size:.7rem;color:var(--text-soft);">' +
+        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#34D399;"></span> two or more &nbsp;' +
+        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#FCD34D;"></span> only one &nbsp;' +
+        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#FCA5A5;"></span> nothing' +
+      '</span>' +
+    '</div>' +
+    '<div style="height:16px;border-radius:5px;overflow:hidden;background:#F1F5F9;font-size:0;">' + bar + '</div>' +
+    '<div style="position:relative;height:13px;margin-top:2px;">' + ticks + '</div>' +
+    '<div style="font-size:.79rem;margin-top:5px;line-height:1.5;">' + msg + '</div>' +
+  '</div>';
+}
+function _dayDiff(a, b) {
+  return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+}
+function _fmtRange(a, b) {
+  var f = function(iso) {
+    return new Date(iso + 'T00:00:00').toLocaleString('en-US', { month: 'short', day: 'numeric' });
+  };
+  return a === b ? f(a) : f(a) + '–' + f(b);
+}
+
 function _cmsRenderDisseminate() {
   var host = document.getElementById('cmsDissemBody'); if (!host) return;
   var meta = (typeof _CMS_TYPE_META !== 'undefined') ? _CMS_TYPE_META : {};
@@ -40349,6 +41088,8 @@ function _cmsRenderDisseminate() {
     '<span style="font-weight:700;color:' + (picked ? '#16A34A' : '#B45309') + ';">' +
       (picked ? picked + ' in the rotation' : 'Nothing ticked — the home page falls back to its usual two newest') +
     '</span></div>';
+
+  html += _cmsDissemBar();
 
   html += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow:hidden;">';
   _cmsDissemItems.forEach(function(it) {
@@ -48000,8 +48741,162 @@ window._CMS_REPORT_PANELS = [
   'eventAttendanceInGrid', 'contactDemographicsInGrid', 'interactionsSummaryInGrid',
   'docDownloadReportInGrid', 'certReportInGrid', 'staffTrainingReportInGrid',
   'membershipReportInGrid', 'caseAdvocacyReportInGrid', 'websiteAppAnalyticsInGrid',
-  'nhSurveyReportInGrid', 'participationReportInGrid'
+  'nhSurveyReportInGrid', 'participationReportInGrid', 'itHelpReportInGrid'
 ];
+
+/* Show / hide the dashboard right column (Community Calendar, Recent Signups,
+   Yearly audit & reports). Rosie asked for this after the 1 Sept staff meeting;
+   shipped for everyone rather than for her alone.
+
+   The column stays in the DOM — this only flips a body class. That matters:
+   the calendar and the signups feed keep rendering and keep their live
+   listeners, so unhiding is instant and shows current data rather than an
+   empty card waiting to reload.
+
+   The preference is per browser, not per user. Staff share machines here, and
+   this is about the screen in front of you, not about who you are. */
+/* Drag divider for the dashboard split (2026-09-01). Daniel asked to be able to
+   nudge the boundary left or right while the calendar is in view.
+
+   Stored as ONE number — column one's share of the width — rather than two
+   widths, so it cannot drift into a pair that does not add up. Written to the
+   --dash-split custom property on <body>, never as an inline style on .grid:
+   an inline style would outrank the single-column media queries and force two
+   cramped columns onto a 1366px laptop. Same reasoning as the CSS comment. */
+var DASH_SPLIT_DEFAULT = 0.748;   /* 1.72fr / (1.72 + .58) — the original ratio */
+var DASH_SPLIT_MIN = 0.60;        /* right column at its widest, ~40% */
+var DASH_SPLIT_MAX = 0.90;        /* right column at its narrowest, ~10% */
+
+function _dashApplySplit(f, persist) {
+  f = Math.min(DASH_SPLIT_MAX, Math.max(DASH_SPLIT_MIN, f));
+  document.body.style.setProperty('--dash-split',
+    'minmax(0, ' + f.toFixed(4) + 'fr) minmax(0, ' + (1 - f).toFixed(4) + 'fr)');
+  if (persist) {
+    try { localStorage.setItem('ldah_dashSplit', f.toFixed(4)); } catch (e) {}
+  }
+  return f;
+}
+
+/* Turn a pointer x into column one's share. With `Xfr Yfr` and a gap, the
+   free space is (gridWidth - gap), so the boundary sits at gridLeft + X*free.
+   Both the drag and the read-back use this one formula — an earlier version had
+   the drag ignore the gap and the read-back include it, which made the columns
+   jump by the gap width the moment you let go. */
+function _dashSplitFromX(grid, x) {
+  var r = grid.getBoundingClientRect();
+  var gap = parseFloat(getComputedStyle(grid).columnGap) || 16;
+  var free = r.width - gap;
+  if (free <= 0) return DASH_SPLIT_DEFAULT;
+  return (x - r.left - gap / 2) / free;
+}
+
+function _dashCurrentSplit() {
+  var grid = document.querySelector('.grid');
+  var col = document.getElementById('dashRightColumn');
+  if (!grid || !col) return DASH_SPLIT_DEFAULT;
+  var cr = col.getBoundingClientRect();
+  if (!grid.getBoundingClientRect().width || !cr.width) return DASH_SPLIT_DEFAULT;
+  /* Measured off the RIGHT column, not the left one. The left column's first
+     child is hidden on report views (the report is hosted in a sibling), so
+     measuring it there returned 0 and every drag snapped to the minimum. */
+  return _dashSplitFromX(grid, cr.left - (parseFloat(getComputedStyle(grid).columnGap) || 16) / 2);
+}
+
+function _dashResetSplit() {
+  document.body.style.removeProperty('--dash-split');
+  try { localStorage.removeItem('ldah_dashSplit'); } catch (e) {}
+  try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+}
+
+(function initDashSplit() {
+  function wire() {
+    var h = document.getElementById('dashSplitHandle');
+    var grid = document.querySelector('.grid');
+    if (!h || !grid || h._wired) return;
+    h._wired = true;
+
+    var dragging = false;
+
+    h.addEventListener('pointerdown', function (ev) {
+      /* Left button only — a right-click here should open the context menu. */
+      if (ev.button !== 0) return;
+      dragging = true;
+      document.body.classList.add('dash-resizing');
+      try { h.setPointerCapture(ev.pointerId); } catch (e) {}
+      ev.preventDefault();
+    });
+
+    /* Coalesce to one layout per frame. Pointermove fires far faster than the
+       screen refreshes, and each apply reflows the whole dashboard — doing that
+       120+ times a second on a page this size is its own source of stutter. */
+    var pendingX = null, rafId = 0;
+    function flush() {
+      rafId = 0;
+      if (pendingX === null || !dragging) return;
+      if (grid.getBoundingClientRect().width) {
+        _dashApplySplit(_dashSplitFromX(grid, pendingX), false);
+      }
+      pendingX = null;
+    }
+    h.addEventListener('pointermove', function (ev) {
+      if (!dragging) return;
+      pendingX = ev.clientX;
+      if (!rafId) rafId = requestAnimationFrame(flush);
+    });
+
+    function endDrag(ev) {
+      if (!dragging) return;
+      dragging = false;
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+      pendingX = null;
+      document.body.classList.remove('dash-resizing');
+      try { h.releasePointerCapture(ev.pointerId); } catch (e) {}
+      /* Persist once, on release — not on every move, which would hammer
+         localStorage a few hundred times per drag. */
+      _dashApplySplit(_dashCurrentSplit(), true);
+      /* Charts size to their container and only measure on resize. */
+      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+    }
+    h.addEventListener('pointerup', endDrag);
+    h.addEventListener('pointercancel', endDrag);
+
+    /* Double-click puts it back. Cheaper than a reset button nobody would find. */
+    h.addEventListener('dblclick', function (ev) { ev.preventDefault(); _dashResetSplit(); });
+
+    /* Keyboard: the handle is a focusable separator, so arrows have to work. */
+    h.addEventListener('keydown', function (ev) {
+      var step = ev.shiftKey ? 0.05 : 0.02;
+      if (ev.key === 'ArrowLeft')       _dashApplySplit(_dashCurrentSplit() - step, true);
+      else if (ev.key === 'ArrowRight') _dashApplySplit(_dashCurrentSplit() + step, true);
+      else if (ev.key === 'Home')       _dashResetSplit();
+      else return;
+      ev.preventDefault();
+      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
+
+window.cmsToggleRightColumn = function () {
+  var hidden = document.body.classList.toggle('dash-hide-rightcol');
+  var btn = document.getElementById('dashRightColToggle');
+  if (btn) {
+    btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    var lbl = btn.querySelector('.drc-label');
+    if (lbl) lbl.textContent = hidden ? 'Show calendar & signups' : 'Hide calendar & signups';
+  }
+  try {
+    localStorage.setItem('ldah_hideRightCol', hidden ? '1' : '0');
+  } catch (e) { /* storage blocked — the toggle still works for this session */ }
+  /* Charts inside the widened column size themselves to their container and
+     only measure on resize, so nudge them. */
+  try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+};
 
 /* Show one report panel and hide the rest (plus the Reports grid).
    Pass null to go back to the grid. */
@@ -48014,6 +48909,147 @@ window._cmsShowOnlyReport = function (panelId) {
     var rg = document.getElementById('reportsInGrid');
     if (rg) rg.style.display = panelId ? 'none' : 'block';
   } catch (e) { console.warn('_cmsShowOnlyReport:', e && e.message); }
+};
+
+/* ── IT Help Assistant report (2026-09-01) ─────────────────────────────────
+   What the automatic IT_Help answers are being used for. Reads itHelpLog, one
+   document per attempted reply, written by the itHelpAutoAnswer function.
+
+   Follows the panel rule exactly: _cmsShowOnlyReport() to open, and again with
+   null to close. No per-report hide logic — that is what broke the Reports nav
+   in v148.97, and hiding the report PANELS is not the same act as hiding the
+   report GRID. */
+var _ihRows = [];
+
+window.cmsBuildItHelpReport = async function () {
+  _cmsShowOnlyReport('itHelpReportInGrid');
+  var body = document.getElementById('ihBody');
+  var status = document.getElementById('ihStatus');
+  if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);">Loading…</div>';
+  if (status) status.textContent = '';
+  try {
+    var snap = await db.collection('itHelpLog').get();
+    _ihRows = [];
+    snap.forEach(function (d) {
+      var x = d.data() || {};
+      var t = 0; try { t = x.createdAt ? x.createdAt.toMillis() : 0; } catch (e) { t = 0; }
+      _ihRows.push(Object.assign({ _t: t }, x));
+    });
+    _ihRows.sort(function (a, b) { return b._t - a._t; });
+    var g = document.getElementById('ihGeneratedAt');
+    if (g) g.textContent = 'Generated ' + new Date().toLocaleString();
+    cmsRenderItHelpReport();
+  } catch (e) {
+    if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;">Could not load: ' + rsEscape(e.message) + '</div>';
+  }
+};
+
+window.cmsCloseItHelpReport = function () { _cmsShowOnlyReport(null); };
+
+function _ihMoney(n) {
+  if (n == null) return '—';
+  return '$' + (Number(n) < 0.01 ? Number(n).toFixed(4) : Number(n).toFixed(2));
+}
+
+window.cmsRenderItHelpReport = function () {
+  var body = document.getElementById('ihBody');
+  if (!body) return;
+  if (!_ihRows.length) {
+    body.innerHTML = '<div style="background:#fff;border-radius:12px;padding:30px;text-align:center;color:var(--text-soft);">' +
+      '<div style="font-weight:700;color:var(--text-dark);margin-bottom:4px;">Nothing yet.</div>' +
+      'No staff member has messaged IT_Help since the assistant was switched on.</div>';
+    return;
+  }
+  var answered = _ihRows.filter(function (r) { return !r.suppressed; });
+  var left = _ihRows.filter(function (r) { return r.suppressed; });
+  var cost = answered.reduce(function (s, r) { return s + (r.estCostUsd || 0); }, 0);
+  var cachedTok = answered.reduce(function (s, r) { return s + (r.cacheReadTokens || 0); }, 0);
+  var freshTok = answered.reduce(function (s, r) { return s + (r.inputTokens || 0); }, 0);
+  var cachePct = (cachedTok + freshTok) > 0 ? Math.round(cachedTok / (cachedTok + freshTok) * 100) : 0;
+
+  var people = {};
+  _ihRows.forEach(function (r) {
+    var k = r.askerName || '(unknown)';
+    if (!people[k]) people[k] = { name: k, asked: 0, answered: 0, left: 0, cost: 0, last: 0 };
+    var p = people[k];
+    p.asked++;
+    if (r.suppressed) p.left++; else { p.answered++; p.cost += r.estCostUsd || 0; }
+    if (r._t > p.last) p.last = r._t;
+  });
+  var plist = Object.keys(people).map(function (k) { return people[k]; })
+    .sort(function (a, b) { return b.asked - a.asked; });
+
+  function tile(n, l, colour) {
+    return '<div style="flex:1;min-width:140px;background:#fff;border-radius:10px;padding:13px 15px;' +
+      'box-shadow:var(--shadow-soft);border-left:4px solid ' + colour + ';">' +
+      '<div style="font-size:1.5rem;font-weight:800;color:var(--ocean-deep);line-height:1.1;">' + n + '</div>' +
+      '<div style="font-size:.73rem;color:var(--text-soft);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:3px;">' + l + '</div></div>';
+  }
+
+  var h = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">' +
+    tile(answered.length, 'Answered', '#0F7B4F') +
+    tile(left.length, 'Left to a person', '#B45309') +
+    tile(plist.length, 'Staff who asked', '#0891B2') +
+    tile(_ihMoney(cost), 'Total cost', '#7C3AED') +
+    tile(cachePct + '%', 'Served from cache', '#0891B2') +
+    '</div>';
+
+  h += '<div style="background:#fff;border-radius:10px;box-shadow:var(--shadow-soft);padding:14px 16px;margin-bottom:14px;font-size:.82rem;color:var(--text-soft);">' +
+    '<b style="color:var(--text-dark);">Left to a person</b> counts the questions the assistant deliberately stayed out of because someone answered first. ' +
+    '<b style="color:var(--text-dark);">Served from cache</b> is how much of its knowledge was reused rather than re-read at full price — it climbs with use and resets when the knowledge is edited.</div>';
+
+  h += '<h3 style="font-family:\'Outfit\',sans-serif;color:var(--ocean-deep);margin:16px 0 8px;font-size:1rem;">By person</h3>' +
+    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.85rem;background:#fff;border-radius:10px;overflow:hidden;box-shadow:var(--shadow-soft);">' +
+    '<thead><tr style="background:#eef2f4;"><th style="padding:9px 12px;text-align:left;">Staff member</th>' +
+    '<th style="padding:9px 12px;text-align:right;">Asked</th><th style="padding:9px 12px;text-align:right;">Answered</th>' +
+    '<th style="padding:9px 12px;text-align:right;">Left to a person</th><th style="padding:9px 12px;text-align:right;">Cost</th>' +
+    '<th style="padding:9px 12px;text-align:left;">Last asked</th></tr></thead><tbody>';
+  plist.forEach(function (p) {
+    h += '<tr style="border-top:1px solid var(--line,#e2e8f0);"><td style="padding:9px 12px;">' + rsEscape(p.name) + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + p.asked + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + p.answered + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + p.left + '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + _ihMoney(p.cost) + '</td>' +
+      '<td style="padding:9px 12px;">' + (p.last ? new Date(p.last).toLocaleDateString() : '—') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  h += '<h3 style="font-family:\'Outfit\',sans-serif;color:var(--ocean-deep);margin:20px 0 8px;font-size:1rem;">Every exchange, newest first</h3>' +
+    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.83rem;background:#fff;border-radius:10px;overflow:hidden;box-shadow:var(--shadow-soft);">' +
+    '<thead><tr style="background:#eef2f4;"><th style="padding:9px 12px;text-align:left;white-space:nowrap;">When</th>' +
+    '<th style="padding:9px 12px;text-align:left;">Who</th><th style="padding:9px 12px;text-align:left;">Asked &amp; answered</th>' +
+    '<th style="padding:9px 12px;text-align:right;">Cost</th></tr></thead><tbody>';
+  _ihRows.forEach(function (r) {
+    h += '<tr style="border-top:1px solid var(--line,#e2e8f0);vertical-align:top;">' +
+      '<td style="padding:9px 12px;white-space:nowrap;">' + (r._t ? new Date(r._t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—') + '</td>' +
+      '<td style="padding:9px 12px;">' + rsEscape(r.askerName || '—') + '</td>' +
+      '<td style="padding:9px 12px;"><div style="color:var(--text-dark);">' + rsEscape(String(r.question || '').slice(0, 220)) + '</div>' +
+      (r.suppressed
+        ? '<div style="color:#B45309;font-weight:700;font-size:.78rem;margin-top:3px;">Not answered — ' + rsEscape(r.suppressedReason || '') + '</div>'
+        : '<div style="color:var(--text-soft);font-style:italic;margin-top:3px;">' + rsEscape(String(r.answer || '').slice(0, 300)) + '</div>') +
+      '</td>' +
+      '<td style="padding:9px 12px;text-align:right;">' + (r.suppressed ? '—' : _ihMoney(r.estCostUsd)) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  body.innerHTML = h;
+};
+
+window.ihExportCSV = function () {
+  if (!_ihRows.length) { _showToast('Nothing to export yet.', '#B45309'); return; }
+  var q = function (v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+  var lines = [['When', 'Who', 'Question', 'Answer', 'Answered', 'Reason not answered', 'Model', 'Input tokens', 'Cached tokens', 'Output tokens', 'Cost USD'].join(',')];
+  _ihRows.forEach(function (r) {
+    lines.push([q(r._t ? new Date(r._t).toISOString() : ''), q(r.askerName), q(r.question), q(r.answer),
+      q(r.suppressed ? 'no' : 'yes'), q(r.suppressedReason), q(r.model),
+      q(r.inputTokens), q(r.cacheReadTokens), q(r.outputTokens), q(r.estCostUsd)].join(','));
+  });
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'it-help-usage-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
 };
 
 /* ── Participation Report ──────────────────────────────────────────────────────
@@ -49061,12 +50097,58 @@ window.prExportCsv = function() {
     document.getElementById('oneOffName').value = '';
     document.getElementById('oneOffLocation').value = '';
     document.getElementById('oneOffTier').value = '';
+    /* Pacific partner (v149.46) — reset; the edit branch below refills it. */
+    if (typeof window.partnerPickerInit === 'function') {
+      window.partnerPickerInit('oneOffPartnerIslandRow', 'oneOffPartnerIsland', '');
+    }
     document.getElementById('oneOffDescription').value = '';
     document.getElementById('oneOffPresenterComments').value = '';
     var dEl = document.getElementById('oneOffDate');
     var t = new Date();
     dEl.value = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
     var nb = document.getElementById('oneOffNewContactBox'); if (nb) nb.style.display = 'none';
+    /* Partner variant. Everything else about the form is identical, so this
+       swaps two controls rather than branching the whole modal. */
+    var _isPartner = !!(window.isPartnerUser && window.isPartnerUser());
+    var _pSel = document.getElementById('oneOffPresenter');
+    var _pTxt = document.getElementById('oneOffPresenterText');
+    var _pCntBox = document.getElementById('oneOffPartnerCountBox');
+    var _pCnt = document.getElementById('oneOffPartnerCount');
+    var _attSearchWrap = document.getElementById('oneOffAttendeeSearch');
+    if (_pTxt) _pTxt.value = '';
+    if (_pCnt) _pCnt.value = '';
+    if (_isPartner) {
+      if (_pSel) _pSel.style.display = 'none';
+      if (_pTxt) _pTxt.style.display = '';
+      if (_pCntBox) _pCntBox.style.display = '';
+      /* Partners get the contact picker and "+ New contact" too (2026-09-03).
+         The original reasoning was that a partner staffing a table at someone
+         else's event only has a headcount — true for a booth, wrong for the
+         sessions they actually run, where they know exactly who came and were
+         left unable to record it. They keep the headcount box as well, so an
+         event where they genuinely only have a number still works.
+         Contacts they create are stamped with their island by partnerStamp,
+         which cmsOoQuickAddContact already calls. */
+      if (_attSearchWrap && _attSearchWrap.parentElement) _attSearchWrap.parentElement.style.display = '';
+      var _newBtn = document.querySelector('button[onclick="cmsOoToggleNewContact()"]');
+      if (_newBtn) _newBtn.style.display = '';
+    } else {
+      if (_pSel) _pSel.style.display = '';
+      if (_pTxt) _pTxt.style.display = 'none';
+      /* The headcount box is NOT partner-only (2026-09-04). Staff have to be able
+         to see and correct what partners typed here — the American Samoa Facebook
+         posts landed 7,088 "attendees" in this field and no superAdmin could
+         reach the number to fix it. The presenter control stays split: staff keep
+         the dropdown, which maps to real staff records.
+         ⚠ This box is guarded in THREE places — visibility here, populate-on-edit
+         below, and read-on-save in cmsSaveOneOff. They must move together: show it
+         without populating it and a staff user sees an empty box on an event that
+         has a stored total, and reads that as "no attendance recorded". */
+      if (_pCntBox) _pCntBox.style.display = '';
+      if (_attSearchWrap && _attSearchWrap.parentElement) _attSearchWrap.parentElement.style.display = '';
+      var _newBtn2 = document.querySelector('button[onclick="cmsOoToggleNewContact()"]');
+      if (_newBtn2) _newBtn2.style.display = '';
+    }
     /* Fill the tier options before the edit branch below sets .value — assigning a
        value that has no matching option silently leaves the select blank. */
     window.populateTierDropdowns();
@@ -49077,9 +50159,18 @@ window.prExportCsv = function() {
           var d = doc.data();
           document.getElementById('oneOffName').value = d.title || '';
           presenterSel = (d.summary && d.summary.presenter) || '';
+          if (_isPartner) {
+            if (_pTxt) _pTxt.value = presenterSel;
+          }
+          // Everyone who can see the box gets the stored number in it.
+          var _ov = (d.summary && d.summary.attendanceOverrides) || {};
+          if (_pCnt && typeof _ov.attTotal === 'number') _pCnt.value = _ov.attTotal;
           matPacked = (d.summary && d.summary.materialsPacked) || {};
           matDiss = (d.summary && d.summary.materialsDisseminated) || {};
           document.getElementById('oneOffLocation').value = d.location || '';
+          if (typeof window.partnerPickerInit === 'function') {
+            window.partnerPickerInit('oneOffPartnerIslandRow', 'oneOffPartnerIsland', d.partnerIsland || '');
+          }
           document.getElementById('oneOffTier').value = (d.summary && d.summary.tierModel) || '';
           document.getElementById('oneOffDescription').value = d.description || '';
           document.getElementById('oneOffPresenterComments').value = (d.summary && d.summary.presenterComments) || '';
@@ -49114,12 +50205,29 @@ window.prExportCsv = function() {
     var dateIso = document.getElementById('oneOffDate').value;
     if (!name) { _showToast('Event name is required.', '#DC2626'); return; }
     if (!dateIso) { _showToast('Date is required.', '#DC2626'); return; }
-    var presenter = (document.getElementById('oneOffPresenter').value || '').trim();
+    var _isPartnerSave = !!(window.isPartnerUser && window.isPartnerUser());
+    var _pTxtEl = document.getElementById('oneOffPresenterText');
+    var presenter = _isPartnerSave
+      ? ((_pTxtEl && _pTxtEl.value) || '').trim()
+      : (document.getElementById('oneOffPresenter').value || '').trim();
+    /* Blank stays blank rather than becoming 0 — a partner who leaves the
+       headcount empty has not told us the attendance was zero. */
+    var _pCntEl = document.getElementById('oneOffPartnerCount');
+    /* Read the headcount for every role, not just partners — otherwise a staff
+       correction is silently dropped. Blank still yields null, and the
+       `partnerCount !== null` guard on the writes below means a blank box never
+       wipes an existing total. To zero one out, type 0. */
+    var _pCntRaw = String((_pCntEl && _pCntEl.value) || '').trim();
+    var partnerCount = _pCntRaw === '' ? null : Math.max(0, parseInt(_pCntRaw, 10) || 0);
     var location = (document.getElementById('oneOffLocation').value || '').trim();
     var tier = document.getElementById('oneOffTier').value || '';
     var description = (document.getElementById('oneOffDescription').value || '').trim();
     var mats = _ooMaterialsFromInputs();
     var comments = (document.getElementById('oneOffPresenterComments').value || '').trim();
+    /* Pacific partner (v149.46). null = untouched (leave any stamp alone),
+       '' = deliberately set back to "Not a partner event" (clear it). */
+    var _ooPartnerChange = (typeof window.partnerPickerChange === 'function')
+      ? window.partnerPickerChange('oneOffPartnerIsland') : null;
     var btn = document.getElementById('oneOffSaveBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
     var staffName = (window.currentUserData && window.currentUserData.displayName) || 'Staff';
@@ -49128,16 +50236,32 @@ window.prExportCsv = function() {
     try {
       var eventId = _ooEditId;
       if (eventId) {
-        await db.collection('events').doc(eventId).update({
+        var _ooUpd = {
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, archived: true, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
-        });
+        };
+        if (_ooPartnerChange !== null) {
+          _ooUpd.partnerIsland = (_ooPartnerChange === '')
+            ? firebase.firestore.FieldValue.delete()
+            : _ooPartnerChange;
+        }
+        await db.collection('events').doc(eventId).update(_ooUpd);
+        if (partnerCount !== null) {
+          await db.collection('events').doc(eventId)
+            .update({ 'summary.attendanceOverrides.attTotal': partnerCount });
+        }
       } else {
-        var evRef = await db.collection('events').add(window.partnerStamp({
+        var _ooNew = window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, summary: { presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments }, signupDates: [], archived: true,
+          isOneOff: true, summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments },
+            partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [], archived: true,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
-        }));
+        });
+        /* Staff entering a partner's event: partnerStamp is a no-op for them, so
+           the picker is the only thing that can stamp it. A partner user never
+           reaches this line with a value — partnerPickerChange returns null. */
+        if (_ooPartnerChange) _ooNew.partnerIsland = _ooPartnerChange;
+        var evRef = await db.collection('events').add(_ooNew);
         eventId = evRef.id;
       }
       var dateDisplay = (typeof _fmtFullDate === 'function') ? _fmtFullDate(new Date(dateIso + 'T00:00:00')) : dateIso;
@@ -50064,6 +51188,7 @@ window.prExportCsv = function() {
     _cmsShowOnlyReport(null);
   };
 
+  var _stDeckRecs = [];
   window.cmsBuildStaffTrainingReport = async function() {
     _cmsShowOnlyReport('staffTrainingReportInGrid');
     var body = document.getElementById('stBody');
@@ -50071,6 +51196,11 @@ window.prExportCsv = function() {
     try {
       var sessSnap = await db.collection('trainingSessions').get();
       var userSnap = await db.collection('userRoles').get();
+      /* The Pacific Partners deck at ldahawaii.org/PIP/ has no login, so it
+         cannot write userRoles.trainingProgress (keyed by Firebase uid). It
+         writes its own collection keyed by the email typed on slide one, and
+         is merged in here. (2026-09-02) */
+      var deckSnap = await db.collection('partnerTrainingProgress').get();
 
       /* A withdrawn session is not something anyone owes, so it leaves the
          denominator. It stays in each person's history — retiring a session
@@ -50085,6 +51215,36 @@ window.prExportCsv = function() {
           publishedAt: String(s.publishedAt || ''),
           slides: (s.slides || []).length
         });
+      });
+      /* The deck is a session too, but it lives outside trainingSessions, so
+         its column is derived from the records themselves. */
+      /* The developer's two logins are excluded by uid above, but a deck record
+         is keyed by EMAIL and never sees a uid — so his test runs came back as
+         "no login" partner rows regardless. Resolve the excluded uids to their
+         addresses here rather than writing them into this file: the reason the
+         list is uids in the first place is that this file is public and served.
+         (2026-09-03) */
+      var _stExcludeEmails = {};
+      userSnap.forEach(function(d) {
+        if (_ST_EXCLUDE_UIDS.indexOf(d.id) === -1) return;
+        var e = String((d.data() || {}).email || '').trim().toLowerCase();
+        if (e) _stExcludeEmails[e] = 1;
+      });
+
+      var _deckRecs = [], _deckSessions = {};
+      deckSnap.forEach(function(d) {
+        var x = d.data() || {};
+        var sid = String(x.sessionId || '').trim();
+        if (!sid || !x.personEmail) return;
+        if (_stExcludeEmails[String(x.personEmail).trim().toLowerCase()]) return;
+        _deckRecs.push(x);
+        if (!_deckSessions[sid]) {
+          _deckSessions[sid] = { id: sid, title: String(x.sessionTitle || sid),
+            publishedAt: String(x.sessionDate || ''), slides: Number(x.total) || 0, fromDeck: true };
+        }
+      });
+      Object.keys(_deckSessions).forEach(function(k) {
+        if (!_stSessions.some(function(s) { return s.id === k; })) _stSessions.push(_deckSessions[k]);
       });
       _stSessions.sort(function(a, b) { return a.publishedAt.localeCompare(b.publishedAt); });
 
@@ -50130,6 +51290,50 @@ window.prExportCsv = function() {
         _stRows.push(row);
       });
 
+      /* Match on email. Everyone with an -Int account gets the deck's progress
+         folded into their existing row; anyone else (a partner without a login,
+         or someone who typed a different address) becomes a row of their own so
+         the work is not invisible. */
+      var _byEmail = {};
+      _stRows.forEach(function(r) { if (r.email) _byEmail[r.email.toLowerCase()] = r; });
+      _deckRecs.forEach(function(x) {
+        var em = String(x.personEmail || '').toLowerCase();
+        var row = _byEmail[em];
+        if (!row) {
+          row = { uid: 'deck:' + em, name: String(x.personName || em.split('@')[0]),
+                  email: String(x.personEmail || ''), role: 'partner', isPartner: true,
+                  noAccount: true, per: {}, completed: 0, skipped: 0, never: 0,
+                  totalSkips: 0, lastAt: '' };
+          _stSessions.forEach(function(s) {
+            if (!row.per[s.id]) { row.per[s.id] = { status: 'never', at: '', skips: 0 }; row.never++; }
+          });
+          _stRows.push(row); _byEmail[em] = row;
+        }
+        var sid = String(x.sessionId || '');
+        var prevStatus = (row.per[sid] || {}).status;
+        if (prevStatus === 'completed') row.completed--;
+        else if (prevStatus === 'skipped') row.skipped--;
+        else if (prevStatus === 'never') row.never--;
+        var done = String(x.status || '') === 'completed';
+        var sk = Number(x.skips) || 0;
+        row.per[sid] = {
+          status: done ? 'completed' : (Number(x.furthest) > 0 ? 'skipped' : 'never'),
+          at: String(x.completedAt || x.updatedAt || ''),
+          skips: sk,
+          /* the detail the older sessions cannot supply */
+          furthest: Number(x.furthest) || 0, total: Number(x.total) || 0,
+          percent: Number(x.percent) || 0, fromDeck: true,
+          slideSeconds: x.slideSeconds || {}, slideVisits: x.slideVisits || {}
+        };
+        if (row.per[sid].status === 'completed') row.completed++;
+        else if (row.per[sid].status === 'skipped') row.skipped++;
+        else row.never++;
+        row.totalSkips += sk;
+        if (row.per[sid].at && row.per[sid].at > row.lastAt) row.lastAt = row.per[sid].at;
+      });
+
+      _stDeckRecs = _deckRecs;
+
       var stamp = document.getElementById('stGeneratedAt');
       if (stamp) stamp.textContent = 'Generated ' + new Date().toLocaleString();
       cmsRenderStaffTrainingReport();
@@ -50138,6 +51342,110 @@ window.prExportCsv = function() {
         + rsEscape(err && err.message ? err.message : String(err)) + '</p></div>';
     }
   };
+
+/* ── Slide-by-slide ───────────────────────────────────────────────────────────
+   Only the Pacific Partners deck reports this. The older sign-in walkthroughs
+   record a single verdict per session and cannot say where anyone spent their
+   time, so this section does not appear until deck records exist.
+
+   Reads as: which slides people linger on, which they skim, and where they give
+   up. A long average next to a lot of drop-off is the slide to rewrite. */
+function _stSecs(n) {
+  n = Math.round(Number(n) || 0);
+  if (n < 60) return n + 's';
+  var m = Math.floor(n / 60), r = n % 60;
+  return m + 'm' + (r ? ' ' + r + 's' : '');
+}
+function _stSlideDetail() {
+  var recs = _stDeckRecs || [];
+  if (!recs.length) return '';
+  var total = 0;
+  recs.forEach(function(r) { total = Math.max(total, Number(r.total) || 0); });
+  if (!total) return '';
+
+  var reach = [], secs = [], visits = [], stopped = [];
+  for (var k = 0; k <= total; k++) { reach[k] = 0; secs[k] = 0; visits[k] = 0; stopped[k] = 0; }
+  var people = 0, finished = 0, grand = 0;
+  recs.forEach(function(r) {
+    people++;
+    if (String(r.status) === 'completed') finished++;
+    var f = Number(r.furthest) || 0;
+    for (var n = 1; n <= f && n <= total; n++) reach[n]++;
+    if (String(r.status) !== 'completed' && f >= 1 && f <= total) stopped[f]++;
+    var ss = r.slideSeconds || {}, sv = r.slideVisits || {};
+    Object.keys(ss).forEach(function(key) {
+      var idx = parseInt(key, 10);
+      if (!(idx >= 1 && idx <= total)) return;
+      var v = Number(ss[key]) || 0;
+      secs[idx] += v; grand += v;
+      visits[idx] += Number(sv[key]) || 0;
+    });
+  });
+  var avgAll = people ? grand / people : 0, maxAvg = 0;
+  for (var a = 1; a <= total; a++) { var mm = reach[a] ? secs[a] / reach[a] : 0; if (mm > maxAvg) maxAvg = mm; }
+
+  var rowsHtml = '';
+  for (var n2 = 1; n2 <= total; n2++) {
+    var avg = reach[n2] ? secs[n2] / reach[n2] : 0;
+    var w = maxAvg ? (avg / maxAvg * 100) : 0;
+    var rev = visits[n2] > reach[n2] ? (visits[n2] - reach[n2]) : 0;
+    rowsHtml += '<tr>'
+      + '<td style="padding:5px 8px;text-align:right;color:var(--text-soft);">' + n2 + '</td>'
+      + '<td style="padding:5px 8px;"><div style="background:#E2E8F0;border-radius:4px;height:9px;width:100%;">'
+      +   '<div style="background:#0891B2;height:9px;border-radius:4px;width:' + w.toFixed(1) + '%;"></div></div></td>'
+      + '<td style="padding:5px 8px;text-align:right;font-weight:600;">' + (reach[n2] ? _stSecs(avg) : '&mdash;') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + (reach[n2] || '&mdash;') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;color:' + (rev ? '#B45309' : 'var(--text-soft)') + ';">' + (rev || '&mdash;') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-weight:' + (stopped[n2] ? '800' : '400') + ';color:' + (stopped[n2] ? '#B42318' : 'var(--text-soft)') + ';">' + (stopped[n2] || '&mdash;') + '</td>'
+      + '</tr>';
+  }
+
+  var perPerson = recs.slice().sort(function(a, b) {
+    return (Number(b.furthest) || 0) - (Number(a.furthest) || 0);
+  }).map(function(r) {
+    var ss = r.slideSeconds || {}, mine = 0, longest = '', longestV = 0;
+    Object.keys(ss).forEach(function(k) {
+      var v = Number(ss[k]) || 0; mine += v;
+      if (v > longestV) { longestV = v; longest = k; }
+    });
+    var chips = '';
+    for (var q = 1; q <= total; q++) {
+      var v2 = Number(ss[String(q)]) || 0;
+      var bg = !v2 ? '#F1F5F9' : (v2 >= 60 ? '#0891B2' : v2 >= 20 ? '#7DD3FC' : '#E0F2FE');
+      chips += '<span title="Slide ' + q + (v2 ? ': ' + _stSecs(v2) : ': not reached')
+        + '" style="display:inline-block;width:15px;height:15px;margin:1px;border-radius:3px;background:' + bg + ';"></span>';
+    }
+    return '<div style="border-top:1px solid #F1F5F9;padding:9px 0;">'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;">'
+      +   '<b style="font-size:.86rem;">' + rsEscape(r.personName || r.personEmail || '') + '</b>'
+      +   '<span style="font-size:.75rem;color:var(--text-soft);">' + rsEscape(r.personEmail || '') + '</span>'
+      +   '<span style="flex:1;"></span>'
+      +   '<span style="font-size:.75rem;color:var(--text-soft);">reached <b>' + (Number(r.furthest) || 0) + '</b> of ' + (Number(r.total) || total)
+      +     ' &middot; total <b>' + _stSecs(mine) + '</b>'
+      +     (longest ? ' &middot; longest on slide <b>' + rsEscape(longest) + '</b> (' + _stSecs(longestV) + ')' : '')
+      +     (Number(r.skips) ? ' &middot; stopped ' + r.skips + '&times;' : '') + '</span>'
+      + '</div><div style="margin-top:5px;line-height:1;">' + chips + '</div></div>';
+  }).join('');
+
+  return '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px 18px;margin-top:16px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px;">'
+    +   '<h3 style="margin:0;font-size:.98rem;color:var(--ocean-deep);">Slide by slide &mdash; Getting Started (Pacific Partners)</h3>'
+    +   '<span style="font-size:.76rem;color:var(--text-soft);">' + people + ' ' + (people === 1 ? 'person' : 'people')
+    +     ' &middot; ' + finished + ' finished &middot; average ' + _stSecs(avgAll) + ' each</span></div>'
+    + '<p style="font-size:.78rem;color:var(--text-soft);margin:0 0 10px;">Only this deck reports timings &mdash; the sign-in walkthroughs record one verdict per session and cannot say where the time went.</p>'
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    +   '<thead><tr style="background:#EEF4F6;">'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;">SLIDE</th>'
+    +     '<th style="padding:6px 8px;text-align:left;font-size:.7rem;color:#075985;">AVERAGE TIME</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;">AVG</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="How many people got this far">REACHED</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="Extra visits beyond the first">RE-READ</th>'
+    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="People whose furthest slide was this one">STOPPED HERE</th>'
+    +   '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + '<h4 style="margin:16px 0 0;font-size:.86rem;color:#075985;">Each person</h4>'
+    + '<p style="font-size:.75rem;color:var(--text-soft);margin:2px 0 0;">One square per slide, darker means longer. Hover for the time.</p>'
+    + perPerson + '</div>';
+}
 
   window.cmsRenderStaffTrainingReport = function() {
     var body = document.getElementById('stBody');
@@ -50220,6 +51528,7 @@ window.prExportCsv = function() {
       html += '<tr style="border-top:1px solid #F1F5F9;">'
            +  '<td style="padding:6px 4px;"><div style="font-weight:600;">' + rsEscape(r.name)
            +    (r.isPartner ? ' <span style="font-weight:400;font-size:.72rem;color:var(--text-soft);">partner</span>' : '')
+           +    (r.noAccount ? ' <span title="Did the walkthrough but has no -Int login — matched by the email they typed." style="font-weight:400;font-size:.7rem;color:#B45309;">no login</span>' : '')
            +    '</div><div style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(r.email) + '</div></td>';
       _stSessions.forEach(function(s) {
         var p = r.per[s.id] || { status: 'never', skips: 0, at: '' };
@@ -50227,7 +51536,16 @@ window.prExportCsv = function() {
         if (p.status === 'completed') {
           cell = pill(_ST_DONE, 'Completed') + (p.at ? '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">' + rsEscape(_stDay(p.at)) + '</div>' : '');
         } else if (p.status === 'skipped') {
-          cell = pill(_ST_SKIP, 'Skipped' + (p.skips > 1 ? ' ×' + p.skips : ''));
+          /* The deck reports how far they actually got. "Skipped" alone cannot
+             tell apart someone who closed it on slide 2 from someone who
+             stopped on slide 27, and those need different follow-up. */
+          cell = pill(_ST_SKIP, p.fromDeck ? 'Stopped' : ('Skipped' + (p.skips > 1 ? ' ×' + p.skips : '')));
+          if (p.fromDeck && p.total) {
+            cell += '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">slide ' +
+              p.furthest + ' of ' + p.total + ' &middot; ' + p.percent + '%' +
+              (p.skips > 1 ? ' &middot; ×' + p.skips : '') + '</div>';
+          }
+          if (p.at) cell += '<div style="font-size:.7rem;color:var(--text-soft);">' + rsEscape(_stDay(p.at)) + '</div>';
         } else {
           cell = '<span style="color:var(--text-soft);">&mdash;</span>';
         }
@@ -50237,6 +51555,7 @@ window.prExportCsv = function() {
            +  (r.totalSkips || '—') + '</td></tr>';
     });
     html += '</tbody></table></div>';
+    html += _stSlideDetail();
     body.innerHTML = html;
 
     // Charts go in after the markup exists, or getElementById finds nothing.
@@ -50500,7 +51819,24 @@ window.cmsBuildCaseAdvocacyReport = async function() {
         letterAt: _carTs(c.caseAdvocacyOpeningEmailSentAt),
         member: window._membershipIsActive ? !!window._membershipIsActive(c) : /^(active|paid)$/i.test(String(c.membershipStatus || '')),
         memberLevel: c.membershipLevel || '',
-        touches: g.recs.length
+        touches: g.recs.length,
+        /* Every note written on this family's advocacy records, newest first.
+           g.recs already holds them — the row used to keep only the count and
+           throw the text away. Cheap: no extra reads, the data is already here.
+           `notes` accumulates the "Add a Note" appends, so one record can carry
+           several entries; the original note is the first block. (2026-09-01) */
+        notes: g.recs
+          .filter(function(r) { return String(r.notes || '').trim() || String(r.summary || '').trim(); })
+          .map(function(r) {
+            return {
+              at: _carTs(r.createdAt),
+              who: r.owner || r.createdBy || '',
+              type: r.interactionType || '',
+              summary: String(r.summary || '').trim(),
+              text: String(r.notes || '').trim()
+            };
+          })
+          .sort(function(a, b) { return (b.at || 0) - (a.at || 0); })
       };
     }).filter(function(r) { return showClosed || r.open; });
 
@@ -50525,6 +51861,21 @@ function _carPill(text, bg, fg) {
   return '<span style="display:inline-block;background:' + bg + ';color:' + fg +
          ';border-radius:999px;padding:2px 9px;font-size:.7rem;font-weight:700;white-space:nowrap;">' + text + '</span>';
 }
+
+/* Expand/collapse one family's notes on the Case Advocacy report. The rows are
+   already in the DOM, so this is a display flip — no fetch, nothing to await,
+   and it cannot half-open. (2026-09-01) */
+window.carToggleNotes = function (i) {
+  var row = document.getElementById('carNotes' + i);
+  var btn = document.getElementById('carExp' + i);
+  if (!row) return;
+  var showing = row.style.display !== 'none';
+  row.style.display = showing ? 'none' : 'table-row';
+  if (btn) {
+    btn.innerHTML = showing ? '\u25B8' : '\u25BE';       // right / down chevron
+    btn.setAttribute('aria-expanded', showing ? 'false' : 'true');
+  }
+};
 
 function _carRender() {
   var body = document.getElementById('carBody');
@@ -50565,13 +51916,21 @@ function _carRender() {
       .map(function(t) { return '<th style="text-align:left;padding:9px 12px;color:#6D28D9;font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;">' + t + '</th>'; }).join('') +
     '</tr></thead><tbody>';
 
-  rows.forEach(function(r) {
+  rows.forEach(function(r, _i) {
     var overdue = r.open && r.followUp && r.followUp < todayIso;
     h += '<tr style="border-bottom:1px solid #EDE9FE;' + (r.open ? '' : 'opacity:.6;') + '">' +
       '<td style="padding:9px 12px;">' +
-        '<div style="font-weight:700;">' + rsEscape(r.name) + '</div>' +
-        '<div style="font-size:.74rem;color:var(--text-soft);">' + rsEscape(r.email || '—') +
-          (r.island ? ' &middot; ' + rsEscape(r.island) : '') + '</div></td>' +
+        '<div style="display:flex;align-items:baseline;gap:7px;">' +
+          (r.notes && r.notes.length
+            ? '<button type="button" class="car-exp" id="carExp' + _i + '" onclick="carToggleNotes(' + _i + ')" ' +
+              'aria-expanded="false" title="Show the notes on this family" ' +
+              'style="border:none;background:none;cursor:pointer;padding:0;font-size:.8rem;color:#6D28D9;line-height:1;">&#9656;</button>'
+            : '<span style="width:9px;display:inline-block;"></span>') +
+          '<div><div style="font-weight:700;">' + rsEscape(r.name) + '</div>' +
+          '<div style="font-size:.74rem;color:var(--text-soft);">' + rsEscape(r.email || '—') +
+            (r.island ? ' &middot; ' + rsEscape(r.island) : '') +
+            (r.notes && r.notes.length ? ' &middot; ' + r.notes.length + ' note' + (r.notes.length === 1 ? '' : 's') : '') +
+          '</div></div></div></td>' +
       '<td style="padding:9px 12px;">' + (r.advocate ? rsEscape(r.advocate)
           : _carPill('Needs advocate', '#FEF3C7', '#92400E')) + '</td>' +
       '<td style="padding:9px 12px;white-space:nowrap;">' + (_carDay(r.started) || '—') + '</td>' +
@@ -50595,6 +51954,26 @@ function _carRender() {
           ? (overdue ? _carPill(rsEscape(r.followUp) + ' &middot; overdue', '#FEE2E2', '#991B1B') : rsEscape(r.followUp))
           : (r.open ? _carPill('None set', '#FEF3C7', '#92400E') : '—')) + '</td>' +
       '</tr>';
+
+    /* The notes, in a hidden row directly beneath. Rendered up front rather
+       than fetched on click — the data is already in memory, so an expand is
+       instant and there is nothing to fail. Small font on purpose: this is for
+       reading a history at a glance, not for editing. */
+    if (r.notes && r.notes.length) {
+      h += '<tr id="carNotes' + _i + '" style="display:none;background:#FBFAFF;">' +
+        '<td colspan="8" style="padding:2px 12px 12px 30px;border-bottom:1px solid #EDE9FE;">' +
+        r.notes.map(function(n) {
+          return '<div style="padding:7px 0;border-bottom:1px dashed #E9E4F8;">' +
+            '<div style="font-size:.7rem;color:#6D28D9;font-weight:700;">' +
+              (n.at ? _carDay(n.at) : '—') +
+              (n.who ? ' &middot; ' + rsEscape(n.who) : '') +
+              (n.type ? ' &middot; ' + rsEscape(n.type) : '') + '</div>' +
+            (n.summary ? '<div style="font-size:.78rem;color:var(--text-dark);font-weight:600;margin-top:1px;">' + rsEscape(n.summary) + '</div>' : '') +
+            (n.text ? '<div style="font-size:.76rem;color:var(--text-soft);white-space:pre-wrap;margin-top:2px;line-height:1.5;">' + rsEscape(n.text) + '</div>' : '') +
+            '</div>';
+        }).join('') +
+        '</td></tr>';
+    }
   });
   h += '</tbody></table></div>';
 
@@ -51947,6 +53326,11 @@ window.cmsBuildMembershipReport = async function() {
           <select id="oneOffPresenter" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;background:#fff;">
             <option value="">&mdash; Select presenter &mdash;</option>
           </select>
+          <!-- Partners present their own sessions; the dropdown lists LDAH staff,
+               so there is nobody in it for them to pick. Free text instead, shown
+               only for partners. (2026-09-02) -->
+          <input id="oneOffPresenterText" type="text" placeholder="First and last name"
+                 style="display:none;width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -51962,6 +53346,15 @@ window.cmsBuildMembershipReport = async function() {
             <option value="">&mdash; Select tier &mdash;</option>
           </select>
         </div>
+      </div>
+      <!-- Pacific partner (v149.46). Staff only — partnerPickerInit hides this
+           row for a partner user, whose events are stamped from their account. -->
+      <div id="oneOffPartnerIslandRow" style="margin-bottom:12px;">
+        <label for="oneOffPartnerIsland" style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Pacific partner</label>
+        <select id="oneOffPartnerIsland" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;background:#fff;">
+          <option value="">Not a partner event</option>
+        </select>
+        <div style="font-size:.75rem;color:#64748B;margin-top:5px;">Pick an island when the event belongs to one of the six Pacific Basin partner organizations, including one you are entering on their behalf. Where it happened does not decide this. LDAH staff running a session in a partner's islands is still LDAH work.</div>
       </div>
       <div style="margin-bottom:16px;">
         <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Description</label>
@@ -52016,6 +53409,18 @@ window.cmsBuildMembershipReport = async function() {
           <button type="button" id="ooNewSaveBtn" onclick="cmsOoQuickAddContact()" style="font-size:.82rem;background:#16A34A;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600;">Create &amp; add</button>
         </div>
         <div id="oneOffAttendeeList"></div>
+        <!-- Partners get the picker AND this headcount box (2026-09-03): a booth
+             at someone else's event yields only a number, but a session they run
+             themselves has names they were previously unable to record. The
+             number is stored in
+             summary.attendanceOverrides.attTotal, which the Event Attendance
+             report already reads when an event has no per-person signups. -->
+        <div id="oneOffPartnerCountBox" style="display:none;">
+          <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">How many people attended?</label>
+          <input id="oneOffPartnerCount" type="number" min="0" step="1" placeholder="e.g. 24"
+                 style="width:160px;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+          <div style="font-size:.75rem;color:#64748B;margin-top:5px;">Just the total is fine &mdash; names are not needed.</div>
+        </div>
       </div>
     </div>
     <div style="padding:12px 18px;border-top:1px solid #F1F5F9;display:flex;justify-content:flex-end;gap:10px;background:#fff;">
@@ -52296,6 +53701,153 @@ window._ctAccToggle = function(head, panelId){
     </div>
   </div>
 </div>
+
+<!-- ── Issue-report context collector (v149.42) ────────────────────────────
+     window.ldahIssueContext() gathers the things a staff member cannot be
+     expected to type into a bug report: which build their tab is running,
+     whether that build is stale, the viewport they are actually on, both
+     clocks, and the last few errors and clicks. It is defined LAST so
+     everything it reads already exists; it is read-only, never throws and
+     never blocks. The listeners that fill it live in the first script in
+     <head>. -->
+<script>
+window.ldahIssueContext = function () {
+  var out = {};
+
+  // A field that cannot be read is simply absent — never a wrong value.
+  function safe(key, fn) {
+    try {
+      var v = fn();
+      if (v === undefined || v === null || v === '') return;
+      out[key] = v;
+    } catch (e) {}
+  }
+
+  function browserName(ua) {
+    if (/edg\//i.test(ua)) return 'Edge';
+    if (/crios/i.test(ua)) return 'Chrome (iOS)';
+    if (/fxios/i.test(ua)) return 'Firefox (iOS)';
+    if (/opr\/|opera/i.test(ua)) return 'Opera';
+    if (/firefox/i.test(ua)) return 'Firefox';
+    if (/chrome|chromium/i.test(ua)) return 'Chrome';
+    if (/safari/i.test(ua)) return 'Safari';
+    return 'not reported';
+  }
+
+  try {
+    var me = window.currentUserData || {};
+
+    // ── Who ──
+    safe('uid', function () { return me.uid; });
+    safe('displayName', function () { return me.displayName; });
+    safe('role', function () { return me.role; });
+    safe('partnerIsland', function () {
+      return (typeof window.currentPartnerIsland === 'function') ? window.currentPartnerIsland() : '';
+    });
+
+    // ── Where in the app ──
+    safe('section', function () {
+      return (typeof window.__ldahActiveSection === 'function') ? window.__ldahActiveSection() : '';
+    });
+    safe('hash', function () { return location.hash || ''; });
+    safe('title', function () { return document.title || ''; });
+
+    // ── Which build ──
+    safe('version', function () {
+      var el = document.getElementById('buildVersion');
+      return el ? String(el.textContent || '').trim() : '';
+    });
+    /* Set by the stale-tab guard once it has a baseline ETag to compare
+       against. Absent until the first HEAD comes back, rather than a
+       guessed false — "we do not know yet" and "up to date" are different
+       answers and only one of them is safe to act on. */
+    safe('stale', function () {
+      return (typeof window.__ldahStale === 'boolean') ? window.__ldahStale : undefined;
+    });
+
+    // ── The machine and the window ──
+    var ua = '';
+    try { ua = String(navigator.userAgent || ''); } catch (e) {}
+    safe('ua', function () { return ua.length > 300 ? ua.slice(0, 300) + '...' : ua; });
+    safe('browser', function () { return browserName(ua); });
+    safe('screenW', function () { return screen.width; });
+    safe('screenH', function () { return screen.height; });
+    safe('innerW', function () { return window.innerWidth; });
+    safe('innerH', function () { return window.innerHeight; });
+    safe('dpr', function () { return window.devicePixelRatio; });
+    /* Browser zoom, as a percentage. Worth having: staff run 1366x768 screens
+       and a report of "the buttons are off the edge" is usually zoom. */
+    safe('zoom', function () {
+      var z;
+      if (window.visualViewport && window.visualViewport.scale && window.visualViewport.scale !== 1) {
+        z = Math.round(window.visualViewport.scale * 100);
+      } else if (window.outerWidth && window.innerWidth) {
+        z = Math.round((window.outerWidth / window.innerWidth) * 100);
+      }
+      return (typeof z === 'number' && isFinite(z) && z > 0) ? z : undefined;
+    });
+
+    /* BOTH clocks, on every report, no exceptions. The Pacific partners are
+       the far side of the dateline — a Guam Thursday is a Hawaii Wednesday —
+       so "it broke this morning" is unreadable without knowing whose morning.
+       HST is named explicitly rather than derived from the viewer's offset. */
+    safe('tz', function () { return Intl.DateTimeFormat().resolvedOptions().timeZone; });
+    safe('localTime', function () {
+      return new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'medium' });
+    });
+    safe('hstTime', function () {
+      return new Date().toLocaleString('en-US', {
+        timeZone: 'Pacific/Honolulu', dateStyle: 'medium', timeStyle: 'medium'
+      }) + ' HST';
+    });
+
+    // ── Network ──
+    safe('online', function () { return !!navigator.onLine; });
+    /* navigator.connection is Chromium-only. On Safari and iOS these three
+       are omitted entirely — an absent field reads as "not reported", a
+       zero would read as "no bandwidth" and send someone hunting. */
+    try {
+      var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (conn) {
+        if (typeof conn.effectiveType === 'string' && conn.effectiveType) out.effectiveType = conn.effectiveType;
+        if (typeof conn.downlink === 'number' && isFinite(conn.downlink)) out.downlink = conn.downlink;
+        if (typeof conn.rtt === 'number' && isFinite(conn.rtt)) out.rtt = conn.rtt;
+      }
+    } catch (e) {}
+
+    // ── Session ──
+    safe('tabOpenMs', function () {
+      return window.__ldahTabOpenedAt ? (Date.now() - window.__ldahTabOpenedAt) : undefined;
+    });
+    /* An anonymous session on this origin means a public page signed the tab
+       in and no role will resolve — worth knowing before chasing a
+       permissions bug that is really a sign-in bug. */
+    safe('isAnonymous', function () {
+      var u = (window.firebase && firebase.auth) ? firebase.auth().currentUser : null;
+      return u ? !!u.isAnonymous : undefined;
+    });
+    /* A report filed while the "Viewing as" picker is pointed at someone else
+       must not be read as that person's report. Absent when the picker is
+       parked on the viewer's own account, which is not impersonation. */
+    safe('viewingAs', function () {
+      var v = window._myDayViewAs;
+      if (!v || !v.uid) return undefined;
+      if (v.uid === me.uid) return undefined;
+      return v.displayName || v.uid;
+    });
+
+    // ── Buffers (already redacted on the way in) ──
+    try { out.errors = (window.__ldahErrors || []).slice(); } catch (e) { out.errors = []; }
+    try { out.breadcrumbs = (window.__ldahCrumbs || []).slice(); } catch (e) { out.breadcrumbs = []; }
+  } catch (e) {
+    // Whatever happened, the caller still gets an object.
+  }
+
+  if (!out.errors) out.errors = [];
+  if (!out.breadcrumbs) out.breadcrumbs = [];
+  return out;
+};
+</script>
 
 </body>
 </html>
