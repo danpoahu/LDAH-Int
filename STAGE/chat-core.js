@@ -156,7 +156,6 @@ window.LDAHChat = (function () {
     '            </div>' +
     '          </div>' +
     '        </div>' +
-    '        </div>' +
     '        <div class="chat-drop-hint" id="chatDropHint" aria-hidden="true">' +
     '          <div class="chat-drop-hint-inner">' +
     '            <div class="chat-drop-hint-icon">\u2b06\ufe0e</div>' +
