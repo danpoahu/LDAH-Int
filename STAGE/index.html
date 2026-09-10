@@ -5413,7 +5413,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.20-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.21-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -47735,6 +47735,14 @@ window.cmsBuildStaffActivityReport = async function() {
     var rows = [];
     var titles = {};
     // Hard cap: never include event-dates strictly after today (local time).
+    // A one-off dated in the FUTURE is the exception (Daniel, 2026-09-10).
+    // Partners have no access to Events & Programs, so this report is the only
+    // place they can reach their own records — including the upcoming one they
+    // just created to print a QR table flyer for. Dropping it here meant they
+    // created an event and it vanished. Programmes are unaffected: a future
+    // session of a recurring programme really is noise in an attendance report.
+    var _eaKeepFuture = function(ev) { return !!(ev && ev.isOneOff === true); };
+
     // The report is for completed events only; future dates are noise.
     // Dateless legacy entries (dt === null) are kept — only the parseable
     // future dates are dropped.
@@ -47823,14 +47831,14 @@ window.cmsBuildStaffActivityReport = async function() {
         sigDates.forEach(function(raw) {
           var dt = _rsParseSessionDate(raw);
           if (!dt) return;
-          if (_isFutureDate(dt)) return; // skip future event-dates
+          if (_isFutureDate(dt) && !_eaKeepFuture(ev)) return; // skip future event-dates
           rows.push(_buildRow(ev, raw, dt, signups, feedback, false, true));
         });
       } else {
         // Single-date one-time: one row using eventDate / signupDates[0] / fallback
         var raw = sigDates[0] || ev.eventDate || ev.date || '';
         var dt = _rsParseSessionDate(raw);
-        if (_isFutureDate(dt)) return; // skip future event-dates
+        if (_isFutureDate(dt) && !_eaKeepFuture(ev)) return; // skip future event-dates
         rows.push(_buildRow(ev, raw || null, dt, signups, feedback, false, false));
       }
     });
@@ -48274,6 +48282,19 @@ window.cmsBuildStaffActivityReport = async function() {
     html += '<span class="ea-pill">Evals: ' + (r.evaluationCount == null ? 0 : r.evaluationCount) + '</span>';
     html += '<span class="ea-pill">' + (r.tier ? _esc(r.tier) : 'Tier —') + '</span>';
     html += '</div>';
+    /* QR flyer, on the REPORT card as well as the CMS one (Daniel, 2026-09-10):
+       "partners don't have access to events and programs so it does me no good
+       there." This report is the only surface a partner can reach, so the
+       button has to be here or the feature cannot be used by the people it was
+       built for. One-offs only — a programme is not a table. stopPropagation
+       keeps the card from opening the attendance modal underneath. */
+    if (r.eventDoc && r.eventDoc.isOneOff === true && r.eventId) {
+      html += '<div style="margin-top:10px;">'
+        + '<button class="btn btn-ghost" title="Print an 8x10 table flyer with a sign-up QR"'
+        + ' style="font-size:.75rem;padding:4px 10px;color:#0D9488;font-weight:700;border:1px solid #99f6e4;border-radius:6px;background:#f0fdfa;cursor:pointer;"'
+        + ' onclick="event.stopPropagation();cmsTableFlyer(' + _jsArg(r.eventId) + ',' + _jsArg(r.eventTitle || '') + ')">QR flyer</button>'
+        + '</div>';
+    }
     html += '</div>';
     return html;
   }
@@ -48833,15 +48854,21 @@ window.cmsBuildStaffActivityReport = async function() {
 
   window.cmsEAClearFilters = function() {
     var _td = new Date();
-    var _todayIso = _td.getFullYear() + '-' +
-      String(_td.getMonth() + 1).padStart(2, '0') + '-' +
-      String(_td.getDate()).padStart(2, '0');
+    // TO defaults to the END OF THE CALENDAR YEAR, not today (Daniel,
+    // 2026-09-10). Today as the ceiling quietly hid every upcoming one-off,
+    // which is exactly what a partner opens this report to find.
+    var _todayIso = _td.getFullYear() + '-12-31';
     /* Clear resets to the same default the report opens with, which for a
        partner is All — otherwise clearing filters would empty their report. */
     var _eaPartnerClear = !!(window.isPartnerUser && window.isPartnerUser());
     _eaCache.filters = { search: '', year: String(new Date().getFullYear()),
                          program: _eaPartnerClear ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
-    _eaCache.showZero = false; // v125.0.0 — reset the 0-attendance toggle on clear
+    /* 0-attendance defaults ON for PIP and OFF for LDAH (Daniel, 2026-09-10).
+       Partner work is mostly Facebook posts and upcoming one-offs, both of
+       which legitimately carry no attendance — hiding them by default emptied
+       the report. LDAH keeps the old default, where a 0 usually means a wrap-up
+       nobody finished. */
+    _eaCache.showZero = _eaPartnerClear || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
     /* Scope deliberately survives Clear. It answers "whose events is this
        report about", not "which of them am I looking at", and silently
        switching a superAdmin back to LDAH while they were reading PIP would
@@ -50036,9 +50063,8 @@ window.prExportCsv = function() {
       // builder already excludes future dates — but gives the user visual
       // feedback that the report ends at today. User can still narrow further.
       var _td = new Date();
-      var _todayIso = _td.getFullYear() + '-' +
-        String(_td.getMonth() + 1).padStart(2, '0') + '-' +
-        String(_td.getDate()).padStart(2, '0');
+      // End of the calendar year, not today — see cmsEAClearFilters.
+      var _todayIso = _td.getFullYear() + '-12-31';
       /* Partners record their work as one-off events almost exclusively, so the
          standard "Programs & Events" default showed them an empty report. They
          open on All. (2026-09-02) */
@@ -50051,7 +50077,8 @@ window.prExportCsv = function() {
       var _eaWantsAll = _eaPartner || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
       _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '',
                            program: _eaWantsAll ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
-      _eaCache.showZero = false; // v125.0.0 default OFF on every build
+      // PIP opens with 0-attendance shown; LDAH keeps the old default OFF.
+      _eaCache.showZero = _eaWantsAll;
       _eaCache.oneOffsLoaded = false; _eaCache.oneOffsLoading = false; // One-Offs deferred until the user asks
       _renderFilterBar();
       if (_eaWantsAll) {
