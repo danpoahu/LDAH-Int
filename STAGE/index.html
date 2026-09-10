@@ -5413,7 +5413,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.17-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.18-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21302,10 +21302,15 @@ window.openContactDetail = async function(contactId) {
   // Daniel, 2026-09-10: "leave me off of the list" — he is not an approver of
   // anyone's travel, so his account never appears here even though he is a superAdmin.
   var WORKSHOP_TRAVEL_APPROVER_EXCLUDE_UID = 'YmGV2TlBGqR01dVdxZ0rtFLEFCG3';
-  var _wpApproverCache = null;
+  // YOU CANNOT PICK YOURSELF. Daniel, 2026-09-10: "they should not be able to
+  // pick themselves, that's the whole point of this." Self-approval would make
+  // the step ceremonial.
+  var _wpApproverCache = null;   // the pickable list — excludes self
+  var _wpApproverNames = {};     // every staff name, so a saved value still renders
   async function _wpFillTravelApprovers(selectedUid) {
     var sel = document.getElementById('wpTravelApprover');
     if (!sel) return;
+    var meUid = (window.currentUserData || {}).uid || '';
     if (!_wpApproverCache) {
       _wpApproverCache = [];
       try {
@@ -21315,9 +21320,11 @@ window.openContactDetail = async function(contactId) {
           var x = doc.data() || {};
           if (['superAdmin', 'admin', 'webAdmin'].indexOf(x.role) === -1) return;
           if (x.isArchived === true) return;
-          if (doc.id === WORKSHOP_TRAVEL_APPROVER_EXCLUDE_UID) return;
           var nm = x.displayName || x.email || doc.id;
           if (/it[\s._-]*help/i.test(nm) || /it[\s._-]*help/i.test(x.email || '')) return;
+          _wpApproverNames[doc.id] = nm;
+          if (doc.id === WORKSHOP_TRAVEL_APPROVER_EXCLUDE_UID) return;
+          if (doc.id === meUid) return;              // no approving your own travel
           var key = String(x.email || doc.id).toLowerCase();
           if (seen[key]) return;
           seen[key] = true;
@@ -21329,8 +21336,15 @@ window.openContactDetail = async function(contactId) {
       }
     }
     var want = selectedUid || sel.value || '';
+    var opts = _wpApproverCache.slice();
+    // A form already assigned to whoever is now reading it must still show that
+    // name, or merely opening the form would blank the field and a draft save
+    // would quietly lose it. Displayed, but never newly choosable.
+    if (want && !opts.some(function(o) { return o.uid === want; })) {
+      opts.unshift({ uid: want, name: (_wpApproverNames[want] || 'Assigned approver') });
+    }
     sel.innerHTML = '<option value="">\u2014 choose who approves \u2014</option>' +
-      _wpApproverCache.map(function(s2) {
+      opts.map(function(s2) {
         return '<option value="' + s2.uid + '">' + s2.name + '</option>';
       }).join('');
     if (want) sel.value = want;
