@@ -5407,7 +5407,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.54</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.55</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6958,6 +6958,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseEventAttendanceReport()">&larr; Back to Reports</button>
             <h2 style="font-family:'Outfit',sans-serif;color:var(--ocean-deep);margin:0;flex:1;">Event Attendance Report</h2>
             <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#DB2777;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="cmsOpenOneOffModal()">+ Add One-Off Event</button>
+            <!-- Upcoming events are a different animal: they have not happened,
+                 so they must NOT be archived on save, and they are the only
+                 ones that get a QR table flyer. Teal to match that button. -->
+            <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#0D9488;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px;" onclick="cmsOpenOneOffModal(null, true)">+ Add Upcoming Event</button>
             <span id="eaReportCount" style="font-size:.82rem;color:var(--text-soft);"></span>
           </div>
           <div id="eaFilterBar" style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px;margin-bottom:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end;">
@@ -29780,7 +29784,16 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     // Regular one-time event: public Signup QR (scan -> events.html autoOpen ->
     // signup+registration form). Only for normal one-time events — NOT special
     // (kiosk QR above), NOT flyer/info (no signups), NOT recurring programs.
-    if (!isRecurring && !_isSpecialCard && !_isFlyerCard) {
+    // A one-off gets the table flyer instead — its QR points at the short
+    // table form, not the public events page, which never lists a one-off.
+    if (ev.qrTableEvent === true && !_isFlyerCard) {
+      html += '<span class="cms-card-util">'
+        + '<button class="btn btn-ghost" title="Print an 8x10 table flyer with a sign-up QR"'
+        + ' style="font-size:.78rem;padding:5px 10px;color:#0D9488;font-weight:700;"'
+        + ' onclick="event.stopPropagation();cmsTableFlyer(' + _jsArg(ev.id) + ',' + _jsArg(ev.title || '') + ')">QR flyer</button>'
+        + '</span>';
+    }
+    if (!isRecurring && !_isSpecialCard && !_isFlyerCard && ev.isOneOff !== true) {
       var _signupUrl = 'https://www.ldahawaii.org/events.html?eventId=' + ev.id + '&autoOpen=1';
       html += '<span class="cms-card-util">'
         + '<button class="btn btn-ghost" title="Signup QR — download / print" style="font-size:.78rem;padding:5px 10px;color:#0D9488;"'
@@ -30562,6 +30575,126 @@ window.cmsShowQR = function(url, title, subtitle, fileBase){
     if (window._showToast) window._showToast('Could not generate QR: ' + e.message, '#DC2626'); else console.error('QR error', e);
   }
 };
+
+// ── Table flyer for a one-off event (2026-09-10) ────────────────────────────
+// Daniel: "have the QR button on the event display (and print) an 8x10 paper
+// with event information and description with the QR code as a table flyer...
+// as easy as possible."
+//
+// One button does the whole job. Two things have to be true for the flyer to be
+// worth printing, and staff should not have to know either of them:
+//
+//   * special.html refuses any event without specialEvent === true, so a QR
+//     printed for a plain one-off would send families to a dead page. The
+//     button sets the event up on first use.
+//   * childName gates the ENTIRE child section in that form — age, gender,
+//     disability and ethnicity all sit inside it. Turn it off and the flyer
+//     collects a name and an email and nothing that any report needs.
+function _cmsFlyerSetupConfig() {
+  var cfg = _cmsDefaultSpecialConfig();
+  cfg.fields.phone.on = true;
+  cfg.fields.childName.on = true;      // gates everything below
+  cfg.fields.nativeHawaiian.on = true; // forced on with childName anyway
+  cfg.fields.ageRange.on = true;
+  cfg.fields.gender.on = true;
+  cfg.fields.disabilities.on = true;
+  cfg.fields.ethnicity.on = true;
+  return cfg;
+}
+
+window.cmsTableFlyer = async function(eventId, title) {
+  try {
+    var ref = db.collection('events').doc(eventId);
+    var snap = await ref.get();
+    if (!snap.exists) { if (window._showToast) window._showToast('Event not found.', '#DC2626'); return; }
+    var d = snap.data() || {};
+    if (d.specialEvent !== true) {
+      await ref.set({
+        specialEvent: true,
+        specialFormConfig: _cmsFlyerSetupConfig(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      if (window.auditLog) window.auditLog('Enabled table signup for a one-off event', d.title || eventId);
+    }
+    _cmsOpenTableFlyer(d, title || d.title || 'LDAH Event',
+                       window._cmsQRPngForUrl(_cmsSpecialQRUrl(eventId)),
+                       _cmsSpecialQRUrl(eventId));
+  } catch (e) {
+    if (window._showToast) window._showToast('Could not build the flyer: ' + e.message, '#DC2626');
+  }
+};
+
+function _cmsFlyerDate(d) {
+  var raw = d.eventDate || d.date || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw || '';
+  var p = raw.split('-');
+  var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  return dt.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+}
+
+function _cmsOpenTableFlyer(d, title, png, url) {
+  var esc = function(x){ var n=document.createElement('div'); n.textContent = x==null?'':x; return n.innerHTML; };
+  var when = _cmsFlyerDate(d);
+  var timeStr = d.time || '';
+  var place = d.location || '';
+  var desc = (d.description || d.details || '').trim();
+  var w = window.open('', '_blank', 'width=860,height=1040');
+  if (!w) { if (window._showToast) window._showToast('Allow pop-ups to open the flyer.', '#DC2626'); return; }
+  w.document.write(
+    '<html><head><meta charset="utf-8"><title>' + esc(title) + ' — table flyer</title><style>' +
+    '@page{size:8in 10in;margin:0}' +
+    '*{box-sizing:border-box}' +
+    'body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,sans-serif;' +
+      'background:#eef1f5;color:#12232e}' +
+    '.sheet{width:8in;height:10in;background:#fff;margin:18px auto;padding:.6in .7in;' +
+      'display:flex;flex-direction:column;text-align:center;box-shadow:0 2px 18px rgba(20,40,60,.18)}' +
+    '.brand{font-size:13pt;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:#0E4C6B}' +
+    '.brand-sub{font-size:9.5pt;font-weight:600;color:#5d6b7d;margin-top:3px;letter-spacing:.01em}' +
+    /* The real mark from pacific.html. print-color-adjust keeps it from being
+       dropped by a browser economising on a print. */
+    '.piplogo{max-width:3.1in;height:auto;display:block;margin:0 auto 2px;' +
+      '-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.rule{height:4px;background:linear-gradient(90deg,#0E4C6B,#0891B2);border-radius:3px;margin:10px 0 22px}' +
+    'h1{font-size:31pt;line-height:1.12;margin:0 0 14px;color:#0E4C6B}' +
+    '.meta{font-size:15pt;color:#33414f;margin:0 0 4px}' +
+    '.meta b{color:#12232e}' +
+    '.desc{font-size:12.5pt;line-height:1.5;color:#3d4b59;margin:16px auto 0;max-width:6in}' +
+    '.qrwrap{margin-top:auto;padding-top:14px}' +
+    '.qr{width:3.7in;height:3.7in;image-rendering:pixelated;border:1px solid #dfe5ec;border-radius:10px}' +
+    '.cta{font-size:19pt;font-weight:800;color:#0E4C6B;margin:14px 0 2px}' +
+    '.sub{font-size:11.5pt;color:#5d6b7d;margin:0}' +
+    '.foot{margin-top:16px;font-size:8.5pt;color:#93a1b0;word-break:break-all}' +
+    '.bar{background:#fff;padding:12px;text-align:center;border-bottom:1px solid #dfe5ec}' +
+    '.bar button{font:inherit;font-size:14px;padding:9px 20px;border-radius:8px;border:1px solid #0E4C6B;' +
+      'background:#0E4C6B;color:#fff;cursor:pointer;font-weight:600}' +
+    '@media print{.bar{display:none}body{background:#fff}.sheet{margin:0;box-shadow:none}}' +
+    '</style></head><body>' +
+    '<div class="bar"><button onclick="window.print()">Print this flyer</button></div>' +
+    '<div class="sheet">' +
+      /* A partner's table is theirs first. Anything carrying partnerIsland
+         leads with Pacific Island Partners and credits LDAH beneath; an LDAH
+         table is unchanged. (Daniel, 2026-09-10) */
+      /* The mark already carries "Pacific Island Partners", the LDAH line and
+         the PTI centre line, so an "in association with" caption underneath
+         just said it a third time. Logo alone. */
+      (d.partnerIsland
+        ? '<img class="piplogo" src="https://www.ldahawaii.org/assets/images/wp/Pacific-Island-Partners-Logo.png" alt="Pacific Island Partners">'
+        : '<div class="brand">Leadership in Disabilities &amp; Achievement of Hawai&#699;i</div>') +
+      '<div class="rule"></div>' +
+      '<h1>' + esc(title) + '</h1>' +
+      (when ? '<p class="meta"><b>' + esc(when) + '</b></p>' : '') +
+      (timeStr ? '<p class="meta">' + esc(timeStr) + '</p>' : '') +
+      (place ? '<p class="meta">' + esc(place) + '</p>' : '') +
+      (desc ? '<p class="desc">' + esc(desc) + '</p>' : '') +
+      '<div class="qrwrap">' +
+        '<img class="qr" src="' + png + '" alt="Sign-up QR code">' +
+        '<p class="cta">Scan to sign up</p>' +
+        '<p class="sub">Point your phone camera at the code &mdash; it takes about a minute.</p>' +
+        '<p class="foot">' + esc(url) + '</p>' +
+      '</div>' +
+    '</div></body></html>');
+  w.document.close();
+}
 
 // Special kiosk QR (special.html) — behavior preserved.
 window.cmsShowSpecialQR = function(eventId, title){
@@ -47586,21 +47719,115 @@ window.cmsBuildStaffActivityReport = async function() {
     return false;
   }
 
+  /* ── Live report (2026-09-10) ────────────────────────────────────────────
+     Daniel: "add a listener so we don't have to refresh and redownload the
+     events to see the eval or attended updates."
+
+     Two listeners, both narrow:
+       * the SCOPED events query — 28 documents in PIP, not 217. This catches
+         more than it looks: handleSignupCreated increments signupCount on the
+         parent event, so a new QR capture at a table touches the event doc and
+         wakes this up. It also catches a new event, a deleted one, and any
+         edit to tier, date or attendance overrides.
+       * eventFeedback — an eval landing is the other half of what he asked for.
+
+     Debounced, because a burst of captures at a busy table would otherwise
+     rebuild the list once per scan. The first snapshot of each listener is
+     dropped: Firestore delivers current state immediately, which is what the
+     page just finished rendering.
+
+     KNOWN LIMIT, stated rather than hidden: flipping an EXISTING signup to
+     attended does not touch the parent event, so that one still needs a
+     refresh. Catching it would need a collection-group listener over all 358
+     signups, which costs more than it saves. */
+  var _eaLiveUnsubs = [];
+  var _eaLiveDebounce = null;
+
+  function _eaDetachLive() {
+    _eaLiveUnsubs.forEach(function(u) { try { u(); } catch (_) {} });
+    _eaLiveUnsubs = [];
+    if (_eaLiveDebounce) { clearTimeout(_eaLiveDebounce); _eaLiveDebounce = null; }
+  }
+  window._eaDetachLive = _eaDetachLive;
+
+  async function _eaLiveRefresh() {
+    if (!_eaCache.built) return;
+    try {
+      /* Rebuild the DATA, keep the VIEW. cmsBuildEventAttendanceReport resets
+         filters to defaults, so calling it here would wipe whatever the user
+         had typed every time somebody scanned a QR code. */
+      var keepFilters = _eaCache.filters;
+      var keepZero = _eaCache.showZero;
+      var built = await _enumerateEventDates(_eaCache.oneOffsLoaded ? 'all' : undefined);
+      _eaCache.eventDates = built.rows;
+      _eaCache.eventTitlesById = built.titles;
+      _eaCache.filters = keepFilters;
+      _eaCache.showZero = keepZero;
+      _renderFilterBar();
+      _renderCardList();
+    } catch (e) {
+      console.warn('EA live refresh failed:', e.message);
+    }
+  }
+
+  function _eaAttachLive() {
+    _eaDetachLive();
+    var bump = function() {
+      if (_eaLiveDebounce) clearTimeout(_eaLiveDebounce);
+      _eaLiveDebounce = setTimeout(_eaLiveRefresh, 900);
+    };
+    var seenEvents = false, seenFeedback = false;
+    try {
+      _eaLiveUnsubs.push(_eaScopedEventsQuery().query.onSnapshot(function() {
+        if (!seenEvents) { seenEvents = true; return; }   // initial state, already on screen
+        bump();
+      }, function(err) { console.warn('EA events listener:', err.message); }));
+      _eaLiveUnsubs.push(db.collection('eventFeedback').onSnapshot(function() {
+        if (!seenFeedback) { seenFeedback = true; return; }
+        bump();
+      }, function(err) { console.warn('EA feedback listener:', err.message); }));
+    } catch (e) {
+      console.warn('EA live listeners could not attach:', e.message);
+    }
+  }
+
+  function _eaScopedEventsQuery() {
+    var partner = !!(window.isPartnerUser && window.isPartnerUser());
+    var pip = partner || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
+    var q = db.collection('events');
+    if (partner) {
+      var isl = window.currentPartnerIsland();
+      /* No island resolved means this account can own nothing. Querying for ''
+         would return everything unstamped, the opposite of the truth. */
+      q = q.where('partnerIsland', '==', isl || '\u0000__none__');
+    } else if (pip) {
+      q = q.where('partnerIsland', 'in', PARTNER_ISLANDS);
+    }
+    return { query: q, pip: pip, partner: partner };
+  }
+
   // Enumerate all event-dates across recurring + one-time events.
   // Returns one descriptor per session date (recurring: from cached
   // signups' sessionAttendance keys + signupDates; one-time: per
   // signupDates entry, or one flat entry when no signupDates).
   async function _enumerateEventDates(mode) {
-    // Pull events + recurring events + signups + feedback in parallel.
-    var evSnapProm = db.collection('events').get();
-    var recSnapProm = db.collection('recurringEvents').get();
+    /* Ask Firestore for the partner records instead of downloading everything
+       and throwing 91% of it away (2026-09-10): 319 documents to display 28.
+       partnerIsland is a single field and Firestore indexes those automatically,
+       so this needs no firestore.indexes.json entry. recurringEvents are
+       skipped in partner scope: a programme never carries partnerIsland, so
+       every one was discarded anyway. LDAH scope is untouched. */
+    var _sq = _eaScopedEventsQuery();
+    var _scopePip = _sq.pip;
+    var evSnapProm = _sq.query.get();
+    var recSnapProm = _scopePip ? Promise.resolve(null) : db.collection('recurringEvents').get();
     var fbSnapProm = db.collection('eventFeedback').get();
     var results = await Promise.all([evSnapProm, recSnapProm, fbSnapProm]);
     var evSnap = results[0], recSnap = results[1], fbSnap = results[2];
 
     var allEvents = [];
     evSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'events', ...d.data() }); });
-    recSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'recurringEvents', ...d.data() }); });
+    if (recSnap) recSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'recurringEvents', ...d.data() }); });
 
     // Lazy-load split (perf): 'initial' (default) skips One-Off events so we
     // don't fetch a signups sub-collection for the ~130 one-off cards on every
@@ -47663,6 +47890,14 @@ window.cmsBuildStaffActivityReport = async function() {
     var rows = [];
     var titles = {};
     // Hard cap: never include event-dates strictly after today (local time).
+    // A one-off dated in the FUTURE is the exception (Daniel, 2026-09-10).
+    // Partners have no access to Events & Programs, so this report is the only
+    // place they can reach their own records — including the upcoming one they
+    // just created to print a QR table flyer for. Dropping it here meant they
+    // created an event and it vanished. Programmes are unaffected: a future
+    // session of a recurring programme really is noise in an attendance report.
+    var _eaKeepFuture = function(ev) { return !!(ev && ev.isOneOff === true); };
+
     // The report is for completed events only; future dates are noise.
     // Dateless legacy entries (dt === null) are kept — only the parseable
     // future dates are dropped.
@@ -47751,14 +47986,14 @@ window.cmsBuildStaffActivityReport = async function() {
         sigDates.forEach(function(raw) {
           var dt = _rsParseSessionDate(raw);
           if (!dt) return;
-          if (_isFutureDate(dt)) return; // skip future event-dates
+          if (_isFutureDate(dt) && !_eaKeepFuture(ev)) return; // skip future event-dates
           rows.push(_buildRow(ev, raw, dt, signups, feedback, false, true));
         });
       } else {
         // Single-date one-time: one row using eventDate / signupDates[0] / fallback
         var raw = sigDates[0] || ev.eventDate || ev.date || '';
         var dt = _rsParseSessionDate(raw);
-        if (_isFutureDate(dt)) return; // skip future event-dates
+        if (_isFutureDate(dt) && !_eaKeepFuture(ev)) return; // skip future event-dates
         rows.push(_buildRow(ev, raw || null, dt, signups, feedback, false, false));
       }
     });
@@ -48183,6 +48418,13 @@ window.cmsBuildStaffActivityReport = async function() {
     var encId = _attrJsArg(r.id);
     var eventType = (r.eventDoc && r.eventDoc.isOneOff) ? 'One-Off' : _classifyEAEventType(r.eventTitle, r.eventDoc);
     var colors = _EA_TYPE_COLORS[eventType] || _EA_TYPE_COLORS['Other Event'];
+    /* An upcoming event wears the colour of the button that made it, so the
+       teal on the card, the teal on "+ Add Upcoming Event" and the teal on
+       "QR flyer" all mean the same thing. (Daniel, 2026-09-10) */
+    if (r.eventDoc && r.eventDoc.qrTableEvent === true) {
+      eventType = 'Upcoming';
+      colors = { bg: '#0D9488', text: '#fff' };
+    }
     var html = '';
     html += '<div class="cms-card ea-card-v2" data-session-key="' + encId + '" onclick="openEAModal(decodeURIComponent(\'' + encId + '\'))" style="cursor:pointer;border-left:4px solid ' + colors.bg + ';">';
     html += '<span class="ea-type-chip" style="background:' + colors.bg + ';color:' + colors.text + ';">' + _esc(eventType) + '</span>';
@@ -48202,6 +48444,16 @@ window.cmsBuildStaffActivityReport = async function() {
     html += '<span class="ea-pill">Evals: ' + (r.evaluationCount == null ? 0 : r.evaluationCount) + '</span>';
     html += '<span class="ea-pill">' + (r.tier ? _esc(r.tier) : 'Tier —') + '</span>';
     html += '</div>';
+    /* QR flyer on the REPORT card as well as the CMS one: partners have no
+       access to Events & Programs, so this report is the only surface they can
+       reach. One-offs only — a programme is not a table. */
+    if (r.eventDoc && r.eventDoc.qrTableEvent === true && r.eventId) {
+      html += '<div style="margin-top:10px;">'
+        + '<button class="btn btn-ghost" title="Print an 8x10 table flyer with a sign-up QR"'
+        + ' style="font-size:.75rem;padding:4px 10px;color:#0D9488;font-weight:700;border:1px solid #99f6e4;border-radius:6px;background:#f0fdfa;cursor:pointer;"'
+        + ' onclick="event.stopPropagation();cmsTableFlyer(' + _jsArg(r.eventId) + ',' + _jsArg(r.eventTitle || '') + ')">QR flyer</button>'
+        + '</div>';
+    }
     html += '</div>';
     return html;
   }
@@ -48389,6 +48641,29 @@ window.cmsBuildStaffActivityReport = async function() {
 
   // ── Follow Up Support computation ──
   // 4 rows: Parent (returning), Youth with Disability, Professional/Other, Military Active.
+  /* A booth capture (the special.html QR form) writes its answers to
+     signup.specialCapture, not signup.registration — the two forms were built
+     for different journeys and nothing ever reconciled them. Every tally below
+     reads registration, so a QR capture counted as an ATTENDEE but contributed
+     nothing at all to Age of Children, Primary Ethnicity or Federal Disability
+     Categories: the person showed up in the total and vanished from the
+     breakdown. (Daniel found this on the first live scan, 2026-09-10.)
+
+     The field names are identical on both sides, so one shim fixes every
+     tally. registration wins where it has a value; the capture fills the rest,
+     which keeps a normal signup behaving exactly as before. */
+  function _eaSignupReg(s) {
+    var reg = (s && s.registration) || {};
+    var cap = (s && s.specialCapture) || null;
+    if (!cap) return reg;
+    var out = {};
+    Object.keys(cap).forEach(function(k) { out[k] = cap[k]; });
+    Object.keys(reg).forEach(function(k) {
+      if (reg[k] !== null && reg[k] !== undefined && reg[k] !== '') out[k] = reg[k];
+    });
+    return out;
+  }
+
   function _computeFollowUp(r) {
     var sigById = {};
     r.signups.forEach(function(s) { sigById[s.id] = s; });
@@ -48428,7 +48703,7 @@ window.cmsBuildStaffActivityReport = async function() {
     var counts = { '0-2':0, '3-5':0, '6-12':0, '13-17':0, 'Adult':0 };
     r.signups.forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
-      var reg = s.registration || {};
+      var reg = _eaSignupReg(s);
       // Multi-child registration: registration.children[] is the canonical home
       var children = Array.isArray(reg.children) ? reg.children : null;
       if (children && children.length) {
@@ -48451,7 +48726,7 @@ window.cmsBuildStaffActivityReport = async function() {
     _eaEthnicityBuckets.forEach(function(b) { counts[b] = 0; });
     r.signups.forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
-      var reg = s.registration || {};
+      var reg = _eaSignupReg(s);
       var children = Array.isArray(reg.children) ? reg.children : null;
       if (children && children.length) {
         children.forEach(function(c) {
@@ -48472,7 +48747,7 @@ window.cmsBuildStaffActivityReport = async function() {
     _eaDisabList.forEach(function(d) { counts[d] = 0; });
     r.signups.forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
-      var reg = s.registration || {};
+      var reg = _eaSignupReg(s);
       var children = Array.isArray(reg.children) ? reg.children : null;
       var lists = [];
       if (children && children.length) {
@@ -48761,15 +49036,20 @@ window.cmsBuildStaffActivityReport = async function() {
 
   window.cmsEAClearFilters = function() {
     var _td = new Date();
-    var _todayIso = _td.getFullYear() + '-' +
-      String(_td.getMonth() + 1).padStart(2, '0') + '-' +
-      String(_td.getDate()).padStart(2, '0');
+    // TO defaults to the END OF THE CALENDAR YEAR, not today (Daniel,
+    // 2026-09-10). Today as the ceiling quietly hid every upcoming one-off,
+    // which is exactly what a partner opens this report to find.
+    var _todayIso = _td.getFullYear() + '-12-31';
     /* Clear resets to the same default the report opens with, which for a
        partner is All — otherwise clearing filters would empty their report. */
     var _eaPartnerClear = !!(window.isPartnerUser && window.isPartnerUser());
     _eaCache.filters = { search: '', year: String(new Date().getFullYear()),
                          program: _eaPartnerClear ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
-    _eaCache.showZero = false; // v125.0.0 — reset the 0-attendance toggle on clear
+    /* 0-attendance defaults ON for PIP and OFF for LDAH (Daniel, 2026-09-10).
+       Partner work is mostly Facebook posts and upcoming one-offs, both of
+       which legitimately carry no attendance — hiding them by default emptied
+       the report. LDAH keeps the old default. */
+    _eaCache.showZero = _eaPartnerClear || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
     /* Scope deliberately survives Clear. It answers "whose events is this
        report about", not "which of them am I looking at", and silently
        switching a superAdmin back to LDAH while they were reading PIP would
@@ -49255,6 +49535,9 @@ window._cmsHideReportPanels = function () {
     ['_cdDestroyCharts', '_isDestroyCharts', '_nhrDestroyCharts', '_warDestroyCharts']
       .forEach(function (fn) { try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {} });
     document.body.classList.remove('ea-fullwidth-mode');
+    /* Release the Event Attendance listeners - an open Firestore stream that
+       keeps rebuilding a report nobody is looking at. */
+    try { if (typeof window._eaDetachLive === 'function') window._eaDetachLive(); } catch (_) {}
   } catch (e) { console.warn('_cmsHideReportPanels:', e && e.message); }
 };
 
@@ -49416,6 +49699,7 @@ window.ihExportCSV = function () {
   window.cmsCloseEventAttendanceReport = function() {
     _cmsShowOnlyReport(null);
     document.body.classList.remove('ea-fullwidth-mode');
+    try { if (typeof window._eaDetachLive === 'function') window._eaDetachLive(); } catch (_) {}
   };
 
   window.cmsBuildEventAttendanceReport = async function() {
@@ -49441,9 +49725,8 @@ window.ihExportCSV = function () {
       // builder already excludes future dates — but gives the user visual
       // feedback that the report ends at today. User can still narrow further.
       var _td = new Date();
-      var _todayIso = _td.getFullYear() + '-' +
-        String(_td.getMonth() + 1).padStart(2, '0') + '-' +
-        String(_td.getDate()).padStart(2, '0');
+      // End of the calendar year, not today — see cmsEAClearFilters.
+      var _todayIso = _td.getFullYear() + '-12-31';
       /* Partners record their work as one-off events almost exclusively, so the
          standard "Programs & Events" default showed them an empty report. They
          open on All. (2026-09-02) */
@@ -49456,7 +49739,8 @@ window.ihExportCSV = function () {
       var _eaWantsAll = _eaPartner || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
       _eaCache.filters = { search: '', year: hasCurrentYear ? currentYear : '',
                            program: _eaWantsAll ? '__all__' : '__programs__', tier: '', from: '', to: _todayIso };
-      _eaCache.showZero = false; // v125.0.0 default OFF on every build
+      // PIP opens with 0-attendance shown; LDAH keeps the old default OFF.
+      _eaCache.showZero = _eaWantsAll;
       _eaCache.oneOffsLoaded = false; _eaCache.oneOffsLoading = false; // One-Offs deferred until the user asks
       _renderFilterBar();
       if (_eaWantsAll) {
@@ -49468,6 +49752,7 @@ window.ihExportCSV = function () {
         _renderCardList();
       }
       auditLog('Generated Event Attendance Report', built.rows.length + ' event-dates');
+      _eaAttachLive();
     } catch (err) {
       console.error('cmsBuildEventAttendanceReport error:', err);
       if (listHost) listHost.innerHTML = '<div style="background:#fff;border-radius:var(--radius);padding:18px;color:#DC2626;text-align:center;box-shadow:var(--shadow-soft);">Error building report: ' + _esc(err.message) + '</div>';
@@ -49722,6 +50007,11 @@ window.ihExportCSV = function () {
   // per attendee, so the report renders it with no report changes.
   var _ooAttendees = [];          // [{contactId,name,email,phone,type,_contact,_existing}]
   var _ooEditId = null;           // eventId when editing, else null
+  /* Upcoming mode (2026-09-10). A one-off is normally a record of something
+     that already happened, so it saves archived. An upcoming event has not
+     happened: it stays live until the day after, gets a QR table flyer, and is
+     archived by the nightly sweep once it is over. */
+  var _ooFutureMode = false;
   var _ooExistingContactIds = {}; // contactIds already signed up (edit mode)
 
   function _ooReg(c) {
@@ -49905,8 +50195,9 @@ window.ihExportCSV = function () {
     sel.value = selected || '';
   }
 
-  window.cmsOpenOneOffModal = async function(editId) {
+  window.cmsOpenOneOffModal = async function(editId, futureMode) {
     _ooEditId = editId || null;
+    _ooFutureMode = !!futureMode;
     _ooAttendees = [];
     _ooExistingContactIds = {};
     try { if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') await window.loadContacts(); } catch (_) {}
@@ -49921,7 +50212,9 @@ window.ihExportCSV = function () {
     }
     var presenterSel = '', matPacked = {}, matDiss = {};
     var ov = document.getElementById('oneOffOverlay');
-    document.getElementById('oneOffModalTitle').textContent = _ooEditId ? 'Edit One-Off Event' : 'Add One-Off Event';
+    document.getElementById('oneOffModalTitle').textContent = _ooEditId
+      ? 'Edit One-Off Event'
+      : (_ooFutureMode ? 'Add Upcoming Event' : 'Add One-Off Event');
     document.getElementById('oneOffName').value = '';
     document.getElementById('oneOffLocation').value = '';
     document.getElementById('oneOffTier').value = '';
@@ -49985,6 +50278,9 @@ window.ihExportCSV = function () {
         var doc = await db.collection('events').doc(_ooEditId).get();
         if (doc.exists) {
           var d = doc.data();
+          /* Editing an upcoming event must not archive it. The save below
+             writes archived from this flag, so carry it in from the doc. */
+          if (d.qrTableEvent === true) _ooFutureMode = true;
           document.getElementById('oneOffName').value = d.title || '';
           presenterSel = (d.summary && d.summary.presenter) || '';
           if (_isPartner) {
@@ -50066,7 +50362,7 @@ window.ihExportCSV = function () {
       if (eventId) {
         var _ooUpd = {
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, archived: true, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
+          isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
         };
         if (_ooPartnerChange !== null) {
           _ooUpd.partnerIsland = (_ooPartnerChange === '')
@@ -50082,7 +50378,12 @@ window.ihExportCSV = function () {
         var _ooNew = window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments },
-            partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [], archived: true,
+            partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [],
+          /* Upcoming events stay live until the day after they happen — the
+             nightly sweep archives them then. Only these carry qrTableEvent,
+             which is what puts a QR flyer button on the card: a record of
+             something that already happened has nothing to sign up for. */
+          archived: !_ooFutureMode, qrTableEvent: _ooFutureMode,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
         });
         /* Staff entering a partner's event: partnerStamp is a no-op for them, so
