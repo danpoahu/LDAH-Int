@@ -5413,7 +5413,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.22-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.23-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6943,6 +6943,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseEventAttendanceReport()">&larr; Back to Reports</button>
             <h2 style="font-family:'Outfit',sans-serif;color:var(--ocean-deep);margin:0;flex:1;">Event Attendance Report</h2>
             <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#DB2777;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="cmsOpenOneOffModal()">+ Add One-Off Event</button>
+            <!-- Upcoming events are a different animal: they have not happened,
+                 so they must NOT be archived on save, and they are the only
+                 ones that get a QR table flyer. Teal to match that button. -->
+            <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#0D9488;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px;" onclick="cmsOpenOneOffModal(null, true)">+ Add Upcoming Event</button>
             <span id="eaReportCount" style="font-size:.82rem;color:var(--text-soft);"></span>
           </div>
           <div id="eaFilterBar" style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px;margin-bottom:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end;">
@@ -29854,7 +29858,7 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
     // (kiosk QR above), NOT flyer/info (no signups), NOT recurring programs.
     // A one-off gets the table flyer instead — its QR points at the short
     // table form, not the public events page, which never lists a one-off.
-    if (ev.isOneOff === true && !_isFlyerCard) {
+    if (ev.qrTableEvent === true && !_isFlyerCard) {
       html += '<span class="cms-card-util">'
         + '<button class="btn btn-ghost" title="Print an 8x10 table flyer with a sign-up QR"'
         + ' style="font-size:.78rem;padding:5px 10px;color:#0D9488;font-weight:700;"'
@@ -48288,7 +48292,7 @@ window.cmsBuildStaffActivityReport = async function() {
        button has to be here or the feature cannot be used by the people it was
        built for. One-offs only — a programme is not a table. stopPropagation
        keeps the card from opening the attendance modal underneath. */
-    if (r.eventDoc && r.eventDoc.isOneOff === true && r.eventId) {
+    if (r.eventDoc && r.eventDoc.qrTableEvent === true && r.eventId) {
       html += '<div style="margin-top:10px;">'
         + '<button class="btn btn-ghost" title="Print an 8x10 table flyer with a sign-up QR"'
         + ' style="font-size:.75rem;padding:4px 10px;color:#0D9488;font-weight:700;border:1px solid #99f6e4;border-radius:6px;background:#f0fdfa;cursor:pointer;"'
@@ -50367,6 +50371,11 @@ window.prExportCsv = function() {
   // per attendee, so the report renders it with no report changes.
   var _ooAttendees = [];          // [{contactId,name,email,phone,type,_contact,_existing}]
   var _ooEditId = null;           // eventId when editing, else null
+  /* Upcoming mode (2026-09-10). A one-off is normally a record of something
+     that already happened, so it saves archived. An upcoming event has not
+     happened: it stays live until the day after, gets a QR table flyer, and is
+     archived by the nightly sweep once it is over. */
+  var _ooFutureMode = false;
   var _ooExistingContactIds = {}; // contactIds already signed up (edit mode)
 
   function _ooReg(c) {
@@ -50550,8 +50559,9 @@ window.prExportCsv = function() {
     sel.value = selected || '';
   }
 
-  window.cmsOpenOneOffModal = async function(editId) {
+  window.cmsOpenOneOffModal = async function(editId, futureMode) {
     _ooEditId = editId || null;
+    _ooFutureMode = !!futureMode;
     _ooAttendees = [];
     _ooExistingContactIds = {};
     try { if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') await window.loadContacts(); } catch (_) {}
@@ -50566,7 +50576,9 @@ window.prExportCsv = function() {
     }
     var presenterSel = '', matPacked = {}, matDiss = {};
     var ov = document.getElementById('oneOffOverlay');
-    document.getElementById('oneOffModalTitle').textContent = _ooEditId ? 'Edit One-Off Event' : 'Add One-Off Event';
+    document.getElementById('oneOffModalTitle').textContent = _ooEditId
+      ? 'Edit One-Off Event'
+      : (_ooFutureMode ? 'Add Upcoming Event' : 'Add One-Off Event');
     document.getElementById('oneOffName').value = '';
     document.getElementById('oneOffLocation').value = '';
     document.getElementById('oneOffTier').value = '';
@@ -50630,6 +50642,9 @@ window.prExportCsv = function() {
         var doc = await db.collection('events').doc(_ooEditId).get();
         if (doc.exists) {
           var d = doc.data();
+          /* Editing an upcoming event must not archive it. The save below
+             writes archived from this flag, so carry it in from the doc. */
+          if (d.qrTableEvent === true) _ooFutureMode = true;
           document.getElementById('oneOffName').value = d.title || '';
           presenterSel = (d.summary && d.summary.presenter) || '';
           if (_isPartner) {
@@ -50711,7 +50726,7 @@ window.prExportCsv = function() {
       if (eventId) {
         var _ooUpd = {
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, archived: true, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
+          isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
         };
         if (_ooPartnerChange !== null) {
           _ooUpd.partnerIsland = (_ooPartnerChange === '')
@@ -50727,7 +50742,12 @@ window.prExportCsv = function() {
         var _ooNew = window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments },
-            partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [], archived: true,
+            partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [],
+          /* Upcoming events stay live until the day after they happen — the
+             nightly sweep archives them then. Only these carry qrTableEvent,
+             which is what puts a QR flyer button on the card: a record of
+             something that already happened has nothing to sign up for. */
+          archived: !_ooFutureMode, qrTableEvent: _ooFutureMode,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
         });
         /* Staff entering a partner's event: partnerStamp is a no-op for them, so
