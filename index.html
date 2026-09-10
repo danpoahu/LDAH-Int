@@ -5407,7 +5407,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.52</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.53</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9755,6 +9755,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <label class="wp-r"><input type="radio" name="wpGround" value="agency" onchange="_wpTravelHint()"> Yes &mdash; contact agency to provide</label>
             <label class="wp-r"><input type="radio" name="wpGround" value="rentacar" onchange="_wpTravelHint()"> Yes &mdash; rent-a-car, LDAH</label>
           </div>
+        </div>
+        <div class="wp-f" id="wpTravelApproverWrap" style="display:none;">
+          <label>Who approves this travel?</label>
+          <select id="wpTravelApprover" onchange="_wpTravelHint()"></select>
         </div>
         <div id="wpTravelHint" class="wp-hint" style="display:none;"></div>
 
@@ -21165,6 +21169,7 @@ window.openContactDetail = async function(contactId) {
     _wpRadio('wpFlyers', d.flyers || '');
     _wpRadio('wpAir', d.airlineTravel || '');
     _wpRadio('wpGround', d.groundTransport || '');
+    _wpFillTravelApprovers(d.travelApproverUid || '');
     _wpRadio('wpStatus', d.status || 'open');
 
     _wpSet('wpEdPending', d.edPending || '');
@@ -21207,15 +21212,80 @@ window.openContactDetail = async function(contactId) {
     box.style.display = 'flex';
   }
 
+  // The approver list: LDAH staff only. Partners run their own islands and do
+  // not authorise LDAH spend; the IT_Help break-glass account is not a person;
+  // archived accounts (La'a, Maria Kashem) must not still be handed a live task;
+  // and Daniel asked to be left off it entirely.
+  //
+  // YOU CANNOT PICK YOURSELF. Daniel, 2026-09-10: "they should not be able to
+  // pick themselves, that's the whole point of this." Self-approval would make
+  // the step ceremonial. This is also why Noe never sees her own name: she is
+  // the one who fills this form.
+  var WORKSHOP_TRAVEL_APPROVER_EXCLUDE_UID = 'YmGV2TlBGqR01dVdxZ0rtFLEFCG3';
+  var _wpApproverCache = null;   // the pickable list — excludes self
+  var _wpApproverNames = {};     // every staff name, so a saved value still renders
+  async function _wpFillTravelApprovers(selectedUid) {
+    var sel = document.getElementById('wpTravelApprover');
+    if (!sel) return;
+    var meUid = (window.currentUserData || {}).uid || '';
+    if (!_wpApproverCache) {
+      _wpApproverCache = [];
+      try {
+        var snap = await db.collection('userRoles').get();
+        var seen = {};
+        snap.forEach(function(doc) {
+          var x = doc.data() || {};
+          if (['superAdmin', 'admin', 'webAdmin'].indexOf(x.role) === -1) return;
+          if (x.isArchived === true) return;
+          var nm = x.displayName || x.email || doc.id;
+          if (/it[\s._-]*help/i.test(nm) || /it[\s._-]*help/i.test(x.email || '')) return;
+          _wpApproverNames[doc.id] = nm;
+          if (doc.id === WORKSHOP_TRAVEL_APPROVER_EXCLUDE_UID) return;
+          if (doc.id === meUid) return;              // no approving your own travel
+          var key = String(x.email || doc.id).toLowerCase();
+          if (seen[key]) return;
+          seen[key] = true;
+          _wpApproverCache.push({ uid: doc.id, name: nm });
+        });
+        _wpApproverCache.sort(function(a, b) { return a.name.localeCompare(b.name); });
+      } catch (e) {
+        console.warn('travel approvers could not be loaded:', e.message);
+      }
+    }
+    var want = selectedUid || sel.value || '';
+    var opts = _wpApproverCache.slice();
+    // A form already assigned to whoever is now reading it must still show that
+    // name, or merely opening the form would blank the field and a draft save
+    // would quietly lose it. Displayed, but never newly choosable.
+    if (want && !opts.some(function(o) { return o.uid === want; })) {
+      opts.unshift({ uid: want, name: (_wpApproverNames[want] || 'Assigned approver') });
+    }
+    sel.innerHTML = '<option value="">\u2014 choose who approves \u2014</option>' +
+      opts.map(function(s2) {
+        return '<option value="' + s2.uid + '">' + s2.name + '</option>';
+      }).join('');
+    if (want) sel.value = want;
+    window._wpTravelHint();
+  }
+  window._wpFillTravelApprovers = _wpFillTravelApprovers;
+
   window._wpTravelHint = function() {
     var el = document.getElementById('wpTravelHint');
+    var wrap = document.getElementById('wpTravelApproverWrap');
+    var sel = document.getElementById('wpTravelApprover');
     if (!el) return;
     var air = _wpGetRadio('wpAir'), ground = _wpGetRadio('wpGround');
     if (air === 'yes' || ground === 'rentacar') {
+      if (wrap) wrap.style.display = '';
+      if (sel && !sel.options.length) { _wpFillTravelApprovers(''); return; }
+      var who = (sel && sel.selectedIndex > 0) ? sel.options[sel.selectedIndex].text : '';
       el.style.display = 'block';
-      el.innerHTML = 'Submitting this sends <b>Rosie</b> a task to authorise the travel. Once she approves it, ' +
-        '<b>Admin</b> gets a task to book the flights and lodging on page 2.';
+      el.innerHTML = who
+        ? 'Submitting this sends <b>' + who + '</b> a task to authorise the travel. Once ' +
+          'approved, <b>Admin</b> gets a task to book the flights and lodging on page 2.'
+        : 'Choose who approves this travel \u2014 they get the task as soon as you submit.';
     } else {
+      if (wrap) wrap.style.display = 'none';
       el.style.display = 'none';
     }
   };
@@ -21270,6 +21340,11 @@ window.openContactDetail = async function(contactId) {
       agencyFax: g('wpAgencyFax'), agencyEmail: g('wpAgencyEmail'),
       flyers: _wpGetRadio('wpFlyers'),
       airlineTravel: _wpGetRadio('wpAir'), groundTransport: _wpGetRadio('wpGround'),
+      travelApproverUid: (document.getElementById('wpTravelApprover') || {}).value || '',
+      travelApproverName: (function() {
+        var el = document.getElementById('wpTravelApprover');
+        return (el && el.selectedIndex > 0) ? el.options[el.selectedIndex].text : '';
+      })(),
       status: _wpGetRadio('wpStatus'),
       edPending: g('wpEdPending'), edReceived: g('wpEdReceived'),
       airDone: g('wpAirDone'), airFwd: g('wpAirFwd'),
@@ -21290,6 +21365,9 @@ window.openContactDetail = async function(contactId) {
       if (!data.island) missing.push('the island');
       if (!_wpGetRadio('wpAir')) missing.push('whether airline travel is needed');
       if (!_wpGetRadio('wpGround')) missing.push('ground transportation');
+      var _needsTravel = _wpGetRadio('wpAir') === 'yes' || _wpGetRadio('wpGround') === 'rentacar';
+      var _appr = (document.getElementById('wpTravelApprover') || {}).value || '';
+      if (_needsTravel && !_appr) missing.push('who approves the travel');
       if (missing.length) {
         alert('Before submitting, please fill in ' + missing.join(', ') + '.');
         return;
@@ -21315,7 +21393,9 @@ window.openContactDetail = async function(contactId) {
       if (window.auditLog) window.auditLog(submit ? 'Submitted Workshop & Presentation form' : 'Saved Workshop form draft', data.eventTitle);
       if (submit) {
         var travel = data.airlineTravel === 'yes' || data.groundTransport === 'rentacar';
-        _showToast(travel ? 'Submitted. Rosie has a task to authorise the travel.' : 'Submitted.', '#16A34A');
+        _showToast(travel
+          ? 'Submitted. ' + (data.travelApproverName || 'The approver') + ' has a task to authorise the travel.'
+          : 'Submitted.', '#16A34A');
         setTimeout(closeWorkshopForm, 900);
       }
     } catch (e) {
