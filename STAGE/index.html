@@ -5413,7 +5413,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.27-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.28-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10518,6 +10518,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       var _waRIG = document.getElementById('websiteAppAnalyticsInGrid'); if (_waRIG) _waRIG.style.display = 'none';
       try { if (typeof _warDestroyCharts === 'function') _warDestroyCharts(); } catch(_){}
       document.body.classList.remove('ea-fullwidth-mode');
+      /* Release the Event Attendance listeners. Leaving them attached would
+         keep a Firestore stream open — and, worse, keep rebuilding a report
+         that is no longer on screen. */
+      try { if (typeof window._eaDetachLive === 'function') window._eaDetachLive(); } catch (_) {}
       var _iGH = document.getElementById('inGridHost');
       if (_iGH && _iGH._hostedSection) {
         _iGH._hostedSection.style.display = 'none';
@@ -12833,6 +12837,10 @@ var _photoPendingByIsland = {};
       var _waRIG = document.getElementById('websiteAppAnalyticsInGrid'); if (_waRIG) _waRIG.style.display = 'none';
       try { if (typeof _warDestroyCharts === 'function') _warDestroyCharts(); } catch(_){}
       document.body.classList.remove('ea-fullwidth-mode');
+      /* Release the Event Attendance listeners. Leaving them attached would
+         keep a Firestore stream open — and, worse, keep rebuilding a report
+         that is no longer on screen. */
+      try { if (typeof window._eaDetachLive === 'function') window._eaDetachLive(); } catch (_) {}
       var _iGH = document.getElementById('inGridHost');
       if (_iGH && _iGH._hostedSection) {
         _iGH._hostedSection.style.display = 'none';
@@ -47675,6 +47683,96 @@ window.cmsBuildStaffActivityReport = async function() {
     return false;
   }
 
+  /* One definition of "which events does this viewer see", used by the loader
+     AND by the live listener below. Two copies would drift, and a listener
+     watching a different set from the one on screen is worse than no listener. */
+  /* ── Live report (2026-09-10) ────────────────────────────────────────────
+     Daniel: "add a listener so we don't have to refresh and redownload the
+     events to see the eval or attended updates."
+
+     Two listeners, both narrow:
+       * the SCOPED events query — 28 documents in PIP, not 217. This catches
+         more than it looks: handleSignupCreated increments signupCount on the
+         parent event, so a new QR capture at a table touches the event doc and
+         wakes this up. It also catches a new event, a deleted one, and any
+         edit to tier, date or attendance overrides.
+       * eventFeedback — an eval landing is the other half of what he asked for.
+
+     Debounced, because a burst of captures at a busy table would otherwise
+     rebuild the list once per scan. The first snapshot of each listener is
+     dropped: Firestore delivers current state immediately, which is what the
+     page just finished rendering.
+
+     KNOWN LIMIT, stated rather than hidden: flipping an EXISTING signup to
+     attended does not touch the parent event, so that one still needs a
+     refresh. Catching it would need a collection-group listener over all 358
+     signups, which costs more than it saves. */
+  var _eaLiveUnsubs = [];
+  var _eaLiveDebounce = null;
+
+  function _eaDetachLive() {
+    _eaLiveUnsubs.forEach(function(u) { try { u(); } catch (_) {} });
+    _eaLiveUnsubs = [];
+    if (_eaLiveDebounce) { clearTimeout(_eaLiveDebounce); _eaLiveDebounce = null; }
+  }
+  window._eaDetachLive = _eaDetachLive;
+
+  async function _eaLiveRefresh() {
+    if (!_eaCache.built) return;
+    try {
+      /* Rebuild the DATA, keep the VIEW. cmsBuildEventAttendanceReport resets
+         filters to defaults, so calling it here would wipe whatever the user
+         had typed every time somebody scanned a QR code. */
+      var keepFilters = _eaCache.filters;
+      var keepZero = _eaCache.showZero;
+      var built = await _enumerateEventDates(_eaCache.oneOffsLoaded ? 'all' : undefined);
+      _eaCache.eventDates = built.rows;
+      _eaCache.eventTitlesById = built.titles;
+      _eaCache.filters = keepFilters;
+      _eaCache.showZero = keepZero;
+      _renderFilterBar();
+      _renderCardList();
+    } catch (e) {
+      console.warn('EA live refresh failed:', e.message);
+    }
+  }
+
+  function _eaAttachLive() {
+    _eaDetachLive();
+    var bump = function() {
+      if (_eaLiveDebounce) clearTimeout(_eaLiveDebounce);
+      _eaLiveDebounce = setTimeout(_eaLiveRefresh, 900);
+    };
+    var seenEvents = false, seenFeedback = false;
+    try {
+      _eaLiveUnsubs.push(_eaScopedEventsQuery().query.onSnapshot(function() {
+        if (!seenEvents) { seenEvents = true; return; }   // initial state, already on screen
+        bump();
+      }, function(err) { console.warn('EA events listener:', err.message); }));
+      _eaLiveUnsubs.push(db.collection('eventFeedback').onSnapshot(function() {
+        if (!seenFeedback) { seenFeedback = true; return; }
+        bump();
+      }, function(err) { console.warn('EA feedback listener:', err.message); }));
+    } catch (e) {
+      console.warn('EA live listeners could not attach:', e.message);
+    }
+  }
+
+  function _eaScopedEventsQuery() {
+    var partner = !!(window.isPartnerUser && window.isPartnerUser());
+    var pip = partner || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
+    var q = db.collection('events');
+    if (partner) {
+      var isl = window.currentPartnerIsland();
+      /* No island resolved means this account can own nothing. Querying for ''
+         would return everything unstamped, the opposite of the truth. */
+      q = q.where('partnerIsland', '==', isl || '\u0000__none__');
+    } else if (pip) {
+      q = q.where('partnerIsland', 'in', PARTNER_ISLANDS);
+    }
+    return { query: q, pip: pip, partner: partner };
+  }
+
   // Enumerate all event-dates across recurring + one-time events.
   // Returns one descriptor per session date (recurring: from cached
   // signups' sessionAttendance keys + signupDates; one-time: per
@@ -47692,18 +47790,9 @@ window.cmsBuildStaffActivityReport = async function() {
        recurringEvents are skipped outright in partner scope. A programme never
        carries partnerIsland, so _partnerScopeOK discarded all 11 every time.
        LDAH scope is untouched — it needs the full set to filter partners OUT. */
-    var _scopePartner = !!(window.isPartnerUser && window.isPartnerUser());
-    var _scopePip = _scopePartner || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
-    var _evQuery = db.collection('events');
-    if (_scopePartner) {
-      var _myIsland = window.currentPartnerIsland();
-      /* No island resolved means this account can own nothing. Querying for ''
-         would return everything unstamped, which is the opposite of the truth. */
-      _evQuery = _evQuery.where('partnerIsland', '==', _myIsland || '\u0000__none__');
-    } else if (_scopePip) {
-      _evQuery = _evQuery.where('partnerIsland', 'in', PARTNER_ISLANDS);
-    }
-    var evSnapProm = _evQuery.get();
+    var _sq = _eaScopedEventsQuery();
+    var _scopePip = _sq.pip;
+    var evSnapProm = _sq.query.get();
     var recSnapProm = _scopePip ? Promise.resolve(null) : db.collection('recurringEvents').get();
     var fbSnapProm = db.collection('eventFeedback').get();
     var results = await Promise.all([evSnapProm, recSnapProm, fbSnapProm]);
@@ -50159,6 +50248,7 @@ window.prExportCsv = function() {
         _renderCardList();
       }
       auditLog('Generated Event Attendance Report', built.rows.length + ' event-dates');
+      _eaAttachLive();
     } catch (err) {
       console.error('cmsBuildEventAttendanceReport error:', err);
       if (listHost) listHost.innerHTML = '<div style="background:#fff;border-radius:var(--radius);padding:18px;color:#DC2626;text-align:center;box-shadow:var(--shadow-soft);">Error building report: ' + _esc(err.message) + '</div>';
