@@ -3163,6 +3163,19 @@
 .ed-sig{ flex:0 0 auto; font-size:.62rem; font-weight:800; line-height:1.55; padding:0 6px; border-radius:999px;
          border:1px solid #DDD6FE; background:#F5F3FF; color:#7C3AED; white-space:nowrap; cursor:default; }
 .ed-sig.pend{ border-color:#E2E8F0; background:#F8FAFC; color:#94A3B8; font-weight:700; }
+    /* Cancelled sessions on the calendar. They used to be dropped from the grid
+       entirely - the cell simply emptied, so "is the 28th still on?" could only
+       be answered from the event card's red count. Shown here instead, and
+       deliberately quiet: no dropdown, no signup pill, a dashed grey edge and a
+       struck title, so a cancelled date reads as information rather than as
+       another card needing a presenter. */
+    .ed-ev.cancelled{ border-left:3px dashed #CBD5E1; background:#FAFBFC; opacity:.72; }
+    .ed-ev.cancelled .ed-ev-t{ color:#94A3B8; font-weight:600; text-decoration:line-through; text-decoration-color:#CBD5E1; }
+    .ed-ev.cancelled .ed-ev-m{ color:#94A3B8; }
+    .ed-canc{ display:inline-block; margin-top:3px; font-size:.62rem; font-weight:800; line-height:1.55;
+              padding:0 6px; border-radius:999px; border:1px solid #FECACA; background:#FEF2F2; color:#B91C1C;
+              letter-spacing:.03em; text-transform:uppercase; white-space:nowrap; }
+    .ed-canc-why{ font-size:.64rem; color:#94A3B8; margin-top:2px; line-height:1.3; }
 @media(max-width:900px){ .ed-grid{ grid-template-columns:repeat(7,minmax(120px,1fr)); } .ed-cell{ min-height:96px; } }
 
 /* ── Resource Activity Tracking ── */
@@ -5413,7 +5426,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.33-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.34-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -31704,15 +31717,21 @@ async function edLoadEvents(fromIso, toIso) {
       });
     }
     sessions.forEach(function(sess) {
-      if (sess.cancelled) return;
       if (sess.date < fromIso || sess.date > toIso) return;
       var key = cmsBuildSessionKey(sess);
       var summ = (e.sessionSummaries && e.sessionSummaries[key]) || {};
+      /* Cancelled sessions used to be dropped right here, which left the
+         calendar cell empty - the only trace of a cancellation was the red
+         count on the event card. Keep them, flagged, and let edRender paint
+         them quietly. A cancelled session carries no presenter and takes no
+         signups, so nothing downstream treats it as work. */
       list.push({
         coll: 'recurringEvents', id: doc.id, title: e.title || 'Programme',
         date: sess.date, key: key,
         when: cmsFmt12(sess.startTime), where: sess.location || '',
-        presenter: summ.presenter || '', single: false, eventType: e.eventType || ''
+        presenter: sess.cancelled ? '' : (summ.presenter || ''), single: false,
+        eventType: e.eventType || '',
+        cancelled: !!sess.cancelled, cancelReason: sess.cancelReason || ''
       });
     });
   });
@@ -31901,7 +31920,8 @@ function _edSlotLabel(ev) {
 
 var _ED_NO_COUNT_TYPES = ['learning_labs', 'parent_talk_cafe'];
 function _edCountsSignups(ev) {
-  return !!ev && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
+  // A cancelled session takes no signups: no pill, and no subcollection read.
+  return !!ev && !ev.cancelled && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
 }
 
 // A signup stores its session as "YYYY-MM-DD|Location – Venue|H:MM AM – H:MM PM",
@@ -32057,14 +32077,36 @@ window.edRender = async function() {
       var _edGroups = [], _edSeenKey = {};
       (byDate[iso] || []).forEach(function(idx) {
         var e = _edEvents[idx];
-        var k = e.coll + '/' + e.id;
+        /* Cancelled groups separately: on 2nd/3rd Thursdays Connect-Gen runs
+           Oahu AND Hilo, and cancelling one must not fold the survivor into a
+           card painted as cancelled (or vice versa). */
+        var k = e.coll + '/' + e.id + (e.cancelled ? '/x' : '');
         if (_edSeenKey[k] === undefined) { _edSeenKey[k] = _edGroups.length; _edGroups.push([]); }
         _edGroups[_edSeenKey[k]].push(idx);
+      });
+
+      // Cancelled cards sit at the foot of the cell - what is still ON is what
+      // staff scan for first. (Array#sort is stable in every browser we target.)
+      _edGroups.sort(function(a, b) {
+        return (_edEvents[a[0]].cancelled ? 1 : 0) - (_edEvents[b[0]].cancelled ? 1 : 0);
       });
 
       _edGroups.forEach(function(idxs) {
         var idx = idxs[0];
         var ev = _edEvents[idx];
+        /* Cancelled: one small muted card. No dropdown, no signup pill, no
+           workshop button - there is nobody to assign and nothing to fill in.
+           It exists so the day does not read as free. */
+        if (ev.cancelled) {
+          var _cWhere = [ev.when, ev.where].filter(Boolean).join(' \u00b7 ');
+          html += '<div class="ed-ev cancelled" title="' + rsEscape(ev.title + (_cWhere ? ' \u2014 ' + _cWhere : '') + ' \u2014 cancelled') + '">';
+          html += '<div class="ed-ev-t">' + rsEscape(String(ev.title).slice(0, 46)) + '</div>';
+          if (_cWhere) html += '<div class="ed-ev-m">' + rsEscape(_cWhere) + '</div>';
+          html += '<span class="ed-canc">Cancelled</span>';
+          if (ev.cancelReason) html += '<div class="ed-canc-why">' + rsEscape(String(ev.cancelReason).slice(0, 60)) + '</div>';
+          html += '</div>';
+          return;
+        }
         /* An outreach booth is not a programme LDAH runs. Those time slots are
            the HOST event's agenda — presentations, a legislators' Q&A — and LDAH
            is staffing a table through the day. One person is in charge of the
@@ -32144,11 +32186,16 @@ window.edRender = async function() {
     _edSigToken++;
     _edFillSignupCounts(_edSigToken);
 
-    var assigned = _edEvents.filter(function(e){ return !!e.presenter; }).length;
+    /* Cancelled sessions are in _edEvents now so the grid can show them, but
+       they are not work: they must not inflate "needs a presenter". */
+    var _live = _edEvents.filter(function(e){ return !e.cancelled; });
+    var _cancelledN = _edEvents.length - _live.length;
+    var assigned = _live.filter(function(e){ return !!e.presenter; }).length;
     var lg = document.getElementById('edLegend');
     if (lg) lg.innerHTML =
       '<span><i style="background:#0d9488;"></i>Presenter assigned (' + assigned + ')</span>' +
-      '<span><i style="background:#F59E0B;"></i>Needs a presenter (' + (_edEvents.length - assigned) + ')</span>' +
+      '<span><i style="background:#F59E0B;"></i>Needs a presenter (' + (_live.length - assigned) + ')</span>' +
+      (_cancelledN ? '<span><i style="background:#CBD5E1;"></i>Cancelled (' + _cancelledN + ')</span>' : '') +
       '<span><i style="background:#7C3AED;"></i>Signups taken (not shown for Learning Labs or Parent Talk Cafe)</span>' +
       '<span>Presenters come from List Management &rarr; Presenters.</span>';
   } catch (e) {
