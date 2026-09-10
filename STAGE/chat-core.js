@@ -808,18 +808,41 @@ window.LDAHChat = (function () {
 
     // ── Roster: Online / Offline Users ──
     var _chatArchivedUids = new Set();
+    var _chatAllowedUids = null;   // uids holding a live, unarchived userRoles doc
     window.initChatRoster = function() {
       var myUid = getMyUid();
       if (!myUid) return;
 
-      // Load archived UIDs first, then start presence listener
-      db().collection('userRoles').where('isArchived', '==', true).get().then(function(archivedSnap) {
+      // Load the staff list FIRST, then start the presence listener.
+      //
+      // This used to filter on isArchived alone, which fails open in the one
+      // case that matters: a user DELETED from userRoles has no doc to mark as
+      // archived, so nothing excluded them and their presence doc sat in the
+      // roster forever. Linee Reeves left in March 2026 and was still listed in
+      // September. Her Firebase Auth account was properly deleted — she could
+      // not sign in — but her name was on everyone's screen for six months.
+      //
+      // So the test is now MEMBERSHIP, not absence of a flag: you appear in the
+      // roster only if you currently hold an unarchived userRoles doc. It also
+      // runs before the listener attaches rather than racing it.
+      function _startPresence() {
+        if (_chatRosterUnsub) _chatRosterUnsub();
+        _chatRosterUnsub = db().collection('chatPresence').onSnapshot(_onPresenceSnap, _onPresenceErr);
+      }
+      db().collection('userRoles').get().then(function(snap) {
+        _chatAllowedUids = new Set();
         _chatArchivedUids = new Set();
-        archivedSnap.forEach(function(doc) { _chatArchivedUids.add(doc.id); });
-      }).catch(function() { /* proceed without filter */ });
+        snap.forEach(function(doc) {
+          if ((doc.data() || {}).isArchived === true) { _chatArchivedUids.add(doc.id); return; }
+          _chatAllowedUids.add(doc.id);
+        });
+      }).catch(function() {
+        // Could not read the staff list — fall back to the old behaviour rather
+        // than showing an empty roster.
+        _chatAllowedUids = null;
+      }).then(_startPresence);
 
-      if (_chatRosterUnsub) _chatRosterUnsub();
-      _chatRosterUnsub = db().collection('chatPresence').onSnapshot(function(snap) {
+      function _onPresenceSnap(snap) {
         var online = [];
         var offline = [];
         var staleThreshold = Date.now() - (15 * 60 * 1000); // 15 min staleness check
@@ -827,6 +850,8 @@ window.LDAHChat = (function () {
           var d = doc.data();
           if (d.uid === myUid) return; // exclude self
           if (_chatArchivedUids.has(d.uid || doc.id)) return; // exclude archived
+          // Not on the current staff list at all — a deleted account's ghost.
+          if (_chatAllowedUids && !_chatAllowedUids.has(d.uid || doc.id)) return;
           // Hidden people are not rendered at all — not online, not offline.
           // An entry in either list is still their name on someone's screen.
           if (_presenceHidden(d.uid || doc.id, d)) return;
@@ -849,10 +874,11 @@ window.LDAHChat = (function () {
         _lastRosterOnline = online;
         _lastRosterOffline = offline;
         renderRoster(online, offline);
-      }, function(err) {
+      }
+      function _onPresenceErr(err) {
         console.warn('Chat roster listener error (Firestore rules may need updating for chatPresence):', err.message);
         if (chatOnlineList) chatOnlineList.innerHTML = '<div style="padding:6px 10px;font-size:.82rem;color:var(--text-soft);font-weight:600;">Roster unavailable</div>';
-      });
+      }
     };
 
     window._refreshRoster = function() {
