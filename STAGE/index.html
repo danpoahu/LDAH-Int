@@ -5413,7 +5413,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.23-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.24-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -47667,16 +47667,38 @@ window.cmsBuildStaffActivityReport = async function() {
   // signups' sessionAttendance keys + signupDates; one-time: per
   // signupDates entry, or one flat entry when no signupDates).
   async function _enumerateEventDates(mode) {
-    // Pull events + recurring events + signups + feedback in parallel.
-    var evSnapProm = db.collection('events').get();
-    var recSnapProm = db.collection('recurringEvents').get();
+    /* Ask Firestore for the partner records instead of downloading everything
+       and throwing 91% of it away (2026-09-10). Opening this report as a
+       partner pulled 217 events + 11 recurring programmes + 91 feedback docs
+       — 319 documents — to display 28.
+
+       partnerIsland is a single field, and Firestore indexes every single field
+       automatically, so this needs no entry in firestore.indexes.json: the
+       index was always there, the query simply was not using it.
+
+       recurringEvents are skipped outright in partner scope. A programme never
+       carries partnerIsland, so _partnerScopeOK discarded all 11 every time.
+       LDAH scope is untouched — it needs the full set to filter partners OUT. */
+    var _scopePartner = !!(window.isPartnerUser && window.isPartnerUser());
+    var _scopePip = _scopePartner || (_eaIsSuperAdmin() && _eaCache.scope === 'pip');
+    var _evQuery = db.collection('events');
+    if (_scopePartner) {
+      var _myIsland = window.currentPartnerIsland();
+      /* No island resolved means this account can own nothing. Querying for ''
+         would return everything unstamped, which is the opposite of the truth. */
+      _evQuery = _evQuery.where('partnerIsland', '==', _myIsland || '\u0000__none__');
+    } else if (_scopePip) {
+      _evQuery = _evQuery.where('partnerIsland', 'in', PARTNER_ISLANDS);
+    }
+    var evSnapProm = _evQuery.get();
+    var recSnapProm = _scopePip ? Promise.resolve(null) : db.collection('recurringEvents').get();
     var fbSnapProm = db.collection('eventFeedback').get();
     var results = await Promise.all([evSnapProm, recSnapProm, fbSnapProm]);
     var evSnap = results[0], recSnap = results[1], fbSnap = results[2];
 
     var allEvents = [];
     evSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'events', ...d.data() }); });
-    recSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'recurringEvents', ...d.data() }); });
+    if (recSnap) recSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'recurringEvents', ...d.data() }); });
 
     // Lazy-load split (perf): 'initial' (default) skips One-Off events so we
     // don't fetch a signups sub-collection for the ~130 one-off cards on every
