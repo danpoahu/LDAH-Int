@@ -5413,7 +5413,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.29-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.30-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13269,14 +13269,42 @@ var _photoPendingByIsland = {};
 
   // ── Topbar Presence Strip ──
   var _presenceUnsubscribe = null;
+  /* Who is allowed to appear here at all: uids holding a live, unarchived
+     userRoles doc. Without this the strip renders every chatPresence document
+     it can see, and a departed staff member stays on everyone's top bar.
+     Maria Kashem was archived on 2026-09-01 and was still showing as ONLINE on
+     2026-09-10, because a browser left open somewhere keeps running the
+     five-minute heartbeat from memory - the same unreachable-tab problem the
+     stale-tab guard below was written for. Her Firebase Auth account is gone,
+     so she cannot sign in; this was only ever a display fault, but it is the
+     kind that makes people doubt the whole board.
+
+     The chat roster in chat-core.js does exactly this. The two are supposed to
+     agree about who is on screen - change one, change the other. */
+  var _presenceAllowedUids = null;
+
+  function _loadPresenceAllowed() {
+    return db.collection('userRoles').get().then(function(snap) {
+      var live = {};
+      snap.forEach(function(d) { if ((d.data() || {}).isArchived !== true) live[d.id] = true; });
+      _presenceAllowedUids = live;
+    }).catch(function() {
+      /* Could not read the staff list - show what we have rather than an empty
+         strip. Fails the way it always did, not worse. */
+      _presenceAllowedUids = null;
+    });
+  }
 
   function initPresenceStrip() {
     if (_presenceUnsubscribe) _presenceUnsubscribe();
-    // Real-time listener on chatPresence collection
-    _presenceUnsubscribe = db.collection('chatPresence').onSnapshot(function(snap) {
-      renderPresenceStrip(snap);
-    }, function(err) {
-      console.warn('Presence strip error:', err.message);
+    // Staff list first, so the first paint is already filtered.
+    _loadPresenceAllowed().then(function() {
+      if (_presenceUnsubscribe) _presenceUnsubscribe();
+      _presenceUnsubscribe = db.collection('chatPresence').onSnapshot(function(snap) {
+        renderPresenceStrip(snap);
+      }, function(err) {
+        console.warn('Presence strip error:', err.message);
+      });
     });
   }
 
@@ -13457,6 +13485,8 @@ var _photoPendingByIsland = {};
     snap.forEach(function(doc) {
       var d = doc.data();
       if (!d.displayName) return;
+      // Archived or deleted from userRoles - not staff, not on the strip.
+      if (_presenceAllowedUids && !_presenceAllowedUids[doc.id]) return;
       if (_presenceHidden(doc.id, d)) return;
       var lastSeenMs = d.lastSeen ? d.lastSeen.toMillis() : 0;
       var isStale = lastSeenMs < staleThreshold;
