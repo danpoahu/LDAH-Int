@@ -5420,7 +5420,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.62</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.63</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14161,11 +14161,20 @@ var _photoPendingByIsland = {};
       var tr = document.createElement('tr');
       if (r.isArchived) tr.className = 'ur-archived-row';
 
-      // Alert subscription cells — superAdmin forced all-on/disabled,
-      // archived users get dashes, otherwise per-row checkboxes.
+      /* Alert subscription cells. Super Admin used to be forced all-on and
+         greyed out; it turns out they do not want every notification either, so
+         these are now live for every role. Archived users still get dashes.
+
+         A Super Admin who has never chosen has NO alertSubs map, so reading an
+         empty map as "subscribed to nothing" would have silently muted every
+         Super Admin the moment this shipped. An empty map therefore still means
+         all-on — drawn as the six boxes ticked and editable — until they choose,
+         at which point the handler writes the whole map so the default can never
+         reassert itself. (2026-09-10) */
       var isSuper = r.role === 'superAdmin';
       var subs = r.alertSubs || {};
-      var allOn = isSuper || subs.all === true;
+      var superDefault = isSuper && Object.keys(subs).length === 0;
+      var allOn = subs.all === true;
       var alertCellsHtml = '';
       if (r.isArchived) {
         for (var ai = 0; ai < _ALERT_SUB_KEYS.length; ai++) {
@@ -14174,13 +14183,13 @@ var _photoPendingByIsland = {};
         alertCellsHtml += '<td class="alert-cell all"><span style="color:#94a3b8;font-size:.7rem;">—</span></td>';
       } else {
         _ALERT_SUB_KEYS.forEach(function(key) {
-          var checked = allOn || subs[key] === true;
-          var disabled = isSuper || allOn;
+          var checked = allOn || superDefault || subs[key] === true;
+          var disabled = allOn;
           alertCellsHtml += '<td class="alert-cell"><input type="checkbox" class="ur-alert-sub" data-uid="' + r.uid + '" data-sub="' + key + '"' +
             (checked ? ' checked' : '') + (disabled ? ' disabled' : '') + '></td>';
         });
-        var allChecked = isSuper || subs.all === true;
-        var allDisabled = isSuper;
+        var allChecked = subs.all === true;
+        var allDisabled = false;
         alertCellsHtml += '<td class="alert-cell all"><input type="checkbox" class="ur-alert-sub" data-uid="' + r.uid + '" data-sub="all"' +
           (allChecked ? ' checked' : '') + (allDisabled ? ' disabled' : '') + '></td>';
       }
@@ -14213,19 +14222,30 @@ var _photoPendingByIsland = {};
         var newVal = cb.checked;
         var cached = _urCachedRows.find(function(rw) { return rw.uid === uid; });
         if (!cached) return;
-        // Defensive: superAdmin rows can't be toggled (UI disables them, but block here too)
-        if (cached.role === 'superAdmin') { cb.checked = true; return; }
+        /* First touch on a Super Admin who has never chosen writes the WHOLE
+           map, not just the one box. The empty-map default stops applying the
+           instant a single key exists, so writing one key alone would take the
+           other five categories dark without anyone asking for that. */
+        var seeding = cached.role === 'superAdmin' && Object.keys(cached.alertSubs || {}).length === 0;
         try {
           var updateObj = {};
+          if (seeding) {
+            _ALERT_SUB_KEYS.forEach(function(k) { updateObj['alertSubs.' + k] = true; });
+            updateObj['alertSubs.all'] = false;
+          }
           updateObj['alertSubs.' + subKey] = newVal;
           await db.collection('userRoles').doc(uid).update(updateObj);
           cached.alertSubs = cached.alertSubs || {};
+          if (seeding) {
+            _ALERT_SUB_KEYS.forEach(function(k) { cached.alertSubs[k] = true; });
+            cached.alertSubs.all = false;
+          }
           cached.alertSubs[subKey] = newVal;
           if (typeof auditLog === 'function') {
             auditLog('Updated alert subscription', (cached.email || uid) + ' — ' + subKey + ': ' + (newVal ? 'on' : 'off'));
           }
           // If "All" toggled, re-render so the six category boxes grey/ungrey appropriately
-          if (subKey === 'all') renderUserRolesTable();
+          if (subKey === 'all' || seeding) renderUserRolesTable();
           // If this is the current user, invalidate badge cache so the bell updates immediately
           if (currentUserData && uid === currentUserData.uid && typeof cmsRefreshAlertBadge === 'function') {
             cmsRefreshAlertBadge();
@@ -23863,7 +23883,9 @@ window.openContactDetail = async function(contactId) {
   //   volunteers        → counts.volunteers
   //   provider          → counts.providers
   //   calendarRequests  → counts.eventRequests
-  // superAdmin or alertSubs.all === true → all categories pass through.
+  // alertSubs.all === true → all categories pass through. So does an EMPTY map
+  // on a superAdmin: they were forced all-on before these boxes were made
+  // selectable, so an account that has never chosen must not go dark.
   // Effective user for the Alerts panel — follows the My Day "Viewing as"
   // picker so the bell mirrors the selected staff member. The badge poller
   // and any notification writes stay on the real logged-in user.
@@ -23874,7 +23896,8 @@ window.openContactDetail = async function(contactId) {
     var _u = _alertViewUser();
     if (!_u) return rawCounts;
     var subs = (_u.alertSubs) || {};
-    var allOn = _u.role === 'superAdmin' || subs.all === true;
+    var allOn = subs.all === true ||
+                (_u.role === 'superAdmin' && Object.keys(subs).length === 0);
     if (allOn) return rawCounts;
     var on = {
       eventSignup:      subs.eventSignup === true,
