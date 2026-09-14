@@ -5468,7 +5468,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.69</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.70</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -52378,6 +52378,23 @@ window._pbIsSuperAdmin = _pbIsSuperAdmin;
 function _pbEsc(v) { return (typeof rsEscape === 'function') ? rsEscape(String(v == null ? '' : v)) : String(v == null ? '' : v); }
 function _pbNum(n) { n = Number(n); return (isFinite(n) ? n : 0); }
 function _pbFmt(n) { return _pbNum(n).toLocaleString(); }
+
+/* The attendance figure for a summary, in the order -Int itself resolves it.
+   `totalAttended` alone is wrong and reads as zero on real events: a one-off
+   or a remote-signup records its headcount as a manual override, so the 3 June
+   2026 Transition pair (143 each) both reported 0, and Parent Talk Cafe on
+   17 June reported 5 against an actual 645. attendanceTotalResolved is the
+   value -Int computes from the overrides; attTotal is the raw override behind
+   it; totalAttended is the per-head tally and only right when nobody
+   overrode it. (2026-09-14) */
+function _pbAttendance(s) {
+  if (!s || typeof s !== 'object') return null;
+  if (typeof s.attendanceTotalResolved === 'number') return s.attendanceTotalResolved;
+  var o = s.attendanceOverrides;
+  if (o && typeof o === 'object' && typeof o.attTotal === 'number') return o.attTotal;
+  if (typeof s.totalAttended === 'number') return s.totalAttended;
+  return null;
+}
 function _pbDeslug(s) { return String(s || '').replace(/[_-]/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
 function _pbISO(d) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -52931,7 +52948,7 @@ function _pbBuildSections(modes, pdf) {
         h += '<div class="pb-month">' + _pbEsc(_pbMonthLabel(mk)) + ' <span class="pb-count">' + list.length + '</span></div>';
         h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Date</th><th>Activity</th><th>Location / format</th><th class="num">Attendance / social reach</th></tr></thead><tbody>';
         list.forEach(function (r) {
-          var att = (typeof r.s.totalAttended === 'number') ? r.s.totalAttended : null;
+          var att = _pbAttendance(r.s);
           var loc = [r.location, r.format].filter(Boolean).join(' · ');
           h += '<tr><td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td><td>' + _pbEsc(r.title) + '</td>' +
                '<td>' + _pbEsc(loc || '—') + '</td>' +
@@ -52989,7 +53006,7 @@ function _pbBuildSections(modes, pdf) {
     var importedContacts = D.contacts.filter(function (c) { return c.imported; });
     var DEMO = [
       ['totalRegistered', 'Registered'],
-      ['totalAttended', 'Attendance / social reach — includes post views'],
+      ['totalAttended', 'Attendance / social reach — includes post views and manual overrides'],
       ['totalNoShow', 'No-show'],
       ['newParentCount', 'New parents'],
       ['attendanceParentReturning', 'Parents (returning)'],
@@ -53004,7 +53021,10 @@ function _pbBuildSections(modes, pdf) {
     DEMO.forEach(function (d) { demoTotals[d[0]] = 0; demoDetail[d[0]] = []; });
     D.sessions.forEach(function (r) {
       DEMO.forEach(function (d) {
-        var n = r.s[d[0]];
+        /* Attendance comes through the resolver, not straight off the field —
+           an overridden headcount lives in attendanceOverrides and would
+           otherwise total zero. Every other row is a plain field. */
+        var n = (d[0] === 'totalAttended') ? _pbAttendance(r.s) : r.s[d[0]];
         if (typeof n !== 'number' || !n) return;
         demoTotals[d[0]] += n;
         demoDetail[d[0]].push({ date: r.date, what: r.title, amount: _pbFmt(n) });
