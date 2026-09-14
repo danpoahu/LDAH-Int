@@ -5468,7 +5468,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.72</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.73</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -52591,7 +52591,18 @@ function _pbSortAgeLabels(labels) {
    createdAt at all, so the key is the only date they carry. */
 function _pbKeyDate(key) {
   var d = String(key || '').slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  /* Only Connect-Gen keys start with an ISO date ("2026-07-02|Oahu – …").
+     Learning Labs and Parent Talk Cafe use a human label instead —
+     "June 24, 2026 - Understanding ADHD - 5:00 PM" — and returning '' for those
+     fell back to the event date, so every session of a multi-date programme was
+     stamped with the FIRST date. June's Learning Labs showed its 24 June session
+     as 10 June. _cmsSigDateKey is the dashboard's own parser for these labels
+     and already handles the ordinal and no-year forms. (2026-09-14) */
+  try {
+    if (typeof window._cmsSigDateKey === 'function') return window._cmsSigDateKey(String(key || '')) || '';
+  } catch (e) {}
+  return '';
 }
 
 function _pbSessionLocation(v, key) {
@@ -52646,6 +52657,29 @@ async function _pbLoadAll() {
        top-level summary as well as per-session ones would otherwise have its
        materials counted twice. */
     if (keys.length) {
+      /* A renamed session leaves its OLD key behind in sessionSummaries, and the
+         orphan has no attendance, no materials — two or three housekeeping fields
+         at most. June's Learning Labs carried "June 10, 2026 - 5:00 PM" alongside
+         the real "June 10, 2026 - Navigating Transitions - 5:00 PM" and printed a
+         third, empty row. Keep any key that is still a real signupDate, and any
+         key that actually holds data; drop the rest. (2026-09-14) */
+      var _live = {};
+      (Array.isArray(v.signupDates) ? v.signupDates : []).forEach(function (sd) { _live[String(sd)] = 1; });
+      var _hasData = function (sm) {
+        if (!sm || typeof sm !== 'object') return false;
+        if (_pbAttendance(sm) != null) return true;
+        return ['totalRegistered', 'totalNoShow', 'newParentCount', 'evaluationCount',
+                'materialsDisseminated', 'materialsDistributed', 'materialsOther',
+                'dissemReach', 'presenterUid', 'completedAt']
+          .some(function (f) {
+            var x = sm[f];
+            if (x == null) return false;
+            if (typeof x === 'number') return x !== 0;
+            if (typeof x === 'object') return Object.keys(x).length > 0;
+            return String(x) !== '';
+          });
+      };
+      keys = keys.filter(function (k) { return _live[k] || _hasData(ss[k] || {}); });
       keys.forEach(function (k) {
         var sm = ss[k] || {};
         sessions.push({
