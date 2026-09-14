@@ -1406,32 +1406,13 @@
     .pb-det[open] > summary { margin-bottom:4px; }
     .pb-foot { font-size:.74rem; color:var(--text-soft); padding:4px 2px 18px; }
 
-    @media print {
-      /* Hide everything that is neither the report, an ancestor of it, nor
-         inside it. `body > *:not(...)` hides #appContainer and takes the report
-         down with it — that is how the earlier batch of reports printed a BLANK
-         page. This form walks any depth and survives DOM changes. */
-      body.pb-printing { background:#fff !important; }
-      body.pb-printing :not(:has(#ptiBoardReportInGrid)):not(#ptiBoardReportInGrid):not(#ptiBoardReportInGrid *) { display:none !important; }
-      body.pb-printing #ptiBoardReportInGrid { display:block !important; padding:0 !important; }
-      body.pb-printing .pb-back-print-hide { display:none !important; }
-      /* Deliberately NOT break-inside:avoid on the card. A section card here
-         runs longer than a page, and telling a print engine not to break an
-         element taller than the sheet is how content gets clipped instead of
-         flowed. The small pieces that DO fit on a page avoid breaks below. */
-      body.pb-printing .pb-card { box-shadow:none; border:1px solid #CBD5E1; padding:12px 14px; margin-bottom:10px; }
-      body.pb-printing .pb-h { break-after:avoid; }
-      body.pb-printing .pb-stat { break-inside:avoid; }
-      /* Wide tables scroll on screen; on paper they must simply wrap. */
-      body.pb-printing .pb-scroll { overflow:visible !important; }
-      body.pb-printing .pb-tbl { font-size:8.5pt; }
-      body.pb-printing .pb-tbl tr { break-inside:avoid; }
-      /* An open backup list prints; a collapsed one stays collapsed, so the
-         printed report matches what is on screen rather than silently growing
-         by a few hundred rows. */
-      body.pb-printing .pb-det > summary { list-style:none; }
-      @page { size: letter portrait; margin: 0.5in; }
-    }
+    /* No print stylesheet for this report, deliberately. The one that used to
+       live here printed a BLANK page: hiding everything except the panel needs
+         :not(:has(#id)):not(#id):not(#id *)
+       and a descendant combinator inside :not() is not reliably supported, so
+       the browser dropped or misapplied the rule and took the report's own
+       contents with it. Export PDF builds a standalone document in a new window
+       instead, where there is nothing to hide. See cmsExportPtiBoardPdf. */
 
     /* Print stylesheet — only fires when an Event Attendance card is
        in print-target mode. Mirrors the Hawaii and Pacific PTI Training
@@ -5494,7 +5475,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.41-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.42-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7069,13 +7050,17 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
              reporting period so she can regenerate it for any date range
              instead of hand-collecting the figures. Nothing here writes. -->
         <div id="ptiBoardReportInGrid" style="display:none;">
-          <div class="pb-back-print-hide" style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsClosePtiBoardReport()">&larr; Back to Reports</button>
             <h2 style="font-family:'Outfit',sans-serif;color:#0F766E;margin:0;flex:1;">Hawaii PTI Board Report</h2>
-            <button class="btn btn-ghost" style="font-size:.82rem;" id="pbPrintBtn" onclick="cmsPrintPtiBoardReport()">Print</button>
+            <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#0F766E;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="pbToggleOptions()">Export PDF&hellip;</button>
             <span id="pbGeneratedAt" style="font-size:.78rem;color:var(--text-soft);"></span>
           </div>
-          <div id="pbControls" class="pb-back-print-hide"></div>
+          <div id="pbControls"></div>
+          <!-- PDF options. Populated on demand by _pbRenderOptions so the
+               choices are made against the report on screen, not remembered
+               blind from last month. -->
+          <div id="pbOptsPanel" style="display:none;"></div>
           <div id="pbBody"><div class="pb-card" style="text-align:center;color:var(--text-soft);">Loading&hellip;</div></div>
         </div>
 
@@ -52925,6 +52910,48 @@ window.carToggleNotes = function (i) {
 var _pbState = { from: '', to: '', excludePip: false };
 var _pbCache = null;
 
+/* Which sections go into the PDF and how much of each. Kept in localStorage so
+   Noelani does not re-pick every month. Default is 'summary' everywhere: the
+   contributing-record lists run to hundreds of rows and would bury the report
+   they are there to support. */
+var _PB_SECTIONS = [
+  [1, 'Education & Training Activities'],
+  [2, 'Individual Assistance (Tier 1)'],
+  [3, 'Participant Demographics'],
+  [4, 'Resource Dissemination'],
+  [5, 'New Interactions'],
+  [6, 'New Case Advocacy'],
+  [7, 'Upcoming Events']
+];
+var _PB_OPTS_KEY = 'ldah_ptiBoardPdfSections';
+var _pbOpts = null;
+
+function _pbDefaultOpts() {
+  var o = {};
+  _PB_SECTIONS.forEach(function (s) { o[s[0]] = 'summary'; });
+  return o;
+}
+function _pbLoadOpts() {
+  if (_pbOpts) return _pbOpts;
+  _pbOpts = _pbDefaultOpts();
+  try {
+    var raw = localStorage.getItem(_PB_OPTS_KEY);
+    if (raw) {
+      var saved = JSON.parse(raw);
+      /* Merged onto the defaults, never used as-is: a stored map written before
+         section 7 existed would otherwise leave that section undefined. */
+      _PB_SECTIONS.forEach(function (s) {
+        var v = saved && saved[s[0]];
+        if (v === 'full' || v === 'summary' || v === 'omit') _pbOpts[s[0]] = v;
+      });
+    }
+  } catch (e) { /* storage blocked or corrupt — the defaults still work */ }
+  return _pbOpts;
+}
+function _pbSaveOpts() {
+  try { localStorage.setItem(_PB_OPTS_KEY, JSON.stringify(_pbOpts)); } catch (e) {}
+}
+
 /* The card's data-roles only hides a tile — applyRolePermissions sets
    style.display, and a stale tab keeps whatever nav it rendered with. This is
    the gate that actually refuses. */
@@ -52936,7 +52963,7 @@ window._pbIsSuperAdmin = _pbIsSuperAdmin;
 function _pbEsc(v) { return (typeof rsEscape === 'function') ? rsEscape(String(v == null ? '' : v)) : String(v == null ? '' : v); }
 function _pbNum(n) { n = Number(n); return (isFinite(n) ? n : 0); }
 function _pbFmt(n) { return _pbNum(n).toLocaleString(); }
-function _pbDeslug(s) { return String(s || '').replace(/[_-]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }); }
+function _pbDeslug(s) { return String(s || '').replace(/[_-]/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
 function _pbISO(d) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
@@ -53022,21 +53049,82 @@ function _pbMaterials(obj, mapField) {
   return { items: items, total: total };
 }
 
-/* Disability categories are NESTED, not a top-level signup field — they turn up
-   under registration, under a child record, under a demographics container,
-   and the shape differs by which form wrote the signup. So walk the object for
-   any disabilityCategories[] rather than guessing a path that is right for one
-   form and silently empty for the others. */
-function _pbWalkDisabilities(o, out, depth) {
-  if (!o || typeof o !== 'object' || depth > 6) return;
-  if (Array.isArray(o)) { o.forEach(function (x) { _pbWalkDisabilities(x, out, depth + 1); }); return; }
-  Object.keys(o).forEach(function (k) {
-    var v = o[k];
-    if (k === 'disabilityCategories' && Array.isArray(v)) {
-      v.forEach(function (c) { c = String(c == null ? '' : c).trim(); if (c) out.push(c); });
-      return;
-    }
-    if (v && typeof v === 'object') _pbWalkDisabilities(v, out, depth + 1);
+/* Federal disability categories, counted the way the Event Attendance report
+   already counts them: registration.children[] when it exists, and ONLY then
+   the flat legacy fields. A generic walk of the object double-counts, because
+   a signup that has been migrated to children[] usually still carries the flat
+   childAgeRange / disabilityCategories mirroring child one — the same trap that
+   turns 219 children into 375. Never both, always children[] first.
+   specialCapture is merged in the same precedence the EA report uses: the
+   booth-capture form writes there instead of registration. */
+function _pbSignupReg(s) {
+  var reg = (s && s.registration) || {};
+  var cap = (s && s.specialCapture) || null;
+  if (!cap) return reg;
+  var out = {};
+  Object.keys(cap).forEach(function (k) { out[k] = cap[k]; });
+  Object.keys(reg).forEach(function (k) {
+    if (reg[k] !== null && reg[k] !== undefined && reg[k] !== '') out[k] = reg[k];
+  });
+  return out;
+}
+function _pbSignupDisabilities(sig) {
+  var reg = _pbSignupReg(sig);
+  var kids = Array.isArray(reg.children) ? reg.children : null;
+  var lists = [];
+  if (kids && kids.length) {
+    kids.forEach(function (c) { if (c && Array.isArray(c.disabilityCategories)) lists.push(c.disabilityCategories); });
+  } else if (Array.isArray(reg.disabilityCategories)) {
+    lists.push(reg.disabilityCategories);
+  } else if (Array.isArray(sig.disabilityCategories)) {
+    lists.push(sig.disabilityCategories);
+  }
+  var out = [];
+  lists.forEach(function (arr) {
+    arr.forEach(function (d) { d = String(d == null ? '' : d).trim(); if (d) out.push(d); });
+  });
+  return out;
+}
+
+/* Age of children served lives on the CONTACT, not the signup: contacts.children[]
+   with each child carrying ageRange (canonical) or childAgeRange (legacy).
+   Read through window._childAgeRange, the dashboard's own accessor, so the
+   legacy spelling keeps working — the schema comment is explicit that readers
+   must tolerate it forever and that old data is never rewritten.
+
+   children[] ONLY. A contact that has been migrated also keeps top-level
+   childAgeRange / childGender / ethnicity / disabilityCategories mirroring its
+   FIRST child, so anything that reads the contact generically counts 171 of
+   them twice and reports 375 children where there are 219.
+
+   Stored values are rendered as they are stored. "Adult" and "High School" sit
+   alongside the numeric bands as real values, and coercing them into a numeric
+   range would be inventing data. Nothing here hardcodes a span. */
+function _pbChildAgeRange(child) {
+  if (typeof window._childAgeRange === 'function') return window._childAgeRange(child) || '';
+  return (child && (child.ageRange || child.childAgeRange)) || '';
+}
+/* Order the stored bands by the number they start with, so a table and a span
+   line read low to high. Values with no leading number ("Adult", "High School")
+   have no position on that scale and are deliberately kept out of it rather
+   than guessed at. */
+function _pbAgeLowerBound(label) {
+  var m = String(label || '').match(/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+function _pbAgeUpperBound(label) {
+  var m = String(label || '').match(/(\d+)\s*[-\u2013]\s*(\d+)/);
+  if (m) return Number(m[2]);
+  var one = String(label || '').match(/(\d+)/);
+  return one ? Number(one[1]) : null;
+}
+function _pbSortAgeLabels(labels) {
+  return labels.slice().sort(function (a, b) {
+    var la = _pbAgeLowerBound(a), lb = _pbAgeLowerBound(b);
+    if (la === null && lb === null) return a.localeCompare(b);
+    if (la === null) return 1;            /* non-numeric bands last */
+    if (lb === null) return -1;
+    return la - lb;
   });
 }
 
@@ -53088,7 +53176,7 @@ async function _pbLoadAll() {
   var sessions = [], signups = [];
   for (var i = 0; i < sources.length; i++) {
     var e = sources[i], v = e.v;
-    var isPip = !!(v && v.partnerIsland);
+    var pIsland = (v && v.partnerIsland) || '';
     var ss = (v.sessionSummaries && typeof v.sessionSummaries === 'object') ? v.sessionSummaries : null;
     var keys = ss ? Object.keys(ss) : [];
     var firstSession = '';
@@ -53103,7 +53191,8 @@ async function _pbLoadAll() {
       keys.forEach(function (k) {
         var sm = ss[k] || {};
         sessions.push({
-          id: e.coll + '/' + e.id + '/' + k, eventId: e.id, coll: e.coll, pip: isPip,
+          id: e.coll + '/' + e.id + '/' + k, eventId: e.id, coll: e.coll,
+          pip: !!pIsland, pIsland: pIsland,
           title: v.title || '(untitled)', date: _pbKeyDate(k) || v.eventDate || '',
           location: _pbSessionLocation(v, k), format: _pbFormat(v, k),
           tier: _pbTier(sm.tierModel) || _pbTier(window._defaultTierForType(window._cmsDeriveEventType(v, e.coll))),
@@ -53113,7 +53202,8 @@ async function _pbLoadAll() {
     } else {
       var sm0 = v.summary || {};
       sessions.push({
-        id: e.coll + '/' + e.id + '/_FLAT_', eventId: e.id, coll: e.coll, pip: isPip,
+        id: e.coll + '/' + e.id + '/_FLAT_', eventId: e.id, coll: e.coll,
+        pip: !!pIsland, pIsland: pIsland,
         title: v.title || '(untitled)', date: v.eventDate || '',
         location: _pbSessionLocation(v, ''), format: _pbFormat(v, ''),
         tier: _pbTier(sm0.tierModel) || _pbTier(window._defaultTierForType(window._cmsDeriveEventType(v, e.coll))),
@@ -53124,7 +53214,8 @@ async function _pbLoadAll() {
     var su = await db.collection(e.coll).doc(e.id).collection('signups').get();
     su.forEach(function (sd) {
       var x = sd.data() || {};
-      signups.push({ id: sd.id, eventId: e.id, coll: e.coll, pip: isPip,
+      signups.push({ id: sd.id, eventId: e.id, coll: e.coll, pip: !!pIsland, pIsland: pIsland,
+                     contactId: x.linkedContactId || x.contactId || '',
                      title: v.title || '(untitled)', date: _pbSignupDate(x, v), raw: x });
     });
   }
@@ -53134,7 +53225,7 @@ async function _pbLoadAll() {
   ixSnap.forEach(function (d) {
     var x = d.data() || {};
     interactions.push({
-      id: d.id, pip: !!x.partnerIsland,
+      id: d.id, pip: !!x.partnerIsland, pIsland: x.partnerIsland || '',
       date: _pbTsISO(x.createdAt),
       tier: _pbTier(x.interactionType),
       type: x.interactionType || '',
@@ -53147,7 +53238,7 @@ async function _pbLoadAll() {
   });
 
   var ctSnap = await db.collection('contacts').get();
-  var contacts = [];
+  var contacts = [], children = [];
   ctSnap.forEach(function (d) {
     var x = d.data() || {};
     /* Imports are not new participants. A civicoreRow stamp or a
@@ -53157,15 +53248,32 @@ async function _pbLoadAll() {
        was excluded is shown, so the number stays explainable. */
     var imported = (x.civicoreRow !== undefined && x.civicoreRow !== null && x.civicoreRow !== '')
                    || /^neon-import-/i.test(String(x.source || ''));
+    var nm = x.displayName || x.name || x.firstName || '(no name)';
     contacts.push({
-      id: d.id, pip: !!x.partnerIsland,
-      name: x.displayName || x.name || x.firstName || '(no name)',
+      id: d.id, pip: !!x.partnerIsland, pIsland: x.partnerIsland || '',
+      name: nm,
       island: x.island || '', source: x.source || '',
       date: _pbTsISO(x.createdAt), imported: imported
     });
+    /* children[] and NOTHING else. The flat childAgeRange on the contact is a
+       mirror of child one and reading it as well would double the count. */
+    (Array.isArray(x.children) ? x.children : []).forEach(function (ch) {
+      if (!ch) return;
+      children.push({
+        contactId: d.id, contactName: nm,
+        pip: !!x.partnerIsland, pIsland: x.partnerIsland || '',
+        ageRange: String(_pbChildAgeRange(ch) || '').trim(),
+        /* addedAt is when this child was put on the record, which is what
+           places them in a reporting period; the contact's own createdAt is
+           not, because children get added to an existing family later. */
+        date: _pbTsISO(ch.addedAt),
+        sourceSignupId: ch.sourceSignupId || ''
+      });
+    });
   });
 
-  _pbCache = { sessions: sessions, signups: signups, interactions: interactions, contacts: contacts };
+  _pbCache = { sessions: sessions, signups: signups, interactions: interactions,
+               contacts: contacts, children: children };
   return _pbCache;
 }
 
@@ -53179,14 +53287,19 @@ window.cmsBuildPtiBoardReport = async function () {
   }
   _cmsShowOnlyReport('ptiBoardReportInGrid');
   /* Full width, the same treatment Participation and Event Attendance get.
-     Six sections of dense tables do not fit in the 74% column left beside the
+     Seven sections of dense tables do not fit in the 74% column left beside the
      Community Calendar on a 1366px laptop. Removed again on close and by the
      nav router, so it never leaks into another view. */
   document.body.classList.add('ea-fullwidth-mode');
   if (!_pbState.from) { var q = _pbLastQuarter(); _pbState.from = q.from; _pbState.to = q.to; }
+  _pbLoadOpts();
   _pbRenderControls();
+  /* Reopening the report should not land on a half-finished export from last
+     time, so the options panel always starts closed. */
+  var _op = document.getElementById('pbOptsPanel');
+  if (_op) _op.style.display = 'none';
   var body = document.getElementById('pbBody');
-  if (body) body.innerHTML = '<div class="pb-card" style="text-align:center;color:var(--text-soft);">Reading events, interactions and contacts&hellip;</div>';
+  if (body) body.innerHTML = '<div class="pb-card" style="text-align:center;">Reading events, interactions and contacts&hellip;</div>';
   try {
     await _pbLoadAll();
     _pbRender();
@@ -53201,14 +53314,6 @@ window.cmsBuildPtiBoardReport = async function () {
 window.cmsClosePtiBoardReport = function () {
   _cmsShowOnlyReport(null);
   document.body.classList.remove('ea-fullwidth-mode');
-};
-
-window.cmsPrintPtiBoardReport = function () {
-  document.body.classList.add('pb-printing');
-  setTimeout(function () {
-    window.print();
-    setTimeout(function () { document.body.classList.remove('pb-printing'); }, 250);
-  }, 50);
 };
 
 window.pbSetDate = function (which, value) {
@@ -53273,20 +53378,85 @@ function _pbRenderControls() {
     '</div>';
 }
 
-/* A collapsible list of the records behind a headline figure. Every total in
-   this report carries one: Noelani has to be able to CHECK a number for the
-   board, not take it on faith. Closed by default so the report still reads as
-   a report; whatever is open on screen is what prints. */
-function _pbDetail(label, rows) {
+/* ── PDF options panel ─────────────────────────────────────────────────────
+   Shown before the document is opened, so the choice is made against the
+   report she is looking at rather than remembered from last month by guess. */
+window.pbToggleOptions = function (force) {
+  var p = document.getElementById('pbOptsPanel');
+  if (!p) return;
+  var show = (force === true) ? true : (force === false ? false : p.style.display === 'none');
+  if (show) _pbRenderOptions();
+  p.style.display = show ? 'block' : 'none';
+};
+
+window.pbSetOpt = function (n, v) {
+  _pbLoadOpts()[n] = v;
+  _pbSaveOpts();
+  _pbRenderOptions();
+};
+
+window.pbSetAllOpts = function (v) {
+  var o = _pbLoadOpts();
+  _PB_SECTIONS.forEach(function (s) { o[s[0]] = v; });
+  _pbSaveOpts();
+  _pbRenderOptions();
+};
+
+function _pbRenderOptions() {
+  var host = document.getElementById('pbOptsPanel');
+  if (!host) return;
+  var o = _pbLoadOpts();
+  var h = '<div class="pb-card">' +
+    '<div class="pb-sub" style="margin-top:0;">What goes into the PDF</div>' +
+    '<div class="pb-note"><strong>Full</strong> prints the headline figures and every contributing record. ' +
+    '<strong>Summary</strong> prints the figures and tables but leaves the record lists out. ' +
+    '<strong>Omit</strong> leaves the section out entirely. Your choices are remembered on this computer.</div>' +
+    '<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="pbSetAllOpts(\'full\')">All Full</button>' +
+      '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="pbSetAllOpts(\'summary\')">All Summary</button>' +
+      '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="pbSetAllOpts(\'omit\')">All Omit</button>' +
+    '</div>' +
+    '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Section</th><th>Full</th><th>Summary</th><th>Omit</th></tr></thead><tbody>';
+  _PB_SECTIONS.forEach(function (s) {
+    var n = s[0], cur = o[n];
+    h += '<tr><td>' + n + '. ' + _pbEsc(s[1]) + '</td>';
+    ['full', 'summary', 'omit'].forEach(function (v) {
+      h += '<td><label style="display:block;cursor:pointer;"><input type="radio" name="pbOpt' + n + '"' +
+           (cur === v ? ' checked' : '') + ' onchange="pbSetOpt(' + n + ',\'' + v + '\')"></label></td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>' +
+    '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+      '<button class="btn" style="font-size:.84rem;padding:7px 16px;background:#0F766E;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;" onclick="cmsExportPtiBoardPdf()">Create PDF&hellip;</button>' +
+      '<button class="btn btn-ghost" style="font-size:.82rem;" onclick="pbToggleOptions(false)">Cancel</button>' +
+      '<span class="pb-note" style="margin:0;">Opens a new tab. In the print box choose <strong>Save as PDF</strong> (or <strong>Microsoft Print to PDF</strong>) as the destination.</span>' +
+    '</div></div>';
+  host.innerHTML = h;
+}
+
+/* ── Rendering ─────────────────────────────────────────────────────────────
+   One builder serves both the screen and the PDF. `mode` is per section:
+     'full'    headline figures AND the contributing-record lists
+     'summary' figures and tables only
+     'omit'    nothing
+   On screen every section is built 'full', but the record lists are wrapped in
+   a <details> so the page still reads as a report. In the PDF there is no
+   <details> — a collapsed element would simply not print, which is exactly the
+   kind of silent omission this report exists to avoid. */
+function _pbDetail(label, rows, ctx) {
+  if (ctx.mode !== 'full') return '';
   if (!rows || !rows.length) return '';
-  return '<details class="pb-det"><summary>' + _pbEsc(label) + ' (' + rows.length + ')</summary>' +
-    '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Date</th><th>Record</th><th class="num">Amount</th></tr></thead><tbody>' +
+  var table = '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Date</th><th>Record</th><th class="num">Amount</th></tr></thead><tbody>' +
     rows.map(function (r) {
       return '<tr><td class="nw">' + _pbEsc(r.date ? _pbDayLabel(r.date) : '—') + '</td>' +
              '<td>' + _pbEsc(r.what) + '</td>' +
              '<td class="num">' + (r.amount == null ? '' : _pbEsc(r.amount)) + '</td></tr>';
-    }).join('') +
-    '</tbody></table></div></details>';
+    }).join('') + '</tbody></table></div>';
+  if (ctx.pdf) {
+    return '<div class="pb-det-open"><div class="pb-det-lbl">' + _pbEsc(label) + ' (' + rows.length + ')</div>' + table + '</div>';
+  }
+  return '<details class="pb-det"><summary>' + _pbEsc(label) + ' (' + rows.length + ')</summary>' + table + '</details>';
 }
 
 function _pbStat(value, label, note) {
@@ -53295,281 +53465,586 @@ function _pbStat(value, label, note) {
          (note ? '<div class="pb-stat-note">' + _pbEsc(note) + '</div>' : '') + '</div>';
 }
 
-function _pbRender() {
-  var host = document.getElementById('pbBody');
-  if (!host || !_pbCache) return;
+/* The rows each section works from, filtered once for the whole build. */
+function _pbScope() {
   var keep = function (r) { return !(_pbState.excludePip && r.pip); };
+  var upTo = new Date(Number(_pbState.to.slice(0, 4)), Number(_pbState.to.slice(5, 7)) - 1, Number(_pbState.to.slice(8, 10)));
+  var horizon = new Date(upTo.getFullYear(), upTo.getMonth() + 3, upTo.getDate());
+  return {
+    sessions: _pbCache.sessions.filter(function (s) { return keep(s) && _pbInRange(s.date); }),
+    interactions: _pbCache.interactions.filter(function (x) { return keep(x) && _pbInRange(x.date); }),
+    contacts: _pbCache.contacts.filter(function (c) { return keep(c) && _pbInRange(c.date); }),
+    signups: _pbCache.signups.filter(function (s) { return keep(s) && _pbInRange(s.date); }),
+    /* Children are placed by their own addedAt, so this is "children added to a
+       family record during the period", not every child LDAH has ever known. */
+    children: _pbCache.children.filter(function (c) { return keep(c) && _pbInRange(c.date); }),
+    childrenNoDate: _pbCache.children.filter(function (c) { return keep(c) && !c.date; }).length,
+    /* Upcoming: after the To date, out to three months — a following quarter,
+       which is the horizon a board paper is written against. */
+    upcoming: _pbCache.sessions.filter(function (s) {
+      return keep(s) && s.date && s.date > _pbState.to && s.date <= _pbISO(horizon);
+    }),
+    pipTotal: _pbCache.sessions.filter(function (s) { return s.pip && _pbInRange(s.date); }).length +
+              _pbCache.interactions.filter(function (x) { return x.pip && _pbInRange(x.date); }).length,
+    byId: (function () { var m = {}; _pbCache.contacts.forEach(function (c) { m[c.id] = c; }); return m; })()
+  };
+}
 
-  var sessions = _pbCache.sessions.filter(function (s) { return keep(s) && _pbInRange(s.date); });
-  var interactions = _pbCache.interactions.filter(function (x) { return keep(x) && _pbInRange(x.date); });
-  var contacts = _pbCache.contacts.filter(function (c) { return keep(c) && _pbInRange(c.date); });
-  var signups = _pbCache.signups.filter(function (s) { return keep(s) && _pbInRange(s.date); });
-  var pipTotal = _pbCache.sessions.filter(function (s) { return s.pip && _pbInRange(s.date); }).length +
-                 _pbCache.interactions.filter(function (x) { return x.pip && _pbInRange(x.date); }).length;
-
-  var h = '';
-
-  /* ── Header block — the four fields at the top of Noelani's document ── */
-  var prepared = (window.currentUserData && (window.currentUserData.displayName || window.currentUserData.email)) || '';
-  h += '<div class="pb-card pb-head">' +
-       '<div class="pb-head-title">Hawaii PTI &mdash; Board Report</div>' +
-       '<div class="pb-head-grid">' +
-         '<div><div class="pb-lbl">Program Name</div><div class="pb-val">Hawaii PTI</div></div>' +
-         '<div><div class="pb-lbl">Reporting Period</div><div class="pb-val pb-period">' + _pbEsc(_pbRangeLabel()) + '</div></div>' +
-         '<div><div class="pb-lbl">Prepared By</div><div class="pb-val">' + _pbEsc(prepared || '—') + '</div></div>' +
-         '<div><div class="pb-lbl">Date of Submission</div><div class="pb-val">' + _pbEsc(_pbDayLabel(_pbISO(new Date()))) + '</div></div>' +
-       '</div>' +
-       (_pbState.excludePip
-         ? '<div class="pb-note">Pacific partner (PIP) records are excluded from every figure below.</div>'
-         : (pipTotal ? '<div class="pb-note">Includes ' + _pbFmt(pipTotal) + ' Pacific partner (PIP) record' + (pipTotal === 1 ? '' : 's') + '. Use the checkbox above to leave them out.</div>' : '')) +
-       '</div>';
+/* Builds every section. `modes` maps section number -> 'full'|'summary'|'omit'.
+   Returns [{n, title, mode, html}] with omitted sections left out. */
+function _pbBuildSections(modes, pdf) {
+  var D = _pbScope();
+  var out = [];
+  function add(n, title, build) {
+    var mode = modes[n] || 'summary';
+    if (mode === 'omit') return;
+    out.push({ n: n, title: title, mode: mode, html: build({ mode: mode, pdf: !!pdf }) });
+  }
 
   /* ── 1. Education & Training — by tier, then by month ───────────────── */
-  h += '<div class="pb-card"><h3 class="pb-h">1. Education &amp; Training Activities</h3>';
-  ['Tier 4', 'Tier 3', 'Tier 2'].forEach(function (tier) {
-    var rows = sessions.filter(function (s) { return s.tier === tier; });
-    h += '<div class="pb-sub">' + _pbEsc(tier + ' — ' + _PB_TIER_NAMES[tier]) +
-         ' <span class="pb-count">' + rows.length + ' activit' + (rows.length === 1 ? 'y' : 'ies') + '</span></div>';
-    if (!rows.length) { h += '<div class="pb-empty">Nothing recorded in this period.</div>'; return; }
+  add(1, 'Education & Training Activities', function (ctx) {
+    var h = '';
+    ['Tier 4', 'Tier 3', 'Tier 2'].forEach(function (tier) {
+      var rows = D.sessions.filter(function (s) { return s.tier === tier; });
+      h += '<div class="pb-sub">' + _pbEsc(tier + ' — ' + _PB_TIER_NAMES[tier]) +
+           ' <span class="pb-count">' + rows.length + ' activit' + (rows.length === 1 ? 'y' : 'ies') + '</span></div>';
+      if (!rows.length) { h += '<div class="pb-empty">Nothing recorded in this period.</div>'; return; }
+      var byMonth = {};
+      rows.forEach(function (r) { (byMonth[_pbMonthKey(r.date)] = byMonth[_pbMonthKey(r.date)] || []).push(r); });
+      _pbMonthKeys(byMonth).forEach(function (mk) {
+        var list = byMonth[mk].slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+        h += '<div class="pb-month">' + _pbEsc(_pbMonthLabel(mk)) + ' <span class="pb-count">' + list.length + '</span></div>';
+        h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Date</th><th>Activity</th><th>Location / format</th><th class="num">Attendance / social reach</th></tr></thead><tbody>';
+        list.forEach(function (r) {
+          var att = (typeof r.s.totalAttended === 'number') ? r.s.totalAttended : null;
+          var loc = [r.location, r.format].filter(Boolean).join(' · ');
+          h += '<tr><td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td><td>' + _pbEsc(r.title) + '</td>' +
+               '<td>' + _pbEsc(loc || '—') + '</td>' +
+               '<td class="num">' + (att == null ? '—' : _pbFmt(att)) + '</td></tr>';
+        });
+        h += '</tbody></table></div>';
+      });
+    });
+    var untiered = D.sessions.filter(function (s) { return ['Tier 4', 'Tier 3', 'Tier 2', 'Tier 1'].indexOf(s.tier) === -1; });
+    h += '<div class="pb-sub">No tier recorded <span class="pb-count">' + untiered.length + '</span></div>';
+    h += '<div class="pb-note">Flyers and announcement-only items carry no tier, and a session whose summary was never opened can be missing one. They are listed here rather than filed under a tier they were never given.</div>';
+    h += _pbDetail('Activities with no tier', untiered.map(function (r) {
+      return { date: r.date, what: r.title + (r.location ? ' — ' + r.location : ''), amount: '' };
+    }), ctx);
+    /* totalAttended is NOT a headcount and must never be presented as one:
+       for a social-reach event staff deliberately type Facebook post views into
+       the attendance box, on purpose and with Daniel's agreement. Labelled at
+       every site it appears rather than quietly folded into a participant total. */
+    h += '<div class="pb-note pb-warn">&ldquo;Attendance / social reach&rdquo; is the attendance figure as staff entered it. For social-reach events that box deliberately holds Facebook post views, not people &mdash; so this column must not be reported as a headcount.</div>';
+    return h;
+  });
+
+  /* ── 2. Individual Assistance (Tier 1) ─────────────────────────────── */
+  add(2, 'Individual Assistance (Tier 1)', function (ctx) {
+    var t1 = D.interactions.filter(function (x) { return x.tier === 'Tier 1'; });
+    var t1Month = {}, t1People = {};
+    t1.forEach(function (x) {
+      (t1Month[_pbMonthKey(x.date)] = t1Month[_pbMonthKey(x.date)] || []).push(x);
+      var key = x.contactId || ('name:' + (x.contactName || '').toLowerCase());
+      if (key !== 'name:') t1People[key] = 1;
+    });
+    var h = '<div class="pb-stats">' + _pbStat(_pbFmt(t1.length), 'Tier 1 interactions') +
+      _pbStat(_pbFmt(Object.keys(t1People).length), 'Unique individuals', 'Counted by contact; records with no contact are not counted') + '</div>';
+    if (t1.length) {
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Month</th><th class="num">Interactions</th><th class="num">Unique individuals</th></tr></thead><tbody>';
+      _pbMonthKeys(t1Month).forEach(function (mk) {
+        var list = t1Month[mk], p = {};
+        list.forEach(function (x) { var k = x.contactId || ('name:' + (x.contactName || '').toLowerCase()); if (k !== 'name:') p[k] = 1; });
+        h += '<tr><td class="nw">' + _pbEsc(_pbMonthLabel(mk)) + '</td><td class="num">' + _pbFmt(list.length) +
+             '</td><td class="num">' + _pbFmt(Object.keys(p).length) + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+    } else {
+      h += '<div class="pb-empty">No Tier 1 interactions in this period.</div>';
+    }
+    h += _pbDetail('Tier 1 interactions', t1.map(function (x) {
+      return { date: x.date, what: (x.contactName || '(no contact)') + ' — ' + (x.type || 'Tier 1') + (x.summary ? ' — ' + x.summary : ''), amount: '' };
+    }), ctx);
+    return h;
+  });
+
+  /* ── 3. Participant Demographics ───────────────────────────────────── */
+  add(3, 'Participant Demographics', function (ctx) {
+    var newContacts = D.contacts.filter(function (c) { return !c.imported; });
+    var importedContacts = D.contacts.filter(function (c) { return c.imported; });
+    var DEMO = [
+      ['totalRegistered', 'Registered'],
+      ['totalAttended', 'Attendance / social reach — includes post views'],
+      ['totalNoShow', 'No-show'],
+      ['newParentCount', 'New parents'],
+      ['attendanceParentReturning', 'Parents (returning)'],
+      ['attendanceProfessionalOther', 'Professional / other'],
+      ['attendanceYouthWithDisability', 'Youth with a disability'],
+      ['attendanceMilitaryActiveDuty', 'Military, active duty'],
+      ['followUpParents', 'Follow-up support — parents'],
+      ['followUpProfessionals', 'Follow-up support — professionals'],
+      ['evaluationCount', 'Evaluations returned']
+    ];
+    var demoTotals = {}, demoDetail = {};
+    DEMO.forEach(function (d) { demoTotals[d[0]] = 0; demoDetail[d[0]] = []; });
+    D.sessions.forEach(function (r) {
+      DEMO.forEach(function (d) {
+        var n = r.s[d[0]];
+        if (typeof n !== 'number' || !n) return;
+        demoTotals[d[0]] += n;
+        demoDetail[d[0]].push({ date: r.date, what: r.title, amount: _pbFmt(n) });
+      });
+    });
+    var disab = [];
+    D.signups.forEach(function (s) { disab = disab.concat(_pbSignupDisabilities(s.raw)); });
+    var disabCounts = {};
+    disab.forEach(function (c) { disabCounts[c] = (disabCounts[c] || 0) + 1; });
+
+    var h = '<div class="pb-stats">' +
+      _pbStat(_pbFmt(newContacts.length), 'New participants', 'Contacts created in the period, imports excluded') +
+      _pbStat(_pbFmt(importedContacts.length), 'Imported records excluded', 'civicoreRow or a neon-import-* source') +
+      '</div>';
+    h += _pbDetail('New participants', newContacts.map(function (c) {
+      return { date: c.date, what: c.name + (c.island ? ' — ' + c.island : '') + (c.source ? ' (' + c.source + ')' : ''), amount: '' };
+    }), ctx);
+    h += _pbDetail('Imported records excluded', importedContacts.map(function (c) {
+      return { date: c.date, what: c.name + (c.source ? ' (' + c.source + ')' : ''), amount: '' };
+    }), ctx);
+
+    h += '<div class="pb-sub">Session summary totals</div>';
+    h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Measure</th><th class="num">Total</th>' +
+         (ctx.mode === 'full' ? '<th>Behind the number</th>' : '') + '</tr></thead><tbody>';
+    DEMO.forEach(function (d) {
+      h += '<tr><td>' + _pbEsc(d[1]) + '</td><td class="num">' + _pbFmt(demoTotals[d[0]]) + '</td>' +
+           (ctx.mode === 'full'
+             ? '<td>' + (demoDetail[d[0]].length ? _pbDetail('Sessions', demoDetail[d[0]], ctx) : '<span class="pb-empty-inline">—</span>') + '</td>'
+             : '') + '</tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<div class="pb-note pb-warn">Attendance is the figure staff entered, and for social-reach events that box deliberately holds Facebook post views. It is a reach figure, not a headcount, and is never added to a participant total here.</div>';
+
+    /* ── Federal disability categories ──
+       From the signups attached to a session date inside the period, read with
+       the children[]-first precedence so a signup that keeps the legacy flat
+       mirror alongside its children is not counted twice. */
+    h += '<div class="pb-sub">Federal disability categories <span class="pb-count">' + _pbFmt(disab.length) + ' recorded</span></div>';
+    if (Object.keys(disabCounts).length) {
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Category</th><th class="num">Count</th></tr></thead><tbody>';
+      Object.keys(disabCounts).sort(function (a, b) { return disabCounts[b] - disabCounts[a]; }).forEach(function (k) {
+        h += '<tr><td>' + _pbEsc(k) + '</td><td class="num">' + _pbFmt(disabCounts[k]) + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+      h += '<div class="pb-note">Read from the ' + _pbFmt(D.signups.length) + ' signup' + (D.signups.length === 1 ? '' : 's') +
+           ' attached to a session date inside the period. Where a signup lists children individually only those entries are counted; a family who selected more than one category is counted once per category.</div>';
+    } else {
+      h += '<div class="pb-empty">No disability categories recorded on signups in this period.</div>';
+    }
+
+    /* ── Geographic coverage ──
+       contacts.island is the maintained field and the ONLY thing read for the
+       Hawaiian islands. A zip-code guess once reported Molokaʻi as 8 when the
+       real figure was 37, so no zip is touched anywhere in this block.
+       The Pacific territories are NOT in that dropdown by design — they are
+       carried on records as partnerIsland alongside island:'Other' — so they
+       are counted from the partnerIsland stamp instead. */
+    var touched = {};
+    D.interactions.forEach(function (x) { if (x.contactId) touched[x.contactId] = 1; });
+    D.signups.forEach(function (s) { if (s.contactId) touched[s.contactId] = 1; });
+    D.contacts.forEach(function (c) { touched[c.id] = 1; });
+    var islandCounts = {}, noIsland = 0;
+    Object.keys(touched).forEach(function (id) {
+      var c = D.byId[id];
+      if (!c) return;
+      if (_pbState.excludePip && c.pip) return;
+      var isl = String(c.island || '').trim();
+      if (!isl) { noIsland++; return; }
+      islandCounts[isl] = (islandCounts[isl] || 0) + 1;
+    });
+    var partnerCounts = {};
+    D.sessions.concat(D.interactions).forEach(function (r) {
+      if (!r.pIsland) return;
+      partnerCounts[r.pIsland] = (partnerCounts[r.pIsland] || 0) + 1;
+    });
+    var places = Object.keys(islandCounts).concat(Object.keys(partnerCounts));
+    h += '<div class="pb-sub">Geographic coverage <span class="pb-count">' + places.length + ' place' + (places.length === 1 ? '' : 's') + ' served</span></div>';
+    if (places.length) {
+      h += '<div class="pb-val" style="margin-bottom:6px;">' + _pbEsc(places.join(', ')) + '</div>';
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Place</th><th>Source</th><th class="num">Records</th></tr></thead><tbody>';
+      Object.keys(islandCounts).sort(function (a, b) { return islandCounts[b] - islandCounts[a]; }).forEach(function (k) {
+        h += '<tr><td>' + _pbEsc(k) + '</td><td>Contacts touched in the period</td><td class="num">' + _pbFmt(islandCounts[k]) + '</td></tr>';
+      });
+      Object.keys(partnerCounts).sort(function (a, b) { return partnerCounts[b] - partnerCounts[a]; }).forEach(function (k) {
+        h += '<tr><td>' + _pbEsc(k) + '</td><td>Pacific partner records</td><td class="num">' + _pbFmt(partnerCounts[k]) + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+    } else {
+      h += '<div class="pb-empty">No island recorded on any contact touched in this period.</div>';
+    }
+    if (noIsland) {
+      h += '<div class="pb-note">' + _pbFmt(noIsland) + ' contact' + (noIsland === 1 ? ' has' : 's have') +
+           ' no island on record and are not counted above.</div>';
+    }
+    h += '<div class="pb-note">Islands come from the island field on the contact record. No zip code is used anywhere in this figure &mdash; a zip guess once reported Moloka&#699;i as 8 when the real number was 37. Pacific territories are never written into that dropdown, so they are counted from the partner stamp on the records instead.</div>';
+    /* Event locations are free text ("Hilo Library", "All Islands Virtual –
+       Zoom"). Listed as written rather than mapped to an island: inventing that
+       mapping is the same class of mistake as the zip guess. */
+    var locs = {};
+    D.sessions.forEach(function (r) { var l = String(r.location || '').trim(); if (l) locs[l] = (locs[l] || 0) + 1; });
+    if (Object.keys(locs).length) {
+      h += _pbDetail('Event locations as recorded', Object.keys(locs).sort().map(function (l) {
+        return { date: '', what: l, amount: _pbFmt(locs[l]) };
+      }), ctx);
+    }
+
+    /* ── Age range of children served ──
+       Counted from contacts.children[], one row per child, placed in the period
+       by that child's addedAt. Bands are printed exactly as stored: "Adult" and
+       "High School" are real values sitting alongside the numeric ones, and
+       rewriting them into a numeric span would be inventing a figure. The span
+       line below is derived from what is actually present, never asserted. */
+    var bandCounts = {}, noBand = 0;
+    D.children.forEach(function (c) {
+      if (!c.ageRange) { noBand++; return; }
+      bandCounts[c.ageRange] = (bandCounts[c.ageRange] || 0) + 1;
+    });
+    var bands = _pbSortAgeLabels(Object.keys(bandCounts));
+    h += '<div class="pb-sub">Age range of children served ' +
+         '<span class="pb-count">' + _pbFmt(D.children.length) + ' child record' + (D.children.length === 1 ? '' : 's') + ' added in the period</span></div>';
+    if (bands.length) {
+      var numeric = bands.filter(function (b) { return _pbAgeLowerBound(b) !== null; });
+      var other = bands.filter(function (b) { return _pbAgeLowerBound(b) === null; });
+      var span = '';
+      if (numeric.length) {
+        var lo = _pbAgeLowerBound(numeric[0]);
+        var hi = null;
+        numeric.forEach(function (b) { var u = _pbAgeUpperBound(b); if (u !== null && (hi === null || u > hi)) hi = u; });
+        span = (lo === 0 ? 'Birth' : String(lo)) + (hi === null ? '' : ('\u2013' + hi)) + ' years';
+      }
+      if (other.length) span += (span ? ', plus ' : '') + other.join(' and ');
+      h += '<div class="pb-val" style="margin-bottom:6px;">' + _pbEsc(span) + '</div>';
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Age band as recorded</th><th class="num">Children</th></tr></thead><tbody>';
+      bands.forEach(function (b) {
+        h += '<tr><td>' + _pbEsc(b) + '</td><td class="num">' + _pbFmt(bandCounts[b]) + '</td></tr>';
+      });
+      h += '<tr class="pb-total"><td>Total</td><td class="num">' + _pbFmt(D.children.length - noBand) + '</td></tr>';
+      h += '</tbody></table></div>';
+      h += '<div class="pb-note">Counted from the children on each family record, one row per child, placed in the period by the date that child was added. Bands are shown exactly as the form stored them &mdash; &ldquo;Adult&rdquo; and &ldquo;High School&rdquo; are recorded values, not numbers, so they are listed rather than folded into the numeric span.</div>';
+      if (noBand) {
+        h += '<div class="pb-note">' + _pbFmt(noBand) + ' child record' + (noBand === 1 ? ' has' : 's have') +
+             ' no age band recorded and are not in the table above.</div>';
+      }
+      if (D.childrenNoDate) {
+        h += '<div class="pb-note">' + _pbFmt(D.childrenNoDate) + ' child record' + (D.childrenNoDate === 1 ? '' : 's') +
+             ' carry no added-on date anywhere in the system, so they cannot be placed in a period and are excluded from this figure.</div>';
+      }
+      h += _pbDetail('Children added in the period', D.children
+        .slice()
+        .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
+        .map(function (c) {
+          return { date: c.date, what: c.contactName, amount: c.ageRange || '\u2014' };
+        }), ctx);
+    } else {
+      h += '<div class="pb-empty">No child was added to a family record in this period.</div>';
+      h += '<div class="pb-note">Age is recorded per child on the family record (<code>ageRange</code>, or <code>childAgeRange</code> on older entries), and each child is placed in a period by the date it was added. There is no date of birth anywhere in the system, so nothing else can supply an age.</div>';
+    }
+    return h;
+  });
+
+  /* ── 4. Resource Dissemination ─────────────────────────────────────── */
+  add(4, 'Resource Dissemination', function (ctx) {
+    var matBySource = { 'Event summaries': 0, 'Session summaries': 0, 'Interactions': 0 };
+    var matByMonth = {}, matRows = [], matTotal = 0;
+    D.sessions.forEach(function (r) {
+      var m = _pbMaterials(r.s, 'materialsDisseminated');
+      if (!m.total) return;
+      var bucket = r.perSession ? 'Session summaries' : 'Event summaries';
+      matBySource[bucket] += m.total;
+      matByMonth[_pbMonthKey(r.date)] = (matByMonth[_pbMonthKey(r.date)] || 0) + m.total;
+      matTotal += m.total;
+      matRows.push({ date: r.date, what: r.title + ' — ' + m.items.map(function (i) { return i.name + ' × ' + i.n; }).join(', '), amount: _pbFmt(m.total) });
+    });
+    D.interactions.forEach(function (x) {
+      var m = _pbMaterials(x.raw, 'materialsDistributed');
+      if (!m.total) return;
+      matBySource['Interactions'] += m.total;
+      matByMonth[_pbMonthKey(x.date)] = (matByMonth[_pbMonthKey(x.date)] || 0) + m.total;
+      matTotal += m.total;
+      matRows.push({ date: x.date, what: (x.contactName || '(no contact)') + ' — ' + m.items.map(function (i) { return i.name + ' × ' + i.n; }).join(', '), amount: _pbFmt(m.total) });
+    });
+    var reachTotal = 0, reachRows = [];
+    D.sessions.forEach(function (r) {
+      if (typeof r.s.dissemReach !== 'number' || !r.s.dissemReach) return;
+      reachTotal += r.s.dissemReach;
+      reachRows.push({ date: r.date, what: r.title + (r.s.dissemReachSource ? ' — ' + r.s.dissemReachSource : ''), amount: _pbFmt(r.s.dissemReach) });
+    });
+
+    var h = '<div class="pb-stats">' +
+      _pbStat(_pbFmt(matTotal), 'Materials disseminated', 'Items handed out. What was packed and carried is not counted.') +
+      _pbStat(_pbFmt(reachTotal), 'Dissemination reach', 'Reported separately — never added to the total above') +
+      '</div>';
+    /* Reach is kept OUT of the materials total on purpose. It can describe the
+       very same handout: the July 2026 Parent Talk Cafe records the same 512
+       under dissemReach AND as a materialsOther row, so adding them would report
+       1,024 of something there were 512 of. */
+    h += '<div class="pb-note pb-warn">Reach is reported on its own line and is never added into the materials total: the same figure can be recorded both ways on one event &mdash; the July 2026 Parent Talk Cafe holds the same 512 in both places &mdash; and adding them would double it.</div>';
+    h += '<div class="pb-sub">By source</div>';
+    h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Source</th><th class="num">Materials</th></tr></thead><tbody>';
+    Object.keys(matBySource).forEach(function (k) {
+      h += '<tr><td>' + _pbEsc(k) + '</td><td class="num">' + _pbFmt(matBySource[k]) + '</td></tr>';
+    });
+    h += '<tr class="pb-total"><td>Total</td><td class="num">' + _pbFmt(matTotal) + '</td></tr>';
+    h += '</tbody></table></div>';
+    if (Object.keys(matByMonth).length) {
+      h += '<div class="pb-sub">By month</div>';
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Month</th><th class="num">Materials</th></tr></thead><tbody>';
+      _pbMonthKeys(matByMonth).forEach(function (mk) {
+        h += '<tr><td class="nw">' + _pbEsc(_pbMonthLabel(mk)) + '</td><td class="num">' + _pbFmt(matByMonth[mk]) + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+    h += _pbDetail('Every record behind the materials total', matRows.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); }), ctx);
+    h += _pbDetail('Every record behind the reach figure', reachRows.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); }), ctx);
+    return h;
+  });
+
+  /* ── 5. New interactions ───────────────────────────────────────────── */
+  add(5, 'New Interactions', function (ctx) {
+    var tiered = D.interactions.filter(function (x) { return !!x.tier; });
+    var noTier = D.interactions.filter(function (x) { return !x.tier; });
+    var byTier = {};
+    tiered.forEach(function (x) { byTier[x.tier] = (byTier[x.tier] || 0) + 1; });
+    var h = '<div class="pb-stats">' +
+      _pbStat(_pbFmt(D.interactions.length), 'Interactions created') +
+      _pbStat(_pbFmt(tiered.length), 'Tiered') +
+      _pbStat(_pbFmt(noTier.length), 'Untiered') + '</div>';
+    /* Untiered is NORMAL, not a fault. Signups and the system's own workflow
+       records legitimately carry no tier — they are not participant contacts and
+       were never meant to be counted as one. Shown as its own line with a plain
+       explanation so nobody reads it as missing data and goes looking for it. */
+    h += '<div class="pb-note">Untiered records are expected: signups and the system’s own workflow entries carry no tier because they are not participant contacts. They are shown separately rather than folded into the tiered counts.</div>';
+    if (tiered.length) {
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Tier</th><th class="num">Interactions</th></tr></thead><tbody>';
+      Object.keys(byTier).sort().forEach(function (t) {
+        h += '<tr><td>' + _pbEsc(t + (_PB_TIER_NAMES[t] ? ' — ' + _PB_TIER_NAMES[t] : '')) + '</td><td class="num">' + _pbFmt(byTier[t]) + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+    var noTierTypes = {};
+    noTier.forEach(function (x) { var k = x.type || '(no type recorded)'; noTierTypes[k] = (noTierTypes[k] || 0) + 1; });
+    if (noTier.length) {
+      h += '<div class="pb-sub">Untiered, by record type</div>';
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Type</th><th class="num">Records</th></tr></thead><tbody>';
+      Object.keys(noTierTypes).sort(function (a, b) { return noTierTypes[b] - noTierTypes[a]; }).forEach(function (k) {
+        h += '<tr><td>' + _pbEsc(k) + '</td><td class="num">' + _pbFmt(noTierTypes[k]) + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+    h += _pbDetail('Tiered interactions', tiered.map(function (x) {
+      return { date: x.date, what: (x.contactName || '(no contact)') + ' — ' + (x.type || ''), amount: '' };
+    }), ctx);
+    return h;
+  });
+
+  /* ── 6. New case advocacy ──────────────────────────────────────────── */
+  add(6, 'New Case Advocacy', function (ctx) {
+    var adv = D.interactions.filter(function (x) { return x.caseAdvocacy; });
+    var advFam = {};
+    adv.forEach(function (x) {
+      var k = x.contactId || ('name:' + (x.contactName || '').toLowerCase());
+      if (k === 'name:') k = 'ix:' + x.id;       /* no family to group by — count it once, on its own */
+      advFam[k] = 1;
+    });
+    var h = '<div class="pb-stats">' +
+      _pbStat(_pbFmt(Object.keys(advFam).length), 'Unique families') +
+      _pbStat(_pbFmt(adv.length), 'Case advocacy interactions') + '</div>';
+    h += (adv.length ? '' : '<div class="pb-empty">No case advocacy records created in this period.</div>');
+    h += _pbDetail('Case advocacy records', adv.map(function (x) {
+      return { date: x.date, what: (x.contactName || '(no contact)') + ' — ' + (x.type || '') + (x.summary ? ' — ' + x.summary : ''), amount: '' };
+    }), ctx);
+    return h;
+  });
+
+  /* ── 7. Upcoming events ────────────────────────────────────────────── */
+  add(7, 'Upcoming Events', function (ctx) {
+    var up = D.upcoming.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    var h = '<div class="pb-note">Activities already on the calendar for the three months after ' +
+            _pbEsc(_pbDayLabel(_pbState.to)) + '. Scheduled work, not a forecast — anything added later will not be here.</div>';
+    if (!up.length) { return h + '<div class="pb-empty">Nothing is scheduled in that window yet.</div>'; }
     var byMonth = {};
-    rows.forEach(function (r) { (byMonth[_pbMonthKey(r.date)] = byMonth[_pbMonthKey(r.date)] || []).push(r); });
+    up.forEach(function (r) { (byMonth[_pbMonthKey(r.date)] = byMonth[_pbMonthKey(r.date)] || []).push(r); });
     _pbMonthKeys(byMonth).forEach(function (mk) {
-      var list = byMonth[mk].slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
-      h += '<div class="pb-month">' + _pbEsc(_pbMonthLabel(mk)) + ' <span class="pb-count">' + list.length + '</span></div>';
-      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Date</th><th>Activity</th><th>Location / format</th><th class="num">Attendance / social reach</th></tr></thead><tbody>';
-      list.forEach(function (r) {
-        var att = (typeof r.s.totalAttended === 'number') ? r.s.totalAttended : null;
+      h += '<div class="pb-month">' + _pbEsc(_pbMonthLabel(mk)) + ' <span class="pb-count">' + byMonth[mk].length + '</span></div>';
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Date</th><th>Activity</th><th>Location / format</th></tr></thead><tbody>';
+      byMonth[mk].forEach(function (r) {
         var loc = [r.location, r.format].filter(Boolean).join(' · ');
         h += '<tr><td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td><td>' + _pbEsc(r.title) + '</td>' +
-             '<td>' + _pbEsc(loc || '—') + '</td>' +
-             '<td class="num">' + (att == null ? '—' : _pbFmt(att)) + '</td></tr>';
+             '<td>' + _pbEsc(loc || '—') + '</td></tr>';
       });
       h += '</tbody></table></div>';
     });
+    return h;
   });
-  var untiered = sessions.filter(function (s) { return !s.tier || ['Tier 4', 'Tier 3', 'Tier 2', 'Tier 1'].indexOf(s.tier) === -1; });
-  h += '<div class="pb-sub">No tier recorded <span class="pb-count">' + untiered.length + '</span></div>';
-  h += '<div class="pb-note">Flyers and announcement-only items carry no tier, and a session whose summary was never opened can be missing one. They are listed here rather than filed under a tier they were never given.</div>';
-  h += _pbDetail('Activities with no tier', untiered.map(function (r) {
-    return { date: r.date, what: r.title + (r.location ? ' — ' + r.location : ''), amount: '' };
-  }));
-  /* totalAttended is NOT a headcount and must never be presented as one:
-     for a social-reach event staff deliberately type Facebook post views into
-     the attendance box, on purpose and with Daniel's agreement. Labelled at
-     every site it appears rather than quietly folded into a participant total. */
-  h += '<div class="pb-note pb-warn">&ldquo;Attendance / social reach&rdquo; is the attendance figure as staff entered it. For social-reach events that box deliberately holds Facebook post views, not people &mdash; so this column must not be reported as a headcount.</div>';
-  h += '</div>';
 
-  /* ── 2. Individual Assistance (Tier 1) ─────────────────────────────── */
-  var t1 = interactions.filter(function (x) { return x.tier === 'Tier 1'; });
-  var t1Month = {}, t1People = {};
-  t1.forEach(function (x) {
-    (t1Month[_pbMonthKey(x.date)] = t1Month[_pbMonthKey(x.date)] || []).push(x);
-    var key = x.contactId || ('name:' + (x.contactName || '').toLowerCase());
-    if (key !== 'name:') t1People[key] = 1;
-  });
-  h += '<div class="pb-card"><h3 class="pb-h">2. Individual Assistance (Tier 1)</h3>';
-  h += '<div class="pb-stats">' + _pbStat(_pbFmt(t1.length), 'Tier 1 interactions') +
-       _pbStat(_pbFmt(Object.keys(t1People).length), 'Unique individuals', 'Counted by contact; records with no contact are not counted') + '</div>';
-  if (t1.length) {
-    h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Month</th><th class="num">Interactions</th><th class="num">Unique individuals</th></tr></thead><tbody>';
-    _pbMonthKeys(t1Month).forEach(function (mk) {
-      var list = t1Month[mk], p = {};
-      list.forEach(function (x) { var k = x.contactId || ('name:' + (x.contactName || '').toLowerCase()); if (k !== 'name:') p[k] = 1; });
-      h += '<tr><td class="nw">' + _pbEsc(_pbMonthLabel(mk)) + '</td><td class="num">' + _pbFmt(list.length) +
-           '</td><td class="num">' + _pbFmt(Object.keys(p).length) + '</td></tr>';
+  return out;
+}
+
+function _pbHeaderHtml(D, modes) {
+  var prepared = (window.currentUserData && (window.currentUserData.displayName || window.currentUserData.email)) || '';
+  var h = '<div class="pb-card pb-head">' +
+    '<div class="pb-head-title">Hawaii PTI &mdash; Board Report</div>' +
+    '<div class="pb-head-grid">' +
+      '<div><div class="pb-lbl">Program Name</div><div class="pb-val">Hawaii PTI</div></div>' +
+      '<div><div class="pb-lbl">Reporting Period</div><div class="pb-val pb-period">' + _pbEsc(_pbRangeLabel()) + '</div></div>' +
+      '<div><div class="pb-lbl">Prepared By</div><div class="pb-val">' + _pbEsc(prepared || '—') + '</div></div>' +
+      '<div><div class="pb-lbl">Date of Submission</div><div class="pb-val">' + _pbEsc(_pbDayLabel(_pbISO(new Date()))) + '</div></div>' +
+    '</div>';
+  h += (_pbState.excludePip
+    ? '<div class="pb-note">Pacific partner (PIP) records are excluded from every figure below.</div>'
+    : (D.pipTotal ? '<div class="pb-note">Includes ' + _pbFmt(D.pipTotal) + ' Pacific partner (PIP) record' + (D.pipTotal === 1 ? '' : 's') + '. Use the checkbox above to leave them out.</div>' : ''));
+  /* A reader of the PDF must never mistake a summarised section for the whole
+     picture, so the document says on its face what was shortened and what was
+     left out. */
+  if (modes) {
+    var summarised = [], omitted = [];
+    _PB_SECTIONS.forEach(function (s) {
+      var m = modes[s[0]] || 'summary';
+      if (m === 'summary') summarised.push(s[0] + '. ' + s[1]);
+      if (m === 'omit') omitted.push(s[0] + '. ' + s[1]);
     });
-    h += '</tbody></table></div>';
-  } else {
-    h += '<div class="pb-empty">No Tier 1 interactions in this period.</div>';
+    if (summarised.length || omitted.length) {
+      h += '<div class="pb-note pb-warn"><strong>This is not the complete record.</strong>' +
+        (summarised.length ? ' Summarised (figures and tables only, contributing records left out): ' + _pbEsc(summarised.join('; ')) + '.' : '') +
+        (omitted.length ? ' Omitted entirely: ' + _pbEsc(omitted.join('; ')) + '.' : '') +
+        ' The full detail is available in the dashboard for the same period.</div>';
+    }
   }
-  h += _pbDetail('Tier 1 interactions', t1.map(function (x) {
-    return { date: x.date, what: (x.contactName || '(no contact)') + ' — ' + (x.type || 'Tier 1') + (x.summary ? ' — ' + x.summary : ''), amount: '' };
-  }));
-  h += '</div>';
+  return h + '</div>';
+}
 
-  /* ── 3. Participant Demographics ───────────────────────────────────── */
-  var newContacts = contacts.filter(function (c) { return !c.imported; });
-  var importedContacts = contacts.filter(function (c) { return c.imported; });
-  var DEMO = [
-    ['totalRegistered', 'Registered'],
-    ['totalAttended', 'Attendance / social reach — includes post views'],
-    ['totalNoShow', 'No-show'],
-    ['newParentCount', 'New parents'],
-    ['attendanceParentReturning', 'Parents (returning)'],
-    ['attendanceProfessionalOther', 'Professional / other'],
-    ['attendanceYouthWithDisability', 'Youth with a disability'],
-    ['attendanceMilitaryActiveDuty', 'Military, active duty'],
-    ['followUpParents', 'Follow-up support — parents'],
-    ['followUpProfessionals', 'Follow-up support — professionals'],
-    ['evaluationCount', 'Evaluations returned']
-  ];
-  var demoTotals = {}, demoDetail = {};
-  DEMO.forEach(function (d) { demoTotals[d[0]] = 0; demoDetail[d[0]] = []; });
-  sessions.forEach(function (r) {
-    DEMO.forEach(function (d) {
-      var n = r.s[d[0]];
-      if (typeof n !== 'number' || !n) return;
-      demoTotals[d[0]] += n;
-      demoDetail[d[0]].push({ date: r.date, what: r.title, amount: _pbFmt(n) });
-    });
+function _pbRender() {
+  var host = document.getElementById('pbBody');
+  if (!host || !_pbCache) return;
+  var all = {};
+  _PB_SECTIONS.forEach(function (s) { all[s[0]] = 'full'; });
+  var D = _pbScope();
+  var h = _pbHeaderHtml(D, null);
+  _pbBuildSections(all, false).forEach(function (sec) {
+    h += '<div class="pb-card"><h3 class="pb-h">' + sec.n + '. ' + _pbEsc(sec.title) + '</h3>' + sec.html + '</div>';
   });
-  var disab = [];
-  signups.forEach(function (s) { _pbWalkDisabilities(s.raw, disab, 0); });
-  var disabCounts = {};
-  disab.forEach(function (c) { disabCounts[c] = (disabCounts[c] || 0) + 1; });
-
-  h += '<div class="pb-card"><h3 class="pb-h">3. Participant Demographics</h3>';
-  h += '<div class="pb-stats">' +
-       _pbStat(_pbFmt(newContacts.length), 'New participants', 'Contacts created in the period, imports excluded') +
-       _pbStat(_pbFmt(importedContacts.length), 'Imported records excluded', 'civicoreRow or a neon-import-* source') +
-       '</div>';
-  h += _pbDetail('New participants', newContacts.map(function (c) {
-    return { date: c.date, what: c.name + (c.island ? ' — ' + c.island : '') + (c.source ? ' (' + c.source + ')' : ''), amount: '' };
-  }));
-  h += _pbDetail('Imported records excluded', importedContacts.map(function (c) {
-    return { date: c.date, what: c.name + (c.source ? ' (' + c.source + ')' : ''), amount: '' };
-  }));
-
-  h += '<div class="pb-sub">Session summary totals</div>';
-  h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Measure</th><th class="num">Total</th><th>Behind the number</th></tr></thead><tbody>';
-  DEMO.forEach(function (d) {
-    h += '<tr><td>' + _pbEsc(d[1]) + '</td><td class="num">' + _pbFmt(demoTotals[d[0]]) + '</td>' +
-         '<td>' + (demoDetail[d[0]].length ? _pbDetail('Sessions', demoDetail[d[0]]) : '<span class="pb-empty-inline">—</span>') + '</td></tr>';
-  });
-  h += '</tbody></table></div>';
-  h += '<div class="pb-note pb-warn">Attendance is the figure staff entered, and for social-reach events that box deliberately holds Facebook post views. It is a reach figure, not a headcount, and is never added to a participant total here.</div>';
-
-  h += '<div class="pb-sub">Federal disability categories <span class="pb-count">' + _pbFmt(disab.length) + ' recorded</span></div>';
-  if (Object.keys(disabCounts).length) {
-    h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Category</th><th class="num">Count</th></tr></thead><tbody>';
-    Object.keys(disabCounts).sort(function (a, b) { return disabCounts[b] - disabCounts[a]; }).forEach(function (k) {
-      h += '<tr><td>' + _pbEsc(k) + '</td><td class="num">' + _pbFmt(disabCounts[k]) + '</td></tr>';
-    });
-    h += '</tbody></table></div>';
-    h += '<div class="pb-note">Read from the ' + _pbFmt(signups.length) + ' signup' + (signups.length === 1 ? '' : 's') +
-         ' attached to a session date inside the period. Categories are nested inside the signup, so every level of the record is read rather than one assumed field; a family who selected more than one category is counted once per category.</div>';
-  } else {
-    h += '<div class="pb-empty">No disability categories recorded on signups in this period.</div>';
-  }
-  h += '</div>';
-
-  /* ── 4. Resource Dissemination ─────────────────────────────────────── */
-  var matBySource = { 'Event summaries': 0, 'Session summaries': 0, 'Interactions': 0 };
-  var matByMonth = {}, matRows = [], matTotal = 0;
-  sessions.forEach(function (r) {
-    var m = _pbMaterials(r.s, 'materialsDisseminated');
-    if (!m.total) return;
-    var bucket = r.perSession ? 'Session summaries' : 'Event summaries';
-    matBySource[bucket] += m.total;
-    matByMonth[_pbMonthKey(r.date)] = (matByMonth[_pbMonthKey(r.date)] || 0) + m.total;
-    matTotal += m.total;
-    matRows.push({ date: r.date, what: r.title + ' — ' + m.items.map(function (i) { return i.name + ' × ' + i.n; }).join(', '), amount: _pbFmt(m.total) });
-  });
-  interactions.forEach(function (x) {
-    var m = _pbMaterials(x.raw, 'materialsDistributed');
-    if (!m.total) return;
-    matBySource['Interactions'] += m.total;
-    matByMonth[_pbMonthKey(x.date)] = (matByMonth[_pbMonthKey(x.date)] || 0) + m.total;
-    matTotal += m.total;
-    matRows.push({ date: x.date, what: (x.contactName || '(no contact)') + ' — ' + m.items.map(function (i) { return i.name + ' × ' + i.n; }).join(', '), amount: _pbFmt(m.total) });
-  });
-  var reachTotal = 0, reachRows = [];
-  sessions.forEach(function (r) {
-    if (typeof r.s.dissemReach !== 'number' || !r.s.dissemReach) return;
-    reachTotal += r.s.dissemReach;
-    reachRows.push({ date: r.date, what: r.title + (r.s.dissemReachSource ? ' — ' + r.s.dissemReachSource : ''), amount: _pbFmt(r.s.dissemReach) });
-  });
-
-  h += '<div class="pb-card"><h3 class="pb-h">4. Resource Dissemination</h3>';
-  h += '<div class="pb-stats">' +
-       _pbStat(_pbFmt(matTotal), 'Materials disseminated', 'Items handed out. What was packed and carried is not counted.') +
-       _pbStat(_pbFmt(reachTotal), 'Dissemination reach', 'Reported separately — never added to the total above') +
-       '</div>';
-  /* Reach is kept OUT of the materials total on purpose. It can describe the
-     very same handout: the July 2026 Parent Talk Cafe records the same 512
-     under dissemReach AND as a materialsOther row, so adding them would report
-     1,024 of something there were 512 of. */
-  h += '<div class="pb-note pb-warn">Reach is reported on its own line and is never added into the materials total: the same figure can be recorded both ways on one event &mdash; the July 2026 Parent Talk Cafe holds the same 512 in both places &mdash; and adding them would double it.</div>';
-  h += '<div class="pb-sub">By source</div>';
-  h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Source</th><th class="num">Materials</th></tr></thead><tbody>';
-  Object.keys(matBySource).forEach(function (k) {
-    h += '<tr><td>' + _pbEsc(k) + '</td><td class="num">' + _pbFmt(matBySource[k]) + '</td></tr>';
-  });
-  h += '<tr class="pb-total"><td>Total</td><td class="num">' + _pbFmt(matTotal) + '</td></tr>';
-  h += '</tbody></table></div>';
-  if (Object.keys(matByMonth).length) {
-    h += '<div class="pb-sub">By month</div>';
-    h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Month</th><th class="num">Materials</th></tr></thead><tbody>';
-    _pbMonthKeys(matByMonth).forEach(function (mk) {
-      h += '<tr><td class="nw">' + _pbEsc(_pbMonthLabel(mk)) + '</td><td class="num">' + _pbFmt(matByMonth[mk]) + '</td></tr>';
-    });
-    h += '</tbody></table></div>';
-  }
-  h += _pbDetail('Every record behind the materials total', matRows.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); }));
-  h += _pbDetail('Every record behind the reach figure', reachRows.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); }));
-  h += '</div>';
-
-  /* ── 5. New interactions ───────────────────────────────────────────── */
-  var tiered = interactions.filter(function (x) { return !!x.tier; });
-  var noTier = interactions.filter(function (x) { return !x.tier; });
-  var byTier = {};
-  tiered.forEach(function (x) { byTier[x.tier] = (byTier[x.tier] || 0) + 1; });
-  h += '<div class="pb-card"><h3 class="pb-h">5. New Interactions</h3>';
-  h += '<div class="pb-stats">' +
-       _pbStat(_pbFmt(interactions.length), 'Interactions created') +
-       _pbStat(_pbFmt(tiered.length), 'Tiered') +
-       _pbStat(_pbFmt(noTier.length), 'Untiered') + '</div>';
-  /* Untiered is NORMAL, not a fault. Signups and the system's own workflow
-     records legitimately carry no tier — they are not participant contacts and
-     were never meant to be counted as one. Shown as its own line with a plain
-     explanation so nobody reads it as missing data and goes looking for it. */
-  h += '<div class="pb-note">Untiered records are expected: signups and the system’s own workflow entries carry no tier because they are not participant contacts. They are shown separately rather than folded into the tiered counts.</div>';
-  if (tiered.length) {
-    h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Tier</th><th class="num">Interactions</th></tr></thead><tbody>';
-    Object.keys(byTier).sort().forEach(function (t) {
-      h += '<tr><td>' + _pbEsc(t + (_PB_TIER_NAMES[t] ? ' — ' + _PB_TIER_NAMES[t] : '')) + '</td><td class="num">' + _pbFmt(byTier[t]) + '</td></tr>';
-    });
-    h += '</tbody></table></div>';
-  }
-  var noTierTypes = {};
-  noTier.forEach(function (x) { var k = x.type || '(no type recorded)'; noTierTypes[k] = (noTierTypes[k] || 0) + 1; });
-  if (noTier.length) {
-    h += '<div class="pb-sub">Untiered, by record type</div>';
-    h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Type</th><th class="num">Records</th></tr></thead><tbody>';
-    Object.keys(noTierTypes).sort(function (a, b) { return noTierTypes[b] - noTierTypes[a]; }).forEach(function (k) {
-      h += '<tr><td>' + _pbEsc(k) + '</td><td class="num">' + _pbFmt(noTierTypes[k]) + '</td></tr>';
-    });
-    h += '</tbody></table></div>';
-  }
-  h += _pbDetail('Tiered interactions', tiered.map(function (x) {
-    return { date: x.date, what: (x.contactName || '(no contact)') + ' — ' + (x.type || ''), amount: '' };
-  }));
-  h += '</div>';
-
-  /* ── 6. New case advocacy ──────────────────────────────────────────── */
-  var adv = interactions.filter(function (x) { return x.caseAdvocacy; });
-  var advFam = {};
-  adv.forEach(function (x) {
-    var k = x.contactId || ('name:' + (x.contactName || '').toLowerCase());
-    if (k === 'name:') k = 'ix:' + x.id;       /* no family to group by — count it once, on its own */
-    advFam[k] = 1;
-  });
-  h += '<div class="pb-card"><h3 class="pb-h">6. New Case Advocacy</h3>';
-  h += '<div class="pb-stats">' +
-       _pbStat(_pbFmt(Object.keys(advFam).length), 'Unique families') +
-       _pbStat(_pbFmt(adv.length), 'Case advocacy interactions') + '</div>';
-  h += (adv.length ? '' : '<div class="pb-empty">No case advocacy records created in this period.</div>');
-  h += _pbDetail('Case advocacy records', adv.map(function (x) {
-    return { date: x.date, what: (x.contactName || '(no contact)') + ' — ' + (x.type || '') + (x.summary ? ' — ' + x.summary : ''), amount: '' };
-  }));
-  h += '</div>';
-
   h += '<div class="pb-foot">Read-only report. Figures are recomputed from live records for ' + _pbEsc(_pbRangeLabel()) +
        ' each time it is generated; nothing here is stored or written back.</div>';
-
   host.innerHTML = h;
 }
+
+/* ── PDF export ────────────────────────────────────────────────────────────
+   A brand new, self-contained document in its own window, NOT a print
+   stylesheet over the dashboard. The stylesheet approach printed blank: the
+   selector it needed —
+     :not(:has(#id)):not(#id):not(#id *)
+   — puts a descendant combinator inside :not(), which is not reliably
+   supported, and the browser dropped or misapplied the rule and hid the
+   report's own contents. There is nothing to hide in a document that contains
+   only the report, so this sidesteps the whole problem and the dashboard's
+   layout with it.
+
+   No PDF library, by design. This is a plain GitHub Pages page with no build
+   step; the deliverable is the browser's own Save as PDF. */
+function _pbPdfCss() {
+  return '' +
+    '@page { size: Letter; margin: 0.6in; }' +
+    'html,body{margin:0;padding:0;}' +
+    'body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:#0f172a;background:#fff;font-size:11px;line-height:1.45;padding:0 0 46px;}' +
+    '.pb-bar{background:#0F766E;color:#fff;padding:10px 14px;font-size:13px;line-height:1.5;}' +
+    '.pb-bar b{font-size:14px;}' +
+    '.pb-bar button{margin-left:10px;font:inherit;font-weight:700;padding:4px 12px;border:none;border-radius:5px;background:#fff;color:#0F766E;cursor:pointer;}' +
+    '.pb-card{border:1px solid #CBD5E1;border-radius:6px;padding:10px 12px;margin:0 0 10px;}' +
+    '.pb-head-title{font-size:17px;font-weight:800;color:#0F766E;margin-bottom:8px;}' +
+    '.pb-head-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 14px;}' +
+    '.pb-lbl{display:block;font-size:8.5px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;}' +
+    '.pb-val{font-size:11.5px;font-weight:600;}' +
+    '.pb-period{color:#0F766E;font-size:12.5px;}' +
+    '.pb-h{font-size:13px;color:#0F766E;margin:0 0 8px;break-after:avoid;}' +
+    '.pb-sub{font-weight:700;font-size:11px;margin:10px 0 4px;break-after:avoid;}' +
+    '.pb-month{font-size:9px;font-weight:700;color:#64748B;margin:8px 0 3px;text-transform:uppercase;letter-spacing:.04em;break-after:avoid;}' +
+    '.pb-count{font-weight:600;font-size:9px;color:#64748B;}' +
+    '.pb-empty,.pb-empty-inline{font-size:10px;color:#64748B;}' +
+    '.pb-note{font-size:9.5px;line-height:1.4;color:#475569;margin:6px 0;}' +
+    '.pb-warn{background:#FFF7ED;border-left:3px solid #F97316;padding:5px 8px;color:#9A3412;}' +
+    '.pb-stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;}' +
+    '.pb-stat{flex:1 1 130px;min-width:120px;border:1px solid #E2E8F0;background:#F8FAFC;border-radius:6px;padding:7px 9px;break-inside:avoid;}' +
+    '.pb-stat-n{font-size:17px;font-weight:800;color:#0F766E;line-height:1.1;}' +
+    '.pb-stat-l{font-size:9.5px;font-weight:700;margin-top:1px;}' +
+    '.pb-stat-note{font-size:8.5px;color:#64748B;margin-top:2px;line-height:1.3;}' +
+    '.pb-scroll{overflow-x:auto;max-width:100%;}' +
+    '.pb-tbl{width:100%;border-collapse:collapse;font-size:9.5px;}' +
+    '.pb-tbl th,.pb-tbl td{padding:3px 6px;border-bottom:1px solid #E2E8F0;text-align:left;vertical-align:top;}' +
+    '.pb-tbl th{background:#F1F5F9;color:#475569;font-weight:700;font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;}' +
+    '.pb-tbl td.num,.pb-tbl th.num{text-align:right;}' +
+    '.pb-tbl td.nw{white-space:nowrap;}' +
+    '.pb-tbl tr{break-inside:avoid;}' +
+    '.pb-tbl tr.pb-total td{font-weight:800;border-top:2px solid #CBD5E1;}' +
+    '.pb-det-open{margin:6px 0;}' +
+    '.pb-det-lbl{font-size:9.5px;font-weight:700;color:#0F766E;margin-bottom:3px;}' +
+    '.pb-foot{font-size:8.5px;color:#64748B;padding:4px 2px;}' +
+    'code{font-family:Consolas,Menlo,monospace;font-size:9px;background:#F1F5F9;padding:0 3px;border-radius:3px;}' +
+    /* A position:fixed element repeats on every printed page in Chromium, which
+       is the real mechanism behind a running footer here — there is no reliable
+       @page margin box in Chrome, so no page numbers are claimed. */
+    '.pb-runfoot{position:fixed;left:0;right:0;bottom:0;border-top:1px solid #CBD5E1;padding:4px 2px;font-size:8.5px;color:#64748B;background:#fff;}' +
+    '@media print{.no-print{display:none !important;}body{padding-top:0;}}';
+}
+
+window.cmsExportPtiBoardPdf = function () {
+  if (!_pbIsSuperAdmin()) return;
+  if (!_pbCache) {
+    if (typeof _showToast === 'function') _showToast('Generate the report first.', '#B45309');
+    return;
+  }
+  var modes = _pbLoadOpts();
+  var D = _pbScope();
+  var secs = _pbBuildSections(modes, true);
+  var period = _pbRangeLabel();
+  var title = 'Hawaii PTI Board Report — ' + period;
+
+  var body = _pbHeaderHtml(D, modes);
+  secs.forEach(function (sec) {
+    body += '<div class="pb-card"><h3 class="pb-h">' + sec.n + '. ' + _pbEsc(sec.title) + '</h3>' + sec.html + '</div>';
+  });
+  body += '<div class="pb-foot">Generated ' + _pbEsc(new Date().toLocaleString()) +
+          ' from live records. Read-only: producing this report changes nothing.</div>';
+
+  var doc = '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>' + _pbEsc(title) + '</title><style>' + _pbPdfCss() + '</style></head><body>' +
+    /* Windows, Chrome/Edge: the destination dropdown is where the PDF actually
+       comes from, and it is the step people miss. Said once, at the top, and
+       kept off the printed page. */
+    '<div class="pb-bar no-print"><b>To save this as a PDF:</b> press Ctrl+P, then set <b>Destination</b> to ' +
+      '<b>Save as PDF</b> (or <b>Microsoft Print to PDF</b>) and click Save.' +
+      '<button type="button" onclick="window.print()">Print / Save as PDF</button></div>' +
+    '<div style="padding:12px 14px 0;">' + body + '</div>' +
+    '<div class="pb-runfoot">Hawaii PTI Board Report &middot; ' + _pbEsc(period) + '</div>' +
+    /* Split so this string cannot close the dashboard's own script block.
+       readyState is checked as well as the load event: document.write + close
+       can finish loading before this line is parsed, and a listener added after
+       that would never fire, leaving her looking at a page with no print box. */
+    '<scr' + 'ipt>(function(){var p=function(){setTimeout(function(){window.print();},350);};' +
+      'if(document.readyState==="complete"){p();}else{window.addEventListener("load",p);}})();</scr' + 'ipt>' +
+    '</body></html>';
+
+  var w = window.open('', '_blank');
+  if (!w) {
+    if (typeof _showToast === 'function') {
+      _showToast('Your browser blocked the report window. Allow pop-ups for this site, then try again.', '#DC2626');
+    }
+    return;
+  }
+  w.document.open();
+  w.document.write(doc);
+  w.document.close();
+  try { w.focus(); } catch (e) {}
+  window.pbToggleOptions(false);
+};
 
 function _carRender() {
   var body = document.getElementById('carBody');
