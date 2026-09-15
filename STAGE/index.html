@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.67-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.68-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -18575,14 +18575,12 @@ var _photoPendingByIsland = {};
               (_wsDone ? '#0891B2' : '#94A3B8') + ';color:#fff;border:none;font-weight:600;" ' +
               'onclick="cmsCgWsOpen(' + _jsArg('recurringEvents') + ',' + _jsArg(cg.eventId) + ',' + _jsArg(cg.signupId) + ')">' +
               rsEscape(_wsLabel) + '</button>' + _cgPill +
-            /* Case Summary from the contact card (v148.82-STAGE). The advocate works
-               from the person, not the signup sheet — the same reasoning that put
-               the worksheet button here. Only rendered when a summary exists. */
-            ((s.caseSummary && s.caseSummary.html)
-              ? '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#7C3AED;color:#fff;border:none;font-weight:600;" '
-                + 'title="Document &amp; worksheet summary (TEST)" '
-                + 'onclick="cmsCgSummaryOpen(' + _jsArg('recurringEvents') + ',' + _jsArg(cg.eventId) + ',' + _jsArg(cg.signupId) + ')">Case Summary</button>'
-              : '') +
+            /* The Case Summary button used to live here. It belongs with the
+               case, not the session, so it moved to the purple Case Advocacy
+               Documents card (v149.92). Keeping it here also made it invisible
+               for any family whose contact carries no connectGenConsent — this
+               whole block never renders for them — which is precisely how a
+               summary attached to a live case went unseen. */
             /* Resend the consent form from the contact card. The advocate works
                from the person, not the event, so a button that only exists on
                the signup sheet does not get used — the same reasoning that put
@@ -19099,6 +19097,7 @@ window.openContactDetail = async function(contactId) {
         if (caSlot && openAdv) {
           caSlot.style.display = '';
           caSlot.innerHTML = _ctCaDocsHtml(c, contactId);
+          _ctCaLoadSummary(contactId);
         }
       }).catch(function(err) { console.warn('Contact case-advocacy pill query failed:', err.message); });
 
@@ -19922,6 +19921,71 @@ window.openContactDetail = async function(contactId) {
   var CA_ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/heic', 'image/heif'];
   var CA_MAX_BYTES = 25 * 1024 * 1024; // 25 MB
 
+  /* Find a case summary attached to ANY signup belonging to this contact and
+     put the button on the Case Advocacy card. A collection-group query rather
+     than a walk from contact.connectGenConsent, because that field is missing on
+     plenty of real contacts — including families with an open case — and the
+     summary is not always attached to the session the consent points at.
+     Newest wins. Failure is silent: no button rather than a broken one. (2026-09-15) */
+  window._ctCaLoadSummary = async function(contactId) {
+    var slot = document.getElementById('ctCaSummarySlot');
+    if (!slot || !contactId) return;
+    try {
+      /* The timeline load already pulls every signup for this contact into
+         _ctContactSignups, each carrying _refPath. Use it when it is there and
+         for the right contact; the two loads race, so fall back to the query
+         when the CA card wins. */
+      var rows = [];
+      if (window._ctCurrentContactId === contactId && Array.isArray(window._ctContactSignups)) {
+        rows = window._ctContactSignups.map(function(s) {
+          return { data: s, path: s._refPath || '', id: s.id };
+        });
+      } else {
+        var snap = await db.collectionGroup('signups')
+          .where('linkedContactId', '==', contactId).get();
+        snap.forEach(function(d) {
+          rows.push({ data: d.data() || {}, path: d.ref.path, id: d.id });
+        });
+      }
+
+      var best = null, bestAt = -1;
+      rows.forEach(function(r) {
+        var cs = (r.data && r.data.caseSummary) || {};
+        if (!cs.html || !r.path) return;
+        var t = 0;
+        try { t = cs.generatedAt && cs.generatedAt.toDate ? cs.generatedAt.toDate().getTime() : 0; } catch (_) { t = 0; }
+        if (t >= bestAt) { best = r; bestAt = t; }
+      });
+      if (!best) return;
+
+      /* "<collection>/<eventId>/signups/<signupId>" — the opener wants the three
+         parts separately, and the path is the only place they all survive. */
+      var parts = String(best.path).split('/');
+      if (parts.length < 4) return;
+      var coll = parts[0], eventId = parts[1], signupId = parts[3];
+
+      var when = '';
+      try {
+        var cs2 = (best.data && best.data.caseSummary) || {};
+        if (cs2.generatedAt && cs2.generatedAt.toDate) {
+          when = cs2.generatedAt.toDate().toLocaleDateString('en-US',
+            { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+      } catch (_) {}
+
+      slot.innerHTML =
+        '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#7C3AED;' +
+          'color:#fff;border:none;font-weight:600;" title="Reading of the documents on file" ' +
+          'onclick="cmsCgSummaryOpen(' + _jsArg(coll) + ',' + _jsArg(eventId) + ',' + _jsArg(signupId) + ')">' +
+          'Case Summary</button>' +
+        (when ? '<span style="margin-left:9px;font-size:.78rem;color:#6D28D9;">prepared ' +
+                rsEscape(when) + '</span>' : '');
+      slot.style.display = '';
+    } catch (err) {
+      console.warn('_ctCaLoadSummary:', err && err.message);
+    }
+  };
+
   function _ctCaDocsHtml(c, contactId) {
     var auth = c.caseAdvocacyAuthorization || null;
     var docs = Array.isArray(c.caseAdvocacyDocuments) ? c.caseAdvocacyDocuments : [];
@@ -19933,6 +19997,12 @@ window.openContactDetail = async function(contactId) {
 
     var html = '<div class="ct-info-card" style="background:#F5F0FF;border:1px solid #C4B5FD;margin:0 0 12px;">';
     html += '<div class="ct-info-field span2"><label style="color:#5B21B6;font-weight:700;font-size:.95rem;">Case Advocacy Documents</label>';
+    /* Case Summary sits at the top of THIS card (v149.92). It is a reading of
+       the documents listed below it, so it belongs above them and with the
+       case — not on the Connect-Gen block, where it was only ever reachable for
+       families who happened to have a linked session. Filled in asynchronously
+       by _ctCaLoadSummary; stays hidden when there is no summary. */
+    html += '<div id="ctCaSummarySlot" style="display:none;margin:2px 0 12px;"></div>';
 
     if (!auth) {
       // ── Authorization required ──
