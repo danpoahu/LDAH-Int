@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.64-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.65-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22766,7 +22766,8 @@ window.openContactDetail = async function(contactId) {
         ownerFieldHtml =
           '<div class="ct-info-field"><label>Owner</label><div class="val">' +
             '<div class="ix-status-changer">' +
-              '<select id="ixOwnerSelect" data-current-uid="' + rsEscape(d.ownerUid || '') + '">' +
+              '<select id="ixOwnerSelect" data-current-uid="' + rsEscape(d.ownerUid || '') + '"' +
+                ' data-current-name="' + rsEscape(ownerRaw || '') + '">' +
                 '<option value="">Loading…</option>' +
               '</select>' +
             '</div>' +
@@ -23307,8 +23308,23 @@ window.openContactDetail = async function(contactId) {
     var sel = document.getElementById('ixOwnerSelect');
     if (!sel) return;
     var currentUid = sel.getAttribute('data-current-uid') || '';
+    var currentName = sel.getAttribute('data-current-name') || '';
     var owners = await _getAssignableOwners();
     var html = '<option value="">— Unassigned —</option>';
+    /* The assignable list is Oahu staff only, but an interaction can legitimately
+       be owned by somebody outside it — a partner (Sandy records the PIP figures)
+       or Daniel, both of whom the board report's own "Assign to" picker offers.
+       With no option to match, the browser falls back to the first one, so the
+       field READ "Unassigned" while the record said Sandy Scanlan. Worse: the
+       dirty check below compares the select against data-current-uid, so saving
+       a status change would have silently wiped the real owner. The current
+       owner is therefore always present and pre-selected, labelled so nobody
+       mistakes them for a normal choice. (2026-09-15) */
+    var _ownerKnown = owners.some(function(o) { return o.uid === currentUid; });
+    if (currentUid && !_ownerKnown) {
+      html += '<option value="' + rsEscape(currentUid) + '" selected>' +
+        rsEscape(currentName || 'Current owner') + ' — current owner</option>';
+    }
     owners.forEach(function(o) {
       html += '<option value="' + rsEscape(o.uid) + '"' +
         (o.uid === currentUid ? ' selected' : '') + '>' +
@@ -54031,6 +54047,16 @@ window.pbToggleTaskPanel = function (force) {
       if (p && p.style.display !== 'none') _pbRenderTaskPanel();
     });
   }
+  /* Same idea for the tasks already raised: read them in the background and
+     redraw, so rows that have been chased once show as done rather than being
+     offered again. Until it lands nothing is ticked anyway, and Create re-reads
+     regardless. */
+  if (!_pbNotesTasks) {
+    _pbLoadNotesTasks().then(function () {
+      var pn = document.getElementById('pbTaskPanel');
+      if (pn && pn.style.display !== 'none') _pbRenderTaskPanel();
+    });
+  }
   var p = document.getElementById('pbTaskPanel');
   if (!p) return;
   if (!_pbCanCreateTasks()) {
@@ -54066,6 +54092,46 @@ window.pbTaskAll = function (on) {
 
 var _pbNotesRows = [], _pbNotesSel = [], _pbNotesOwner = '';
 
+/* Which sessions already carry one of these tasks, keyed collection|event|session.
+   Chasing the same dash twice puts two identical cards on a real person's My Day
+   with nothing to say which is live, so a row that has been sent once is shown as
+   done and cannot be ticked again. Matched on the workflow pointers plus the
+   summary opening, because "Data review" is also used by the contact-duplicate
+   sweep, which points at contacts rather than events. (2026-09-15) */
+var _pbNotesTasks = null, _pbNotesTasksProm = null;
+var _PB_NOTES_TASK_PREFIX = 'Move attendance into the Attendance box';
+function _pbNotesTaskKey(r) {
+  return (r && r.coll || '') + '|' + (r && r.eventId || '') + '|' + (r && r.sessionKey || '');
+}
+function _pbLoadNotesTasks(force) {
+  if (force === true) { _pbNotesTasks = null; _pbNotesTasksProm = null; }
+  if (_pbNotesTasks) return Promise.resolve(_pbNotesTasks);
+  if (_pbNotesTasksProm) return _pbNotesTasksProm;
+  _pbNotesTasksProm = db.collection('interactions')
+    .where('interactionType', '==', 'Data review').get().then(function (snap) {
+      var map = {};
+      snap.forEach(function (d) {
+        var v = d.data() || {};
+        if (String(v.summary || '').indexOf(_PB_NOTES_TASK_PREFIX) !== 0) return;
+        var k = (v.workflowEventCollection || '') + '|' + (v.workflowEventId || '') +
+                '|' + (v.workflowSessionKey || '');
+        /* Closed counts too. A closed one means the figure was already moved, and
+           re-raising it would ask for work that is done. */
+        if (!map[k]) map[k] = { id: d.id, owner: v.owner || '', status: v.status || '' };
+      });
+      _pbNotesTasks = map;
+      return map;
+    }).catch(function (e) {
+      console.warn('_pbLoadNotesTasks:', e && e.message);
+      _pbNotesTasksProm = null;
+      return {};
+    });
+  return _pbNotesTasksProm;
+}
+function _pbNotesExisting(r) {
+  return _pbNotesTasks ? (_pbNotesTasks[_pbNotesTaskKey(r)] || null) : null;
+}
+
 /* Staff list for the "assign to" picker. Loaded once and cached. Partners are
    included deliberately — Sandra records these figures and is a partner
    account, so she has to be pickable even though the report is LDAH-facing.
@@ -54091,6 +54157,7 @@ function _pbLoadStaff() {
 }
 
 window.pbNotesTick = function (i, on) {
+  if (on && _pbNotesExisting(_pbNotesRows[i])) return;   /* already sent once */
   _pbNotesSel[i] = !!on;
   var c = document.getElementById('pbNotesCount');
   if (c) c.textContent = _pbNotesSel.filter(Boolean).length;
@@ -54098,7 +54165,8 @@ window.pbNotesTick = function (i, on) {
 window.pbNotesSetOwner = function (uid) { _pbNotesOwner = uid || ''; };
 
 window.pbNotesAll = function (on) {
-  _pbNotesRows.forEach(function (r, i) { _pbNotesSel[i] = !!on; });
+  /* "Tick all" means all that are still outstanding — never the ones already sent. */
+  _pbNotesRows.forEach(function (r, i) { _pbNotesSel[i] = !!on && !_pbNotesExisting(r); });
   _pbRenderTaskPanel();
 };
 
@@ -54126,12 +54194,23 @@ window.pbCreateNotesTasks = async function () {
     if (typeof _showToast === 'function') _showToast('Pick who the tasks are for first.', '#B45309');
     return;
   }
-  var today = _pbTodayISO(), made = 0, failed = 0;
+  /* Re-read what has already been raised immediately before writing, rather than
+     trusting the copy the panel was drawn from. Noe may have this open in one tab
+     while the same row is chased in another, and the panel itself can sit open for
+     a long time. This is the guard that actually holds. (2026-09-15) */
+  var already = await _pbLoadNotesTasks(true);
+  var today = _pbTodayISO(), made = 0, failed = 0, skipped = 0, skippedTo = '';
   for (var i = 0; i < chosen.length; i++) {
     var r = chosen[i];
+    var dupKey = _pbNotesTaskKey(r);
+    if (already[dupKey]) {
+      skipped++;
+      if (!skippedTo) skippedTo = already[dupKey].owner || '';
+      continue;
+    }
     var f = _pbCountInNotes(r.s) || { n: '', phrase: '' };
     try {
-      await db.collection('interactions').add({
+      var _newTaskRef = await db.collection('interactions').add({
         channel: 'Office', interactionType: 'Data review',
         contactId: '', contactType: '',
         contactName: r.title + ' — ' + _pbDayLabel(r.date),
@@ -54147,12 +54226,20 @@ window.pbCreateNotesTasks = async function () {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       made++;
+      already[dupKey] = { id: _newTaskRef.id, owner: who.name, status: 'Open' };
     } catch (e) { failed++; console.warn('pbCreateNotesTasks:', e && e.message); }
   }
   _pbNotesSel = [];
+  var _skipMsg = skipped
+    ? ' <strong>' + skipped + '</strong> skipped — already raised' +
+      (skippedTo ? ' (' + _pbEsc(skippedTo) + ')' : '') + '.'
+    : '';
   _pbRenderTaskPanel('<div class="pb-note" style="color:#166534;"><strong>' + made + '</strong> task(s) created for ' + _pbEsc(who.name)
-    + (failed ? ', <strong>' + failed + '</strong> failed to save' : '') + '.</div>');
-  if (typeof _showToast === 'function') _showToast(made + ' data-review task(s) created for ' + who.name + '.', '#0F766E');
+    + (failed ? ', <strong>' + failed + '</strong> failed to save' : '') + '.' + _skipMsg + '</div>');
+  if (typeof _showToast === 'function') {
+    _showToast(made + ' data-review task(s) created for ' + who.name +
+      (skipped ? ' \u00b7 ' + skipped + ' already raised, left alone' : '') + '.', '#0F766E');
+  }
 };
 
 function _pbRenderTaskPanel(resultHtml) {
@@ -54176,7 +54263,8 @@ function _pbRenderTaskPanel(resultHtml) {
       '<div class="pb-note">These already have a figure recorded &mdash; it is just in the presenter comments, ' +
       'so the report reads a dash. Tick any that should be chased and press Create; each one raises a ' +
       '<strong>Data review</strong> task on your own My Day, carrying the number and an Open Summary link ' +
-      'to the right session. Nothing is ticked to begin with, so nothing happens until you choose it.</div>';
+      'to the right session. Nothing is ticked to begin with, so nothing happens until you choose it. ' +
+      'A row that has already been sent shows a green tick and cannot be chosen again.</div>';
     /* These sessions carry a presenter NAME but no presenterUid, so there is
        nobody to route a task to automatically. The task therefore goes to
        whoever creates it — the person doing the cleanup — rather than being
@@ -54207,10 +54295,18 @@ function _pbRenderTaskPanel(resultHtml) {
       '<thead><tr><th style="width:34px;"></th><th>Date</th><th>Activity</th><th class="num">Number found</th><th>Where it says so</th></tr></thead><tbody>';
     _notes.forEach(function (r, i) {
       var f = _pbCountInNotes(r.s) || { n: '', phrase: '' };
-      _notesHtml += '<tr><td><input type="checkbox"' + (_pbNotesSel[i] ? ' checked' : '') +
-          ' onchange="pbNotesTick(' + i + ',this.checked)"></td>' +
+      var _ex = _pbNotesExisting(r);
+    var _tickCell = _ex
+      ? '<span title="A task for this session has already been raised" ' +
+          'style="color:#15803D;font-weight:700;">&#10003;</span>'
+      : '<input type="checkbox"' + (_pbNotesSel[i] ? ' checked' : '') +
+          ' onchange="pbNotesTick(' + i + ',this.checked)">';
+    _notesHtml += '<tr' + (_ex ? ' style="background:#F0FDF4;"' : '') + '><td>' + _tickCell + '</td>' +
         '<td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td>' +
-        '<td>' + _pbEsc(r.title) + (r.pip ? ' <span class="pb-count">PIP</span>' : '') + '</td>' +
+        '<td>' + _pbEsc(r.title) + (r.pip ? ' <span class="pb-count">PIP</span>' : '') +
+          (_ex ? '<div style="font-size:.74rem;color:#15803D;margin-top:2px;">Task already with ' +
+                 _pbEsc(_ex.owner || 'someone') +
+                 (String(_ex.status) === 'Closed' ? ' \u2014 completed' : '') + '</div>' : '') + '</td>' +
         '<td class="num"><strong>' + _pbFmt(f.n) + '</strong></td>' +
         '<td style="color:var(--text-soft);font-size:.8rem;">&ldquo;' + _pbEsc(f.phrase) + '&rdquo;</td></tr>';
     });
