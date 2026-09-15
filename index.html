@@ -5488,7 +5488,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.92</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.93</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6604,7 +6604,15 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                            booking got closed with nothing recorded — so the fields
                            come to the task instead, the way the ED's approval does. */
                         else if(d.workflowEventId&&d.workflowStep==='workshopTravel')
-                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();wpTravelInline(\''+d.workflowEventId+'\',\''+d._id+'\',this)">Book travel &rarr;</button>';
+                          /* Who is actually travelling, before anything is clicked.
+                             The task said "Book travel for: <event>" and nothing
+                             else, so the booker had to open a forty-field form to
+                             learn whose name goes on the ticket. Filled in by
+                             wpTravelWho after the list renders. View the form sits
+                             alongside, as it already does on Approve travel. */
+                          actionBtn='<div id="wpWho_'+d._id+'" class="sub" style="margin-top:6px;color:#0E5F7A;"></div>'
+                            +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0e5f7a;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();wpTravelInline(\''+d.workflowEventId+'\',\''+d._id+'\',this)">Book travel &rarr;</button>'
+                            +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#fff;color:#0e5f7a;border:1px solid #cfe3ec;border-radius:6px;cursor:pointer;margin-top:7px;margin-left:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">View the form</button>';
                         else if(d.workflowEventId&&d.workflowStep==='workshopTravelOk')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#15803d;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();approveWorkshopTravel(\''+d.workflowEventId+'\',this)">&#10003; Approve travel</button>'
                             +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#fff;color:#0e5f7a;border:1px solid #cfe3ec;border-radius:6px;cursor:pointer;margin-top:7px;margin-left:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();openWorkshopForm(\''+d.workflowEventId+'\')">View the form</button>';
@@ -6694,6 +6702,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                         +'<div class="sub">'+(sub.join(' · ')||'—')+'</div>'+actionBtn+'</div>'
                         +'<div class="tags">'+m.pill+typePill+'</div></div>';
                     }).join('');
+                    /* One read per travel task on screen, after the cards exist.
+                       Names live on the workshop form, not the task, and there is
+                       rarely more than one of these open at a time. */
+                    list.slice(0,15).forEach(function(r){
+                      var t=r.d||{};
+                      if(t.workflowStep==='workshopTravel'&&t.workflowEventId&&window.wpTravelWho)
+                        window.wpTravelWho(t.workflowEventId,t._id);
+                    });
                   }
                 }
                 setText('myDayTodoCount',Math.min(list.length,15));
@@ -21888,6 +21904,62 @@ window.openContactDetail = async function(contactId) {
      job and a much worse one. Molokaʻi's booking was closed with all four left
      empty. So the four boxes come to her instead — same shape as the approval
      above, and Save both records the booking and closes the task. */
+  /* The two names on the ticket, plus where and when, written onto the Book
+     travel card. Reads the workshop form because the task itself only carries
+     the event title — Admin was being asked to book flights for people the card
+     never named. Silent on failure: the Book travel button still works, and an
+     empty line is better than an error where a name should be. (2026-09-15) */
+  window.wpTravelWho = async function(eventId, taskId) {
+    var slot = document.getElementById('wpWho_' + taskId);
+    if (!slot || !eventId) return;
+    try {
+      var snap = await db.collection('workshopForms').doc(eventId).get();
+      if (!snap.exists) return;
+      var d = snap.data() || {};
+      /* Labelled with the form's own words, not merged into "travellers".
+         "Name of Contact Person" is free text and is often the HOST agency's
+         contact rather than anyone getting on a plane; "Second staff member" is
+         a picker of LDAH staff. Calling both travellers would put the wrong name
+         on a ticket. */
+      var _clean = function(x) {
+        var s = String(x || '').trim();
+        return (s && s.toLowerCase() !== 'n/a') ? s : '';
+      };
+      var contact = _clean(d.contactPerson);
+      var second = _clean(d.secondPerson);
+
+      var when = '';
+      var iso = String(d.eventDate || '');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        var p = iso.split('-');
+        var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        /* Built from the string, never `new Date(iso)` — that parses as UTC and
+           shows the day before in Hawaiʻi. */
+        when = String(Number(p[2])) + ' ' + (MON[Number(p[1]) - 1] || '') + ' ' + p[0];
+      }
+
+      var needs = [];
+      if (d.airlineTravel === 'yes') needs.push('flights');
+      if (d.groundTransport === 'rentacar') needs.push('rental car');
+      if (d.groundTransport === 'agency') needs.push('ground covered by the agency');
+
+      var names = [];
+      if (contact) names.push('Contact <strong>' + rsEscape(contact) + '</strong>');
+      if (second) names.push('Second staff <strong>' + rsEscape(second) + '</strong>');
+      var line1 = names.length
+        ? names.join(' &middot; ')
+        : '<span style="color:#B45309;">Nobody is named on the form</span>';
+      var bits = [];
+      if (d.island) bits.push(rsEscape(d.island));
+      if (when) bits.push(rsEscape(when));
+      if (needs.length) bits.push('book ' + rsEscape(needs.join(' + ')));
+
+      slot.innerHTML = line1 + (bits.length ? '<br><span style="color:#5b6b74;">' + bits.join(' · ') + '</span>' : '');
+    } catch (err) {
+      console.warn('wpTravelWho:', err && err.message);
+    }
+  };
+
   window.wpTravelInline = async function(eventId, taskId, btn) {
     if (!eventId || !btn) return;
     var card = btn.parentElement;
