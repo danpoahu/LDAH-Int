@@ -1374,7 +1374,18 @@
     .pb-controls { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; padding:14px 16px; }
     .pb-controls input[type="date"], .pb-controls select { font-size:.82rem; padding:5px 7px; border:1px solid #CBD5E1; border-radius:6px; font-family:inherit; background:#fff; }
     .pb-lbl { display:block; font-size:.7rem; font-weight:700; color:var(--text-soft); margin-bottom:3px; text-transform:uppercase; letter-spacing:.04em; }
-    .pb-check { font-size:.8rem; display:inline-flex; align-items:center; gap:6px; cursor:pointer; color:var(--text-soft); }
+    /* Three-way scope toggle (LDAH / PIP / Both). Deliberately the same
+       segmented control the Event Attendance report has carried since August,
+       extended to three segments, so staff read it as the same thing in both
+       places. Fixed content width — it must not stretch and push the rest of
+       the filter bar onto a second line on a 1366x768 laptop. */
+    .pb-seg { display:flex; border:1px solid #CBD5E1; border-radius:6px; overflow:hidden; background:#fff; }
+    .pb-seg button { border:none; cursor:pointer; font-family:inherit; font-size:.8rem; font-weight:700; padding:6px 13px; background:#fff; color:#475569; white-space:nowrap; }
+    .pb-seg button:hover { background:#F1F5F9; }
+    /* The scope sentence. Printed on every render and in the PDF, because a
+       board figure that does not say whether it contains partner records is
+       not a board figure. */
+    .pb-scope-line { background:#F8FAFC; border-left:3px solid #0F766E; border-radius:0 6px 6px 0; padding:7px 10px; color:var(--text-dark, #0f172a); }
     .pb-head-title { font-family:'Outfit',sans-serif; font-size:1.25rem; font-weight:700; color:#0F766E; margin-bottom:12px; }
     .pb-head-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px 18px; }
     .pb-val { font-size:.92rem; font-weight:600; color:var(--text-dark, #0f172a); }
@@ -5484,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.58-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.59-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -53090,8 +53101,25 @@ window.carToggleNotes = function (i) {
    panels and the Reports GRID are hidden separately — conflating them is what
    broke the Reports nav in v148.97. */
 
-var _pbState = { from: '', to: '', excludePip: false };
+/* scope: 'ldah' | 'pip' | 'both'. LDAH is the only safe default — Hawaii PTI
+   is a different grant from the Pacific partner programme and is by definition
+   exclusive of it, so a board figure must never silently contain PIP records.
+   The other two exist so mis-stamped partner data can be found and cleaned up.
+   Only partnerIsland marks a record as PIP; location, island and title say
+   nothing about ownership. */
+var _pbState = { from: '', to: '', scope: 'ldah' };
 var _pbCache = null;
+
+/* What the report SAYS it contains, in words, on screen and on paper. */
+var _PB_SCOPE_TEXT = {
+  ldah: 'LDAH only \u2014 Pacific partner records excluded',
+  pip:  'Pacific partner (PIP) records only',
+  both: 'LDAH and Pacific partner records combined'
+};
+/* The short form, for the running footer on every printed page. */
+var _PB_SCOPE_TAG = { ldah: 'LDAH only', pip: 'PIP only', both: 'LDAH + PIP' };
+
+function _pbScopeOk(v) { return (v === 'pip' || v === 'both') ? v : 'ldah'; }
 
 /* Which sections go into the PDF and how much of each. Kept in localStorage so
    Noelani does not re-pick every month. Default is 'summary' everywhere: the
@@ -53107,6 +53135,7 @@ var _PB_SECTIONS = [
   [7, 'Upcoming Events']
 ];
 var _PB_OPTS_KEY = 'ldah_ptiBoardPdfSections';
+var _PB_SCOPE_KEY = 'ldah_ptiBoardScope';
 var _pbOpts = null;
 
 function _pbDefaultOpts() {
@@ -53133,6 +53162,21 @@ function _pbLoadOpts() {
 }
 function _pbSaveOpts() {
   try { localStorage.setItem(_PB_OPTS_KEY, JSON.stringify(_pbOpts)); } catch (e) {}
+}
+
+/* The scope is stored the same way the PDF section options are, but it is NOT
+   a default: cmsBuildPtiBoardReport forces 'ldah' on every open and writes that
+   back, so a stored 'pip' can never quietly produce a board report made only of
+   partner records. Persisting is a convenience while the report is being used;
+   the stored value is read once, on open, only so the person is TOLD their last
+   scope was dropped instead of wondering why the toggle moved. */
+function _pbLoadScope() {
+  var v = '';
+  try { v = localStorage.getItem(_PB_SCOPE_KEY) || ''; } catch (e) { /* storage blocked */ }
+  return _pbScopeOk(v);
+}
+function _pbSaveScope() {
+  try { localStorage.setItem(_PB_SCOPE_KEY, _pbState.scope); } catch (e) {}
 }
 
 /* The card's data-roles only hides a tile — applyRolePermissions sets
@@ -53664,6 +53708,16 @@ window.cmsBuildPtiBoardReport = async function () {
      nav router, so it never leaks into another view. */
   document.body.classList.add('ea-fullwidth-mode');
   if (!_pbState.from) { var q = _pbLastQuarter(); _pbState.from = q.from; _pbState.to = q.to; }
+  /* Every open starts on LDAH, whatever was stored or whatever the last open
+     was left on. Said out loud when it overrides a stored PIP/Both so the
+     toggle moving is never a mystery. */
+  var _pbStored = _pbLoadScope();
+  _pbState.scope = 'ldah';
+  _pbSaveScope();
+  if (_pbStored !== 'ldah' && typeof _showToast === 'function') {
+    _showToast('Opened on LDAH. Your last scope (' + (_pbStored === 'pip' ? 'PIP' : 'Both') +
+               ') is not carried over \u2014 a board report never opens on partner data.', '#0F766E');
+  }
   _pbLoadOpts();
   _pbRenderControls();
   /* Reopening the report should not land on a half-finished export from last
@@ -53719,7 +53773,16 @@ window.pbPreset = function (p) {
   _pbRenderControls(); _pbRender();
 };
 
-window.pbSetPip = function (on) { _pbState.excludePip = !!on; _pbRender(); };
+/* Re-renders from the cache only. Nothing here re-reads Firestore — the date
+   controls work the same way, and this report never writes at all. */
+window.pbSetScope = function (s) {
+  var v = _pbScopeOk(s);
+  if (v === _pbState.scope) return;
+  _pbState.scope = v;
+  _pbSaveScope();
+  _pbRenderControls();
+  _pbRender();
+};
 
 /* Everything is cached on first open, so work entered while the report sits on
    screen will not appear until the cache is thrown away. */
@@ -53733,6 +53796,18 @@ function _pbRenderControls() {
   if (!host) return;
   host.innerHTML =
     '<div class="pb-card pb-controls">' +
+      /* Scope first: it decides what every figure below MEANS, so it is read
+         before the dates. Same colours as the Event Attendance toggle —
+         LDAH teal, PIP purple — with a neutral slate for Both. */
+      '<div><label class="pb-lbl">Showing</label>' +
+        '<div class="pb-seg">' +
+          '<button type="button" onclick="pbSetScope(\'ldah\')" title="Hawaii PTI only. Every record stamped with a Pacific partner island is left out. This is what a board report should contain."' +
+            (_pbState.scope === 'ldah' ? ' style="background:#0891B2;color:#fff;"' : '') + '>LDAH</button>' +
+          '<button type="button" onclick="pbSetScope(\'pip\')" title="Pacific partner (PIP) records only \u2014 for finding and cleaning up mis-stamped partner data. Not a board figure."' +
+            (_pbState.scope === 'pip' ? ' style="background:#7C3AED;color:#fff;"' : '') + '>PIP</button>' +
+          '<button type="button" onclick="pbSetScope(\'both\')" title="Everything, unfiltered \u2014 LDAH and Pacific partner records together. Not a Hawaii PTI figure."' +
+            (_pbState.scope === 'both' ? ' style="background:#475569;color:#fff;"' : '') + '>Both</button>' +
+        '</div></div>' +
       '<div><label class="pb-lbl">From</label>' +
         '<input type="date" id="pbFrom" value="' + _pbEsc(_pbState.from) + '" onchange="pbSetDate(\'from\',this.value)"></div>' +
       '<div><label class="pb-lbl">To</label>' +
@@ -53747,12 +53822,12 @@ function _pbRenderControls() {
       '<div><label class="pb-lbl">&nbsp;</label>' +
         /* The two buttons do genuinely different things and the names do not
            say so, so both carry a hint. Regenerate never touches the database:
-           everything is cached on first open and the date range and PIP tick
-           already redraw as they change, so this only rebuilds from what is
-           already in the browser. (2026-09-14) */
+           everything is cached on first open and the date range and the scope
+           toggle already redraw as they change, so this only rebuilds from what
+           is already in the browser. (2026-09-14) */
         '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="cmsBuildPtiBoardReport()" ' +
           'title="Rebuild the report from the records already loaded. Instant, and it does NOT fetch anything new \u2014 ' +
-          'the dates and the PIP tick already redraw on their own. If someone has just entered attendance or a summary, use Re-read data instead."' +
+          'the dates and the scope toggle already redraw on their own. If someone has just entered attendance or a summary, use Re-read data instead."' +
           '>Regenerate</button></div>' +
       '<div><label class="pb-lbl">&nbsp;</label>' +
         '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="pbRefresh()" ' +
@@ -53772,9 +53847,6 @@ function _pbRenderControls() {
               'anything already tasked is skipped."' +
               '>+ Create summary tasks</button></div>'
         : '') +
-      '<div style="flex:1;min-width:230px;"><label class="pb-lbl">&nbsp;</label>' +
-        '<label class="pb-check"><input type="checkbox" ' + (_pbState.excludePip ? 'checked' : '') +
-          ' onchange="pbSetPip(this.checked)"> Exclude Pacific partner (PIP) records</label></div>' +
     '</div>';
 }
 
@@ -53830,7 +53902,7 @@ function _pbTaskOwner(r) {
        would send staff to fill in a form about nothing;
      - the date has passed in Honolulu, so there is something to summarise;
      - the event is not archived.
-   Range and the PIP tick come free: _pbScope() is what the report is reading,
+   Range and the scope toggle come free: _pbScope() is what the report is reading,
    so the list can never disagree with the dashes on screen. */
 function _pbTaskCandidates() {
   var today = _pbTodayISO();
@@ -54170,9 +54242,19 @@ function _pbStat(value, label, note) {
          (note ? '<div class="pb-stat-note">' + _pbEsc(note) + '</div>' : '') + '</div>';
 }
 
+/* The one scope test, in one place, so every collection is filtered the same
+   way and a later re-filter inside a section cannot drift from it. r.pip is set
+   at load time from partnerIsland and nothing else. */
+function _pbKeep(r) {
+  var sc = _pbState.scope;
+  if (sc === 'both') return true;                 /* everything, unfiltered */
+  if (sc === 'pip') return !!(r && r.pip);        /* PIP-stamped records only */
+  return !(r && r.pip);                           /* 'ldah': no PIP at all */
+}
+
 /* The rows each section works from, filtered once for the whole build. */
 function _pbScope() {
-  var keep = function (r) { return !(_pbState.excludePip && r.pip); };
+  var keep = _pbKeep;
   var upTo = new Date(Number(_pbState.to.slice(0, 4)), Number(_pbState.to.slice(5, 7)) - 1, Number(_pbState.to.slice(8, 10)));
   var horizon = new Date(upTo.getFullYear(), upTo.getMonth() + 3, upTo.getDate());
   return {
@@ -54400,7 +54482,7 @@ function _pbBuildSections(modes, pdf) {
     Object.keys(touched).forEach(function (id) {
       var c = D.byId[id];
       if (!c) return;
-      if (_pbState.excludePip && c.pip) return;
+      if (!_pbKeep(c)) return;
       var isl = String(c.island || '').trim();
       if (!isl) { noIsland++; return; }
       islandCounts[isl] = (islandCounts[isl] || 0) + 1;
@@ -54643,9 +54725,26 @@ function _pbHeaderHtml(D, modes) {
       '<div><div class="pb-lbl">Prepared By</div><div class="pb-val">' + _pbEsc(prepared || '—') + '</div></div>' +
       '<div><div class="pb-lbl">Date of Submission</div><div class="pb-val">' + _pbEsc(_pbDayLabel(_pbISO(new Date()))) + '</div></div>' +
     '</div>';
-  h += (_pbState.excludePip
-    ? '<div class="pb-note">Pacific partner (PIP) records are excluded from every figure below.</div>'
-    : (D.pipTotal ? '<div class="pb-note">Includes ' + _pbFmt(D.pipTotal) + ' Pacific partner (PIP) record' + (D.pipTotal === 1 ? '' : 's') + '. Use the checkbox above to leave them out.</div>' : ''));
+  /* Always printed, in words, whatever the scope. A PDF that has left the
+     building must never be ambiguous about what is in it. D.pipTotal counts the
+     PIP-stamped sessions and interactions falling in the period regardless of
+     scope, so under LDAH it says how many were left out rather than hiding
+     them. */
+  var _sc = _pbState.scope;
+  var _n = D.pipTotal, _s = (_n === 1 ? '' : 's');
+  var _line = '<strong>Scope:</strong> ' + _pbEsc(_PB_SCOPE_TEXT[_sc]) + '.';
+  if (_sc === 'ldah') {
+    _line += _n
+      ? ' ' + _pbFmt(_n) + ' Pacific partner (PIP) record' + _s + ' in this period ' + (_n === 1 ? 'was' : 'were') + ' left out of every figure below.'
+      : ' No Pacific partner (PIP) records fall in this period.';
+  } else if (_sc === 'pip') {
+    _line += ' Every figure below is partner work only and is NOT a Hawaii PTI board figure.' +
+             (_n ? ' ' + _pbFmt(_n) + ' PIP-stamped record' + _s + ' in this period.' : '');
+  } else {
+    _line += ' Not a Hawaii PTI board figure \u2014 the figures below mix both programmes.' +
+             (_n ? ' ' + _pbFmt(_n) + ' of the records below ' + (_n === 1 ? 'is' : 'are') + ' Pacific partner (PIP) work.' : '');
+  }
+  h += '<div class="pb-note pb-scope-line">' + _line + '</div>';
   /* The "not the complete record" strip used to print here. Daniel asked for it
      off the document (2026-09-14) — it is the board's copy and the caveat read
      as a disclaimer on the figures rather than a note about print options. The
@@ -54665,6 +54764,7 @@ function _pbRender() {
     h += '<div class="pb-card"><h3 class="pb-h">' + sec.n + '. ' + _pbEsc(sec.title) + '</h3>' + sec.html + '</div>';
   });
   h += '<div class="pb-foot">Read-only report. Figures are recomputed from live records for ' + _pbEsc(_pbRangeLabel()) +
+       ' (' + _pbEsc(_PB_SCOPE_TAG[_pbState.scope] || 'LDAH only') + ')' +
        ' each time it is generated; nothing here is stored or written back.</div>';
   host.innerHTML = h;
 }
@@ -54702,6 +54802,8 @@ function _pbPdfCss() {
     '.pb-count{font-weight:600;font-size:9px;color:#64748B;}' +
     '.pb-empty,.pb-empty-inline{font-size:10px;color:#64748B;}' +
     '.pb-note{font-size:9.5px;line-height:1.4;color:#475569;margin:6px 0;}' +
+    /* The scope sentence has to survive the print, so it is styled here too. */
+    '.pb-scope-line{background:#F8FAFC;border-left:3px solid #0F766E;border-radius:0 5px 5px 0;padding:5px 8px;color:#0f172a;font-size:10px;break-inside:avoid;}' +
     '.pb-nodata{color:#B45309;font-weight:700;}' +
     '.pb-zero{color:#64748B;}' +
     '.pb-auto{border-bottom:1px dotted #94A3B8;}' +
@@ -54741,7 +54843,10 @@ window.cmsExportPtiBoardPdf = function () {
   var D = _pbScope();
   var secs = _pbBuildSections(modes, true);
   var period = _pbRangeLabel();
-  var title = 'Hawaii PTI Board Report — ' + period;
+  /* The scope rides in the document title as well, because that is what the
+     browser offers as the saved filename. */
+  var _scopeTag = _PB_SCOPE_TAG[_pbState.scope] || 'LDAH only';
+  var title = 'Hawaii PTI Board Report — ' + period + ' — ' + _scopeTag;
 
   var body = _pbHeaderHtml(D, modes);
   secs.forEach(function (sec) {
@@ -54760,7 +54865,9 @@ window.cmsExportPtiBoardPdf = function () {
       '<b>Save as PDF</b> (or <b>Microsoft Print to PDF</b>) and click Save.' +
       '<button type="button" onclick="window.print()">Print / Save as PDF</button></div>' +
     '<div style="padding:12px 14px 0;">' + body + '</div>' +
-    '<div class="pb-runfoot">Hawaii PTI Board Report &middot; ' + _pbEsc(period) + '</div>' +
+    /* position:fixed repeats this on EVERY printed page, so the scope is on
+       every sheet, not only the one carrying the header. */
+    '<div class="pb-runfoot">Hawaii PTI Board Report &middot; ' + _pbEsc(period) + ' &middot; ' + _pbEsc(_scopeTag) + '</div>' +
     /* Split so this string cannot close the dashboard's own script block.
        readyState is checked as well as the load event: document.write + close
        can finish loading before this line is parsed, and a listener added after
