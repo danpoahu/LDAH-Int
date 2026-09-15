@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.62-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.63-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -54004,6 +54004,19 @@ function _pbTaskChosen() {
 }
 
 window.pbToggleTaskPanel = function (force) {
+  /* Pull the staff list in the background the first time the panel is opened,
+     then redraw so the picker fills in. Failure is non-fatal: the picker shows
+     "Loading staff…" and Create refuses rather than guessing an owner. */
+  if (!_pbStaff) {
+    _pbLoadStaff().then(function () {
+      if (!_pbNotesOwner) {
+        _pbNotesOwner = (window.currentUserData && window.currentUserData.uid) ||
+          (window.auth && window.auth.currentUser && window.auth.currentUser.uid) || '';
+      }
+      var p = document.getElementById('pbTaskPanel');
+      if (p && p.style.display !== 'none') _pbRenderTaskPanel();
+    });
+  }
   var p = document.getElementById('pbTaskPanel');
   if (!p) return;
   if (!_pbCanCreateTasks()) {
@@ -54037,6 +54050,97 @@ window.pbTaskAll = function (on) {
   _pbRenderTaskPanel();
 };
 
+var _pbNotesRows = [], _pbNotesSel = [], _pbNotesOwner = '';
+
+/* Staff list for the "assign to" picker. Loaded once and cached. Partners are
+   included deliberately — Sandra records these figures and is a partner
+   account, so she has to be pickable even though the report is LDAH-facing.
+   Roles are shown so nobody assigns a partner a job by accident. (2026-09-15) */
+var _pbStaff = null, _pbStaffProm = null;
+function _pbLoadStaff() {
+  if (_pbStaff) return Promise.resolve(_pbStaff);
+  if (_pbStaffProm) return _pbStaffProm;
+  _pbStaffProm = db.collection('userRoles').get().then(function (snap) {
+    var out = [];
+    snap.forEach(function (d) {
+      var v = d.data() || {};
+      if (v.archived === true) return;
+      var name = v.displayName || v.email || '';
+      if (!name) return;
+      out.push({ uid: d.id, name: name, email: v.email || '', role: v.role || '' });
+    });
+    out.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    _pbStaff = out;
+    return out;
+  }).catch(function (e) { console.warn('_pbLoadStaff:', e && e.message); _pbStaffProm = null; return []; });
+  return _pbStaffProm;
+}
+
+window.pbNotesTick = function (i, on) {
+  _pbNotesSel[i] = !!on;
+  var c = document.getElementById('pbNotesCount');
+  if (c) c.textContent = _pbNotesSel.filter(Boolean).length;
+};
+window.pbNotesSetOwner = function (uid) { _pbNotesOwner = uid || ''; };
+
+window.pbNotesAll = function (on) {
+  _pbNotesRows.forEach(function (r, i) { _pbNotesSel[i] = !!on; });
+  _pbRenderTaskPanel();
+};
+
+/* Raises one Data review task per ticked row. Deliberately NOT an Event Summary
+   task: the summary is not missing, a number is simply in the wrong field, and
+   filing it as a summary task would collide with the server's own
+   takeAttendance -> eventSummary chain. workflowEventId/Collection/SessionKey
+   are set (without workflowStep) purely so the card's Open Summary button jumps
+   to the right session — that is where the number gets moved. (2026-09-15) */
+window.pbCreateNotesTasks = async function () {
+  if (!_pbCanCreateTasks()) {
+    if (typeof _showToast === 'function') _showToast('Creating tasks is limited to Admin and Super Admin.', '#B45309');
+    return;
+  }
+  var chosen = _pbNotesRows.filter(function (r, i) { return _pbNotesSel[i]; });
+  if (!chosen.length) {
+    if (typeof _showToast === 'function') _showToast('Nothing ticked.', '#B45309');
+    return;
+  }
+  var uid = _pbNotesOwner ||
+    (window.currentUserData && window.currentUserData.uid) ||
+    (window.auth && window.auth.currentUser && window.auth.currentUser.uid) || '';
+  var who = (_pbStaff || []).filter(function (p) { return p.uid === uid; })[0];
+  if (!uid || !who) {
+    if (typeof _showToast === 'function') _showToast('Pick who the tasks are for first.', '#B45309');
+    return;
+  }
+  var today = _pbTodayISO(), made = 0, failed = 0;
+  for (var i = 0; i < chosen.length; i++) {
+    var r = chosen[i];
+    var f = _pbCountInNotes(r.s) || { n: '', phrase: '' };
+    try {
+      await db.collection('interactions').add({
+        channel: 'Office', interactionType: 'Data review',
+        contactId: '', contactType: '',
+        contactName: r.title + ' — ' + _pbDayLabel(r.date),
+        owner: who.name, ownerUid: uid,
+        status: 'Open', isDraft: false, followUpDate: today, notes: '',
+        summary: 'Move attendance into the Attendance box — ' + r.title + ' (' + _pbDayLabel(r.date) + '). '
+          + 'The figure is recorded in the presenter comments instead: "' + f.phrase + '". '
+          + 'Reads as ' + f.n + '. Until it is moved, the board report shows a dash for this session.',
+        grantProgram: '', grantPrograms: [],
+        workflowEventCollection: r.coll, workflowEventId: r.eventId,
+        workflowSessionKey: r.sessionKey || '',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      made++;
+    } catch (e) { failed++; console.warn('pbCreateNotesTasks:', e && e.message); }
+  }
+  _pbNotesSel = [];
+  _pbRenderTaskPanel('<div class="pb-note" style="color:#166534;"><strong>' + made + '</strong> task(s) created for ' + _pbEsc(who.name)
+    + (failed ? ', <strong>' + failed + '</strong> failed to save' : '') + '.</div>');
+  if (typeof _showToast === 'function') _showToast(made + ' data-review task(s) created for ' + who.name + '.', '#0F766E');
+};
+
 function _pbRenderTaskPanel(resultHtml) {
   var host = document.getElementById('pbTaskPanel');
   if (!host) return;
@@ -54048,25 +54152,59 @@ function _pbRenderTaskPanel(resultHtml) {
      created from it — so whoever is looking can see the number and go and move
      it. Shown whether or not the first group is empty, which is the common case
      for Sandra's Facebook posts. (2026-09-15) */
-  var _notes = [];
-  try { _notes = _pbNotesCandidates(); } catch (e) { _notes = []; }
+  try { _pbNotesRows = _pbNotesCandidates(); } catch (e) { _pbNotesRows = []; }
+  var _notes = _pbNotesRows;
   var _notesHtml = '';
   if (_notes.length) {
+    var _nSel = _pbNotesSel.filter(Boolean).length;
     _notesHtml = '<div class="pb-sub">Attendance written in the notes instead of the box ' +
       '<span class="pb-count">' + _notes.length + '</span></div>' +
       '<div class="pb-note">These already have a figure recorded &mdash; it is just in the presenter comments, ' +
-      'so the report reads a dash. Moving each number into the Attendance box on the Event Summary fixes it. ' +
-      'Nothing is created from this list; it is here so it can be worked through.</div>' +
-      '<div class="pb-scroll" style="max-height:260px;overflow:auto;"><table class="pb-tbl">' +
-      '<thead><tr><th>Date</th><th>Activity</th><th class="num">Number found</th><th>Where it says so</th></tr></thead><tbody>';
-    _notes.forEach(function (r) {
+      'so the report reads a dash. Tick any that should be chased and press Create; each one raises a ' +
+      '<strong>Data review</strong> task on your own My Day, carrying the number and an Open Summary link ' +
+      'to the right session. Nothing is ticked to begin with, so nothing happens until you choose it.</div>';
+    /* These sessions carry a presenter NAME but no presenterUid, so there is
+       nobody to route a task to automatically. The task therefore goes to
+       whoever creates it — the person doing the cleanup — rather than being
+       refused or guessed at. (2026-09-15) */
+    /* These sessions carry a presenter NAME but no presenterUid, so nothing can
+       be routed automatically — the person creating the tasks says who gets
+       them. Defaults to whoever is signed in. */
+    _notesHtml += '<div style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+      '<label class="pb-lbl" style="margin:0;">Assign to</label>' +
+      '<select id="pbNotesOwnerSel" onchange="pbNotesSetOwner(this.value)" ' +
+        'style="padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;min-width:230px;">';
+    if (!_pbStaff) {
+      _notesHtml += '<option value="">Loading staff&hellip;</option>';
+    } else {
+      _pbStaff.forEach(function (p) {
+        _notesHtml += '<option value="' + _pbEsc(p.uid) + '"' + (p.uid === _pbNotesOwner ? ' selected' : '') + '>' +
+          _pbEsc(p.name) + (p.role ? ' (' + _pbEsc(p.role) + ')' : '') + '</option>';
+      });
+    }
+    _notesHtml += '</select>' +
+      '<span style="font-size:.78rem;color:var(--text-soft);">these sessions record a presenter name but no account, ' +
+      'so there is nobody to route to automatically</span></div>';
+    _notesHtml += '<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="pbNotesAll(true)">Tick all</button>' +
+      '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="pbNotesAll(false)">Untick all</button>' +
+      '</div>';
+    _notesHtml += '<div class="pb-scroll" style="max-height:260px;overflow:auto;"><table class="pb-tbl">' +
+      '<thead><tr><th style="width:34px;"></th><th>Date</th><th>Activity</th><th class="num">Number found</th><th>Where it says so</th></tr></thead><tbody>';
+    _notes.forEach(function (r, i) {
       var f = _pbCountInNotes(r.s) || { n: '', phrase: '' };
-      _notesHtml += '<tr><td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td>' +
+      _notesHtml += '<tr><td><input type="checkbox"' + (_pbNotesSel[i] ? ' checked' : '') +
+          ' onchange="pbNotesTick(' + i + ',this.checked)"></td>' +
+        '<td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td>' +
         '<td>' + _pbEsc(r.title) + (r.pip ? ' <span class="pb-count">PIP</span>' : '') + '</td>' +
         '<td class="num"><strong>' + _pbFmt(f.n) + '</strong></td>' +
         '<td style="color:var(--text-soft);font-size:.8rem;">&ldquo;' + _pbEsc(f.phrase) + '&rdquo;</td></tr>';
     });
     _notesHtml += '</tbody></table></div>';
+    _notesHtml += '<div style="margin-top:10px;">' +
+      '<button class="btn" style="font-size:.84rem;padding:7px 16px;background:#0F766E;color:#fff;border:none;' +
+      'border-radius:6px;cursor:pointer;font-weight:700;" onclick="pbCreateNotesTasks()">Create ' +
+      '<span id="pbNotesCount">' + _nSel + '</span> task(s)</button></div>';
   }
 
   if (!_pbTaskRows.length) {
