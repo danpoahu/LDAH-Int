@@ -1386,6 +1386,9 @@
     .pb-empty { font-size:.82rem; color:var(--text-soft); padding:6px 0; }
     .pb-empty-inline { color:var(--text-soft); }
     .pb-note { font-size:.78rem; line-height:1.45; color:var(--text-soft); margin:8px 0; }
+    /* A missing summary is work owed, not a zero. Amber so it reads as
+       unfinished at a glance without shouting like an error. */
+    .pb-nodata { color:#B45309; font-weight:700; cursor:help; }
     .pb-warn { background:#FFF7ED; border-left:3px solid #F97316; border-radius:0 7px 7px 0; padding:7px 10px; color:#9A3412; }
     .pb-stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
     .pb-stat { flex:1 1 150px; min-width:140px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:10px 12px; }
@@ -5475,7 +5478,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.50-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.51-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -53016,6 +53019,8 @@ function _pbFmt(n) { return _pbNum(n).toLocaleString(); }
    value -Int computes from the overrides; attTotal is the raw override behind
    it; totalAttended is the per-head tally and only right when nobody
    overrode it. (2026-09-14) */
+var _pbMissing = 0;   /* sessions in range with no summary at all — reset per render */
+
 function _pbAttendance(s) {
   if (!s || typeof s !== 'object') return null;
   if (typeof s.attendanceTotalResolved === 'number') return s.attendanceTotalResolved;
@@ -53594,6 +53599,7 @@ function _pbScope() {
 /* Builds every section. `modes` maps section number -> 'full'|'summary'|'omit'.
    Returns [{n, title, mode, html}] with omitted sections left out. */
 function _pbBuildSections(modes, pdf) {
+  _pbMissing = 0;          /* per render, or a regenerate would keep adding to the last count */
   var D = _pbScope();
   var out = [];
   function add(n, title, build) {
@@ -53619,9 +53625,19 @@ function _pbBuildSections(modes, pdf) {
         list.forEach(function (r) {
           var att = _pbAttendance(r.s);
           var loc = [r.location, r.format].filter(Boolean).join(' · ');
+          /* 0 and "no summary" are different answers and must not look alike.
+             A recorded 0 is a real result — Connect-Gen runs sessions nobody
+             attends several times a year — so it prints as 0. The dash is
+             reserved for a session whose summary was never filled in, where
+             attendance is unknown rather than zero, and it is counted in a note
+             under the table so it reads as work owed. (2026-09-14) */
+          var cell = (att == null)
+            ? '<span class="pb-nodata" title="No event summary recorded — attendance unknown, not zero">&mdash;</span>'
+            : _pbFmt(att);
+          if (att == null) _pbMissing++;
           h += '<tr><td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td><td>' + _pbEsc(r.title) + '</td>' +
                '<td>' + _pbEsc(loc || '—') + '</td>' +
-               '<td class="num">' + (att == null ? '—' : _pbFmt(att)) + '</td></tr>';
+               '<td class="num">' + cell + '</td></tr>';
         });
         h += '</tbody></table></div>';
       });
@@ -53637,6 +53653,10 @@ function _pbBuildSections(modes, pdf) {
        the attendance box, on purpose and with Daniel's agreement. Labelled at
        every site it appears rather than quietly folded into a participant total. */
     h += '<div class="pb-note pb-warn">&ldquo;Attendance / social reach&rdquo; is the attendance figure as staff entered it. For social-reach events that box deliberately holds Facebook post views, not people &mdash; so this column must not be reported as a headcount.</div>';
+    h += '<div class="pb-note"><strong>0</strong> means the summary was completed and nobody attended &mdash; a real result. ' +
+         '<span class="pb-nodata">&mdash;</span> means no summary was recorded at all, so attendance is unknown rather than zero' +
+         (_pbMissing ? ': <strong>' + _pbFmt(_pbMissing) + '</strong> session' + (_pbMissing === 1 ? '' : 's') + ' in this period still need one.' : '.') +
+         '</div>';
     return h;
   });
 
@@ -54061,6 +54081,7 @@ function _pbPdfCss() {
     '.pb-count{font-weight:600;font-size:9px;color:#64748B;}' +
     '.pb-empty,.pb-empty-inline{font-size:10px;color:#64748B;}' +
     '.pb-note{font-size:9.5px;line-height:1.4;color:#475569;margin:6px 0;}' +
+    '.pb-nodata{color:#B45309;font-weight:700;}' +
     '.pb-warn{background:#FFF7ED;border-left:3px solid #F97316;padding:5px 8px;color:#9A3412;}' +
     '.pb-stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;}' +
     '.pb-stat{flex:1 1 130px;min-width:120px;border:1px solid #E2E8F0;background:#F8FAFC;border-radius:6px;padding:7px 9px;break-inside:avoid;}' +
