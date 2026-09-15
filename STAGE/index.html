@@ -1389,6 +1389,8 @@
     /* A missing summary is work owed, not a zero. Amber so it reads as
        unfinished at a glance without shouting like an error. */
     .pb-nodata { color:#B45309; font-weight:700; cursor:help; }
+    /* An inferred zero is real, but softer than one somebody typed. */
+    .pb-zero { color:var(--text-soft); cursor:help; }
     .pb-warn { background:#FFF7ED; border-left:3px solid #F97316; border-radius:0 7px 7px 0; padding:7px 10px; color:#9A3412; }
     .pb-stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
     .pb-stat { flex:1 1 150px; min-width:140px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:10px 12px; }
@@ -5478,7 +5480,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.52-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.53-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7064,6 +7066,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                choices are made against the report on screen, not remembered
                blind from last month. -->
           <div id="pbOptsPanel" style="display:none;"></div>
+          <!-- "Create summary tasks" confirmation list. The only part of this
+               report that writes anything, so it never fires on the click: it
+               renders what it is about to raise and waits to be confirmed. -->
+          <div id="pbTaskPanel" style="display:none;"></div>
           <div id="pbBody"><div class="pb-card" style="text-align:center;color:var(--text-soft);">Loading&hellip;</div></div>
         </div>
 
@@ -53020,6 +53026,10 @@ function _pbFmt(n) { return _pbNum(n).toLocaleString(); }
    it; totalAttended is the per-head tally and only right when nobody
    overrode it. (2026-09-14) */
 var _pbMissing = 0;   /* sessions in range with no summary at all — reset per render */
+function _pbTodayISO() {
+  try { return new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Honolulu' }); }
+  catch (e) { return new Date().toISOString().slice(0, 10); }
+}
 
 function _pbAttendance(s) {
   if (!s || typeof s !== 'object') return null;
@@ -53298,11 +53308,19 @@ async function _pbLoadAll() {
         var sm = ss[k] || {};
         sessions.push({
           id: e.coll + '/' + e.id + '/' + k, eventId: e.id, coll: e.coll,
+          sessionKey: k,
           pip: !!pIsland, pIsland: pIsland,
           title: v.title || '(untitled)', date: _pbKeyDate(k) || v.eventDate || '',
           location: _pbSessionLocation(v, k), format: _pbFormat(v, k),
           tier: _pbTier(sm.tierModel) || _pbTier(window._defaultTierForType(window._cmsDeriveEventType(v, e.coll))),
-          s: sm, perSession: true
+          s: sm, perSession: true,
+          /* Carried for "Create summary tasks" only, and ignored by every
+             section: it has to tell an archived event from a live one, and it
+             falls back to the event-level presenter when the session itself
+             carries none. (2026-09-14) */
+          archived: v.archived === true,
+          evPresenter: (v.summary && v.summary.presenter) || '',
+          evPresenterUid: (v.summary && v.summary.presenterUid) || ''
         });
       });
     } else {
@@ -53313,7 +53331,13 @@ async function _pbLoadAll() {
         title: v.title || '(untitled)', date: v.eventDate || '',
         location: _pbSessionLocation(v, ''), format: _pbFormat(v, ''),
         tier: _pbTier(sm0.tierModel) || _pbTier(window._defaultTierForType(window._cmsDeriveEventType(v, e.coll))),
-        s: sm0, perSession: false
+        s: sm0, perSession: false,
+        /* Same three as the per-session rows. On a flat event sm0 IS
+           v.summary, so the presenter fallback resolves to itself — harmless,
+           and it keeps one shape for both kinds of row. */
+        archived: v.archived === true,
+        evPresenter: (v.summary && v.summary.presenter) || '',
+        evPresenterUid: (v.summary && v.summary.presenterUid) || ''
       });
     }
 
@@ -53378,6 +53402,58 @@ async function _pbLoadAll() {
     });
   });
 
+  /* Attach live (non-cancelled) signup counts to each session, so the renderer
+     can tell "nobody signed up" from "nobody filled the summary in". Connect-Gen
+     runs sessions with no takers most months; those are a true 0, not missing
+     data, and staff have no reason to open a wrap-up for them. Doing it here
+     rather than writing zeros into Firestore means every future session is
+     handled without anyone remembering to. (2026-09-14) */
+  var _liveByKey = {}, _liveByEventDate = {};
+  signups.forEach(function (s) {
+    var x = s.raw || {};
+    if (String(x.status || '').toLowerCase() === 'cancelled') return;
+    var sel = [].concat(x.selectedSessions || [], x.selectedDates || []);
+    if (sel.length) {
+      sel.forEach(function (k) {
+        var kk = s.eventId + '||' + String(k);
+        _liveByKey[kk] = (_liveByKey[kk] || 0) + 1;
+        var dt = _pbKeyDate(String(k));
+        if (dt) { var dk = s.eventId + '||' + dt; _liveByEventDate[dk] = (_liveByEventDate[dk] || 0) + 1; }
+      });
+    } else {
+      var ek = s.eventId + '||_FLAT_';
+      _liveByEventDate[ek] = (_liveByEventDate[ek] || 0) + 1;
+    }
+  });
+  /* Which events take signups at all. An event that has NEVER had one is not
+     evidence of an empty session — it is an event whose attendance is recorded
+     some other way, like the Promising Minds cohort sessions. Zeroing those
+     would hide a real gap, so the inference below is limited to events the
+     signup mechanism is demonstrably in use for. */
+  var _eventTakesSignups = {}, _eventKeyedSignups = {};
+  signups.forEach(function (s) {
+    _eventTakesSignups[s.eventId] = true;
+    var x = s.raw || {};
+    if ([].concat(x.selectedSessions || [], x.selectedDates || []).length) _eventKeyedSignups[s.eventId] = true;
+  });
+
+  sessions.forEach(function (r) {
+    if (r.perSession) {
+      /* Exact key only. Falling back to a by-DATE count here was wrong: Connect-Gen
+         runs Hilo and Oahu on the same Thursday, so the empty one would inherit the
+         other's signups — hiding a true zero and, worse, raising a summary task for
+         a session nobody signed up to. A session key with no signups is 0. The
+         date map is kept only for events whose signups name no session at all. */
+      var exact = _liveByKey[r.eventId + '||' + String(r.sessionKey || '')];
+      if (typeof exact === 'number') r.liveSignups = exact;
+      else if (_eventKeyedSignups[r.eventId]) r.liveSignups = 0;
+      else r.liveSignups = _liveByEventDate[r.eventId + '||' + r.date] || 0;
+    } else {
+      r.liveSignups = _liveByEventDate[r.eventId + '||_FLAT_'] || 0;
+    }
+    r.takesSignups = !!_eventTakesSignups[r.eventId];
+  });
+
   _pbCache = { sessions: sessions, signups: signups, interactions: interactions,
                contacts: contacts, children: children };
   return _pbCache;
@@ -53404,6 +53480,10 @@ window.cmsBuildPtiBoardReport = async function () {
      time, so the options panel always starts closed. */
   var _op = document.getElementById('pbOptsPanel');
   if (_op) _op.style.display = 'none';
+  /* Same for the task list, and its contents are thrown away too: a list built
+     against last month's range must never be confirmable against this one. */
+  var _tp = document.getElementById('pbTaskPanel');
+  if (_tp) { _tp.style.display = 'none'; _tp.innerHTML = ''; }
   var body = document.getElementById('pbBody');
   if (body) body.innerHTML = '<div class="pb-card" style="text-align:center;">Reading events, interactions and contacts&hellip;</div>';
   try {
@@ -53489,11 +53569,321 @@ function _pbRenderControls() {
           'title="Fetch events, interactions and contacts from the database again. Slower. Use this when someone has changed ' +
           'something while this report was open \u2014 an event summary, attendance, a new interaction \u2014 because Regenerate will not see it."' +
           '>&#x21bb; Re-read data</button></div>' +
+      /* Admin and Super Admin only. The report itself is Super Admin, but this
+         button raises work for other people, so it carries its own check
+         rather than borrowing the panel's — and the check is repeated inside
+         pbToggleTaskPanel and pbCreateSummaryTasks, because a hidden button is
+         not a gate. */
+      (_pbCanCreateTasks()
+        ? '<div><label class="pb-lbl">&nbsp;</label>' +
+            '<button class="btn btn-ghost" style="font-size:.82rem;padding:6px 12px;" onclick="pbToggleTaskPanel()" ' +
+              'title="Raise an Event Summary task for every session in this date range that had signups but no attendance recorded \u2014 ' +
+              'the dashes in section 1. Shows you the list first and nothing is written until you confirm. Sessions nobody signed up for are a real zero and are left alone; ' +
+              'anything already tasked is skipped."' +
+              '>+ Create summary tasks</button></div>'
+        : '') +
       '<div style="flex:1;min-width:230px;"><label class="pb-lbl">&nbsp;</label>' +
         '<label class="pb-check"><input type="checkbox" ' + (_pbState.excludePip ? 'checked' : '') +
           ' onchange="pbSetPip(this.checked)"> Exclude Pacific partner (PIP) records</label></div>' +
     '</div>';
 }
+
+/* ── Create summary tasks ───────────────────────────────────
+   Section 1 prints a dash wherever a session that HAD signups was never
+   summarised. Every dash is work owed by a named person, and the only way to
+   chase it was to read the report and message people by hand.
+
+   This raises exactly the interaction the lifecycle functions raise when Take
+   Attendance is closed — same channel, same interactionType, same four
+   workflow fields — so it lands in that presenter's My Day with a working
+   "Open Event Summary" button. Get the workflow fields wrong and the card
+   still appears but the button goes nowhere, which is worse than no task.
+
+   This is the ONE thing in the whole PTI block that writes, and it writes to
+   `interactions` only. It never touches an event, a summary, a counter or a
+   cache, so the report still cannot alter the data it reports on.
+   (2026-09-14) */
+
+/* The button's own gate, repeated at the panel and again at the write. */
+function _pbCanCreateTasks() {
+  var r = (window.currentUserData && window.currentUserData.role) || '';
+  return r === 'superAdmin' || r === 'admin';
+}
+window._pbCanCreateTasks = _pbCanCreateTasks;
+
+/* Recurring sessionKeys are the composite "DATE|Loc – Venue|time" — accurate
+   and unreadable. One-time events key by the raw signupDate string, which
+   already reads as English. A flat event has no session at all. */
+function _pbTaskSessionLabel(r) {
+  if (!r.perSession) return 'Whole event';
+  var k = String(r.sessionKey || '');
+  if (!k) return 'Whole event';
+  if (k.indexOf('|') !== -1) return k.split('|').slice(1).filter(Boolean).join(' · ') || k;
+  return k;
+}
+
+/* The uid is what routes the task; the name is only what the card prints. They
+   must come from the SAME source or a task reads as one person's and reaches
+   another's. No uid anywhere means no owner — the row is shown and refused,
+   never handed to a default. */
+function _pbTaskOwner(r) {
+  var sm = r.s || {};
+  if (sm.presenterUid) return { uid: sm.presenterUid, name: sm.presenter || '' };
+  if (r.evPresenterUid) return { uid: r.evPresenterUid, name: r.evPresenter || '' };
+  return { uid: '', name: sm.presenter || r.evPresenter || '' };
+}
+
+/* Which sessions are owed a summary. All four tests must hold:
+     - no attendance resolved (_pbAttendance, not raw totalAttended);
+     - at least one live signup — a session nobody signed up for is a true
+       zero, the same one section 1 prints as an inferred 0, and tasking it
+       would send staff to fill in a form about nothing;
+     - the date has passed in Honolulu, so there is something to summarise;
+     - the event is not archived.
+   Range and the PIP tick come free: _pbScope() is what the report is reading,
+   so the list can never disagree with the dashes on screen. */
+function _pbTaskCandidates() {
+  var today = _pbTodayISO();
+  return _pbScope().sessions.filter(function (r) {
+    if (r.archived === true) return false;
+    if (_pbAttendance(r.s) != null) return false;
+    if (!(Number(r.liveSignups) > 0)) return false;
+    if (!r.date || r.date > today) return false;
+    return true;
+  }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+}
+
+var _pbTaskRows = [];    /* candidates on screen; the array index is the tick's id */
+var _pbTaskSel = {};
+var _pbTaskBusy = false;
+
+function _pbBuildTaskRows() {
+  _pbTaskRows = _pbTaskCandidates().map(function (r) {
+    var o = _pbTaskOwner(r);
+    return { r: r, label: _pbTaskSessionLabel(r), ownerUid: o.uid, ownerName: o.name };
+  });
+  _pbTaskSel = {};
+  /* Everything that CAN be created starts ticked — the panel exists to let
+     rows be dropped, not to make the whole list be re-picked by hand. */
+  _pbTaskRows.forEach(function (t, i) { if (t.ownerUid) _pbTaskSel[i] = true; });
+}
+
+function _pbTaskChosen() {
+  return _pbTaskRows.filter(function (t, i) { return !!t.ownerUid && _pbTaskSel[i] === true; });
+}
+
+window.pbToggleTaskPanel = function (force) {
+  var p = document.getElementById('pbTaskPanel');
+  if (!p) return;
+  if (!_pbCanCreateTasks()) {
+    if (typeof _showToast === 'function') _showToast('Creating staff tasks is limited to Admin and Super Admin.', '#B45309');
+    return;
+  }
+  var show = (force === true) ? true : (force === false ? false : p.style.display === 'none');
+  if (show) {
+    /* The controls render before the data finishes loading, so the button is
+       reachable while _pbCache is still null. */
+    if (!_pbCache) {
+      if (typeof _showToast === 'function') _showToast('Still reading the records — try again in a moment.', '#B45309');
+      return;
+    }
+    _pbBuildTaskRows();
+    _pbRenderTaskPanel();
+  }
+  p.style.display = show ? 'block' : 'none';
+};
+
+/* Ticking redraws the counter, not the panel: a full re-render would throw
+   away the scroll position halfway down a forty-row list. */
+window.pbTaskTick = function (i, on) {
+  _pbTaskSel[i] = !!on;
+  var c = document.getElementById('pbTaskCount');
+  if (c) c.textContent = String(_pbTaskChosen().length);
+};
+
+window.pbTaskAll = function (on) {
+  _pbTaskRows.forEach(function (t, i) { if (t.ownerUid) _pbTaskSel[i] = !!on; });
+  _pbRenderTaskPanel();
+};
+
+function _pbRenderTaskPanel(resultHtml) {
+  var host = document.getElementById('pbTaskPanel');
+  if (!host) return;
+  var h = '<div class="pb-card">' +
+    '<div class="pb-sub" style="margin-top:0;">Create Event Summary tasks</div>';
+
+  if (!_pbTaskRows.length) {
+    h += '<div class="pb-note">Nothing to raise. Every session between ' +
+           _pbEsc(_pbDayLabel(_pbState.from)) + ' and ' + _pbEsc(_pbDayLabel(_pbState.to)) +
+           ' that had signups already has its attendance recorded.</div>' +
+         (resultHtml || '') +
+         '<div style="margin-top:12px;"><button class="btn btn-ghost" style="font-size:.82rem;" onclick="pbToggleTaskPanel(false)">Close</button></div>' +
+         '</div>';
+    host.innerHTML = h;
+    return;
+  }
+
+  var noOwner = _pbTaskRows.filter(function (t) { return !t.ownerUid; }).length;
+  h += '<div class="pb-note">These sessions fall in the range on screen, had at least one live signup, ' +
+       'have already happened, and have no attendance recorded — the dashes in section 1. ' +
+       'Untick anything that should not be chased. Each tick raises one <strong>Event Wrap-Up → Event Summary</strong> ' +
+       'task, due today, on the session presenter\'s My Day. A session that already has one is skipped.</div>';
+  if (noOwner) {
+    h += '<div class="pb-note" style="color:#B45309;"><strong>' + noOwner + '</strong> ' +
+         (noOwner === 1 ? 'session has' : 'sessions have') +
+         ' no presenter assigned, so there is nobody to give the task to. Assign a presenter on the Event Summary form first, then come back.</div>';
+  }
+  h += '<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;">' +
+         '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="pbTaskAll(true)">Tick all</button>' +
+         '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="pbTaskAll(false)">Untick all</button>' +
+       '</div>';
+
+  h += '<div class="pb-scroll" style="max-height:340px;overflow-y:auto;">' +
+       '<table class="pb-tbl"><thead><tr><th style="width:34px;"></th><th>Date</th><th>Event</th><th>Session</th><th>Presenter</th><th class="num">Signups</th></tr></thead><tbody>';
+  _pbTaskRows.forEach(function (t, i) {
+    var r = t.r;
+    var who = t.ownerUid
+      ? _pbEsc(t.ownerName || '(name not on file)')
+      : '<span class="pb-nodata" title="No presenterUid on this session or on the event — nobody to route the task to">no presenter assigned' +
+        (t.ownerName ? ' (' + _pbEsc(t.ownerName) + ')' : '') + '</span>';
+    h += '<tr' + (t.ownerUid ? '' : ' style="opacity:.6;"') + '>' +
+         '<td>' + (t.ownerUid
+            ? '<input type="checkbox"' + (_pbTaskSel[i] ? ' checked' : '') + ' onchange="pbTaskTick(' + i + ',this.checked)">'
+            : '') + '</td>' +
+         '<td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td>' +
+         '<td>' + _pbEsc(r.title) + '</td>' +
+         '<td>' + _pbEsc(t.label) + '</td>' +
+         '<td>' + who + '</td>' +
+         '<td class="num">' + _pbFmt(r.liveSignups) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  h += (resultHtml || '');
+  h += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+         '<button class="btn" id="pbTaskGo" style="font-size:.84rem;padding:7px 16px;background:#0F766E;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;" ' +
+           'onclick="pbCreateSummaryTasks()">Create <span id="pbTaskCount">' + _pbTaskChosen().length + '</span> task(s)</button>' +
+         '<button class="btn btn-ghost" style="font-size:.82rem;" onclick="pbToggleTaskPanel(false)">Cancel</button>' +
+       '</div></div>';
+  host.innerHTML = h;
+}
+
+/* The write. Duplicates are refused on the same three fields the lifecycle
+   functions match on — workflowEventId + workflowStep + workflowSessionKey —
+   read fresh from Firestore rather than from _pbCache, because the cache can
+   be an hour old and a task raised by the server since it loaded would not be
+   in it. The comparison is done in code with the key normalised to a string,
+   so a legacy doc holding null, '' or a missing field all count as the same
+   "whole event" key and cannot slip past as a second task. */
+window.pbCreateSummaryTasks = async function () {
+  if (!_pbCanCreateTasks()) {
+    if (typeof _showToast === 'function') _showToast('Creating staff tasks is limited to Admin and Super Admin.', '#B45309');
+    return;
+  }
+  if (_pbTaskBusy) return;
+  var chosen = _pbTaskChosen();
+  var noOwner = _pbTaskRows.filter(function (t) { return !t.ownerUid; }).length;
+  if (!chosen.length) {
+    if (typeof _showToast === 'function') _showToast('Nothing ticked — no tasks created.', '#B45309');
+    return;
+  }
+  _pbTaskBusy = true;
+  var go = document.getElementById('pbTaskGo');
+  if (go) { go.disabled = true; go.textContent = 'Creating\u2026'; }
+
+  var created = 0, dup = 0, failed = 0, names = {};
+  try {
+    /* One read per event, not per session: an event with eight sessions is one
+       query, and equality-only filters need no composite index. */
+    var byEvent = {};
+    chosen.forEach(function (t) { byEvent[t.r.eventId] = true; });
+    var existing = {};
+    var ids = Object.keys(byEvent);
+    for (var q = 0; q < ids.length; q++) {
+      var eid = ids[q];
+      var snap = await db.collection('interactions')
+        .where('workflowEventId', '==', eid)
+        .where('workflowStep', '==', 'eventSummary')
+        .get();
+      snap.forEach(function (d) {
+        var x = d.data() || {};
+        existing[eid + '||' + String(x.workflowSessionKey == null ? '' : x.workflowSessionKey)] = true;
+      });
+    }
+
+    var todayIso = _pbTodayISO();
+    for (var i = 0; i < chosen.length; i++) {
+      var t = chosen[i], r = t.r;
+      var sk = String(r.sessionKey == null ? '' : r.sessionKey);
+      var key = r.eventId + '||' + sk;
+      if (existing[key]) { dup++; continue; }
+      var suffix = t.label ? ' (' + t.label + ')' : '';
+      try {
+        await db.collection('interactions').add({
+          channel: 'Event Wrap-Up',
+          interactionType: 'Event Summary',
+          contactId: '',
+          contactType: '',
+          contactName: (r.title || '(untitled event)') + ' — ' + _pbDayLabel(r.date) +
+                       (r.location ? ' (' + r.location + ')' : ''),
+          owner: t.ownerName || '',
+          ownerUid: t.ownerUid,
+          status: 'Open',
+          isDraft: false,
+          followUpDate: todayIso,
+          notes: '',
+          summary: 'Event Summary for: ' + (r.title || '') + suffix +
+                   ' — attendance and dissemination still needed for the PTI board report',
+          grantProgram: '',
+          grantPrograms: [],
+          workflowEventCollection: r.coll,
+          workflowEventId: r.eventId,
+          workflowSessionKey: sk,
+          workflowStep: 'eventSummary',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        /* Marked immediately, so a double-click or a session listed twice in
+           one run cannot raise a second card. */
+        existing[key] = true;
+        created++;
+        if (t.ownerName) names[t.ownerName] = (names[t.ownerName] || 0) + 1;
+      } catch (e1) {
+        failed++;
+        console.warn('pbCreateSummaryTasks add:', e1 && e1.message);
+      }
+    }
+  } catch (e) {
+    console.warn('pbCreateSummaryTasks:', e && e.message);
+    if (typeof _showToast === 'function') _showToast('Could not create the tasks: ' + (e && e.message), '#DC2626');
+    _pbTaskBusy = false;
+    _pbRenderTaskPanel();
+    return;
+  }
+  _pbTaskBusy = false;
+
+  var who = Object.keys(names).sort().map(function (n) { return _pbEsc(n) + ' (' + names[n] + ')'; }).join(', ');
+  var res = '<div class="pb-card" style="margin:12px 0 0;border:1px solid ' + (failed ? '#FCA5A5' : '#99F6E4') + ';">' +
+    '<div style="font-weight:700;font-size:.86rem;color:' + (failed ? '#B91C1C' : '#0F766E') + ';">' +
+      created + ' task' + (created === 1 ? '' : 's') + ' created</div>' +
+    '<div class="pb-note" style="margin-top:4px;">' +
+      (who ? 'Raised for: ' + who + '. ' : '') +
+      dup + ' skipped — already had an Event Summary task. ' +
+      noOwner + ' skipped — no presenter assigned. ' +
+      (failed ? '<strong style="color:#B91C1C;">' + failed + ' failed to save — see the browser console.</strong> ' : '') +
+      'Nothing else was changed; the figures in this report are unaffected until someone fills the summaries in and you press Re-read data.' +
+    '</div></div>';
+
+  /* Rebuilt from the same cached scope, so the rows just tasked stay visible
+     with the outcome under them. They are still candidates — the attendance
+     is still missing — but a second press now finds the duplicates and
+     refuses them. */
+  _pbBuildTaskRows();
+  _pbRenderTaskPanel(res);
+  if (typeof _showToast === 'function') {
+    _showToast(created + ' Event Summary task' + (created === 1 ? '' : 's') + ' created' +
+               (dup ? ', ' + dup + ' already existed' : '') + '.', created ? '#16A34A' : '#B45309');
+  }
+};
 
 /* ── PDF options panel ─────────────────────────────────────────────────────
    Shown before the document is opened, so the choice is made against the
@@ -53642,10 +54032,19 @@ function _pbBuildSections(modes, pdf) {
              reserved for a session whose summary was never filled in, where
              attendance is unknown rather than zero, and it is counted in a note
              under the table so it reads as work owed. (2026-09-14) */
-          var cell = (att == null)
-            ? '<span class="pb-nodata" title="No event summary recorded — attendance unknown, not zero">&mdash;</span>'
-            : _pbFmt(att);
-          if (att == null) _pbMissing++;
+          var cell;
+          if (att != null) {
+            cell = _pbFmt(att);
+          } else if (r.takesSignups && r.liveSignups === 0 && r.date && r.date <= _pbTodayISO()) {
+            /* Nobody signed up and the date has passed, so nobody attended. That
+               is a real 0, not missing data, and staff have no reason to open a
+               wrap-up for an empty session. Marked as inferred so it is never
+               mistaken for a figure somebody entered. */
+            cell = '<span class="pb-zero" title="No signups for this session, so attendance is zero. Inferred — no summary was filled in.">0</span>';
+          } else {
+            cell = '<span class="pb-nodata" title="No event summary recorded — attendance unknown, not zero">&mdash;</span>';
+            _pbMissing++;
+          }
           h += '<tr><td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td><td>' + _pbEsc(r.title) + '</td>' +
                '<td>' + _pbEsc(loc || '—') + '</td>' +
                '<td class="num">' + cell + '</td></tr>';
@@ -53664,7 +54063,7 @@ function _pbBuildSections(modes, pdf) {
        the attendance box, on purpose and with Daniel's agreement. Labelled at
        every site it appears rather than quietly folded into a participant total. */
     h += '<div class="pb-note pb-warn">&ldquo;Attendance / social reach&rdquo; is the attendance figure as staff entered it. For social-reach events that box deliberately holds Facebook post views, not people &mdash; so this column must not be reported as a headcount.</div>';
-    h += '<div class="pb-note"><strong>0</strong> means the summary was completed and nobody attended &mdash; a real result. ' +
+    h += '<div class="pb-note"><strong>0</strong> means nobody attended &mdash; either the summary records zero, or nobody signed up for a session that has now passed. ' +
          '<span class="pb-nodata">&mdash;</span> means no summary was recorded at all, so attendance is unknown rather than zero' +
          (_pbMissing ? ': <strong>' + _pbFmt(_pbMissing) + '</strong> session' + (_pbMissing === 1 ? '' : 's') + ' in this period still need one.' : '.') +
          '</div>';
@@ -54093,6 +54492,7 @@ function _pbPdfCss() {
     '.pb-empty,.pb-empty-inline{font-size:10px;color:#64748B;}' +
     '.pb-note{font-size:9.5px;line-height:1.4;color:#475569;margin:6px 0;}' +
     '.pb-nodata{color:#B45309;font-weight:700;}' +
+    '.pb-zero{color:#64748B;}' +
     '.pb-warn{background:#FFF7ED;border-left:3px solid #F97316;padding:5px 8px;color:#9A3412;}' +
     '.pb-stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;}' +
     '.pb-stat{flex:1 1 130px;min-width:120px;border:1px solid #E2E8F0;background:#F8FAFC;border-radius:6px;padding:7px 9px;break-inside:avoid;}' +
