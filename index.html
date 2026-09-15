@@ -5475,7 +5475,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.78</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.79</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -52425,6 +52425,25 @@ function _pbFmt(n) { return _pbNum(n).toLocaleString(); }
    it; totalAttended is the per-head tally and only right when nobody
    overrode it. (2026-09-14) */
 var _pbMissing = 0;   /* sessions in range with no summary at all — reset per render */
+/* Attendance for a session ROW, in the order the dashboard resolves it.
+   A deliberate override wins. Otherwise the figure is computed LIVE from the
+   attendance marked on signups plus any walk-ins, because the saved
+   totalAttended is only a snapshot of that same sum at the moment somebody
+   pressed Save — mark one more person present afterwards and the saved value
+   is stale for ever. The stored figure is the last resort, for events that take
+   no signups at all (the PTI pink-sheet backfill, where an override exists
+   anyway). (2026-09-14) */
+function _pbRowAttendance(r) {
+  if (!r) return null;
+  var sm = r.s || {};
+  var o = sm.attendanceOverrides;
+  if (o && typeof o === 'object' && typeof o.attTotal === 'number') return o.attTotal;
+  var live = (Number(r.markedAttended) || 0) + (Number(r.manualCount) || 0);
+  if (live > 0) return live;
+  if (r.takesSignups && Number(r.liveSignups) === 0 && r.date && r.date <= _pbTodayISO()) return 0;
+  return _pbAttendance(sm);
+}
+
 function _pbTodayISO() {
   try { return new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Honolulu' }); }
   catch (e) { return new Date().toISOString().slice(0, 10); }
@@ -52874,6 +52893,26 @@ async function _pbLoadAll() {
       : (_markedFlat[r.eventId] || 0);
   });
 
+  /* Evaluations ALWAYS track the live feedback count — the Event Summary form
+     says so itself ("read-only; it always tracks live feedback count. Still
+     persisted for legacy readers"). This report was one of those legacy readers,
+     so an evaluation arriving after the summary was saved never reached the
+     board figures. eventFeedback.sessionDate holds the session key verbatim. */
+  var fbSnap = await db.collection('eventFeedback').get();
+  var _evalByKey = {};
+  fbSnap.forEach(function (d) {
+    var x = d.data() || {};
+    var k = (x.eventId || '') + '||' + String(x.sessionDate || '_FLAT_');
+    _evalByKey[k] = (_evalByKey[k] || 0) + 1;
+  });
+  sessions.forEach(function (r) {
+    var k = r.eventId + '||' + (r.perSession ? String(r.sessionKey || '') : '_FLAT_');
+    r.liveEvals = _evalByKey[k] || 0;
+    /* Walk-ins recorded on the summary are attendance too, and they exist only
+       there — no signup carries them. */
+    r.manualCount = Array.isArray((r.s || {}).manualAttendees) ? r.s.manualAttendees.length : 0;
+  });
+
   _pbCache = { sessions: sessions, signups: signups, interactions: interactions,
                contacts: contacts, children: children };
   return _pbCache;
@@ -53066,7 +53105,13 @@ function _pbTaskCandidates() {
   var today = _pbTodayISO();
   return _pbScope().sessions.filter(function (r) {
     if (r.archived === true) return false;
-    if (_pbAttendance(r.s) != null) return false;
+    /* The ROW resolver, not the stored summary. Marking people present writes to
+       the signup, not the summary, so a fully attended session can have a blank
+       summary — and tasking its presenter for that is exactly the wrong thing to
+       do. It is also how a task was wrongly raised against Leilani on
+       2026-09-14. A live figure counts as recorded. */
+    if (_pbRowAttendance(r) != null) return false;
+    if (Number(r.liveEvals) > 0) return false;   /* evaluations came back, so it ran and was captured */
     if (!(Number(r.liveSignups) > 0)) return false;
     if (!r.date || r.date > today) return false;
     return true;
@@ -53444,7 +53489,7 @@ function _pbBuildSections(modes, pdf) {
         h += '<div class="pb-month">' + _pbEsc(_pbMonthLabel(mk)) + ' <span class="pb-count">' + list.length + '</span></div>';
         h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Date</th><th>Activity</th><th>Location / format</th><th class="num">Attendance / social reach</th></tr></thead><tbody>';
         list.forEach(function (r) {
-          var att = _pbAttendance(r.s);
+          var att = _pbRowAttendance(r);
           var loc = [r.location, r.format].filter(Boolean).join(' · ');
           /* 0 and "no summary" are different answers and must not look alike.
              A recorded 0 is a real result — Connect-Gen runs sessions nobody
@@ -53454,13 +53499,11 @@ function _pbBuildSections(modes, pdf) {
              under the table so it reads as work owed. (2026-09-14) */
           var cell;
           if (att != null) {
-            cell = _pbFmt(att);
-          } else if (r.markedAttended > 0) {
-            /* Counted present on the attendance screen but the summary form was
-               never saved. The dashboard shows this as "auto"; so do we, rather
-               than calling it missing. */
-            cell = '<span class="pb-auto" title="Counted from attendance marked on the signups. The summary form has not been saved, so this is the auto figure the Event Summary screen shows.">' +
-                   _pbFmt(r.markedAttended) + '</span>';
+            var _saved = _pbAttendance(r.s);
+            var _isLive = (_saved == null) || (_saved !== att);
+            cell = _isLive
+              ? '<span class="pb-auto" title="Live figure: attendance marked on the signups, plus any walk-ins. The saved summary either has no total or is out of date — the Event Summary screen shows this same number as its auto value.">' + _pbFmt(att) + '</span>'
+              : _pbFmt(att);
           } else if (r.takesSignups && r.liveSignups === 0 && r.date && r.date <= _pbTodayISO()) {
             /* Nobody signed up and the date has passed, so nobody attended. That
                is a real 0, not missing data, and staff have no reason to open a
@@ -53540,7 +53583,7 @@ function _pbBuildSections(modes, pdf) {
       ['attendanceMilitaryActiveDuty', 'Military, active duty'],
       ['followUpParents', 'Follow-up support — parents'],
       ['followUpProfessionals', 'Follow-up support — professionals'],
-      ['evaluationCount', 'Evaluations returned']
+      ['evaluationCount', 'Evaluations returned — counted live']
     ];
     var demoTotals = {}, demoDetail = {};
     DEMO.forEach(function (d) { demoTotals[d[0]] = 0; demoDetail[d[0]] = []; });
@@ -53549,7 +53592,11 @@ function _pbBuildSections(modes, pdf) {
         /* Attendance comes through the resolver, not straight off the field —
            an overridden headcount lives in attendanceOverrides and would
            otherwise total zero. Every other row is a plain field. */
-        var n = (d[0] === 'totalAttended') ? _pbAttendance(r.s) : r.s[d[0]];
+        /* Attendance and evaluations are resolved live; every other row is the
+           figure staff entered on the summary. */
+        var n = (d[0] === 'totalAttended') ? _pbRowAttendance(r)
+              : (d[0] === 'evaluationCount') ? Math.max(Number(r.liveEvals) || 0, Number(r.s.evaluationCount) || 0)
+              : r.s[d[0]];
         if (typeof n !== 'number' || !n) return;
         demoTotals[d[0]] += n;
         demoDetail[d[0]].push({ date: r.date, what: r.title, amount: _pbFmt(n) });
