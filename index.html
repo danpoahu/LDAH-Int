@@ -5488,7 +5488,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.83</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.84</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -48636,6 +48636,14 @@ window.cmsBuildStaffActivityReport = async function() {
     rows = rows.filter(function(r) {
       // v125.0.0: hide zero-attendance rows by default. Treat undefined/null
       // as 0 too — only opt-in (showZero) reveals these rows.
+      /* Flyers are not events with attendance. They are something LDAH posted
+         about someone else's event, or a standing promo like "Become a Member",
+         and they carry no signups and no sessions by design. They were invisible
+         here only because they always read 0 and 0-attendance rows used to be
+         hidden — the moment that default flipped on 2026-09-14 they appeared as
+         cards. Exclude them properly instead. (2026-09-15) */
+      var _evd = r.eventDoc || {};
+      if (_evd.infoOnly === true || _evd.flyerOnly === true || String(_evd.eventType || '') === 'flyer') return false;
       if (!showZero && (r.totalAttended || 0) === 0) return false;
       if (f.year && String(r.year) !== String(f.year)) return false;
       if (f.program && f.program !== '__all__') {
@@ -52899,6 +52907,7 @@ async function _pbLoadAll() {
         sessions.push({
           id: e.coll + '/' + e.id + '/' + k, eventId: e.id, coll: e.coll,
           sessionKey: k,
+          flyer: (v.infoOnly === true || v.flyerOnly === true || String(v.eventType || '') === 'flyer'),
           pip: !!pIsland, pIsland: pIsland,
           title: v.title || '(untitled)', date: _pbKeyDate(k) || v.eventDate || '',
           location: _pbSessionLocation(v, k), format: _pbFormat(v, k),
@@ -52917,6 +52926,7 @@ async function _pbLoadAll() {
       var sm0 = v.summary || {};
       sessions.push({
         id: e.coll + '/' + e.id + '/_FLAT_', eventId: e.id, coll: e.coll,
+        flyer: (v.infoOnly === true || v.flyerOnly === true || String(v.eventType || '') === 'flyer'),
         pip: !!pIsland, pIsland: pIsland,
         title: v.title || '(untitled)', date: v.eventDate || '',
         location: _pbSessionLocation(v, ''), format: _pbFormat(v, ''),
@@ -53060,6 +53070,13 @@ async function _pbLoadAll() {
       r.liveSignups = _liveByEventDate[r.eventId + '||_FLAT_'] || 0;
     }
     r.takesSignups = !!_eventTakesSignups[r.eventId];
+    /* A flyer is something LDAH posted about someone else's event, or a standing
+       promo like "Become a Member" — it has no attendance and no sessions by
+       definition (memory rule: flyers are infoOnly, never signupDates). Listing
+       them as activities put five permanent dashes in the August/September
+       tables, Village Hui among them. None carries materials or reach, so
+       dropping them from the activity lists loses no dissemination. (2026-09-15) */
+    r.isFlyer = !!r.flyer;
     r.markedAttended = r.perSession
       ? (_markedByKey[r.eventId + '||' + String(r.sessionKey || '')] || 0)
       : (_markedFlat[r.eventId] || 0);
@@ -53690,7 +53707,7 @@ function _pbBuildSections(modes, pdf) {
   add(1, 'Education & Training Activities', function (ctx) {
     var h = '';
     ['Tier 4', 'Tier 3', 'Tier 2'].forEach(function (tier) {
-      var rows = D.sessions.filter(function (s) { return s.tier === tier; });
+      var rows = D.sessions.filter(function (s) { return s.tier === tier && !s.isFlyer; });
       h += '<div class="pb-sub">' + _pbEsc(tier + ' — ' + _PB_TIER_NAMES[tier]) +
            ' <span class="pb-count">' + rows.length + ' activit' + (rows.length === 1 ? 'y' : 'ies') + '</span></div>';
       if (!rows.length) { h += '<div class="pb-empty">Nothing recorded in this period.</div>'; return; }
@@ -53738,7 +53755,10 @@ function _pbBuildSections(modes, pdf) {
         h += '</tbody></table></div>';
       });
     });
-    var untiered = D.sessions.filter(function (s) { return ['Tier 4', 'Tier 3', 'Tier 2', 'Tier 1'].indexOf(s.tier) === -1; });
+    /* Flyers are excluded here too — they carry no tier by nature, so without
+       this they would all pile into "No tier recorded" and read as unfinished
+       data instead of not being activities at all. */
+    var untiered = D.sessions.filter(function (s) { return ['Tier 4', 'Tier 3', 'Tier 2', 'Tier 1'].indexOf(s.tier) === -1 && !s.isFlyer; });
     h += '<div class="pb-sub">No tier recorded <span class="pb-count">' + untiered.length + '</span></div>';
     h += '<div class="pb-note">Flyers and announcement-only items carry no tier, and a session whose summary was never opened can be missing one. They are listed here rather than filed under a tier they were never given.</div>';
     h += _pbDetail('Activities with no tier', untiered.map(function (r) {
@@ -54090,7 +54110,12 @@ function _pbBuildSections(modes, pdf) {
 
   /* ── 7. Upcoming events ────────────────────────────────────────────── */
   add(7, 'Upcoming Events', function (ctx) {
-    var up = D.upcoming.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    /* Flyers and archived shells are not scheduled LDAH work. A flyer is
+       something posted about someone ELSE'S event; an archived one already had
+       its removeDate pass. Either printed under "Upcoming" reads to the board as
+       activity LDAH has planned. (2026-09-15) */
+    var up = D.upcoming.filter(function (r) { return !r.isFlyer && r.archived !== true; })
+      .slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     var h = '<div class="pb-note">Activities already on the calendar for the three months after ' +
             _pbEsc(_pbDayLabel(_pbState.to)) + '. Scheduled work, not a forecast — anything added later will not be here.</div>';
     if (!up.length) { return h + '<div class="pb-empty">Nothing is scheduled in that window yet.</div>'; }
