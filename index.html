@@ -5477,7 +5477,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.80</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.82</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -37773,6 +37773,13 @@ window.cmsOpenEventSummary = async function() {
     } catch (psErr) {
       _cmsEventSummaryData.presenterStaff = ['Leilani Pang', "La'a Salvani", 'Rosie Rowe'];
     }
+    /* The Event Attendance report's demographic tallies read the linked
+       contact's children[]; warm that cache here too, since the Event Summary
+       modal is an entry point into the same report flow. Best-effort — a
+       failure must never stop the summary rendering. */
+    if (typeof window._eaEnsureContactChildren === 'function') {
+      try { await window._eaEnsureContactChildren(); } catch (ccErr) { /* non-fatal */ }
+    }
     cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent);
   } catch (err) {
     document.getElementById('cmsEventSummaryContent').innerHTML = '<div class="cms-empty"><p>Error loading summary: ' + rsEscape(err.message) + '</p></div>';
@@ -47892,8 +47899,12 @@ window.cmsBuildStaffActivityReport = async function() {
     if (s.indexOf('filipino') !== -1) return 'Filipino';
     if (s.indexOf('pacific') !== -1 || s.indexOf('samoan') !== -1 || s.indexOf('tongan') !== -1 || s.indexOf('chamorro') !== -1 || s.indexOf('micronesian') !== -1 || s.indexOf('marshallese') !== -1) return 'Pacific Islander';
     if (s.indexOf('hispanic') !== -1 || s.indexOf('latino') !== -1 || s.indexOf('latina') !== -1 || s.indexOf('latinx') !== -1) return 'Hispanic';
-    if (s.indexOf('asian') !== -1 || s.indexOf('japanese') !== -1 || s.indexOf('chinese') !== -1 || s.indexOf('korean') !== -1 || s.indexOf('vietnamese') !== -1) return 'Asian';
+    /* Caucasian MUST be tested before Asian: 'caucasian'.indexOf('asian') === 4,
+       so every Caucasian record was being counted as Asian. 84 records say
+       "Caucasian" and none say "White", so the Caucasian row always read 0
+       while Asian was inflated by 84. (2026-09-15) */
     if (s.indexOf('caucasian') !== -1 || s.indexOf('white') !== -1) return 'Caucasian';
+    if (s.indexOf('asian') !== -1 || s.indexOf('japanese') !== -1 || s.indexOf('chinese') !== -1 || s.indexOf('korean') !== -1 || s.indexOf('vietnamese') !== -1) return 'Asian';
     return 'Other / 2 or more';
   }
   window._bucketEthnicity = _bucketEthnicity;
@@ -48999,6 +49010,97 @@ window.cmsBuildStaffActivityReport = async function() {
     return out;
   }
 
+  /* ── Contact-children fallback ──────────────────────────────────────
+     WHY THIS EXISTS — do not delete it believing registration.children[] is
+     the canonical home for child demographics. It is the INTENDED home, but
+     almost nothing writes it. Measured against live Firestore 2026-09-15:
+
+       • 417 signups in total; exactly 1 carried registration.children[],
+         and that one was hand-written during the investigation.
+       • Of the 240 signups marked ATTENDED — the only ones these tallies
+         count — 1 resolved from registration.children[], 2 from
+         specialCapture, 110 resolved ONLY from the linked contact's
+         children[], and 127 had no child data anywhere.
+
+     So Age of Children, Primary Ethnicity and Federal Disability Categories
+     were reading a field that is effectively always empty, and reported
+     near-zero for every event. The real data lives on contacts.children[]
+     (223 child records, 204 carrying an age band), reached through
+     signup.linkedContactId.
+
+     Precedence is strict and sources are NEVER merged for the same child —
+     mixing them would double-count:
+       1. signup.registration.children[]    (wins whenever present)
+       2. signup.specialCapture.children[]  (QR booth captures — folded in by
+          _eaSignupReg above, so it arrives here as reg.children)
+       3. contacts/{signup.linkedContactId}.children[]   ← the fallback
+       4. the legacy flat single-child fields on the signup
+       5. nothing
+
+     The cache is best-effort. While it is empty — never loaded, read denied,
+     contact missing — every tally behaves exactly as it did before, so this
+     can never blank a number that works today. */
+  var _eaContactChildren = null;      // contactId -> children[]; null = not loaded
+  var _eaContactChildrenProm = null;  // in-flight read, shared by concurrent renders
+
+  /* One db.collection('contacts').get() per session, cached and reused. Every
+     async entry point into this report awaits it before rendering; the sync
+     render paths (_renderExpandedBody, cmsEAPrintCard) are only reachable
+     after one of those has run. Never throws. */
+  function _eaEnsureContactChildren() {
+    if (_eaContactChildren) return Promise.resolve(_eaContactChildren);
+    if (_eaContactChildrenProm) return _eaContactChildrenProm;
+    if (typeof db === 'undefined' || !db) return Promise.resolve(null);
+    _eaContactChildrenProm = db.collection('contacts').get().then(function(snap) {
+      var map = {};
+      snap.forEach(function(doc) {
+        var d = doc.data() || {};
+        if (Array.isArray(d.children) && d.children.length) map[doc.id] = d.children;
+      });
+      _eaContactChildren = map;
+      _eaContactChildrenProm = null;
+      return map;
+    }).catch(function(err) {
+      /* Leave the cache null so a later render retries. The tallies simply
+         fall back to signup-only data in the meantime. */
+      _eaContactChildrenProm = null;
+      console.warn('EA contact-children load failed — demographic tallies fall back to signup data only:', err && err.message);
+      return null;
+    });
+    return _eaContactChildrenProm;
+  }
+  window._eaEnsureContactChildren = _eaEnsureContactChildren;
+
+  /* The child rows a signup contributes to a demographic tally, or null when
+     it has none (the caller then takes its legacy flat single-child path).
+     ONE resolver for all three tallies, so a signup can never be counted from
+     the signup for age and from the contact for ethnicity. */
+  function _eaChildRows(s, reg) {
+    if (reg && Array.isArray(reg.children) && reg.children.length) return reg.children;
+    return _eaContactChildRows(s);
+  }
+
+  function _eaContactChildRows(s) {
+    var cid = s && s.linkedContactId;
+    if (!cid || !_eaContactChildren) return null;
+    var kids = _eaContactChildren[cid];
+    return (Array.isArray(kids) && kids.length) ? kids : null;
+  }
+
+  /* True when _eaChildRows had to reach the CONTACT for this signup.
+     The tallies use it as a safety net: contact children are a demographic
+     record, not an attendance record, so a contact child can carry a name and
+     nothing else. If the contact rows contribute NOTHING to a tally, that
+     tally drops back to the signup's own legacy flat fields rather than
+     reporting zero — a number that works today must never go blank. Rows that
+     came from the signup itself keep the old all-or-nothing behaviour, and
+     the fallback only ever fires when the contact added 0, so no child is
+     ever counted twice. */
+  function _eaChildRowsFromContact(s, reg) {
+    if (reg && Array.isArray(reg.children) && reg.children.length) return false;
+    return !!_eaContactChildRows(s);
+  }
+
   function _computeFollowUp(r) {
     var sigById = {};
     r.signups.forEach(function(s) { sigById[s.id] = s; });
@@ -49039,15 +49141,20 @@ window.cmsBuildStaffActivityReport = async function() {
     r.signups.forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = _eaSignupReg(s);
-      // Multi-child registration: registration.children[] is the canonical home
-      var children = Array.isArray(reg.children) ? reg.children : null;
+      // Multi-child: registration.children[] → specialCapture → the linked
+      // contact's children[] (see _eaChildRows — registration is near-empty in
+      // live data, so the contact is where the ages actually live).
+      var children = _eaChildRows(s, reg);
+      var counted = 0;
       if (children && children.length) {
         children.forEach(function(c) {
           var canon = _normalizeAgeRange((typeof window._childAgeRange === 'function') ? window._childAgeRange(c) : (c.ageRange || c.childAgeRange || ''));
-          if (canon && counts.hasOwnProperty(canon)) counts[canon]++;
+          if (canon && counts.hasOwnProperty(canon)) { counts[canon]++; counted++; }
         });
-      } else {
-        // Legacy flat single-child
+      }
+      // Legacy flat single-child — also the safety net when contact children
+      // carried no age band at all (see _eaChildRowsFromContact).
+      if (!children || (counted === 0 && _eaChildRowsFromContact(s, reg))) {
         var canon = _normalizeAgeRange(reg.childAgeRange || (reg.child && reg.child.ageRange) || '');
         if (canon && counts.hasOwnProperty(canon)) counts[canon]++;
       }
@@ -49062,10 +49169,10 @@ window.cmsBuildStaffActivityReport = async function() {
     r.signups.forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = _eaSignupReg(s);
-      var children = Array.isArray(reg.children) ? reg.children : null;
+      var children = _eaChildRows(s, reg); // signup → booth capture → linked contact
       if (children && children.length) {
         children.forEach(function(c) {
-          var bucket = _bucketEthnicity(c.ethnicity || reg.ethnicity || '');
+          var bucket = _bucketEthnicity(c.ethnicity || reg.childEthnicity || reg.ethnicity || '');
           counts[bucket] = (counts[bucket] || 0) + 1;
         });
       } else {
@@ -49083,14 +49190,19 @@ window.cmsBuildStaffActivityReport = async function() {
     r.signups.forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = _eaSignupReg(s);
-      var children = Array.isArray(reg.children) ? reg.children : null;
+      var children = _eaChildRows(s, reg); // signup → booth capture → linked contact
       var lists = [];
       if (children && children.length) {
-        children.forEach(function(c) { if (Array.isArray(c.disabilityCategories)) lists.push(c.disabilityCategories); });
-      } else if (Array.isArray(reg.disabilityCategories)) {
-        lists.push(reg.disabilityCategories);
-      } else if (Array.isArray(s.disabilityCategories)) {
-        lists.push(s.disabilityCategories);
+        children.forEach(function(c) { if (Array.isArray(c.disabilityCategories) && c.disabilityCategories.length) lists.push(c.disabilityCategories); });
+      }
+      // Legacy flat fields — also the safety net when the contact's children
+      // listed no categories at all (see _eaChildRowsFromContact).
+      if (!children || (lists.length === 0 && _eaChildRowsFromContact(s, reg))) {
+        if (Array.isArray(reg.disabilityCategories)) {
+          lists.push(reg.disabilityCategories);
+        } else if (Array.isArray(s.disabilityCategories)) {
+          lists.push(s.disabilityCategories);
+        }
       }
       lists.forEach(function(arr) {
         arr.forEach(function(d) {
@@ -49213,6 +49325,10 @@ window.cmsBuildStaffActivityReport = async function() {
   window.cmsEASaveAttendanceField = async function(rowId, prefix, rawVal) {
     var spec = _eaAttendanceFieldMap[prefix];
     if (!spec) return;
+    // This handler re-renders the expanded body below, so make sure the
+    // contact-children cache is there before the tallies recompute.
+    await _eaEnsureContactChildren();
+
     var row = _eaCache.eventDates.find(function(x) { return x.id === rowId; });
     if (!row) return;
     var newVal = (spec.kind === 'number') ? (parseInt(rawVal, 10) || 0) : String(rawVal || '');
@@ -49277,7 +49393,9 @@ window.cmsBuildStaffActivityReport = async function() {
     if (editBtn)  editBtn.onclick  = function() { if (typeof window.cmsEAOpenSummaryEditor === 'function') window.cmsEAOpenSummaryEditor(id); };
     document.getElementById('eaReportOverlay').classList.add('active');
     // Pull latest summary/feedback/signups so post-edit changes show up.
-    _refreshRow(id).then(function() {
+    // _renderExpandedBody above may have drawn before the contact-children
+    // cache existed; re-render once it does, alongside the row refresh.
+    Promise.all([_refreshRow(id), _eaEnsureContactChildren()]).then(function() {
       var row2 = _eaCache.eventDates.find(function(x) { return x.id === id; });
       if (row2 && _eaModalCurrentId === id) {
         var b = document.getElementById('eaModalBody');
@@ -49344,6 +49462,7 @@ window.cmsBuildStaffActivityReport = async function() {
       return keys.indexOf(sessionDate) !== -1;
     });
     if (!matches.length) return;
+    await _eaEnsureContactChildren();
     for (var i = 0; i < matches.length; i++) { await _refreshRow(matches[i].id); }
     if (typeof _renderCardList === 'function') _renderCardList();
     if (_eaModalCurrentId) {
@@ -49415,6 +49534,7 @@ window.cmsBuildStaffActivityReport = async function() {
     try {
       // cmsViewSignups loads + opens the signups modal in background; we then
       // chain to Event Summary so the user lands directly on the editor.
+      await _eaEnsureContactChildren();
       console.log('cmsEAOpenSummaryEditor: awaiting cmsViewSignups...');
       await cmsViewSignups(row.eventId, row.isRecurring, row.eventTitle);
       console.log('cmsEAOpenSummaryEditor: cmsViewSignups done. signups loaded =', (_cmsSignupsModalData && _cmsSignupsModalData.signups) ? _cmsSignupsModalData.signups.length : 'n/a');
@@ -50054,6 +50174,9 @@ window.ihExportCSV = function () {
       _eaCache.eventDates = built.rows;
       _eaCache.eventTitlesById = built.titles;
       _eaCache.built = true;
+      // Demographic tallies fall back to the linked contact's children[]; load
+      // that map before any card or print view renders. Best-effort, cached.
+      await _eaEnsureContactChildren();
       // Default filter: current year if any event-dates fall in it; otherwise blank.
       var currentYear = String(new Date().getFullYear());
       var hasCurrentYear = built.rows.some(function(r) { return String(r.year) === currentYear; });
@@ -50117,6 +50240,9 @@ window.ihExportCSV = function () {
       // included alongside recurring + one-time events.
       var built = await _enumerateEventDates('all');
       var rows = built.rows || [];
+      // Same contact-children fallback the on-screen report uses, so the
+      // exported age/ethnicity/disability columns reconcile to it.
+      await _eaEnsureContactChildren();
 
       // 2. Column definitions (pink-sheet order, per design spec §4).
       // Age: our 5 canonical buckets map onto the pink sheet's 6 bands; the
