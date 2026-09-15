@@ -1391,6 +1391,8 @@
     .pb-nodata { color:#B45309; font-weight:700; cursor:help; }
     /* An inferred zero is real, but softer than one somebody typed. */
     .pb-zero { color:var(--text-soft); cursor:help; }
+    /* Auto figure: real, but derived rather than saved. */
+    .pb-auto { border-bottom:1px dotted #94A3B8; cursor:help; }
     .pb-warn { background:#FFF7ED; border-left:3px solid #F97316; border-radius:0 7px 7px 0; padding:7px 10px; color:#9A3412; }
     .pb-stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
     .pb-stat { flex:1 1 150px; min-width:140px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:10px; padding:10px 12px; }
@@ -5480,7 +5482,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.53-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.54-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -53431,10 +53433,28 @@ async function _pbLoadAll() {
      would hide a real gap, so the inference below is limited to events the
      signup mechanism is demonstrably in use for. */
   var _eventTakesSignups = {}, _eventKeyedSignups = {};
+  /* Attendance marked on the SIGNUP, which is what the Event Summary screen shows
+     as "auto". A session can be fully attended and still have nothing stored on
+     its summary, because the summary form was never saved — marking people
+     present on the attendance screen writes sessionAttendance, not the summary.
+     Reading only the summary made Connect-Gen on 24 Aug 2026 look unrecorded when
+     Leilani had marked it present weeks earlier, and I raised a task against her
+     for it. The report must read what the dashboard reads. (2026-09-14) */
+  var _markedByKey = {}, _markedFlat = {};
   signups.forEach(function (s) {
     _eventTakesSignups[s.eventId] = true;
     var x = s.raw || {};
     if ([].concat(x.selectedSessions || [], x.selectedDates || []).length) _eventKeyedSignups[s.eventId] = true;
+    var sa = x.sessionAttendance;
+    if (sa && typeof sa === 'object') {
+      Object.keys(sa).forEach(function (k) {
+        if (sa[k] && sa[k].status === 'attended') {
+          var kk = s.eventId + '||' + String(k);
+          _markedByKey[kk] = (_markedByKey[kk] || 0) + 1;
+        }
+      });
+    }
+    if (x.attendanceStatus === 'attended') _markedFlat[s.eventId] = (_markedFlat[s.eventId] || 0) + 1;
   });
 
   sessions.forEach(function (r) {
@@ -53452,6 +53472,9 @@ async function _pbLoadAll() {
       r.liveSignups = _liveByEventDate[r.eventId + '||_FLAT_'] || 0;
     }
     r.takesSignups = !!_eventTakesSignups[r.eventId];
+    r.markedAttended = r.perSession
+      ? (_markedByKey[r.eventId + '||' + String(r.sessionKey || '')] || 0)
+      : (_markedFlat[r.eventId] || 0);
   });
 
   _pbCache = { sessions: sessions, signups: signups, interactions: interactions,
@@ -54035,6 +54058,12 @@ function _pbBuildSections(modes, pdf) {
           var cell;
           if (att != null) {
             cell = _pbFmt(att);
+          } else if (r.markedAttended > 0) {
+            /* Counted present on the attendance screen but the summary form was
+               never saved. The dashboard shows this as "auto"; so do we, rather
+               than calling it missing. */
+            cell = '<span class="pb-auto" title="Counted from attendance marked on the signups. The summary form has not been saved, so this is the auto figure the Event Summary screen shows.">' +
+                   _pbFmt(r.markedAttended) + '</span>';
           } else if (r.takesSignups && r.liveSignups === 0 && r.date && r.date <= _pbTodayISO()) {
             /* Nobody signed up and the date has passed, so nobody attended. That
                is a real 0, not missing data, and staff have no reason to open a
@@ -54493,6 +54522,7 @@ function _pbPdfCss() {
     '.pb-note{font-size:9.5px;line-height:1.4;color:#475569;margin:6px 0;}' +
     '.pb-nodata{color:#B45309;font-weight:700;}' +
     '.pb-zero{color:#64748B;}' +
+    '.pb-auto{border-bottom:1px dotted #94A3B8;}' +
     '.pb-warn{background:#FFF7ED;border-left:3px solid #F97316;padding:5px 8px;color:#9A3412;}' +
     '.pb-stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;}' +
     '.pb-stat{flex:1 1 130px;min-width:120px;border:1px solid #E2E8F0;background:#F8FAFC;border-radius:6px;padding:7px 9px;break-inside:avoid;}' +
