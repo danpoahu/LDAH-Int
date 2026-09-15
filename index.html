@@ -5488,7 +5488,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.90</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.91</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -5906,6 +5906,80 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               }catch(e){
                 console.warn('myDayOpenSummary:',e&&e.message);
                 alert('Could not open Event Summary — '+((e&&e.message)||'please try again')+'.');
+              }
+            };
+            /* One-button fix for "the figure is in the presenter comments, not
+               the Attendance box" (2026-09-15). The task already carries the
+               number the report parsed out of the comments, so making the person
+               open a form, find the right box and retype it is three more chances
+               to put it somewhere else — and the whole reason the task exists is
+               that a number ended up in the wrong field.
+
+               Writes the two fields a real Save writes: the deliberate override,
+               and the resolved total legacy readers use. The report resolves the
+               override FIRST, which is what turns the dash into a number. The
+               presenter comments are left exactly as they are — they are the
+               record of what the presenter said, not a duplicate of the figure. */
+            window.myDayFixAttendance = async function(id, btn){
+              var d=(window._myDayDocs||{})[id];
+              if(!d||!d.workflowEventId)return;
+              var n=Number(d.dataReviewCount);
+              if(!(isFinite(n)&&n>0&&Math.floor(n)===n)){
+                alert('This task does not carry a number to move.\n\nUse Open Event Summary and enter it by hand.');return;
+              }
+              var coll=d.workflowEventCollection||'events';
+              var key=d.workflowSessionKey||'';
+              /* A blank session key means a one-off with no sessions, where the
+                 figure belongs on the event's own summary. */
+              var at=key?['sessionSummaries',key]:['summary'];
+              var ref=db.collection(coll).doc(d.workflowEventId);
+              try{
+                /* Read first, every time. Somebody may have typed it in between
+                   the task being raised and this button being pressed, and
+                   overwriting a human's figure with a parsed one is worse than
+                   doing nothing at all. */
+                var snap=await ref.get();
+                if(!snap.exists){alert('That event no longer exists.');return;}
+                var ev=snap.data()||{};
+                var sm=key?(((ev.sessionSummaries||{})[key])||{}):(ev.summary||{});
+                var ov=sm.attendanceOverrides||{};
+                var existing=(typeof ov.attTotal==='number')?ov.attTotal
+                  :((typeof sm.attendanceTotalResolved==='number')?sm.attendanceTotalResolved
+                  :((typeof sm.totalAttended==='number'&&sm.totalAttended>0)?sm.totalAttended:null));
+                if(existing!==null&&existing!==0){
+                  alert('The Attendance box already reads '+existing+' for this session.\n\nNothing has been changed. If it is already sorted, tick this task off — or use Open Event Summary to look.');
+                  return;
+                }
+                if(!confirm('Put '+n+' in the Attendance box for:\n\n'+(d.contactName||'this session')+'\n\nThe number comes from the presenter comments:\n"'+(d.dataReviewPhrase||'')+'"\n\nThe comments stay exactly as they are.'))return;
+                if(btn){btn.disabled=true;btn.textContent='Saving…';}
+                var FP=firebase.firestore.FieldPath;
+                await ref.update(
+                  new FP(...at.concat(['attendanceOverrides','attTotal'])), n,
+                  new FP(...at.concat(['attendanceTotalResolved'])), n,
+                  'updatedAt', firebase.firestore.FieldValue.serverTimestamp()
+                );
+                /* Close the task on the record, saying what was done and by whom.
+                   A task that silently vanishes teaches nobody anything. */
+                var who=(window.currentUserData&&window.currentUserData.displayName)||'Unknown';
+                var now=new Date();
+                var stamp=now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' '+
+                  now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+                var tref=db.collection('interactions').doc(id);
+                var tsnap=await tref.get();
+                var prev=(tsnap.exists&&(tsnap.data().notes||''))||'';
+                await tref.update({
+                  status:'Closed',
+                  notes:prev+'\n---\n['+who+' — '+stamp+']\nMoved '+n+' into the Attendance box using the button on this task. The presenter comments were not changed.',
+                  updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+                });
+                if(typeof auditLog==='function')
+                  auditLog('Moved attendance into the box','"'+(d.contactName||'')+'" — '+n+' (event '+d.workflowEventId+(key?' / '+key:'')+')');
+                if(typeof _showToast==='function')_showToast('Attendance set to '+n+'. Task closed.','#0F766E');
+                if(window.loadMyDay)window.loadMyDay();
+              }catch(e){
+                console.warn('myDayFixAttendance:',e&&e.message);
+                if(btn){btn.disabled=false;btn.textContent='✓ Put '+n+' in the Attendance box';}
+                alert('Could not set the attendance — '+((e&&e.message)||'please try again')+'.');
               }
             };
             // Resource Update Call task -> open that partner's resource edit card.
@@ -6548,8 +6622,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                            button and nothing else. Until it existed the card had
                            NO link at all — the task said where the number was and
                            then left the person to go and find the screen. */
-                        else if(d.workflowEventId&&d.workflowStep==='dataReviewAttendance')
-                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0891b2;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenSummary(\''+d._id+'\')">Open Event Summary &rarr;</button>';
+                        else if(d.workflowEventId&&d.workflowStep==='dataReviewAttendance'){
+                          /* Two buttons, in the order the work actually happens.
+                             The green one does it; Open Event Summary is there for
+                             the times the number needs a human eye (a phrase that
+                             parsed oddly, or a figure that should not simply be
+                             believed). If the task carries no number, only the
+                             second appears. */
+                          var _fixN=(typeof d.dataReviewCount==='number')?d.dataReviewCount:null;
+                          actionBtn=(_fixN===null?'':
+                            '<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#15803d;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayFixAttendance(\''+d._id+'\',this)">&#10003; Put '+_fixN+' in the Attendance box</button>')
+                            +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0891b2;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;'+(_fixN===null?'':'margin-left:7px;')+'font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenSummary(\''+d._id+'\')">Open Event Summary &rarr;</button>';
+                        }
                         else if(d.workflowEventId&&d.workflowStep==='sendRecap')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0d9488;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenRecap(\''+d._id+'\')">Send Recording &amp; Notes &rarr;</button>';
                         else if(d.workflowEventId&&d.workflowStep==='resourceUpdateCall')
@@ -53381,7 +53465,15 @@ function _pbCountInNotes(sm) {
   var n = parseInt(String(m[1]).replace(/,/g, ''), 10);
   if (!isFinite(n) || n <= 0) return null;
   var i = Math.max(0, m.index - 40);
-  return { n: n, phrase: txt.slice(i, m.index + m[0].length + 30).trim() };
+  var j = Math.min(txt.length, m.index + m[0].length + 30);
+  var frag = txt.slice(i, j);
+  /* Trim the half-words a fixed window leaves at each end ("re workers…",
+     "…with the ARC fo"). The fragment is read by a person — in the panel, and
+     in the confirm dialog on the one-button fix — and a quote that starts
+     mid-word reads like the tool is broken. (2026-09-15) */
+  if (i > 0) frag = frag.replace(/^\S*\s+/, '');
+  if (j < txt.length) frag = frag.replace(/\s+\S*$/, '');
+  return { n: n, phrase: frag.trim() };
 }
 
 /* Sessions where the attendance figure was typed into the comments instead of
@@ -53643,6 +53735,11 @@ window.pbCreateNotesTasks = async function () {
         grantProgram: '', grantPrograms: [],
         workflowEventCollection: r.coll, workflowEventId: r.eventId,
         workflowSessionKey: r.sessionKey || '', workflowStep: 'dataReviewAttendance',
+        /* The parsed figure and the words it came from, carried as fields rather
+           than left buried in the summary prose. The one-button fix on the card
+           reads these; digging the number back out of a sentence would be a
+           second parse of a parse. */
+        dataReviewCount: (Number(f.n) || null), dataReviewPhrase: f.phrase || '',
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
