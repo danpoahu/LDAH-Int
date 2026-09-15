@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.60-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.61-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -53921,6 +53921,43 @@ function _pbTaskOwner(r) {
      - the event is not archived.
    Range and the scope toggle come free: _pbScope() is what the report is reading,
    so the list can never disagree with the dashes on screen. */
+/* A number written into the presenter comments instead of the attendance box.
+   Sandra records Facebook reach that way — "563 views | FB Post on Fun Fitness",
+   "2218 views", "5 participants all certified with the ARC" — so the figure is on
+   file but the report reads a dash. Daniel asked the task button to spot it
+   (2026-09-15).
+
+   The unit word is required, so a date like 08/02/2026 or a phrase like "the 6
+   factors IEP teams must consider" cannot be mistaken for a count. Returns the
+   number AND the phrase it came from, because a human has to confirm it — this
+   only ever populates a task for someone to action, it never writes attendance. */
+function _pbCountInNotes(sm) {
+  if (!sm || typeof sm !== 'object') return null;
+  var txt = [sm.presenterComments, sm.notes, sm.comments].filter(Boolean).join(' | ');
+  if (!txt) return null;
+  var m = txt.match(/(\d[\d,]*)\s*(views?|participants?|attendees?|attended|people|families|reached|signed\s*up)\b/i);
+  if (!m) return null;
+  var n = parseInt(String(m[1]).replace(/,/g, ''), 10);
+  if (!isFinite(n) || n <= 0) return null;
+  var i = Math.max(0, m.index - 40);
+  return { n: n, phrase: txt.slice(i, m.index + m[0].length + 30).trim() };
+}
+
+/* Sessions where the attendance figure was typed into the comments instead of
+   the box. Deliberately NOT merged into _pbTaskCandidates: those are sessions
+   with signups and no figure anywhere, whereas these have the figure on file in
+   the wrong place. They need a different conversation with the presenter, and a
+   different task, so they are offered as their own group. (2026-09-15) */
+function _pbNotesCandidates() {
+  var today = _pbTodayISO();
+  return _pbScope().sessions.filter(function (r) {
+    if (r.archived === true || r.isFlyer) return false;
+    if (_pbRowAttendance(r) != null) return false;      /* already has a figure */
+    if (!r.date || r.date >= today) return false;       /* past only */
+    return !!_pbCountInNotes(r.s);
+  }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+}
+
 function _pbTaskCandidates() {
   var today = _pbTodayISO();
   return _pbScope().sessions.filter(function (r) {
@@ -53999,10 +54036,37 @@ function _pbRenderTaskPanel(resultHtml) {
   var h = '<div class="pb-card">' +
     '<div class="pb-sub" style="margin-top:0;">Create Event Summary tasks</div>';
 
+  /* Second group: the figure IS on file, just typed into the comments instead of
+     the attendance box. Listed for information only — no checkboxes, nothing is
+     created from it — so whoever is looking can see the number and go and move
+     it. Shown whether or not the first group is empty, which is the common case
+     for Sandra's Facebook posts. (2026-09-15) */
+  var _notes = [];
+  try { _notes = _pbNotesCandidates(); } catch (e) { _notes = []; }
+  var _notesHtml = '';
+  if (_notes.length) {
+    _notesHtml = '<div class="pb-sub">Attendance written in the notes instead of the box ' +
+      '<span class="pb-count">' + _notes.length + '</span></div>' +
+      '<div class="pb-note">These already have a figure recorded &mdash; it is just in the presenter comments, ' +
+      'so the report reads a dash. Moving each number into the Attendance box on the Event Summary fixes it. ' +
+      'Nothing is created from this list; it is here so it can be worked through.</div>' +
+      '<div class="pb-scroll" style="max-height:260px;overflow:auto;"><table class="pb-tbl">' +
+      '<thead><tr><th>Date</th><th>Activity</th><th class="num">Number found</th><th>Where it says so</th></tr></thead><tbody>';
+    _notes.forEach(function (r) {
+      var f = _pbCountInNotes(r.s) || { n: '', phrase: '' };
+      _notesHtml += '<tr><td class="nw">' + _pbEsc(_pbDayLabel(r.date)) + '</td>' +
+        '<td>' + _pbEsc(r.title) + (r.pip ? ' <span class="pb-count">PIP</span>' : '') + '</td>' +
+        '<td class="num"><strong>' + _pbFmt(f.n) + '</strong></td>' +
+        '<td style="color:var(--text-soft);font-size:.8rem;">&ldquo;' + _pbEsc(f.phrase) + '&rdquo;</td></tr>';
+    });
+    _notesHtml += '</tbody></table></div>';
+  }
+
   if (!_pbTaskRows.length) {
     h += '<div class="pb-note">Nothing to raise. Every session between ' +
            _pbEsc(_pbDayLabel(_pbState.from)) + ' and ' + _pbEsc(_pbDayLabel(_pbState.to)) +
            ' that had signups already has its attendance recorded.</div>' +
+         _notesHtml +
          (resultHtml || '') +
          '<div style="margin-top:12px;"><button class="btn btn-ghost" style="font-size:.82rem;" onclick="pbToggleTaskPanel(false)">Close</button></div>' +
          '</div>';
@@ -54045,6 +54109,7 @@ function _pbRenderTaskPanel(resultHtml) {
   });
   h += '</tbody></table></div>';
 
+  h += _notesHtml;
   h += (resultHtml || '');
   h += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
          '<button class="btn" id="pbTaskGo" style="font-size:.84rem;padding:7px 16px;background:#0F766E;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;" ' +
