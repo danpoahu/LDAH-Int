@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.77-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.78-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -57321,7 +57321,19 @@ window.cmsBuildMembershipReport = async function() {
     if (!_srDrafts.length) { host.innerHTML = ''; return; }
     _srSeedFamilies();
 
-    var html = _srDrafts.map(function (d, i) {
+    /* One card per PAGE, one Confirm per CHILD (2026-09-16). Daniel: "can it be
+       merged in some way that there is only one confirm and save".
+
+       The pages stay as separate cards — they carry genuinely different content
+       (different screening dates, outcomes, result notes, and a different
+       consent banner each) and a reader has to check each against the paper.
+       What was wrong was asking for two confirmations of one child's referral,
+       and making the order matter: save the hearing page first and the family
+       had no email yet.
+
+       So the action row moved to the group. A lone page is simply a group of
+       one, which keeps a single code path. */
+    function _srCardHtml(d, i) {
       if (d.error) {
         return '<div style="background:#fff;border:1px solid #FCA5A5;border-left:4px solid #DC2626;border-radius:10px;padding:14px 16px;margin-bottom:12px;">' +
           '<div style="font-weight:700;color:#B91C1C;margin-bottom:4px;">Could not read ' + rsEscape(d.file.name) + '</div>' +
@@ -57402,21 +57414,55 @@ window.cmsBuildMembershipReport = async function() {
 
         (r.resultNotes ? '<div style="font-size:.85rem;color:#475569;background:#F8FAFC;border-radius:7px;padding:9px 12px;margin-bottom:12px;"><strong>From the form:</strong> ' + rsEscape(r.resultNotes) + '</div>' : '') +
 
-        /* OFF by default, deliberately. STAGE writes to the SAME database as
-           live, so a tick here sends a real email to a real parent. It stays
-           off until the wording has been approved. */
+        /* ON by default from 2026-09-16. It was off while the wording was
+           unapproved — Daniel has now read the letter a family receives and
+           signed it off ("that letter is perfect"), and writing to a family is
+           the normal outcome of recording a referral, not the exception. Still
+           a tick, so a referral can be recorded silently when that is wanted. */
         (isVision ? '<label style="display:flex;align-items:center;gap:8px;font-size:.86rem;color:#334155;background:#F8FAFC;border:1px solid #e2e8f0;border-radius:7px;padding:9px 12px;margin-bottom:12px;cursor:pointer;">' +
-          '<input type="checkbox" id="sr_' + i + '_sendEmail"> ' +
+          '<input type="checkbox" id="sr_' + i + '_sendEmail" checked> ' +
           '<span>Also send this family the introduction email <span style="color:var(--text-soft);">&mdash; leave unticked to record the referral silently</span></span></label>' : '') +
 
-        '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;">' +
-          '<button class="btn" id="srSave_' + i + '" style="font-size:.85rem;padding:8px 18px;background:#0891B2;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" onclick="srConfirm(' + i + ')">Confirm &amp; save</button>' +
-          '<button class="btn btn-ghost" style="font-size:.82rem;" onclick="srDiscard(' + i + ')">Discard</button>' +
-          '<span id="srMsg_' + i + '" style="font-size:.85rem;color:var(--text-soft);"></span>' +
-        '</div>' +
+        '<div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">' +
+          rsEscape(d.file && d.file.name ? d.file.name : 'this page') + '</div>' +
       '</div>';
+    }
+
+    /* Group the pages by child. The name reduced to letters is the only
+       identifier both Lions forms carry. */
+    var order = [], groups = {};
+    _srDrafts.forEach(function (d, i) {
+      var key = d.error ? ('_err' + i) : _srFamKey((d.data || {}).childName) || ('_anon' + i);
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(i);
+    });
+
+    var html = order.map(function (key) {
+      var idxs = groups[key];
+      var cards = idxs.map(function (i) { return _srCardHtml(_srDrafts[i], i); }).join('');
+      var anyReal = idxs.some(function (i) { return !_srDrafts[i].error; });
+      if (!anyReal) return cards;                 // unreadable pages keep their own Remove
+      var first = _srDrafts[idxs[0]] || {};
+      var childName = ((first.data || {}).childName) || 'this child';
+      var forms = idxs.filter(function (i) { return !_srDrafts[i].error; })
+        .map(function (i) { return ((_srDrafts[i].data || {}).formType === 'vision') ? 'vision' : 'hearing'; });
+      var lead = (idxs.length > 1)
+        ? '<div style="font-size:.86rem;color:#0E5F7A;font-weight:600;margin-bottom:8px;">' +
+          rsEscape(childName) + ' &mdash; ' + forms.length + ' forms (' + forms.join(' + ') + '). ' +
+          'Saving files both against one family and one case.</div>'
+        : '';
+      return '<div style="border:1px solid #cbd5e1;border-radius:12px;padding:12px;margin-bottom:14px;background:#fbfdfe;">' +
+        cards + lead +
+        '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;">' +
+          '<button class="btn" id="srSaveG_' + rsEscape(key) + '" style="font-size:.85rem;padding:8px 18px;background:#0891B2;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" ' +
+            'onclick="srConfirmGroup(\'' + _attrJsArg(key) + '\')">Confirm &amp; save' +
+            (idxs.length > 1 ? ' both' : '') + '</button>' +
+          '<button class="btn btn-ghost" style="font-size:.82rem;" onclick="srDiscardGroup(\'' + _attrJsArg(key) + '\')">Discard</button>' +
+          '<span id="srMsgG_' + rsEscape(key) + '" style="font-size:.85rem;color:var(--text-soft);"></span>' +
+        '</div></div>';
     }).join('');
     host.innerHTML = html;
+    window._srGroups = groups;
   }
 
   /* Learn every family detail the batch contains before anything is drawn, so a
@@ -57552,17 +57598,74 @@ window.cmsBuildMembershipReport = async function() {
     _srRenderDrafts();
   };
 
-  window.srConfirm = async function (i) {
-    var draft = _srDrafts[i];
-    if (!draft || draft.saving) return;
-    var payload = _srReadCard(i, draft.data || {});
-    var msg = _srEl('srMsg_' + i);
-    var btn = _srEl('srSave_' + i);
+  /* Save every page for one child, in one press (2026-09-16).
 
-    if (!payload.childName) { if (msg) { msg.style.color = '#B91C1C'; msg.textContent = "A child's name is needed."; } return; }
+     The payloads are ALL read from the DOM before the first save, because each
+     save re-renders the list — without that, anything corrected on the second
+     page would be thrown away by the first page's redraw.
+
+     Vision goes first, deliberately. It is the form carrying the parent's name,
+     email and phone, so saving it first creates the family properly; the
+     hearing page then joins that contact rather than creating a second one with
+     nobody to ring. */
+  window.srConfirmGroup = async function (key) {
+    var idxs = [];
+    _srDrafts.forEach(function (d, i) {
+      if (d.error) return;
+      var k = _srFamKey((d.data || {}).childName) || ('_anon' + i);
+      if (k === key) idxs.push(i);
+    });
+    if (!idxs.length) return;
+
+    var msgId = 'srMsgG_' + key, btnId = 'srSaveG_' + key;
+    var msg = _srEl(msgId), btn = _srEl(btnId);
+
+    var jobs = idxs.map(function (i) {
+      return { draft: _srDrafts[i], payload: _srReadCard(i, _srDrafts[i].data || {}) };
+    });
+    jobs.sort(function (a, b) {
+      var av = (a.payload.formType === 'vision' || (a.draft.data || {}).formType === 'vision') ? 0 : 1;
+      var bv = (b.payload.formType === 'vision' || (b.draft.data || {}).formType === 'vision') ? 0 : 1;
+      return av - bv;
+    });
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+    var done = 0, failed = 0;
+    for (var n = 0; n < jobs.length; n++) {
+      var idxNow = _srDrafts.indexOf(jobs[n].draft);
+      if (idxNow === -1) continue;
+      var ok = await window.srConfirm(idxNow, {
+        payload: jobs[n].payload, msgId: msgId, btnId: btnId,
+        noRender: n < jobs.length - 1
+      });
+      if (ok) done++; else { failed++; break; }   // stop: the second page needs the first family
+    }
+    if (failed && btn) { btn.disabled = false; btn.textContent = 'Confirm & save' + (jobs.length > 1 ? ' both' : ''); }
+    if (!failed && msg) { msg.style.color = '#186b45'; msg.textContent = 'Saved ' + done + ' page' + (done === 1 ? '' : 's') + '.'; }
+    _srRenderDrafts();
+  };
+
+  window.srDiscardGroup = function (key) {
+    for (var i = _srDrafts.length - 1; i >= 0; i--) {
+      var d = _srDrafts[i];
+      var k = d.error ? ('_err' + i) : (_srFamKey((d.data || {}).childName) || ('_anon' + i));
+      if (k === key) _srDrafts.splice(i, 1);
+    }
+    _srRenderDrafts();
+  };
+
+  window.srConfirm = async function (i, opts) {
+    opts = opts || {};
+    var draft = _srDrafts[i];
+    if (!draft || draft.saving) return false;
+    var payload = opts.payload || _srReadCard(i, draft.data || {});
+    var msg = _srEl(opts.msgId || ('srMsg_' + i));
+    var btn = _srEl(opts.btnId || ('srSave_' + i));
+
+    if (!payload.childName) { if (msg) { msg.style.color = '#B91C1C'; msg.textContent = "A child's name is needed."; } return false; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.screeningDate)) {
       if (msg) { msg.style.color = '#B91C1C'; msg.textContent = 'Screening date must be YYYY-MM-DD.'; }
-      return;
+      return false;
     }
 
     draft.saving = true;
@@ -57606,12 +57709,16 @@ window.cmsBuildMembershipReport = async function() {
         j.introEmailSent ? '#186b45' : '#B45309');
 
       _srDrafts.splice(i, 1);
-      _srRenderDrafts();
+      /* The group loop redraws once at the end. Redrawing between pages would
+         destroy the inputs of the page still waiting to be saved. */
+      if (!opts.noRender) _srRenderDrafts();
       _srLoadPending();
+      return true;
     } catch (err) {
       draft.saving = false;
       if (btn) { btn.disabled = false; btn.innerHTML = 'Confirm &amp; save'; }
       if (msg) { msg.style.color = '#B91C1C'; msg.textContent = (err && err.message) || 'Save failed.'; }
+      return false;
     }
   };
 
