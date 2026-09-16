@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.76-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.77-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -21035,9 +21035,70 @@ window.openContactDetail = async function(contactId) {
       if (existingTask.data.needsAdvocateAssignment === true) {
         reassignUpdate.needsAdvocateAssignment = false;
         reassignUpdate.summary = 'Case advocacy — advocating for ' + (sourceData.contactName || 'contact');
-        reassignUpdate.followUpDate = _addMonthsHst(_todayHst(), 3);
+        /* A screening referral owes the family a call within 21 days OF THE
+           SCREENING, which is often only days away and is sometimes already
+           past. Pushing its follow-up three months out — correct for ordinary
+           advocacy — buried that deadline completely. (2026-09-16) */
+        var _due = existingTask.data.caseAdvocacyContactDueDate || '';
+        reassignUpdate.followUpDate = _due || _addMonthsHst(_todayHst(), 3);
       }
       await db.collection('interactions').doc(existingId).update(reassignUpdate);
+
+      /* The call itself, as its own task (2026-09-16). Daniel: "they get a case
+         card and a task to call the family before the 21 day from the screening
+         is over."
+
+         Separate from the case on purpose. The case is the durable file and
+         stays open for months; the call is one action with a hard date, and a
+         case card sorted by age says nothing about a deadline three days out.
+         Raised only for a referral that carries a due date, and only once. */
+      try {
+        var _dueDate = existingTask.data.caseAdvocacyContactDueDate || '';
+        if (_dueDate && sourceData.contactId) {
+          var _already = await db.collection('interactions')
+            .where('contactId', '==', sourceData.contactId).get();
+          var _has = false;
+          _already.forEach(function (doc) {
+            var x = doc.data() || {};
+            if (x.workflowStep === 'screeningInitialCall' && x.status !== 'Closed') _has = true;
+          });
+          if (!_has) {
+            var _today = _todayHst();
+            await db.collection('interactions').add({
+              channel: 'Outbound Phone',
+              interactionType: 'Tier 1: Individual Assistance:  Advocacy',
+              workflowStep: 'screeningInitialCall',
+              contactId: sourceData.contactId,
+              contactName: sourceData.contactName || '',
+              contactType: sourceData.contactType || 'Parent/Guardian',
+              summary: 'Call ' + (sourceData.contactName || 'the family') +
+                ' — first contact after the screening, due ' + _dueDate,
+              notes: 'The family was told a parent consultant would ring within a few business days. ' +
+                'Initial contact is owed by ' + _dueDate + ', which is 21 days from the screening date — ' +
+                'not from the day the form reached us, so this can already be overdue.',
+              /* Due today when the 21 days have run out, rather than a date in
+                 the past that sorts oddly and reads as someone else's problem. */
+              followUpDate: (_dueDate < _today) ? _today : _dueDate,
+              status: 'Open',
+              owner: advocateName,
+              ownerUid: uid || '',
+              caseAdvocacySource: existingTask.data.caseAdvocacySource || '',
+              caseAdvocacyContactDueDate: _dueDate,
+              relatedCaseId: existingId,
+              /* Not `creator` — that is declared further down this function, so
+                 var-hoisting makes it undefined here and Firestore rejects an
+                 undefined value outright. */
+              createdBy: (currentUserData && currentUserData.displayName) || 'Unknown',
+              createdByUid: (currentUserData && currentUserData.uid) || '',
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+          }
+        }
+      } catch (e) {
+        /* The assignment itself is done; a missing call task is worth a warning,
+           not an unwound reassignment. */
+        console.warn('screening call task not created:', e && e.message);
+      }
 
       // ── Advocate CHANGED → raise it to the coordinator (2026-08-13) ──────────
       // All advocacy runs through her, so a reassignment is not something she
