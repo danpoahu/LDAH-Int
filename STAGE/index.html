@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.69-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.70-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -57020,6 +57020,7 @@ window.cmsBuildMembershipReport = async function() {
     var host = _srEl('srCards');
     if (!host) return;
     if (!_srDrafts.length) { host.innerHTML = ''; return; }
+    _srSeedFamilies();
 
     var html = _srDrafts.map(function (d, i) {
       if (d.error) {
@@ -57032,6 +57033,10 @@ window.cmsBuildMembershipReport = async function() {
       var unc = {};
       (r.uncertainFields || []).forEach(function (f) { unc[f] = true; });
       var isVision = r.formType === 'vision';
+      /* What we already know about this child's family — from a sibling page in
+         the same batch, or from one already saved. */
+      var _fam = _srFamFor(r.childName);
+      if (d.contactId) _fam = Object.assign({}, _fam, { contactId: d.contactId });
       var lowConf = r.confidence === 'low';
       var due = r.initialContactDueDate || '';
       var daysLeft = due ? _srDaysBetween(_srTodayHst(), due) : null;
@@ -57077,10 +57082,17 @@ window.cmsBuildMembershipReport = async function() {
           _srField(i, 'grade', 'Grade', r.grade, unc.grade) +
           _srField(i, 'room', 'Room', r.room, unc.room) +
           (isVision ? _srField(i, 'teacherName', 'Teacher', r.teacherName, unc.teacherName) : '') +
-          (isVision ? _srField(i, 'parentName', 'Parent / guardian', r.parentName, unc.parentName) : '') +
-          (isVision ? _srField(i, 'parentEmail', 'Parent email', r.parentEmail, unc.parentEmail) : '') +
-          (isVision ? _srField(i, 'parentPhone', 'Parent cell', r.parentPhone, unc.parentPhone) : '') +
+          /* Shown on hearing forms too (2026-09-15). The hearing form carries no
+             parent details, which is precisely why they have to be typed: without
+             them the referral saved a family with no way to reach them and a
+             contact named after the child. Empty on a hearing card is expected,
+             not a fault. */
+          _srField(i, 'parentName', 'Parent / guardian', _fam.parentName || r.parentName, unc.parentName) +
+          _srField(i, 'parentEmail', 'Parent email', _fam.parentEmail || r.parentEmail, unc.parentEmail) +
+          _srField(i, 'parentPhone', 'Parent cell', _fam.parentPhone || r.parentPhone, unc.parentPhone) +
         '</div>' +
+
+        _srContactBlock(i, isVision, _fam) +
 
         '<label style="display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-soft);margin:0 0 3px;">Outcome</label>' +
         '<select id="sr_' + i + '_outcome" style="width:100%;max-width:280px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;font-size:.9rem;margin-bottom:10px;">' +
@@ -57106,6 +57118,12 @@ window.cmsBuildMembershipReport = async function() {
       '</div>';
     }).join('');
     host.innerHTML = html;
+  }
+
+  /* Learn every family detail the batch contains before anything is drawn, so a
+     hearing page rendered first still shows the vision page's parent. */
+  function _srSeedFamilies() {
+    _srDrafts.forEach(function (d) { if (d && d.data) _srFamLearn(d.data); });
   }
 
   window.srDiscard = function (i) {
@@ -57142,6 +57160,99 @@ window.cmsBuildMembershipReport = async function() {
     return out;
   }
 
+  /* One family per child across a batch (2026-09-15).
+     Daniel: "allow both vision and hearing to upload at once and share the
+     family and child info." The forms arrive in the same email from the school
+     and are read as separate pages, so without this the vision page creates the
+     family and the hearing page — which names no parent — creates a second one.
+     Keyed on the child's name reduced to letters, which is the only identifier
+     both forms carry. Populated as soon as a page is read, and again with the
+     real contactId once a sibling page has been saved. */
+  var _srFamily = {};
+  function _srFamKey(name) { return String(name || '').toLowerCase().replace(/[^a-z]+/g, ''); }
+  function _srFamFor(name) { return _srFamily[_srFamKey(name)] || {}; }
+  function _srFamLearn(d) {
+    if (!d) return;
+    var k = _srFamKey(d.childName);
+    if (!k) return;
+    var f = _srFamily[k] || (_srFamily[k] = {});
+    if (d.parentName && !f.parentName) f.parentName = d.parentName;
+    if (d.parentEmail && !f.parentEmail) f.parentEmail = d.parentEmail;
+    if (d.parentPhone && !f.parentPhone) f.parentPhone = d.parentPhone;
+    if (d.contactId) f.contactId = d.contactId;
+  }
+
+  /* The contact row under the fields. On a hearing card it is the whole point:
+     link to a family already on file, or let the typed fields create one. */
+  function _srContactBlock(i, isVision, fam) {
+    var linked = fam && fam.contactId;
+    var borrowed = !isVision && fam && (fam.parentName || fam.parentEmail || fam.parentPhone) && !linked;
+    return '<div style="background:#F8FAFC;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin:0 0 12px;">' +
+      '<div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-soft);margin-bottom:6px;">Family</div>' +
+      (linked
+        ? '<div style="font-size:.86rem;color:#15803D;font-weight:600;">&#10003; Linked to a family already on file' +
+          '<button class="btn btn-ghost" style="font-size:.76rem;margin-left:10px;" onclick="srUnlink(' + i + ')">Unlink</button></div>'
+        : '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+            '<input id="sr_' + i + '_find" placeholder="Search families on file \u2014 name or email" ' +
+              'style="flex:1;min-width:220px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:7px;font-size:.85rem;">' +
+            '<button class="btn" style="font-size:.8rem;padding:6px 14px;background:#0E5F7A;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:600;" ' +
+              'onclick="srFindContact(' + i + ')">Find</button>' +
+            '<span style="font-size:.78rem;color:var(--text-soft);">or leave blank and the fields above create a new family</span>' +
+          '</div>' +
+          '<div id="sr_' + i + '_findres" style="margin-top:7px;"></div>') +
+      (borrowed
+        ? '<div style="margin-top:7px;font-size:.8rem;color:#0E5F7A;">Parent details taken from the vision form for this child in the same batch.</div>'
+        : '') +
+      '</div>';
+  }
+
+  /* Prefix match on displayName plus an exact email match. No cache to go stale,
+     and both are automatic single-field indexes. */
+  window.srFindContact = async function (i) {
+    var box = _srEl('sr_' + i + '_findres');
+    var q = String((_srEl('sr_' + i + '_find') || {}).value || '').trim();
+    if (!box) return;
+    if (q.length < 3) { box.innerHTML = '<span style="font-size:.8rem;color:#B45309;">Type at least three characters.</span>'; return; }
+    box.innerHTML = '<span style="font-size:.8rem;color:var(--text-soft);">Searching\u2026</span>';
+    try {
+      var seen = {}, hits = [];
+      var add = function (d) { if (!seen[d.id]) { seen[d.id] = 1; hits.push({ id: d.id, d: d.data() || {} }); } };
+      var byName = await db.collection('contacts')
+        .where('displayName', '>=', q).where('displayName', '<=', q + '\uf8ff').limit(8).get();
+      byName.forEach(add);
+      if (q.indexOf('@') !== -1) {
+        var byMail = await db.collection('contacts').where('email', '==', q.toLowerCase()).limit(5).get();
+        byMail.forEach(add);
+      }
+      if (!hits.length) { box.innerHTML = '<span style="font-size:.8rem;color:var(--text-soft);">Nobody on file matches. The fields above will create a new family.</span>'; return; }
+      box.innerHTML = hits.map(function (h) {
+        return '<button class="btn btn-ghost" style="display:block;width:100%;text-align:left;font-size:.84rem;padding:6px 9px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:4px;cursor:pointer;" ' +
+          'onclick="srLinkContact(' + i + ',\'' + _attrJsArg(h.id) + '\')">' +
+          '<strong>' + rsEscape(h.d.displayName || '(no name)') + '</strong>' +
+          (h.d.email ? ' &middot; ' + rsEscape(h.d.email) : '') +
+          (h.d.phone ? ' &middot; ' + rsEscape(h.d.phone) : '') + '</button>';
+      }).join('');
+    } catch (e) {
+      box.innerHTML = '<span style="font-size:.8rem;color:#B91C1C;">Search failed: ' + rsEscape(e.message || String(e)) + '</span>';
+    }
+  };
+
+  window.srLinkContact = function (i, contactId) {
+    var d = _srDrafts[i];
+    if (!d) return;
+    d.contactId = contactId;
+    _srFamLearn({ childName: (d.data || {}).childName, contactId: contactId });
+    _srRenderDrafts();
+  };
+  window.srUnlink = function (i) {
+    var d = _srDrafts[i];
+    if (!d) return;
+    d.contactId = '';
+    var k = _srFamKey((d.data || {}).childName);
+    if (_srFamily[k]) delete _srFamily[k].contactId;
+    _srRenderDrafts();
+  };
+
   window.srConfirm = async function (i) {
     var draft = _srDrafts[i];
     if (!draft || draft.saving) return;
@@ -57166,6 +57277,9 @@ window.cmsBuildMembershipReport = async function() {
         body: JSON.stringify({
           idToken: idToken,
           referral: payload,
+          /* Set when staff linked this page to a family on file, or when a
+             sibling page in this batch has already been saved. */
+          contactId: draft.contactId || _srFamFor(payload.childName).contactId || '',
           suppressEmail: !(_srEl('sr_' + i + '_sendEmail') || {}).checked
         })
       });
@@ -57176,6 +57290,14 @@ window.cmsBuildMembershipReport = async function() {
          page lands beside the family's other screening paperwork on the contact
          card rather than in a folder only this screen knows about. Best effort:
          the referral is already recorded, and losing the scan must not undo it. */
+      /* Remember the family this page created, so the other page for the same
+         child in this batch links to it instead of creating a second one. */
+      _srFamLearn({
+        childName: payload.childName, contactId: j.contactId,
+        parentName: payload.parentName, parentEmail: payload.parentEmail,
+        parentPhone: payload.parentPhone,
+      });
+
       try { await _srUploadScan(draft.file, j.contactId, idToken); }
       catch (e) { console.warn('srConfirm: scan upload failed:', e && e.message); }
 
