@@ -5490,7 +5490,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.98</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.99</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -37723,11 +37723,83 @@ window.cmsCancelAttendanceMode = function() {
 };
 
 /* ── Attendance Mode: Save ── */
+/* When does the session on screen start, in ms? Mirrors eventStartMs on the
+   server so the screen and the send agree about what "too early" means.
+   Returns null when it cannot tell, and the caller then allows the save. */
+function _cmsSessionStartMs(ev, sessionKey) {
+  var MON = { january:1, february:2, march:3, april:4, may:5, june:6, july:7,
+              august:8, september:9, october:10, november:11, december:12 };
+  function ymd(s) {
+    var m = String(s || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    m = String(s || '').match(/([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})/);
+    if (!m) return '';
+    var mo = MON[m[1].toLowerCase()];
+    if (!mo) return '';
+    return m[3] + '-' + String(mo).padStart(2, '0') + '-' + String(m[2]).padStart(2, '0');
+  }
+  function hhmm(s) {
+    var m = String(s || '').match(/(\d{1,2}):(\d{2})\s*([AaPp])[Mm]?/);
+    if (!m) return null;
+    var h = parseInt(m[1], 10) % 12;
+    if (m[3].toLowerCase() === 'p') h += 12;
+    return { h: h, m: parseInt(m[2], 10) };
+  }
+  var day = ymd(sessionKey) || ymd(ev && ev.eventDate);
+  if (!day) return null;
+  var t = hhmm(sessionKey) || hhmm(ev && ev.time);
+  if (!t) return null;
+  var ms = Date.parse(day + 'T' + String(t.h).padStart(2, '0') + ':' +
+           String(t.m).padStart(2, '0') + ':00-10:00');
+  return isNaN(ms) ? null : ms;
+}
+
 window.cmsSaveAttendance = async function() {
   var d = _cmsSignupsModalData;
   var collection = d.isRecurring ? 'recurringEvents' : 'events';
   var checkboxes = document.querySelectorAll('#cmsSignupsList input[type="checkbox"][data-signup-id]');
   if (!checkboxes.length) { _showToast('No signups to save.', '#64748B'); return; }
+
+  /* Not before the session has actually run (2026-09-16).
+
+     On 16 Sept all nine attendees of the September Parent Talk Cafe were marked
+     present at 12:39pm for a session starting at 5:00pm, and their feedback
+     emails went with it — asking families what they thought of a talk they had
+     not been to. Nothing on this screen questioned it: it opens for a future
+     session and offers "Mark All Present" exactly as it would afterwards.
+
+     An hour after the advertised start is Daniel's line. Blocked outright
+     rather than warned, because a warning on a screen somebody is clicking
+     through is not a guard. */
+  try {
+    /* The session is on the checkboxes (data-session-date) for a multi-date
+       event; a single-date one-off has none, and its date and time come off the
+       event document instead. _cmsEventSummaryData.eventDoc is the loaded event
+       — _cmsSignupsModalData does not carry one. */
+    var _sessKey = '';
+    for (var _q = 0; _q < checkboxes.length && !_sessKey; _q++) {
+      _sessKey = checkboxes[_q].getAttribute('data-session-date') || '';
+    }
+    var _evDoc = (typeof _cmsEventSummaryData !== 'undefined' && _cmsEventSummaryData)
+      ? (_cmsEventSummaryData.eventDoc || null) : null;
+    if (!_sessKey && _evDoc && typeof _cmsEventSummaryData.selectedSessionDate === 'string') {
+      _sessKey = _cmsEventSummaryData.selectedSessionDate || '';
+    }
+    var _startMs = _cmsSessionStartMs(_evDoc, _sessKey);
+    if (_startMs !== null) {
+      var _openAt = _startMs + 60 * 60000;
+      if (Date.now() < _openAt) {
+        var when = new Date(_openAt).toLocaleString([], {
+          month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+        });
+        alert('This session has not finished yet.\n\n' +
+              'Attendance can be saved from ' + when + ' — an hour after it starts.\n\n' +
+              'Nothing has been saved. Marking people present early also sends them the ' +
+              'feedback email, which asks what they thought of a session they have not been to.');
+        return;
+      }
+    }
+  } catch (e) { console.warn('attendance timing guard:', e && e.message); }
 
   _showToast('Saving attendance...', '#0891B2');
   var batch = db.batch();
