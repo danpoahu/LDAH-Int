@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.72-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.73-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -56934,6 +56934,7 @@ window.cmsBuildMembershipReport = async function() {
   var SR_OK_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
   var _srDrafts = [];      // extracted, awaiting a human
+  var _srBusyAt = 0;
   var _srBusy = false;     // a batch is being read
   var _srLiveUnsubs = [];
   var _srLiveDebounce = null;
@@ -56977,7 +56978,18 @@ window.cmsBuildMembershipReport = async function() {
      at once would hit the function's instance cap and fail the tail of the
      batch for no gain — reading is the slow part, not the queueing. */
   async function _srProcessFiles(fileList) {
-    if (_srBusy) { _showToast('Still reading the last batch — one moment.', '#B45309'); return; }
+    /* Self-healing busy guard (2026-09-16). _srBusy was set before the loop and
+       cleared after it, with no finally — so anything that threw in between left
+       it stuck TRUE for the life of the page. Every later drop then returned at
+       this line without ever calling the extractor, which looks exactly like the
+       screen doing nothing at all. Two belts: the finally below, and this — a
+       batch still "running" after two minutes is dead, not busy. */
+    if (_srBusy && (Date.now() - (_srBusyAt || 0)) < 120000) {
+      _showToast('Still reading the last batch — one moment.', '#B45309');
+      return;
+    }
+    if (_srBusy) console.warn('[screening] stale busy flag cleared after', Date.now() - (_srBusyAt || 0), 'ms');
+    _srBusy = false;
     var files = Array.prototype.slice.call(fileList);
     var rejected = [];
     files = files.filter(function (f) {
@@ -56993,7 +57005,9 @@ window.cmsBuildMembershipReport = async function() {
     if (!files.length) return;
 
     _srBusy = true;
+    _srBusyAt = Date.now();
     var done = 0, failed = 0;
+    try {
     for (var i = 0; i < files.length; i++) {
       var f = files[i];
       _srSetStatus('<span style="color:var(--primary-blue);font-weight:700;">Reading page ' +
@@ -57015,12 +57029,19 @@ window.cmsBuildMembershipReport = async function() {
         done++;
       } catch (err) {
         failed++;
-        console.warn('srProcessFiles:', f.name, err && err.message);
+        console.error('[screening] could not read', f.name, err);
         _srDrafts.push({ file: f, data: null, error: (err && err.message) || 'Could not read that page.', saving: false });
       }
-      _srRenderDrafts();
+      /* Guarded separately: a fault while DRAWING a card must not abandon the
+         rest of the batch, and must not escape past the finally. */
+      try { _srRenderDrafts(); }
+      catch (rerr) {
+        console.error('[screening] render failed:', rerr);
+        _srSetStatus('<span style="color:#B91C1C;font-weight:700;">Read the page, but could not draw the card: ' +
+          rsEscape((rerr && rerr.message) || String(rerr)) + '</span>');
+      }
     }
-    _srBusy = false;
+    } finally { _srBusy = false; }
     _srSetStatus(failed
       ? '<span style="color:#B45309;font-weight:700;">Read ' + done + ', could not read ' + failed + '. Check each card below &mdash; nothing has been saved yet.</span>'
       : '<span style="color:#186b45;font-weight:700;">Read ' + done + ' page' + (done === 1 ? '' : 's') + '. Please check each one &mdash; nothing has been saved yet.</span>');
