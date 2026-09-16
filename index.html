@@ -5488,7 +5488,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.96</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.97</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -19008,7 +19008,16 @@ window.openContactDetail = async function(contactId) {
         var openAdv = false;
         iSnap.forEach(function(d) { var x = d.data() || {}; if (window._isCaseAdvocacyIx(x) && x.status === 'Open') openAdv = true; });
         var cp = document.getElementById('ctDetailCgPill');
-        if (cp && openAdv) { cp.style.display = 'inline-block'; }
+        if (cp && openAdv) {
+          /* Same label and shade as the documents card below it — a contact card
+             that calls the family Case Advocacy at the top and Case Management
+             halfway down would be worse than either name on its own. */
+          var _pSkin = _CT_SERVICE_SKIN[_ctServiceLevel(c)] || _CT_SERVICE_SKIN.advocacy;
+          cp.textContent = _pSkin.label;
+          cp.style.background = _pSkin.accent;
+          cp.title = 'This contact has an open ' + _pSkin.label;
+          cp.style.display = 'inline-block';
+        }
         // v146.0.0 — populate the Case Advocacy Documents slot when open.
         var caSlot = document.getElementById('ctCaDocsBlock');
         if (caSlot && openAdv) {
@@ -19903,17 +19912,45 @@ window.openContactDetail = async function(contactId) {
     }
   };
 
+  /* Case Management vs Case Advocacy — a CONTACT CARD label only (2026-09-16).
+     Daniel: "another shade of purple on the contact card and call it Case
+     Management. Only on the contact card though."
+
+     A family referred by a Lions screening is not in advocacy. They have signed
+     a screening consent, not a release; nobody is representing them; and the
+     work is questions, guidance and a check-in. Calling that Case Advocacy on
+     the one screen staff actually work from overstates what we are doing for
+     them — the same mis-pitch as the opening letter.
+
+     Deliberately presentation ONLY. interactionType stays "Case Advocacy" and
+     workflowStep stays "caseAdvocacy" everywhere else: reports, My Day, the
+     lifecycle triggers and every query are untouched. Signing the advocacy
+     release flips the label back, because at that point it IS advocacy. */
+  function _ctServiceLevel(c) {
+    if (c && c.caseAdvocacyAuthorization) return 'advocacy';   // they signed the release
+    var scr = (c && Array.isArray(c.screenings)) ? c.screenings : [];
+    var fromScreening = scr.some(function (s) { return s && s.source === 'lions-screening'; }) ||
+                        (c && c.source === 'lions-screening');
+    return fromScreening ? 'management' : 'advocacy';
+  }
+  var _CT_SERVICE_SKIN = {
+    advocacy:   { label: 'Case Advocacy',   bg: '#F5F0FF', border: '#C4B5FD', head: '#5B21B6', accent: '#7C3AED' },
+    management: { label: 'Case Management', bg: '#EEF2FF', border: '#C7D2FE', head: '#4338CA', accent: '#6366F1' }
+  };
+
   function _ctCaDocsHtml(c, contactId) {
     var auth = c.caseAdvocacyAuthorization || null;
     var docs = Array.isArray(c.caseAdvocacyDocuments) ? c.caseAdvocacyDocuments : [];
+    var _skin = _CT_SERVICE_SKIN[_ctServiceLevel(c)] || _CT_SERVICE_SKIN.advocacy;
     // Inlined into on*="…" attributes below, so it must survive being a JS
     // string literal inside a double-quoted HTML attribute. JSON.stringify was
     // used here originally and emits DOUBLE quotes — which closed the attribute
     // and silently killed every button on this card. See [[feedback_attr-js-arg]].
     var cid = rsEscape(contactId);
 
-    var html = '<div class="ct-info-card" style="background:#F5F0FF;border:1px solid #C4B5FD;margin:0 0 12px;">';
-    html += '<div class="ct-info-field span2"><label style="color:#5B21B6;font-weight:700;font-size:.95rem;">Case Advocacy Documents</label>';
+    var html = '<div class="ct-info-card" style="background:' + _skin.bg + ';border:1px solid ' + _skin.border + ';margin:0 0 12px;">';
+    html += '<div class="ct-info-field span2"><label style="color:' + _skin.head + ';font-weight:700;font-size:.95rem;">' +
+      _skin.label + ' Documents</label>';
     /* Case Summary sits at the top of THIS card (v149.92). It is a reading of
        the documents listed below it, so it belongs above them and with the
        case — not on the Connect-Gen block, where it was only ever reachable for
@@ -19923,7 +19960,7 @@ window.openContactDetail = async function(contactId) {
 
     if (!auth) {
       // ── Authorization required ──
-      html += '<div class="val" style="color:#7C3AED;font-size:.84rem;font-weight:600;margin-bottom:8px;">Authorization required before uploading documents.</div>';
+      html += '<div class="val" style="color:' + _skin.accent + ';font-size:.84rem;font-weight:600;margin-bottom:8px;">Authorization required before uploading documents.</div>';
       /* Say what the family HAS signed (2026-09-16). This card announced that an
          authorization was needed while a signed screening consent sat on the
          same contact, so staff could not tell whether they were chasing a form
