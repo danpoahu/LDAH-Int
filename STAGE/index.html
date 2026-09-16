@@ -5495,7 +5495,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.75-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v149.76-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7186,6 +7186,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             </label>
             <button class="btn" style="font-size:.82rem;padding:6px 14px;background:#6D28D9;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="cmsExportCaseAdvocacyCsv()">Export CSV</button>
             <button class="btn btn-ghost" style="font-size:.82rem;" onclick="window.print()">Print</button>
+            <span id="carServiceSplit" style="font-size:.84rem;color:#5B21B6;margin-right:14px;"></span>
             <span id="carGeneratedAt" style="font-size:.78rem;color:var(--text-soft);"></span>
           </div>
           <div id="carBody"><div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading case advocacy&hellip;</div></div>
@@ -19105,13 +19106,23 @@ window.openContactDetail = async function(contactId) {
       // when this contact has an OPEN Case Advocacy interaction.
       db.collection('interactions').where('contactId', '==', contactId).get().then(function(iSnap) {
         var openAdv = false;
-        iSnap.forEach(function(d) { var x = d.data() || {}; if (window._isCaseAdvocacyIx(x) && x.status === 'Open') openAdv = true; });
+        var _advCase = null;
+        iSnap.forEach(function(d) {
+          var x = d.data() || {};
+          if (window._isCaseAdvocacyIx(x) && x.status === 'Open') openAdv = true;
+          /* The durable case file, not a work log — it is the record that
+             carries serviceLevel and the one Escalate acts on. */
+          if (x.workflowStep === 'caseAdvocacy' && x.status === 'Open' && !_advCase) {
+            _advCase = { id: d.id, data: x };
+          }
+        });
+        window._ctAdvCase = _advCase;
         var cp = document.getElementById('ctDetailCgPill');
         if (cp && openAdv) {
           /* Same label and shade as the documents card below it — a contact card
              that calls the family Case Advocacy at the top and Case Management
              halfway down would be worse than either name on its own. */
-          var _pSkin = _CT_SERVICE_SKIN[_ctServiceLevel(c)] || _CT_SERVICE_SKIN.advocacy;
+          var _pSkin = _CT_SERVICE_SKIN[_ctServiceLevel(c, _advCase)] || _CT_SERVICE_SKIN.advocacy;
           cp.textContent = _pSkin.label;
           cp.style.background = _pSkin.accent;
           cp.title = 'This contact has an open ' + _pSkin.label;
@@ -19121,7 +19132,7 @@ window.openContactDetail = async function(contactId) {
         var caSlot = document.getElementById('ctCaDocsBlock');
         if (caSlot && openAdv) {
           caSlot.style.display = '';
-          caSlot.innerHTML = _ctCaDocsHtml(c, contactId);
+          caSlot.innerHTML = _ctCaDocsHtml(c, contactId, _advCase);
           _ctCaLoadSummary(contactId);
         }
       }).catch(function(err) { console.warn('Contact case-advocacy pill query failed:', err.message); });
@@ -20025,7 +20036,15 @@ window.openContactDetail = async function(contactId) {
      workflowStep stays "caseAdvocacy" everywhere else: reports, My Day, the
      lifecycle triggers and every query are untouched. Signing the advocacy
      release flips the label back, because at that point it IS advocacy. */
-  function _ctServiceLevel(c) {
+  function _ctServiceLevel(c, advCase) {
+    /* The stored fact wins (2026-09-16). serviceLevel is written on the case at
+       creation and flipped by Escalate, so it survives a release being signed
+       for some other reason and it is what the reports count. The old
+       derivation stays as the fallback for cases written before the field
+       existed. Anything unrecognised reads as advocacy — the safer default,
+       since under-claiming a service is better than over-claiming it. */
+    var lvl = advCase && advCase.data && advCase.data.serviceLevel;
+    if (lvl === 'management' || lvl === 'advocacy') return lvl;
     if (c && c.caseAdvocacyAuthorization) return 'advocacy';   // they signed the release
     var scr = (c && Array.isArray(c.screenings)) ? c.screenings : [];
     var fromScreening = scr.some(function (s) { return s && s.source === 'lions-screening'; }) ||
@@ -20037,10 +20056,11 @@ window.openContactDetail = async function(contactId) {
     management: { label: 'Case Management', bg: '#EEF2FF', border: '#C7D2FE', head: '#4338CA', accent: '#6366F1' }
   };
 
-  function _ctCaDocsHtml(c, contactId) {
+  function _ctCaDocsHtml(c, contactId, advCase) {
     var auth = c.caseAdvocacyAuthorization || null;
     var docs = Array.isArray(c.caseAdvocacyDocuments) ? c.caseAdvocacyDocuments : [];
-    var _skin = _CT_SERVICE_SKIN[_ctServiceLevel(c)] || _CT_SERVICE_SKIN.advocacy;
+    var _lvl = _ctServiceLevel(c, advCase);
+    var _skin = _CT_SERVICE_SKIN[_lvl] || _CT_SERVICE_SKIN.advocacy;
     // Inlined into on*="…" attributes below, so it must survive being a JS
     // string literal inside a double-quoted HTML attribute. JSON.stringify was
     // used here originally and emits DOUBLE quotes — which closed the attribute
@@ -20050,6 +20070,28 @@ window.openContactDetail = async function(contactId) {
     var html = '<div class="ct-info-card" style="background:' + _skin.bg + ';border:1px solid ' + _skin.border + ';margin:0 0 12px;">';
     html += '<div class="ct-info-field span2"><label style="color:' + _skin.head + ';font-weight:700;font-size:.95rem;">' +
       _skin.label + ' Documents</label>';
+    /* Escalation, on the card where the decision is actually made. One way: a
+       family who has been through advocacy never quietly reverts to case
+       management because a case closed — that would rewrite what happened. */
+    if (_lvl === 'management' && advCase && advCase.id) {
+      html += '<div style="background:#fff;border:1px solid ' + _skin.border + ';border-radius:8px;padding:10px 12px;margin-bottom:10px;">' +
+        '<div style="font-size:.82rem;color:#475569;margin-bottom:7px;">This family is receiving <strong>case management</strong> \u2014 guidance and check-ins. ' +
+        'If they have asked us to advocate for them, move them across: it sends the advocacy welcome letter, ' +
+        'asks for the release, and starts counting them as a case advocacy.</div>' +
+        '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#5B21B6;color:#fff;border:none;font-weight:600;" ' +
+          'onclick="ctEscalateToAdvocacy(decodeURIComponent(\'' + rsEscape(contactId) + '\'),decodeURIComponent(\'' + rsEscape(advCase.id) + '\'))">' +
+          'Escalate to Case Advocacy</button></div>';
+    }
+    if (_lvl === 'advocacy' && advCase && advCase.data && advCase.data.escalatedAt) {
+      var _eWhen = '';
+      try {
+        var _ed = advCase.data.escalatedAt.toDate ? advCase.data.escalatedAt.toDate() : new Date(advCase.data.escalatedAt);
+        _eWhen = _ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      } catch (e) {}
+      html += '<div style="font-size:.79rem;color:#5B21B6;margin-bottom:9px;">Moved up from case management' +
+        (_eWhen ? ' on ' + rsEscape(_eWhen) : '') +
+        (advCase.data.escalatedBy ? ' by ' + rsEscape(advCase.data.escalatedBy) : '') + '.</div>';
+    }
     /* Case Summary sits at the top of THIS card (v149.92). It is a reading of
        the documents listed below it, so it belongs above them and with the
        case — not on the Connect-Gen block, where it was only ever reachable for
@@ -20198,6 +20240,67 @@ window.openContactDetail = async function(contactId) {
   // Manually send the case opening letter + consent link. Same CF as the
   // automatic send, so the once-per-family rule is shared: if it has already
   // gone out this asks before forcing a second copy.
+  /* Move a case-management family up to case advocacy (2026-09-16).
+     One way, and deliberately a single action rather than three things to
+     remember: it records WHEN and BY WHOM on the case, writes a note saying so,
+     and sends the advocacy welcome letter at the moment the obligations
+     actually begin. Before this, a family who escalated in November would have
+     had the light letter in September and nothing at all at the point the
+     three-month training clock and the release requirement started. */
+  window.ctEscalateToAdvocacy = async function(contactId, caseId) {
+    if (!contactId || !caseId) return;
+    if (!confirm('Move this family from case management to CASE ADVOCACY?\n\n' +
+                 'This sends them the advocacy welcome letter — trainings, expectations and the ' +
+                 'consent release — and they will be counted as a case advocacy from now on.\n\n' +
+                 'It cannot be undone from here.')) return;
+    try {
+      var ref = db.collection('interactions').doc(caseId);
+      var snap = await ref.get();
+      if (!snap.exists) { _showToast('That case no longer exists.', '#DC2626'); return; }
+      var cur = snap.data() || {};
+      if (cur.serviceLevel === 'advocacy') { _showToast('Already a case advocacy.', '#B45309'); return; }
+
+      var who = (window.currentUserData && window.currentUserData.displayName) || 'Unknown';
+      var now = new Date();
+      var stamp = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      await ref.update({
+        serviceLevel: 'advocacy',
+        escalatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        escalatedBy: who,
+        escalatedFrom: cur.serviceLevel || 'management',
+        notes: (cur.notes || '') + '\n---\n[' + who + ' \u2014 ' + stamp + ']\n' +
+          'Moved up from case management to case advocacy at the family\u2019s request. ' +
+          'Advocacy welcome letter sent, including the consent release.',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      /* The letter is the point of the escalation, but a failure to send must
+         not leave the case half-moved — the record is already correct, so say
+         what happened and let staff resend from the button below. */
+      var sent = false;
+      try {
+        await window._caSendOpeningLetter(contactId, '', { quiet: false });
+        sent = true;
+      } catch (e) {
+        console.warn('ctEscalateToAdvocacy: letter failed:', e && e.message);
+      }
+
+      try {
+        auditLog('Escalated to case advocacy',
+          (cur.contactName || contactId) + ' — case ' + caseId + (sent ? ', welcome letter sent' : ', LETTER FAILED'));
+      } catch (e) {}
+
+      _showToast(sent ? 'Now a case advocacy — welcome letter sent.'
+                      : 'Now a case advocacy, but the letter did not send. Use "Send authorization to sign".',
+                 sent ? '#16A34A' : '#B45309');
+      if (typeof openContactDetail === 'function') openContactDetail(contactId);
+    } catch (err) {
+      _showToast('Could not escalate: ' + (err.message || err), '#DC2626');
+    }
+  };
+
   window.ctCaSendAuthLink = async function(contactId) {
     var j = await window._caSendOpeningLetter(contactId, '', { quiet: false });
     if (j && j.skipped === 'already-sent') {
@@ -21086,6 +21189,9 @@ window.openContactDetail = async function(contactId) {
          an advocate, and until now a brand-new case never did. */
       caseAdvocateName: unassigned ? '' : advocateName,
       caseAdvocateUid: unassigned ? '' : (uid || ''),
+      /* Ticking "Case advocacy" means exactly that. Screening referrals are
+         stamped 'management' by the server instead. (2026-09-16) */
+      serviceLevel: 'advocacy',
       caseAdvocacySourceId: sourceId,
       createdBy: creator,
       createdByUid: (currentUserData && currentUserData.uid) || '',
@@ -53356,7 +53462,18 @@ window.cmsBuildCaseAdvocacyReport = async function() {
       var closedAt = null;
       g.recs.forEach(function(r) { var t = _carTs(r.caseAdvocacyClosedAt); if (t && !closedAt) closedAt = t; });
       var end = openRec ? today : (closedAt || today);
+      /* Which service this family is actually receiving (2026-09-16). Read from
+         the case file, falling back to the same derivation the contact card
+         uses so cases written before serviceLevel existed still land in the
+         right column. Until now every Lions screening referral was counted here
+         as a case advocacy from the moment it was created, which overstated the
+         advocacy figure in a report that goes to a funder. */
+      var _svc = (f && f.serviceLevel === 'management') ? 'management'
+               : (f && f.serviceLevel === 'advocacy') ? 'advocacy'
+               : (auth ? 'advocacy'
+               : ((f && f.caseAdvocacySource === 'lions-screening') ? 'management' : 'advocacy'));
       return {
+        serviceLevel: _svc,
         contactId: (cid.charAt(0) === '_' ? '' : cid),
         interactionId: f._id,
         name: f.contactName || c.name || '(no contact)',
@@ -53411,6 +53528,21 @@ window.cmsBuildCaseAdvocacyReport = async function() {
       return (b.days || 0) - (a.days || 0);                // then oldest
     });
     _carRender();
+    /* Split the headline (2026-09-16). Nothing is hidden — both services are
+       listed — but the two are counted apart, because a figure that adds
+       screening referrals to represented families answers nobody's question and
+       overstates the advocacy caseload to a funder. */
+    (function () {
+      var st2 = document.getElementById('carServiceSplit');
+      if (!st2) return;
+      var adv = 0, man = 0;
+      _carRows.forEach(function (r) { if (r.serviceLevel === 'management') man++; else adv++; });
+      st2.innerHTML = man
+        ? '<strong>' + adv + '</strong> case advocacy &middot; <strong>' + man +
+          '</strong> case management <span style="color:var(--text-soft);font-weight:400;">' +
+          '(screening referrals \u2014 guidance and check-ins, no release signed)</span>'
+        : '<strong>' + adv + '</strong> case advocacy';
+    })();
     var st = document.getElementById('carGeneratedAt');
     if (st) st.textContent = 'Generated ' + new Date().toLocaleString();
   } catch (e) {
