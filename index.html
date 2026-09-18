@@ -5500,7 +5500,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.0</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.1</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23596,13 +23596,29 @@ window.openContactDetail = async function(contactId) {
          system." (2026-08-31) */
       if (newUid && newName && _priorIxData.workflowStep === 'caseAdvocacy') {
         try {
-          await db.collection('interactions').doc(_ixViewDocId).update({
+          var _nameUpd = {
             caseAdvocateUid: newUid,
             caseAdvocateName: newName,
             needsAdvocateAssignment: false,
             caseAdvocateNamedVia: 'task-reassignment',
             caseAdvocateNamedAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
+          };
+          /* The allocation is done, so the placeholder becomes the advocate's
+             real case file: retitle it and push the follow-up out 3 months,
+             exactly as spawnOrReassignCaseAdvocacy does. Without this the card
+             kept reading "assign a parent consultant", sat in the advocate's
+             TODAY list, and closing it (to tick off the "assign" job) ended the
+             case -- Lance Kahiamoe-Terukina, 2026-09-17; Therese Patricio 9-02.
+             Keyed on the title as well as the flag: once this path clears the
+             flag, the title is the only thing left that says "placeholder". */
+          if (_priorIxData.needsAdvocateAssignment === true ||
+              /^Case advocacy — assign a parent consultant/.test(_priorIxData.summary || '')) {
+            _nameUpd.summary = 'Case advocacy — advocating for ' + (_priorIxData.contactName || 'contact');
+            if (typeof window._addMonthsHst === 'function' && typeof window._todayHst === 'function') {
+              _nameUpd.followUpDate = window._addMonthsHst(window._todayHst(), 3);
+            }
+          }
+          await db.collection('interactions').doc(_ixViewDocId).update(_nameUpd);
           auditLog('Case advocate named by reassignment',
             (_priorIxData.contactName || '(no contact)') + ' — ' + newName +
             ' became the named advocate when the allocation task was reassigned (' + _ixViewDocId + ')');
