@@ -5500,7 +5500,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -17994,6 +17994,9 @@ var _photoPendingByIsland = {};
     return built;
   };
 
+  /* One list for the full Add Contact form AND the one-off quick-add (v150.6),
+     so the two can never offer different categories. */
+  window.CT_DISABILITY_LIST = ['ADD-ADHD', 'Autism Spectrum (ASD)', 'Deaf/Hard of Hearing', 'Developmental Disability', 'Emotional Disability', 'Gifted', 'Intellectual Disability', 'Multiple Disabilities', 'No IDEA Disability', 'Orthopedic (Physical)', 'Other Health Disability', 'Specific Learning Disability', 'Speech or Language', 'Suspected', 'Traumatic Brain Injury', 'Visual (incl. blindness)', 'Deaf/Blindness'];
   window.openContactForm = async function(docId) {
     /* Partner scope (v148.32): a partner adds contacts freely and edits the
        ones their organization added, never a Hawaiʻi family's record. The
@@ -18046,7 +18049,7 @@ var _photoPendingByIsland = {};
     document.getElementById('ctAdvocateForList').style.display = 'none';
     document.getElementById('ctAdvocateForListItems').innerHTML = '';
     // Build disability checkboxes
-    var _disabList = ['ADD-ADHD', 'Autism Spectrum (ASD)', 'Deaf/Hard of Hearing', 'Developmental Disability', 'Emotional Disability', 'Gifted', 'Intellectual Disability', 'Multiple Disabilities', 'No IDEA Disability', 'Orthopedic (Physical)', 'Other Health Disability', 'Specific Learning Disability', 'Speech or Language', 'Suspected', 'Traumatic Brain Injury', 'Visual (incl. blindness)', 'Deaf/Blindness'];
+    var _disabList = window.CT_DISABILITY_LIST;
     var disGrid = document.getElementById('ctDisabilityGrid');
     disGrid.innerHTML = _disabList.map(function(d) {
       return '<label><input type="checkbox" class="ctDisabCb" value="' + d + '"><span>' + d + '</span></label>';
@@ -51144,7 +51147,17 @@ window.ihExportCSV = function () {
 
   window.cmsOoPickContact = function(id) {
     var c = _allContacts.find(function(x) { return x.id === id; });
-    if (c) _ooAddContact(c);
+    /* No phone AND no email: ask for one before they go on the list (v150.6).
+       Daniel 2026-09-19 -- nobody gets added who cannot be reached. */
+    if (c && !_ooHasReach(c) && !_ooAttendees.some(function(a) { return a.contactId === c.id; })) {
+      _ooNeedContactId = c.id;
+      var nm = c.displayName || ([c.firstName, c.lastName].filter(Boolean).join(' ')) || 'This contact';
+      document.getElementById('ooNeedMsg').textContent = nm + ' has no phone or email \u2014 add one to include them.';
+      document.getElementById('ooNeedPhone').value = '';
+      document.getElementById('ooNeedEmail').value = '';
+      document.getElementById('oneOffNeedContactBox').style.display = 'block';
+      setTimeout(function() { var f = document.getElementById('ooNeedPhone'); if (f) f.focus(); }, 0);
+    } else if (c) _ooAddContact(c);
     var inp = document.getElementById('oneOffAttendeeSearch');
     if (inp) inp.value = '';
     var dd = document.getElementById('oneOffAttendeeDropdown');
@@ -51170,9 +51183,90 @@ window.ihExportCSV = function () {
     });
   }
 
+  /* ── Reachability + report details (v150.6) ─────────────────────── */
+  var _ooNeedContactId = null;
+  function _ooHasReach(c) {
+    return !!(String((c && c.phone) || '').trim() || String((c && c.email) || '').trim());
+  }
+  /* Returns an error message, or '' when what was typed can reach someone. */
+  function _ooReachError(phone, email) {
+    if (!phone && !email) return 'Add a phone or an email \u2014 we can\u2019t follow up with someone we can\u2019t reach.';
+    if (email && !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email)) return 'That email doesn\u2019t look right.';
+    if (phone && phone.replace(/\D/g, '').length < 7) return 'That phone number looks too short.';
+    return '';
+  }
+  // Copy a <select>'s options from the full Add Contact form so the lists never drift.
+  function _ooCloneOptions(fromId, toId) {
+    var src = document.getElementById(fromId), dst = document.getElementById(toId);
+    if (!dst) return;
+    dst.innerHTML = src ? src.innerHTML : '<option value="">-- Select --</option>';
+    dst.value = '';
+  }
+  function _ooPrepDetails() {
+    _ooCloneOptions('ctEthnicity', 'ooNewEthnicity');
+    _ooCloneOptions('ctChildAgeRange', 'ooNewAgeRange');
+    _ooCloneOptions('ctChildGender', 'ooNewChildGender');
+    _ooCloneOptions('ctHowHeard', 'ooNewHowHeard');
+    _ooCloneOptions('ctIsland', 'ooNewIsland');
+    // Placeholders say WHICH field, since these selects have no labels.
+    [['ooNewEthnicity', 'Ethnicity'], ['ooNewAgeRange', 'Child age range'], ['ooNewChildGender', 'Child gender'],
+     ['ooNewHowHeard', 'How they heard about LDAH'], ['ooNewIsland', 'Island']].forEach(function(p) {
+      var el = document.getElementById(p[0]);
+      if (el && el.options.length && el.options[0].value === '') el.options[0].textContent = '\u2014 ' + p[1] + ' \u2014';
+    });
+    var mil = document.getElementById('ooNewMilitary');
+    if (mil) {
+      var mh = '<option value="">\u2014 Military status \u2014</option>';
+      document.querySelectorAll('input[name="ctMilitaryStatus"]').forEach(function(r) {
+        mh += '<option value="' + _esc(r.value) + '">' + _esc(r.value) + '</option>';
+      });
+      mil.innerHTML = mh;
+    }
+    // Partner contacts are stored as island "Other" + partnerIsland; no Hawaiian island applies.
+    var isl = document.getElementById('ooNewIsland');
+    if (isl) isl.style.display = window.isPartnerUser() ? 'none' : '';
+    var dg = document.getElementById('ooNewDisab');
+    if (dg) dg.innerHTML = (window.CT_DISABILITY_LIST || []).map(function(d) {
+      return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="ooNewDisabCb" value="' + _esc(d) + '"><span>' + _esc(d) + '</span></label>';
+    }).join('');
+    var z = document.getElementById('ooNewZip'); if (z) z.value = '';
+  }
+
+  window.cmsOoCancelNeedContact = function() {
+    _ooNeedContactId = null;
+    var b = document.getElementById('oneOffNeedContactBox'); if (b) b.style.display = 'none';
+  };
+  window.cmsOoSaveNeedContact = async function() {
+    var c = _allContacts.find(function(x) { return x.id === _ooNeedContactId; });
+    if (!c) { window.cmsOoCancelNeedContact(); return; }
+    var phone = (document.getElementById('ooNeedPhone').value || '').trim();
+    var email = (document.getElementById('ooNeedEmail').value || '').trim().toLowerCase();
+    var err = _ooReachError(phone, email);
+    if (err) { _showToast(err, '#DC2626'); return; }
+    var btn = document.getElementById('ooNeedSaveBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    try {
+      var upd = { updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+      if (phone) upd.phone = phone;
+      if (email) upd.email = email;
+      await db.collection('contacts').doc(c.id).update(upd);
+      if (phone) c.phone = phone;
+      if (email) c.email = email;
+      _ooAddContact(c);
+      window.cmsOoCancelNeedContact();
+    } catch (e) {
+      _showToast('Could not save to that contact, so they were not added: ' + (e && e.message || e), '#DC2626');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save & add'; }
+    }
+  };
+
   window.cmsOoToggleNewContact = function() {
     var box = document.getElementById('oneOffNewContactBox');
-    if (box) box.style.display = (box.style.display === 'block') ? 'none' : 'block';
+    if (!box) return;
+    var opening = box.style.display !== 'block';
+    if (opening) _ooPrepDetails();
+    box.style.display = opening ? 'block' : 'none';
   };
 
   window.cmsOoQuickAddContact = async function() {
@@ -51183,7 +51277,20 @@ window.ihExportCSV = function () {
     var lastName = parts.join(' ');
     var type = document.getElementById('ooNewType').value || 'Parent/Guardian';
     var phone = (document.getElementById('ooNewPhone').value || '').trim();
-    var email = (document.getElementById('ooNewEmail').value || '').trim();
+    var email = (document.getElementById('ooNewEmail').value || '').trim().toLowerCase();
+    var _reachErr = _ooReachError(phone, email);
+    if (_reachErr) { _showToast(_reachErr, '#DC2626'); return; }
+    function _ooVal(id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
+    var details = {};
+    [['ethnicity', 'ooNewEthnicity'], ['childAgeRange', 'ooNewAgeRange'], ['childGender', 'ooNewChildGender'],
+     ['militaryStatus', 'ooNewMilitary'], ['howHeard', 'ooNewHowHeard'], ['zipCode', 'ooNewZip']].forEach(function(p) {
+      var v = _ooVal(p[1]); if (v) details[p[0]] = v;
+    });
+    var _isl = window.isPartnerUser() ? 'Other' : _ooVal('ooNewIsland');
+    if (_isl) details.island = _isl;
+    var _dis = [];
+    document.querySelectorAll('.ooNewDisabCb:checked').forEach(function(cb) { _dis.push(cb.value); });
+    if (_dis.length) details.disabilityCategories = _dis;
     var btn = document.getElementById('ooNewSaveBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Adding...'; }
     try {
@@ -51195,14 +51302,16 @@ window.ihExportCSV = function () {
         createdBy: (window.currentUserData && window.currentUserData.uid) || '',
         createdByName: (window.currentUserData && window.currentUserData.displayName) || ''
       };
+      Object.assign(data, details);
       window.partnerStamp(data);
       var ref = await db.collection('contacts').add(data);
-      var c = { id: ref.id, displayName: name, firstName: firstName, lastName: lastName, type: type, email: email, phone: phone };
+      var c = Object.assign({ id: ref.id, displayName: name, firstName: firstName, lastName: lastName, type: type, email: email, phone: phone }, details);
       _allContacts.push(c);
       _ooAddContact(c);
       document.getElementById('ooNewName').value = '';
       document.getElementById('ooNewPhone').value = '';
       document.getElementById('ooNewEmail').value = '';
+      _ooPrepDetails();   // clears the report details for the next person
       var box = document.getElementById('oneOffNewContactBox');
       if (box) box.style.display = 'none';
     } catch (e) {
@@ -51261,6 +51370,7 @@ window.ihExportCSV = function () {
     _ooFutureMode = !!futureMode;
     _ooAttendees = [];
     _ooExistingContactIds = {};
+    window.cmsOoCancelNeedContact();
     try { if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') await window.loadContacts(); } catch (_) {}
     // Reports may open this modal without the Contacts UI loaded; ensure the
     // attendee lookup always has the FULL contact list (every type, not just parents).
@@ -56782,10 +56892,35 @@ window.cmsBuildMembershipReport = async function() {
               <option value="Community Member">Community Member</option>
               <option value="Other">Other</option>
             </select>
-            <input id="ooNewPhone" type="tel" placeholder="Phone (optional)" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
-            <input id="ooNewEmail" type="email" placeholder="Email (optional)" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+            <input id="ooNewPhone" type="tel" placeholder="Phone" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+            <input id="ooNewEmail" type="email" placeholder="Email" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
           </div>
+          <div style="font-size:.75rem;color:#B45309;font-weight:600;margin:-2px 0 8px;">A phone or an email is required &mdash; we can&rsquo;t follow up with someone we can&rsquo;t reach.</div>
+          <!-- Report details (v150.6). Optional, but these are the fields the
+               Contact Demographics and PTI reports count. Option lists are copied
+               from the full Add Contact form when the box opens. -->
+          <div style="font-size:.74rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;margin:4px 0 6px;">Details for reports <span style="font-weight:500;text-transform:none;letter-spacing:0;color:#64748B;">(optional)</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <select id="ooNewEthnicity" title="Ethnicity" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;"></select>
+            <select id="ooNewAgeRange" title="Child's age range" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;"></select>
+            <select id="ooNewChildGender" title="Child's gender" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;"></select>
+            <select id="ooNewMilitary" title="Military status" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;"></select>
+            <select id="ooNewHowHeard" title="How did you hear about LDAH?" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;"></select>
+            <input id="ooNewZip" type="text" inputmode="numeric" placeholder="Zip code" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+            <select id="ooNewIsland" title="Island" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;background:#fff;"></select>
+          </div>
+          <div style="font-size:.76rem;font-weight:600;color:#475569;margin-bottom:4px;">Child&rsquo;s disability categories</div>
+          <div id="ooNewDisab" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:2px 10px;font-size:.78rem;margin-bottom:10px;"></div>
           <button type="button" id="ooNewSaveBtn" onclick="cmsOoQuickAddContact()" style="font-size:.82rem;background:#16A34A;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600;">Create &amp; add</button>
+        </div>
+        <div id="oneOffNeedContactBox" style="display:none;background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:10px;margin-bottom:8px;">
+          <div id="ooNeedMsg" style="font-size:.84rem;color:#92400E;font-weight:600;margin-bottom:8px;"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <input id="ooNeedPhone" type="tel" placeholder="Phone" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+            <input id="ooNeedEmail" type="email" placeholder="Email" style="padding:7px 9px;border:1px solid #CBD5E1;border-radius:6px;font-size:.85rem;">
+          </div>
+          <button type="button" id="ooNeedSaveBtn" onclick="cmsOoSaveNeedContact()" style="font-size:.82rem;background:#16A34A;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600;">Save &amp; add</button>
+          <button type="button" onclick="cmsOoCancelNeedContact()" style="font-size:.82rem;background:#fff;color:#475569;border:1px solid #CBD5E1;border-radius:6px;padding:6px 12px;cursor:pointer;margin-left:6px;">Cancel</button>
         </div>
         <div id="oneOffAttendeeList"></div>
         <!-- Partners get the picker AND this headcount box (2026-09-03): a booth
