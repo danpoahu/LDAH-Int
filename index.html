@@ -5500,7 +5500,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.11</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.12</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -45342,6 +45342,12 @@ window._tsShowWhenWeatherClears = function() {
     var ov = document.getElementById('weatherOverlay');
     return !!(ov && ov.classList.contains('active'));
   }
+  /* A session may name its audience (v150.12): audience:'partner' is for the
+     Pacific partners only -- Daniel 2026-09-19, PIP deck. Absent = everyone. */
+  function _tsForMe(x) {
+    var role = (window.currentUserData && currentUserData.role) || '';
+    return !x || !x.audience || x.audience === role;
+  }
   function go() { if (window.tsMaybeShow) tsMaybeShow(); }
   setTimeout(function poll() {
     if (!weatherIsUp() || Date.now() - started > 45000) { setTimeout(go, 400); return; }
@@ -45376,6 +45382,7 @@ window.tsMaybeShow = async function() {
       return String(a.publishedAt || '').localeCompare(String(b.publishedAt || ''));
     });
     var next = list.filter(function(x) {
+      if (!_tsForMe(x)) return false;
       var pr = _tsProgress[x._id];
       return !(pr && pr.status === 'completed');
     })[0];
@@ -45542,6 +45549,7 @@ window.tsRenderHistory = async function() {
     var rows = [];
     snap.forEach(function(d) {
       var v = d.data() || {}; var pr = prog[d.id] || null;
+      if (!_tsForMe(v)) return;
       rows.push({ id: d.id, title: v.title || d.id, published: v.publishedAt || '',
                   status: pr ? pr.status : 'not started', at: pr ? pr.at : '', skips: (pr && pr.skips) || 0 });
     });
@@ -52827,6 +52835,7 @@ window.ihExportCSV = function () {
           id: d.id,
           title: String(s.title || d.id),
           publishedAt: String(s.publishedAt || ''),
+          audience: String(s.audience || ''),
           slides: (s.slides || []).length
         });
       });
@@ -52891,6 +52900,8 @@ window.ihExportCSV = function () {
           per: {}, completed: 0, skipped: 0, never: 0, totalSkips: 0, lastAt: ''
         };
         _stSessions.forEach(function(s) {
+          // Not this person's audience: shown as "—", never counted as missed (v150.12).
+          if (s.audience && s.audience !== role) { row.per[s.id] = { status: 'n/a', at: '', skips: 0 }; return; }
           var p = prog[s.id];
           var status = (p && p.status === 'completed') ? 'completed' : (p ? 'skipped' : 'never');
           var skips = (p && Number(p.skips)) || 0;
@@ -52919,6 +52930,7 @@ window.ihExportCSV = function () {
                   noAccount: true, per: {}, completed: 0, skipped: 0, never: 0,
                   totalSkips: 0, lastAt: '' };
           _stSessions.forEach(function(s) {
+            if (s.audience && s.audience !== 'partner') { row.per[s.id] = { status: 'n/a', at: '', skips: 0 }; return; }
             if (!row.per[s.id]) { row.per[s.id] = { status: 'never', at: '', skips: 0 }; row.never++; }
           });
           _stRows.push(row); _byEmail[em] = row;
@@ -53147,7 +53159,9 @@ function _stSlideDetail() {
       _stSessions.forEach(function(s) {
         var p = r.per[s.id] || { status: 'never', skips: 0, at: '' };
         var cell;
-        if (p.status === 'completed') {
+        if (p.status === 'n/a') {
+          cell = '<span style="color:#CBD5E1;" title="Not for this role">&mdash;</span>';
+        } else if (p.status === 'completed') {
           cell = pill(_ST_DONE, 'Completed') + (p.at ? '<div style="font-size:.72rem;color:var(--text-soft);margin-top:2px;">' + rsEscape(_stDay(p.at)) + '</div>' : '');
         } else if (p.status === 'skipped') {
           /* The deck reports how far they actually got. "Skipped" alone cannot
