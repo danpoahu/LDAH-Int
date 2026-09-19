@@ -5500,7 +5500,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.6</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.7</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7067,6 +7067,12 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-weight:700;font-size:.92rem;">Contact Demographics</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Breakdown of contacts by type, region, and engagement level.</div>
             </div>
+            <!-- Missing Phone & Email (v150.7). Everyone who can open Reports. -->
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #B45309;" data-roles="superAdmin,admin,partner" onclick="cmsBuildMissingContactReport()">
+              <div style="font-size:1.4rem;margin-bottom:6px;">&#128245;</div>
+              <div style="font-weight:700;font-size:.92rem;">Missing Phone &amp; Email</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Contacts we have no way to reach. Click a name to open the contact and add a phone or email.</div>
+            </div>
             <!-- Staff Training. Replaced the Grant & Program Tracker placeholder,
                  which was never built — its onclick was a "coming soon" toast.
                  No emoji: new work follows the house rule even though the older
@@ -7297,6 +7303,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div id="nhrBody">
             <div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading survey data...</div>
           </div>
+        </div>
+
+        <!-- Missing Phone & Email (in-grid; v150.7) -->
+        <div id="missingContactInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseMissingContactReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#B45309;margin:0;flex:1;">Missing Phone &amp; Email</h2>
+            <span id="mcScopeHost" style="display:none;"></span>
+            <span id="mcGeneratedAt" style="font-size:.82rem;color:var(--text-soft);"></span>
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildMissingContactReport()" title="Refresh">&#x21bb; Refresh</button>
+          </div>
+          <div id="mcBody"></div>
         </div>
 
         <!-- Interactions Summary Report (in-grid; toggled from Reports card) -->
@@ -13017,7 +13035,8 @@ var _photoPendingByIsland = {};
     is: function() { window.cmsBuildInteractionsSummaryReport(); },
     cd: function() { window.cmsBuildContactDemographicsReport(); },
     mr: function() { window.cmsBuildMembershipReport(); },
-    cr: function() { window.cmsRenderCertificationReport(); }
+    cr: function() { window.cmsRenderCertificationReport(); },
+    mc: function() { window.cmsBuildMissingContactReport(); }
   };
   window.rptSetScope = function(key, v) {
     if (!window.canToggleReportScope()) return;
@@ -13028,6 +13047,7 @@ var _photoPendingByIsland = {};
   window.rptSetScopeCD = function(v) { window.rptSetScope('cd', v); };
   window.rptSetScopeMR = function(v) { window.rptSetScope('mr', v); };
   window.rptSetScopeCR = function(v) { window.rptSetScope('cr', v); };
+  window.rptSetScopeMC = function(v) { window.rptSetScope('mc', v); };
 
   // ── Role-Based Visibility ──
   function applyRolePermissions() {
@@ -50407,7 +50427,7 @@ window._CMS_REPORT_PANELS = [
   'docDownloadReportInGrid', 'certReportInGrid', 'staffTrainingReportInGrid',
   'membershipReportInGrid', 'caseAdvocacyReportInGrid', 'websiteAppAnalyticsInGrid',
   'nhSurveyReportInGrid', 'itHelpReportInGrid',
-  'ptiBoardReportInGrid'
+  'ptiBoardReportInGrid', 'missingContactInGrid'
 ];
 
 /* Hide every report PANEL, and nothing else. Deliberately does NOT touch
@@ -51875,6 +51895,62 @@ window.ihExportCSV = function () {
     }
     _isChartInstances = [];
   };
+
+  /* ── Missing Phone & Email (v150.7) ─────────────────────────────────
+     Daniel 2026-09-19: a report everyone can see of contacts we cannot reach.
+     Read only -- it lists, the contact card is where the fix is made. Scoped
+     like every other report: partners their own island, admins LDAH, Super
+     Admin + Sandy the LDAH / PIP / Both toggle. */
+  window.cmsBuildMissingContactReport = async function() {
+    _cmsShowOnlyReport('missingContactInGrid');
+    var body = document.getElementById('mcBody');
+    if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading contacts&hellip;</div>';
+    try {
+      var snap = await db.collection('contacts').get();
+      var docs = [];
+      snap.forEach(function(d) {
+        var x = d.data() || {};
+        if (x.archived === true) return;
+        if (String(x.phone || '').trim() || String(x.email || '').trim()) return;
+        x._id = d.id; docs.push(x);
+      });
+      docs = window.scopeReportDocs(docs, 'mc');
+      window.renderReportScopeToggle('mcScopeHost', 'mc', 'both', 'rptSetScopeMC');
+      function ms(t) { return t && t.toMillis ? t.toMillis() : (t && t.seconds ? t.seconds * 1000 : 0); }
+      docs.sort(function(a, b) { return ms(b.createdAt) - ms(a.createdAt); });
+      var st = document.getElementById('mcGeneratedAt');
+      if (st) st.textContent = docs.length + ' contact' + (docs.length === 1 ? '' : 's') + ' \u00b7 generated ' + new Date().toLocaleString();
+      if (!body) return;
+      if (!docs.length) {
+        body.innerHTML = '<div style="padding:24px;text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);color:#15803D;font-weight:600;">Everyone here has a phone or an email. Nothing to fix.</div>';
+        return;
+      }
+      var th = 'text-align:left;padding:8px 10px;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:2px solid #E2E8F0;background:#F8FAFC;';
+      var td = 'padding:8px 10px;border-bottom:1px solid #F1F5F9;font-size:.86rem;vertical-align:top;';
+      var html = '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow-x:auto;">'
+        + '<table style="width:100%;border-collapse:collapse;"><thead><tr>'
+        + '<th style="' + th + '">Name</th><th style="' + th + '">Type</th><th style="' + th + '">Island</th>'
+        + '<th style="' + th + '">Added</th><th style="' + th + '">Added by</th><th style="' + th + '">Source</th>'
+        + '</tr></thead><tbody>';
+      docs.forEach(function(c) {
+        var nm = c.displayName || [c.firstName, c.lastName].filter(Boolean).join(' ') || '(no name)';
+        var id = /^[A-Za-z0-9_-]+$/.test(c._id) ? c._id : '';
+        var added = ms(c.createdAt) ? new Date(ms(c.createdAt)).toLocaleDateString() : '\u2014';
+        html += '<tr>'
+          + '<td style="' + td + '"><a href="#" onclick="event.preventDefault();openContactDetail(\'' + id + '\')" style="color:#0E7490;font-weight:600;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;">' + rsEscape(nm) + '</a></td>'
+          + '<td style="' + td + '">' + rsEscape(c.type || '\u2014') + '</td>'
+          + '<td style="' + td + '">' + rsEscape(c.partnerIsland || c.island || '\u2014') + '</td>'
+          + '<td style="' + td + 'white-space:nowrap;">' + rsEscape(added) + '</td>'
+          + '<td style="' + td + '">' + rsEscape(c.createdByName || '\u2014') + '</td>'
+          + '<td style="' + td + 'color:var(--text-soft);">' + rsEscape(c.source || '\u2014') + '</td>'
+          + '</tr>';
+      });
+      body.innerHTML = html + '</tbody></table></div>';
+    } catch (e) {
+      if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load contacts: ' + rsEscape(e.message) + '</div>';
+    }
+  };
+  window.cmsCloseMissingContactReport = function() { _cmsShowOnlyReport(null); };
 
   window.cmsCloseInteractionsSummaryReport = function() {
     _isDestroyCharts();
