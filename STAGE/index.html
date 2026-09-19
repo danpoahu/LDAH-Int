@@ -7738,6 +7738,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <input type="search" id="ctSearch" placeholder="Search contacts by name, email, phone, type, org…">
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;"><input type="checkbox" id="ctMembersOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Members only</label>
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;" title="Contacts with an open Case Advocacy interaction"><input type="checkbox" id="ctAdvocacyOnly" onchange="_ctRenderLimit=100000;loadContacts();"> Advocacy only</label>
+          <label data-roles="superAdmin,admin" style="display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-soft);cursor:pointer;white-space:nowrap;" title="Show archived contacts instead, each with a Restore button"><input type="checkbox" id="ctArchivedOnly" onchange="loadContacts();"> Archived</label>
           <button class="ct-btn-add" id="ctAddBtn" data-roles="superAdmin,admin,partner" onclick="openContactForm()">+ Add Contact</button>
           <button class="section-refresh-btn" onclick="exportContactsCSV()" title="Download the contacts currently shown (respects search / A–Z / Members / Advocacy filter)">&#x2913; Export CSV</button>
           <button class="section-refresh-btn" onclick="loadContacts(true)">Refresh</button>
@@ -10692,9 +10693,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
         </div>
       </div>
-      <div class="ct-form-actions">
+      <div class="ct-form-actions" id="ctFormActionsNormal">
+        <button type="button" id="ctFormArchiveBtn" onclick="ctFormArchiveAsk()" style="display:none;margin-right:auto;background:#fff;color:#DC2626;border:1px solid #FCA5A5;">Archive contact</button>
         <button class="ct-form-cancel" onclick="closeContactForm()">Cancel</button>
         <button class="ct-form-save" onclick="saveContact()">Save Contact</button>
+      </div>
+      <!-- The "are you sure" step (v150.8): the first click only asks. -->
+      <div class="ct-form-actions" id="ctFormArchiveConfirm" style="display:none;flex-wrap:wrap;align-items:center;">
+        <div id="ctFormArchiveMsg" style="flex:1 1 100%;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:10px 12px;color:#991B1B;font-size:.86rem;line-height:1.45;"></div>
+        <button type="button" onclick="ctFormArchiveCancel()" class="ct-form-cancel">Keep contact</button>
+        <button type="button" id="ctFormArchiveYes" onclick="ctFormArchiveYes()" style="background:#DC2626;color:#fff;border:none;">Yes, archive</button>
       </div>
     </div>
   </div>
@@ -17908,14 +17916,28 @@ var _photoPendingByIsland = {};
       var searchVal = (document.getElementById('ctSearch')?.value || '').toLowerCase().trim();
       var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
       var advocacyOnly = !!(document.getElementById('ctAdvocacyOnly') && document.getElementById('ctAdvocacyOnly').checked);
+      /* "Archived" tick box (v150.8): the list flips to archived contacts, read
+         separately so the active cache every other screen uses never holds them. */
+      var archivedView = !!(document.getElementById('ctArchivedOnly') && document.getElementById('ctArchivedOnly').checked);
+      var _ctSource = _allContacts;
+      if (archivedView) {
+        if (forceRefresh || !_ctArchivedCache) {
+          var _as = await db.collection('contacts').where('archived', '==', true).get();
+          _ctArchivedCache = [];
+          _as.forEach(function(doc) { _ctArchivedCache.push({ id: doc.id, ...doc.data() }); });
+          _ctArchivedCache.sort(function(a, b) { return String(a.displayName || '').localeCompare(String(b.displayName || '')); });
+        }
+        _ctSource = _ctArchivedCache;
+        if (_ctCountEl) _ctCountEl.textContent = '(' + _ctSource.length.toLocaleString() + ' archived)';
+      }
 
       // Resolve the advocacy contactIds before filtering (one cached query).
       // A null set means the lookup failed — skip the filter rather than render
       // an empty roster that would read as "no one is in advocacy".
       var advIds = advocacyOnly ? await _getAdvocacyContactIds() : null;
 
-      var filtered = _allContacts.filter(function(c) {
-        if (c.archived === true) return false;   // never render archived, even if the shared cache was pre-warmed unfiltered
+      var filtered = _ctSource.filter(function(c) {
+        if ((c.archived === true) !== archivedView) return false;   // never mix the two views
         // A–Z letter filter (AND with text search)
         if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
         if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
@@ -17939,12 +17961,12 @@ var _photoPendingByIsland = {};
 
       if (filtered.length === 0) {
         if (moreWrap) moreWrap.innerHTML = '';
-        list.innerHTML = '<div class="ct-empty">No contacts match your search.</div>';
+        list.innerHTML = '<div class="ct-empty">' + (archivedView ? 'No archived contacts match.' : 'No contacts match your search.') + '</div>';
         return;
       }
 
       // Cap the default "All" view (no letter, no search); letter/search sets are small.
-      var capped = (!_ctAzLetter && !searchVal && !membersOnly && !advocacyOnly);
+      var capped = (!_ctAzLetter && !searchVal && !membersOnly && !advocacyOnly && !archivedView);
       var toRender = capped ? filtered.slice(0, _ctRenderLimit) : filtered;
 
       var html = '';
@@ -17965,7 +17987,9 @@ var _photoPendingByIsland = {};
             : '<span style="color:#16a34a;display:inline-flex;align-items:center;" title="Opted in"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>') + '</span>' +
           '<span class="ct-row-actions">' +
             (isAdmin ? '<button onclick="event.stopPropagation(); openContactForm(\'' + c.id + '\')">Edit</button>' +
-              '<button class="danger" onclick="event.stopPropagation(); archiveContact(\'' + c.id + '\', \'' + rsEscape(c.displayName) + '\')">Archive</button>' : '') +
+              (archivedView
+                ? '<button onclick="event.stopPropagation(); restoreContact(\'' + c.id + '\', \'' + rsEscape(c.displayName) + '\')" style="color:#15803D;">Restore</button>'
+                : '<button class="danger" onclick="event.stopPropagation(); archiveContact(\'' + c.id + '\', \'' + rsEscape(c.displayName) + '\')">Archive</button>') : '') +
           '</span>' +
         '</div>';
       });
@@ -18003,7 +18027,8 @@ var _photoPendingByIsland = {};
     var membersOnly = !!(document.getElementById('ctMembersOnly') && document.getElementById('ctMembersOnly').checked);
     var advocacyOnly = !!(document.getElementById('ctAdvocacyOnly') && document.getElementById('ctAdvocacyOnly').checked);
     var advIds = advocacyOnly ? await _getAdvocacyContactIds() : null;
-    var rows = (_allContacts || []).filter(function(c) {
+    var _archivedView = !!(document.getElementById('ctArchivedOnly') && document.getElementById('ctArchivedOnly').checked);
+    var rows = ((_archivedView ? _ctArchivedCache : _allContacts) || []).filter(function(c) {
       if (_ctAzLetter && _ctBucket(c.displayName) !== _ctAzLetter) return false;
       if (membersOnly && !(c.isMember === true || (c.membershipLevel && c.membershipLevel !== ''))) return false;
       if (advocacyOnly && advIds && !advIds.has(c.id)) return false;
@@ -18111,6 +18136,7 @@ var _photoPendingByIsland = {};
      so the two can never offer different categories. */
   window.CT_DISABILITY_LIST = ['ADD-ADHD', 'Autism Spectrum (ASD)', 'Deaf/Hard of Hearing', 'Developmental Disability', 'Emotional Disability', 'Gifted', 'Intellectual Disability', 'Multiple Disabilities', 'No IDEA Disability', 'Orthopedic (Physical)', 'Other Health Disability', 'Specific Learning Disability', 'Speech or Language', 'Suspected', 'Traumatic Brain Injury', 'Visual (incl. blindness)', 'Deaf/Blindness'];
   window.openContactForm = async function(docId) {
+    try { _ctFormArchiveReset(docId); } catch (_) {}
     /* Partner scope (v148.32): a partner adds contacts freely and edits the
        ones their organization added, never a Hawaiʻi family's record. The
        Firestore rule refuses the write either way — this is the civil version
@@ -18653,15 +18679,76 @@ var _photoPendingByIsland = {};
     }
   }
 
+  function _ctWho() { return (currentUserData && (currentUserData.displayName || currentUserData.email)) || ''; }
+  async function _ctSetArchived(docId, name, archived) {
+    var upd = archived
+      ? { archived: true, archivedAt: firebase.firestore.FieldValue.serverTimestamp(), archivedBy: _ctWho() }
+      : { archived: false, restoredAt: firebase.firestore.FieldValue.serverTimestamp(), restoredBy: _ctWho() };
+    await db.collection('contacts').doc(docId).update(upd);
+    auditLog(archived ? 'Archived contact' : 'Restored contact', name);
+  }
   window.archiveContact = async function(docId, name) {
     if (!confirm('Archive contact "' + name + '"?')) return;
     try {
-      await db.collection('contacts').doc(docId).update({ archived: true });
-      auditLog('Archived contact', name);
+      await _ctSetArchived(docId, name, true);
       loadContacts(true);
       _showToast('Contact archived.', '#16A34A');
     } catch (err) {
       _showToast('Error: ' + err.message, '#DC2626');
+    }
+  };
+  /* Restore (v150.8). Daniel 2026-09-19: an "Archived" tick box flips the list
+     to archived contacts, with Restore where Archive was. Restoring is harmless,
+     so it is one click. */
+  window.restoreContact = async function(docId, name) {
+    try {
+      await _ctSetArchived(docId, name, false);
+      _ctArchivedCache = null;
+      await loadContacts(true);
+      _showToast(name + ' restored to Contacts.', '#16A34A');
+    } catch (err) {
+      _showToast('Error: ' + err.message, '#DC2626');
+    }
+  };
+  var _ctArchivedCache = null;
+
+  /* Archive from the Edit Contact form, with the extra "are you sure" step
+     (v150.8). Admins only, the same people the list's Archive button is for. */
+  function _ctFormArchiveReset(docId) {
+    var isAdmin = currentUserData && (currentUserData.role === 'superAdmin' || currentUserData.role === 'admin');
+    var b = document.getElementById('ctFormArchiveBtn');
+    if (b) b.style.display = (docId && isAdmin) ? '' : 'none';
+    var n = document.getElementById('ctFormActionsNormal'), c = document.getElementById('ctFormArchiveConfirm');
+    if (n) n.style.display = ''; if (c) c.style.display = 'none';
+  }
+  window.ctFormArchiveAsk = function() {
+    var fn = (document.getElementById('ctFirstName').value || '').trim();
+    var ln = (document.getElementById('ctLastName').value || '').trim();
+    var nm = (fn + ' ' + ln).trim() || 'this contact';
+    document.getElementById('ctFormArchiveMsg').innerHTML =
+      '<b>Archive ' + rsEscape(nm) + '?</b> They will disappear from Contacts, the attendee search and reports. ' +
+      'Nothing is deleted &mdash; tick <b>Archived</b> on the Contacts list to find and restore them.';
+    document.getElementById('ctFormActionsNormal').style.display = 'none';
+    document.getElementById('ctFormArchiveConfirm').style.display = 'flex';
+  };
+  window.ctFormArchiveCancel = function() { _ctFormArchiveReset(document.getElementById('ctEditId').value); };
+  window.ctFormArchiveYes = async function() {
+    var id = document.getElementById('ctEditId').value;
+    if (!id) return;
+    var nm = ((document.getElementById('ctFirstName').value || '') + ' ' + (document.getElementById('ctLastName').value || '')).trim();
+    var btn = document.getElementById('ctFormArchiveYes');
+    if (btn) { btn.disabled = true; btn.textContent = 'Archiving...'; }
+    try {
+      await _ctSetArchived(id, nm, true);
+      closeContactForm();
+      if (typeof closeContactDetail === 'function') { try { closeContactDetail(); } catch (_) {} }
+      _ctArchivedCache = null;
+      loadContacts(true);
+      _showToast(nm + ' archived.', '#16A34A');
+    } catch (err) {
+      _showToast('Error: ' + err.message, '#DC2626');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Yes, archive'; }
     }
   };
 
