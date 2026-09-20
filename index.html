@@ -5508,7 +5508,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.26</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.27</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -53887,21 +53887,98 @@ function _stSlideDetail() {
   var avgAll = people ? grand / people : 0, maxAvg = 0;
   for (var a = 1; a <= total; a++) { var mm = reach[a] ? secs[a] / reach[a] : 0; if (mm > maxAvg) maxAvg = mm; }
 
-  var rowsHtml = '';
-  for (var n2 = 1; n2 <= total; n2++) {
-    var avg = reach[n2] ? secs[n2] / reach[n2] : 0;
-    var w = maxAvg ? (avg / maxAvg * 100) : 0;
-    var rev = visits[n2] > reach[n2] ? (visits[n2] - reach[n2]) : 0;
-    rowsHtml += '<tr>'
-      + '<td style="padding:5px 8px;text-align:right;color:var(--text-soft);">' + n2 + '</td>'
-      + '<td style="padding:5px 8px;"><div style="background:#E2E8F0;border-radius:4px;height:9px;width:100%;">'
-      +   '<div style="background:#0891B2;height:9px;border-radius:4px;width:' + w.toFixed(1) + '%;"></div></div></td>'
-      + '<td style="padding:5px 8px;text-align:right;font-weight:600;">' + (reach[n2] ? _stSecs(avg) : '&mdash;') + '</td>'
-      + '<td style="padding:5px 8px;text-align:right;">' + (reach[n2] || '&mdash;') + '</td>'
-      + '<td style="padding:5px 8px;text-align:right;color:' + (rev ? '#B45309' : 'var(--text-soft)') + ';">' + (rev || '&mdash;') + '</td>'
-      + '<td style="padding:5px 8px;text-align:right;font-weight:' + (stopped[n2] ? '800' : '400') + ';color:' + (stopped[n2] ? '#B42318' : 'var(--text-soft)') + ';">' + (stopped[n2] || '&mdash;') + '</td>'
-      + '</tr>';
+  /* Where people stop, not what every slide weighed (v150.27). This was 33 rows
+     of 5-to-9-second bars -- Daniel: "this section does not make sense to me".
+     A row per slide cannot be read; the only question the data answers is how
+     far people got, and which handful of slides are unusual.
+
+     Consecutive slides with the same reach collapse into one band, so a 33-slide
+     deck that nobody abandoned is three lines instead of thirty-three. */
+  var bands = [], bStart = 1;
+  for (var b = 1; b <= total; b++) {
+    if (b === total || reach[b + 1] !== reach[b]) {
+      bands.push({ from: bStart, to: b, reach: reach[b] });
+      bStart = b + 1;
+    }
   }
+  var maxReach = 0;
+  bands.forEach(function(x) { if (x.reach > maxReach) maxReach = x.reach; });
+
+  var bandsHtml = bands.map(function(x) {
+    var span = (x.to - x.from + 1);
+    var w = total ? (span / total * 100) : 0;
+    var lost = maxReach ? (maxReach - x.reach) : 0;
+    var label = x.from === x.to ? 'slide ' + x.from : 'slides ' + x.from + '\u2013' + x.to;
+    /* Width is how MUCH of the deck sits at this level; colour is how many are
+       still reading. A pale short band is the cliff. */
+    var shade = maxReach ? (x.reach / maxReach) : 1;
+    var bg = shade >= 1 ? '#0891B2' : shade >= 0.75 ? '#38BDF8' : shade >= 0.5 ? '#7DD3FC' : '#BAE6FD';
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">'
+      + '<span style="flex:0 0 26px;text-align:right;font-weight:800;font-size:.9rem;color:' + (lost ? '#B45309' : '#0F766E') + ';">' + x.reach + '</span>'
+      + '<span style="flex:1;background:#F1F5F9;border-radius:5px;height:16px;position:relative;">'
+      +   '<span style="position:absolute;left:0;top:0;height:16px;border-radius:5px;background:' + bg + ';width:' + w.toFixed(1) + '%;"></span>'
+      + '</span>'
+      + '<span style="flex:0 0 116px;font-size:.78rem;color:var(--text-soft);">' + label + '</span>'
+      + '</div>';
+  }).join('');
+
+  /* Where they actually stopped. Only slides somebody abandoned on. */
+  var stopBits = [];
+  for (var sIdx = 1; sIdx <= total; sIdx++) {
+    if (stopped[sIdx]) {
+      stopBits.push(stopped[sIdx] + ' ' + (stopped[sIdx] === 1 ? 'person' : 'people') + ' on slide ' + sIdx);
+    }
+  }
+
+  /* Worth a look: only the slides that are genuinely unusual. A slide is slow
+     when it takes twice the deck's typical slide, measured against the MEDIAN
+     rather than the mean so one 23-second outlier cannot raise the bar above
+     itself. Nothing unusual means the whole block is omitted. */
+  var avgs = [];
+  for (var m1 = 1; m1 <= total; m1++) { if (reach[m1]) avgs.push(secs[m1] / reach[m1]); }
+  var sortedAvgs = avgs.slice().sort(function(p, q) { return p - q; });
+  var median = sortedAvgs.length
+    ? (sortedAvgs.length % 2
+        ? sortedAvgs[(sortedAvgs.length - 1) / 2]
+        : (sortedAvgs[sortedAvgs.length / 2 - 1] + sortedAvgs[sortedAvgs.length / 2]) / 2)
+    : 0;
+  var slow = [];
+  for (var m2 = 1; m2 <= total; m2++) {
+    if (!reach[m2]) continue;
+    var av = secs[m2] / reach[m2];
+    if (median && av >= median * 2) slow.push({ n: m2, av: av });
+  }
+  slow.sort(function(p, q) { return q.av - p.av; });
+  slow = slow.slice(0, 3);
+
+  var reread = [];
+  for (var m3 = 1; m3 <= total; m3++) {
+    if (visits[m3] > reach[m3]) reread.push(m3);
+  }
+
+  var notes = [];
+  slow.forEach(function(x, i) {
+    notes.push('Slide ' + x.n + ' &mdash; ' + _stSecs(x.av)
+      + (i === 0 ? ', the longest in the deck' : '')
+      + ' (typical slide ' + _stSecs(median) + ')');
+  });
+  if (reread.length) {
+    notes.push((reread.length === 1 ? 'Slide ' : 'Slides ') + reread.slice(0, 6).join(', ')
+      + (reread.length > 6 ? ' and ' + (reread.length - 6) + ' more' : '')
+      + ' &mdash; went back for another look');
+  }
+
+  var rowsHtml = '<div style="margin:2px 0 4px;font-size:.76rem;font-weight:700;letter-spacing:.05em;color:#075985;">HOW FAR PEOPLE GOT</div>'
+    + bandsHtml
+    + (stopBits.length
+        ? '<div style="font-size:.78rem;color:#B42318;margin-top:6px;">' + stopBits.join(' &middot; ') + '</div>'
+        : '<div style="font-size:.78rem;color:#15803D;margin-top:6px;">Nobody stopped part way.</div>')
+    + (notes.length
+        ? '<div style="margin:14px 0 4px;font-size:.76rem;font-weight:700;letter-spacing:.05em;color:#075985;">WORTH A LOOK</div>'
+          + '<ul style="margin:0;padding-left:18px;font-size:.82rem;color:#334155;">'
+          + notes.map(function(t) { return '<li style="margin:3px 0;">' + t + '</li>'; }).join('')
+          + '</ul>'
+        : '');
 
   var perPerson = recs.slice().sort(function(a, b) {
     return (Number(b.furthest) || 0) - (Number(a.furthest) || 0);
@@ -53936,15 +54013,7 @@ function _stSlideDetail() {
     +   '<span style="font-size:.76rem;color:var(--text-soft);">' + people + ' ' + (people === 1 ? 'person' : 'people')
     +     ' &middot; ' + finished + ' finished &middot; average ' + _stSecs(avgAll) + ' each</span></div>'
     + '<p style="font-size:.78rem;color:var(--text-soft);margin:0 0 10px;">Only this deck reports timings &mdash; the sign-in walkthroughs record one verdict per session and cannot say where the time went.</p>'
-    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
-    +   '<thead><tr style="background:#EEF4F6;">'
-    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;">SLIDE</th>'
-    +     '<th style="padding:6px 8px;text-align:left;font-size:.7rem;color:#075985;">AVERAGE TIME</th>'
-    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;">AVG</th>'
-    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="How many people got this far">REACHED</th>'
-    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="Extra visits beyond the first">RE-READ</th>'
-    +     '<th style="padding:6px 8px;text-align:right;font-size:.7rem;color:#075985;" title="People whose furthest slide was this one">STOPPED HERE</th>'
-    +   '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + rowsHtml
     + '<h4 style="margin:16px 0 0;font-size:.86rem;color:#075985;">Each person</h4>'
     + '<p style="font-size:.75rem;color:var(--text-soft);margin:2px 0 0;">One square per slide, darker means longer. Hover for the time.</p>'
     + perPerson + '</div>';
