@@ -238,10 +238,18 @@
       // Keep the stored, more-specific age bucket when it maps to the same
       // dropdown value (e.g. stored "12-14" vs form "13-17").
       if (prev.ageRange && _canonAgeRange(prev.ageRange) === ageRange) ageRange = prev.ageRange;
-      out.push(Object.assign({}, prev, {
+      /* Native Hawaiian is write-once from the public forms unless the staff
+         editor can change it, and grant reporting counts on it. A blank form
+         value keeps whatever is stored: a form that never rendered the field
+         submits '', and letting that overwrite a real 'Yes' would erase signup
+         data on an unrelated edit. (v150.17-STAGE) */
+      var nh = String(fc.nativeHawaiian == null ? '' : fc.nativeHawaiian).trim();
+      var merged = Object.assign({}, prev, {
         name: name, ageRange: ageRange, gender: gender,
         ethnicity: ethnicity, disabilityCategories: disab
-      }));
+      });
+      if (nh) merged.nativeHawaiian = nh;
+      out.push(merged);
     });
     return out;
   }

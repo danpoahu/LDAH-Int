@@ -76,3 +76,38 @@ test('buildChildren: handles undefined/null inputs safely', () => {
   assert.deepStrictEqual(buildChildren([], undefined), []);
   assert.deepStrictEqual(buildChildren(undefined, undefined), []);
 });
+
+/* Native Hawaiian pass-through (v150.17-STAGE).
+   The public signup forms (special.html, readiness, srp-consent) write
+   children[].nativeHawaiian as the string 'Yes'/'No', and the form builder
+   forces the question on whenever a child's name is collected because grant
+   reporting needs it. Until now the staff child editor never rendered it, so
+   the answer was write-once: a wrong 'Yes' could not be corrected and nothing
+   aggregated it. buildChildren must carry a staff edit through.
+
+   Blank does NOT clear a stored answer. A form that never rendered the field
+   submits '' for it, and treating that as "No" would silently erase real
+   signup data on an unrelated edit — the same failure mode that once wrote
+   children:[] over a populated contact. */
+test('buildChildren: carries a staff-set nativeHawaiian through', () => {
+  const kid = Object.assign(C('Kai', '3-5'), { nativeHawaiian: 'Yes' });
+  const out = buildChildren([kid], []);
+  assert.strictEqual(out[0].nativeHawaiian, 'Yes');
+});
+
+test('buildChildren: a blank nativeHawaiian preserves the stored answer', () => {
+  const out = buildChildren([C('Kai', '3-5')], [{ name: 'Kai', nativeHawaiian: 'Yes' }]);
+  assert.strictEqual(out[0].nativeHawaiian, 'Yes');
+});
+
+test('buildChildren: staff can correct a stored nativeHawaiian', () => {
+  const kid = Object.assign(C('Kai', '3-5'), { nativeHawaiian: 'No' });
+  const out = buildChildren([kid], [{ name: 'Kai', nativeHawaiian: 'Yes' }]);
+  assert.strictEqual(out[0].nativeHawaiian, 'No');
+});
+
+test('buildChildren: nativeHawaiian alone does not resurrect an empty card', () => {
+  const ghost = Object.assign(C('', '', '', '', []), { nativeHawaiian: 'Yes' });
+  const out = buildChildren([C('Kai', '3-5'), ghost], []);
+  assert.strictEqual(out.length, 1);
+});
