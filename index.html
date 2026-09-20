@@ -5508,7 +5508,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.28</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.29</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12546,6 +12546,43 @@ var _photoPendingByIsland = {};
   // Enable offline persistence — serves from IndexedDB cache during reconnects
   // Safari (not Chrome) has IndexedDB issues that cause Firestore queries to hang
   var _isSafari = /safari/i.test(navigator.userAgent) && !/chrome|crios|fxios|edgios/i.test(navigator.userAgent);
+
+  /* What someone is actually working on (v150.29). Staff report problems as
+     "it didn't work" and the answer is often the device -- a 1366x768 laptop,
+     an iPad, an old Safari. Recorded at sign-in so the training report can say
+     what a person was using rather than us guessing.
+
+     Deliberately coarse: a family of device and a browser name, no version
+     string beyond the major, no screen fingerprint. Enough to explain a bug,
+     not enough to track anybody. */
+  window._uaProfile = function() {
+    var ua = navigator.userAgent || '';
+    var device;
+    if (/iPhone/i.test(ua)) device = 'iPhone';
+    else if (/iPad/i.test(ua)) device = 'iPad';
+    else if (/Android/i.test(ua)) device = /Mobile/i.test(ua) ? 'Android phone' : 'Android tablet';
+    else if (/CrOS/i.test(ua)) device = 'Chromebook';
+    else if (/Macintosh|Mac OS X/i.test(ua)) {
+      /* An iPad on iPadOS 13+ reports itself as a Mac. A touch point count
+         above zero is what separates them, since desktop Safari reports 0. */
+      device = (navigator.maxTouchPoints > 1) ? 'iPad' : 'Mac';
+    }
+    else if (/Windows/i.test(ua)) device = 'Windows PC';
+    else if (/Linux/i.test(ua)) device = 'Linux';
+    else device = 'Unknown device';
+
+    var browser, m;
+    if ((m = ua.match(/Edg(?:iOS|A|)\/(\d+)/))) browser = 'Edge ' + m[1];
+    else if ((m = ua.match(/SamsungBrowser\/(\d+)/))) browser = 'Samsung Internet ' + m[1];
+    else if ((m = ua.match(/OPR\/(\d+)/))) browser = 'Opera ' + m[1];
+    else if ((m = ua.match(/(?:FxiOS|Firefox)\/(\d+)/))) browser = 'Firefox ' + m[1];
+    else if ((m = ua.match(/CriOS\/(\d+)/))) browser = 'Chrome ' + m[1];
+    else if (/Chrome\//.test(ua) && (m = ua.match(/Chrome\/(\d+)/))) browser = 'Chrome ' + m[1];
+    else if (/Safari\//.test(ua) && (m = ua.match(/Version\/(\d+)/))) browser = 'Safari ' + m[1];
+    else browser = 'Unknown browser';
+
+    return { device: device, browser: browser };
+  };
   if (!_isSafari) {
     db.enablePersistence({ synchronizeTabs: true }).catch(function(err) {
       if (err.code === 'failed-precondition') {
@@ -12747,6 +12784,21 @@ var _photoPendingByIsland = {};
           // Re-init chat for new user (handles logout/login without refresh)
           if (typeof window.reinitChat === 'function') window.reinitChat();
           // Set chat presence online
+          /* Stamp the device on the person's own userRoles doc. That doc is
+             already loaded whole by the Staff Training report, so this costs
+             it no extra read, and the rules already let someone write their
+             own doc as long as they do not touch their role. Failure is
+             ignored on purpose -- never block a sign-in over telemetry. */
+          try {
+            var _ua = window._uaProfile ? window._uaProfile() : null;
+            if (_ua) {
+              db.collection('userRoles').doc(user.uid).set({
+                lastDevice: _ua.device,
+                lastBrowser: _ua.browser,
+                lastDeviceAt: new Date().toISOString()
+              }, { merge: true }).catch(function(e) { console.warn('device stamp:', e && e.message); });
+            }
+          } catch (e) { console.warn('device stamp:', e && e.message); }
           db.collection('chatPresence').doc(user.uid).set({
             uid: user.uid,
             displayName: currentUserData.displayName,
@@ -53774,11 +53826,22 @@ window.ihExportCSV = function () {
           email: String(u.email || ''),
           role: role,
           isPartner: role === 'partner',
+          device: String(u.lastDevice || ''),
+          browser: String(u.lastBrowser || ''),
+          deviceAt: String(u.lastDeviceAt || ''),
           per: {}, completed: 0, skipped: 0, never: 0, totalSkips: 0, lastAt: ''
         };
         _stSessions.forEach(function(s) {
           // Not this person's audience: shown as "—", never counted as missed (v150.12).
-          if (s.audience && s.audience !== role) { row.per[s.id] = { status: 'n/a', at: '', skips: 0 }; return; }
+          /* Array-aware, matching _tsForMe. An audience became a LIST in
+             v150.23 and this check was left behind, so ['superAdmin','admin']
+             compared against a string was always unequal and the column read
+             "n/a" for everybody, including the people it was aimed at. */
+          if (s.audience && !(Array.isArray(s.audience)
+                ? s.audience.some(function(a) { return String(a) === role; })
+                : s.audience === role)) {
+            row.per[s.id] = { status: 'n/a', at: '', skips: 0 }; return;
+          }
           var p = prog[s.id];
           var status = (p && p.status === 'completed') ? 'completed' : (p ? 'skipped' : 'never');
           var skips = (p && Number(p.skips)) || 0;
@@ -54120,7 +54183,17 @@ function _stSlideDetail() {
            +  '<td style="padding:6px 4px;"><div style="font-weight:600;">' + rsEscape(r.name)
            +    (r.isPartner ? ' <span style="font-weight:400;font-size:.72rem;color:var(--text-soft);">partner</span>' : '')
            +    (r.noAccount ? ' <span title="Did the walkthrough but has no -Int login — matched by the email they typed." style="font-weight:400;font-size:.7rem;color:#B45309;">no login</span>' : '')
-           +    '</div><div style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(r.email) + '</div></td>';
+           +    '</div><div style="font-size:.78rem;color:var(--text-soft);">' + rsEscape(r.email) + '</div>'
+           /* What they were last signed in on (v150.29). "It didn't work" is
+              usually a device answer, and guessing wasted time before. Recorded
+              at sign-in, so somebody who has not signed in since this shipped
+              shows nothing rather than a wrong guess. */
+           +    (r.device || r.browser
+                 ? '<div style="font-size:.72rem;color:#94A3B8;margin-top:2px;" title="Last signed in on this'
+                   + (r.deviceAt ? ' \u00b7 ' + rsEscape(String(r.deviceAt).slice(0, 10)) : '') + '">'
+                   + rsEscape([r.device, r.browser].filter(Boolean).join(' \u00b7 ')) + '</div>'
+                 : '')
+           +    '</td>';
       _stSessions.forEach(function(s) {
         var p = r.per[s.id] || { status: 'never', skips: 0, at: '' };
         var cell;
@@ -54210,13 +54283,13 @@ function _stSlideDetail() {
       return _stScope === 'pip' ? !!r.isPartner : !r.isPartner;
     });
 
-    var head = ['Name', 'Email', 'Role'];
+    var head = ['Name', 'Email', 'Role', 'Last device', 'Last browser'];
     _stSessions.forEach(function(s) { head.push(s.title + ' — status'); head.push(s.title + ' — skips'); });
     head.push('Completed', 'Skipped', 'Never seen', 'Total skips', 'Last activity');
 
     var out = [head];
     rows.forEach(function(r) {
-      var line = [r.name, r.email, r.role];
+      var line = [r.name, r.email, r.role, r.device || '', r.browser || ''];
       _stSessions.forEach(function(s) {
         var p = r.per[s.id] || { status: 'never', skips: 0 };
         line.push(p.status === 'never' ? 'never seen' : p.status);
