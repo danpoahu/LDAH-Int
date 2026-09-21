@@ -5508,7 +5508,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.30</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.31</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -45825,6 +45825,45 @@ window.tsMaybeShow = async function() {
     if (!window.currentUserData || !currentUserData.uid) return;
     var meSnap = await db.collection('userRoles').doc(currentUserData.uid).get();
     _tsProgress = (meSnap.exists && (meSnap.data() || {}).trainingProgress) || {};
+
+    /* A walkthrough somebody has finished is finished, wherever it was recorded
+       (v150.31). There are two progress stores and they do not talk: this splash
+       writes userRoles.trainingProgress, while the older narrated decks write
+       partnerTrainingProgress themselves, keyed by the email typed on slide 1.
+       So Sandy finished Getting Started on 9-16 and the splash, reading only its
+       own store, would have greeted her with it again.
+
+       Merged in memory for the pick, NOT written back. The deck record stays the
+       single source of that completion -- the Staff Training report already folds
+       the same records in, so rewriting anyone's history here would duplicate
+       truth rather than fix it. The collection is a handful of documents; the
+       match is on lowercased email because people type their own address.
+
+       Failure is swallowed: an unreadable side-store must never stop the splash. */
+    try {
+      var _au = (window.firebase && firebase.auth && firebase.auth().currentUser) || null;
+      var _mail = String((currentUserData && currentUserData.email) || (_au && _au.email) || '')
+        .trim().toLowerCase();
+      if (_mail) {
+        var deckSnap = await db.collection('partnerTrainingProgress').get();
+        deckSnap.forEach(function(d) {
+          var x = d.data() || {};
+          if (String(x.status || '') !== 'completed') return;
+          if (String(x.personEmail || '').trim().toLowerCase() !== _mail) return;
+          var sid = String(x.sessionId || '').trim();
+          if (!sid) return;
+          var cur = _tsProgress[sid];
+          if (cur && cur.status === 'completed') return;
+          _tsProgress[sid] = {
+            status: 'completed',
+            title: String(x.sessionTitle || ''),
+            at: String(x.completedAt || x.updatedAt || ''),
+            skips: Number(x.skips) || 0,
+            fromDeck: true
+          };
+        });
+      }
+    } catch (e) { console.warn('deck progress merge:', e && e.message); }
     var snap = await db.collection('trainingSessions').where('active', '==', true).get();
     var list = [];
     snap.forEach(function(d) { list.push(Object.assign({ _id: d.id }, d.data() || {})); });
