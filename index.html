@@ -5508,7 +5508,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.31</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.32</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23273,36 +23273,18 @@ window.openContactDetail = async function(contactId) {
       var activeCount = 0, pendingCount = 0;
       _kpiEvResults[0].forEach(function(doc) {
         var d = doc.data();
-        if (d.archived === true) return;
-        /* A one-off is a record of an activity, not an active event, and the
-           Events & Programs list has always excluded them. The KPI never had
-           this test and did not need one: every one-off was saved archived, so
-           the line above happened to catch them all.
-           "+ Add Upcoming Event" (2026-09-10) breaks that assumption on
-           purpose - an upcoming event stays UNARCHIVED until the day after it
-           happens - so the first one created put the KPI one ahead of the list
-           it links to. Same shape as the paused-programme fix below: the KPI
-           must agree with the list, or nobody trusts either. */
-        if (d.isOneOff === true) return;
-        var moveToPast = d.moveToPastDate || '';
-        var removeDate = d.removeDate || '';
-        if (removeDate && /^\d{4}-\d{2}-\d{2}$/.test(removeDate) && removeDate <= today) return;
-        if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast <= today) return;
+        /* Shared with the Events & Programs list — see window.ldahEventState. */
+        if (window.ldahEventState(d, today, false) !== 'active') return;
         activeCount++;
         pendingCount += evPC[doc.id] ? evPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
       _kpiEvResults[1].forEach(function(doc) {
         var d = doc.data();
-        if (d.archived === true) return;
-        /* A paused programme is not an active one (2026-09-08). This loop only
-           tested `archived`, so the KPI counted 13 while Events & Programs
-           listed 12 — the extra was a recurring programme someone had paused
-           with the Pause button. `active !== false` is the same test the CMS
-           list and the App both use; anything without the field counts, so an
-           older programme that predates the toggle is unaffected. Note this
-           also stopped the paused programme's pending signups inflating the
-           count underneath. */
-        if (d.active === false) return;
+        /* Same shared definition, told it is a recurring doc. This loop used to
+           test only `archived` and `active`, and never the lifecycle dates — so
+           a recurring FLYER whose removeDate had passed stayed counted forever.
+           That was the 2026-09-21 "KPI 11, list 10". */
+        if (window.ldahEventState(d, today, true) !== 'active') return;
         activeCount++;
         pendingCount += pgPC[doc.id] ? pgPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
@@ -30441,6 +30423,45 @@ window.cmsLoadAllEvents = async function(forceRefresh) {
   }
 };
 
+
+/* ── One definition of an event's lifecycle state (v150.32) ─────────────────
+   The Active Events KPI and the Events & Programs list were two independent
+   filters that had to be kept in step by hand, and they drifted three times:
+
+     2026-09-08  a paused programme counted on the KPI but not in the list (13 v 12)
+     2026-09-10  "+ Add Upcoming Event" made one-offs unarchived; KPI ran one ahead
+     2026-09-21  a recurring FLYER whose removeDate passed on the 19th stayed on
+                 the KPI forever, because the programmes loop never applied the
+                 lifecycle dates at all (KPI 11 v list 10)
+
+   Each time, one side was patched. This is the single definition both sides now
+   call, so the next rule can only be added in one place.
+
+   Returns one of: 'record' | 'archived' | 'paused' | 'expired' | 'past' | 'active'.
+   Only 'active' is counted by the KPI and shown under Active / Upcoming. */
+window.ldahEventState = function(d, today, isRecurring) {
+  if (!d) return 'archived';
+  today = today || (typeof _localToday === 'function'
+    ? _localToday() : new Date().toISOString().slice(0, 10));
+  /* A one-off is a record of something that already happened, not an event. */
+  if (d.isOneOff === true) return 'record';
+  if (d.archived === true) return 'archived';
+  /* Paused with the Pause button. Not active, and its pending signups must not
+     inflate the count underneath either. */
+  if (d.active === false) return 'paused';
+  var rec = (isRecurring === undefined)
+    ? (d.isRecurring === true || d._coll === 'recurringEvents')
+    : !!isRecurring;
+  /* A non-flyer programme (Connect-Gen) carries no lifecycle dates — it runs
+     until somebody archives it. A recurring FLYER does carry them, which is the
+     case the KPI used to miss. */
+  if (rec && d.flyerOnly !== true) return 'active';
+  var gone = function(v) { return !!(v && /^\d{4}-\d{2}-\d{2}$/.test(v) && v <= today); };
+  if (gone(d.removeDate)) return 'expired';
+  if (gone(d.moveToPastDate)) return 'past';
+  return 'active';
+};
+
 window.cmsRenderUnified = function() {
   var container = document.getElementById('cmsUnifiedCards');
   if (!container) return;
@@ -30452,15 +30473,15 @@ window.cmsRenderUnified = function() {
   // collections): recurring items are always "active"; one-time use the 3 dates.
   var activeItems = [], pastItems = [], expiredItems = [], archivedItems = [];
   items.forEach(function(ev) {
-    if (ev.archived === true) { archivedItems.push(ev); return; }
-    // Non-flyer recurring programs (Connect-Gen) have no lifecycle dates — always Active.
-    // Recurring FLYERS and one-time events use the 3 lifecycle dates below.
-    if (ev.isRecurring && ev.flyerOnly !== true) { activeItems.push(ev); return; }
-    var moveToPast = ev.moveToPastDate || '';
-    var removeDate = ev.removeDate || '';
-    if (removeDate && /^\d{4}-\d{2}-\d{2}$/.test(removeDate) && removeDate <= today) { expiredItems.push(ev); }
-    else if (moveToPast && /^\d{4}-\d{2}-\d{2}$/.test(moveToPast) && moveToPast <= today) { pastItems.push(ev); }
-    else { activeItems.push(ev); }
+    /* Bucketed by the shared definition — see window.ldahEventState. */
+    switch (window.ldahEventState(ev, today, ev.isRecurring)) {
+      case 'archived': archivedItems.push(ev); break;
+      case 'paused':   archivedItems.push(ev); break;
+      case 'expired':  expiredItems.push(ev); break;
+      case 'past':     pastItems.push(ev); break;
+      case 'record':   break;   // a one-off never belongs on this list
+      default:         activeItems.push(ev);
+    }
   });
   // Flyers (recurring flyerOnly OR one-time infoOnly) always sort to the end,
   // among themselves by release date (startDate, falling back to eventDate).
