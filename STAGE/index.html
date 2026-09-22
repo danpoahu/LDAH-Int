@@ -3721,6 +3721,13 @@
 .lw-who { font-size: .78rem; color: var(--text-soft); white-space: nowrap; }
 .lw-go { font-size: .78rem; font-weight: 700; color: var(--ocean-deep); white-space: nowrap; }
 .lw-foot { margin-top: 12px; font-size: .8rem; color: var(--text-soft); }
+.lw-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.lw-recheck { cursor: pointer; font: inherit; font-size: .82rem; font-weight: 700; color: var(--ocean-deep);
+  background: #fff; border: 1px solid var(--ocean-deep); border-radius: 8px; padding: 6px 12px; }
+.lw-recheck:hover:not(:disabled) { background: #F0F9FF; }
+.lw-recheck:disabled { opacity: .55; cursor: default; }
+.lw-msg { font-size: .8rem; color: var(--text-soft); }
+.lw-msg.bad { color: #DC2626; }
 .lw-back { display: inline-block; background: none; border: none; cursor: pointer; font: inherit;
   font-size: .84rem; font-weight: 700; color: var(--ocean-deep); padding: 0 0 10px; }
 .lw-back:hover { text-decoration: underline; }
@@ -5523,7 +5530,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.34-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.35-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -24075,10 +24082,35 @@ window.openContactDetail = async function(contactId) {
         '</button>';
       });
     });
-    html += '<div class="lw-foot">This task rewrites itself every morning and ' +
-      'closes when the list is empty.</div>';
+    html += '<div class="lw-actions">' +
+      '<button type="button" class="lw-recheck" id="lwRecheck" onclick="_lostWorkRecheck()">↻ Re-check now</button>' +
+      '<span class="lw-msg" id="lwRecheckMsg"></span></div>';
+    html += '<div class="lw-foot">This list is a snapshot from the morning sweep. ' +
+      'Re-check to see what you have just fixed drop off; the task closes itself ' +
+      'when the list is empty.</div>';
     return html;
   }
+
+  /* Runs the same sweep the 6:30 schedule runs, so the list reflects what was
+     just fixed instead of waiting until tomorrow. (v150.35) */
+  window._lostWorkRecheck = async function() {
+    var btn = document.getElementById('lwRecheck');
+    var msg = document.getElementById('lwRecheckMsg');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking\u2026'; }
+    if (msg) { msg.textContent = ''; msg.className = 'lw-msg'; }
+    try {
+      var res = await firebase.functions().httpsCallable('recheckLostWork')();
+      var n = (res && res.data && typeof res.data.count === 'number') ? res.data.count : null;
+      if (msg) {
+        msg.textContent = (n === 0) ? 'Nothing lost \u2014 closing this task.'
+          : (n === null ? 'Re-checked.' : n + ' still lost.');
+      }
+      setTimeout(function() { viewInteraction(_LOST_WORK_TASK_ID); }, 800);
+    } catch (e) {
+      if (msg) { msg.className = 'lw-msg bad'; msg.textContent = 'Could not re-check: ' + (e.message || e); }
+      if (btn) { btn.disabled = false; btn.textContent = '\u21bb Re-check now'; }
+    }
+  };
 
   /* adminEdit is honoured only for admin/superAdmin (viewInteraction). Anyone
      else lands on the ordinary read-only card, which is the right fallback. */
