@@ -3708,6 +3708,22 @@
 .ix-note-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .ix-note-meta { font-size: .75rem; font-weight: 700; color: var(--ocean-deep); margin-bottom: 2px; }
 .ix-note-text { font-size: .88rem; color: var(--text-dark); white-space: pre-wrap; }
+/* The nightly lost-work digest lists records that have dropped out of everyone's
+   My Day. Reading that list was never the point, so each row is a button that
+   opens the record in edit mode. (v150.33) */
+.lw-intro { margin-bottom: 10px; font-size: .88rem; color: var(--text-dark); }
+.lw-why { font-size: .78rem; font-weight: 700; color: var(--ocean-deep); margin: 12px 0 5px; }
+.lw-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
+  background: #fff; border: 1px solid rgba(8,145,178,.22); border-left: 3px solid var(--ocean-deep);
+  border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font: inherit; color: var(--text-dark); }
+.lw-row:hover { background: #F0F9FF; border-color: var(--ocean-deep); }
+.lw-sum { flex: 1; min-width: 0; font-size: .88rem; }
+.lw-who { font-size: .78rem; color: var(--text-soft); white-space: nowrap; }
+.lw-go { font-size: .78rem; font-weight: 700; color: var(--ocean-deep); white-space: nowrap; }
+.lw-foot { margin-top: 12px; font-size: .8rem; color: var(--text-soft); }
+.lw-back { display: inline-block; background: none; border: none; cursor: pointer; font: inherit;
+  font-size: .84rem; font-weight: 700; color: var(--ocean-deep); padding: 0 0 10px; }
+.lw-back:hover { text-decoration: underline; }
 
 /* Contact Detail Modal */
 .ct-detail-overlay {
@@ -5507,7 +5523,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.32-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.33-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23505,6 +23521,10 @@ window.openContactDetail = async function(contactId) {
 
       // Render notes — parse appended entries (delimited by \n--- lines)
       var notesHtml = renderNotesWithEntries(d.notes || '');
+      // v150.33 — the lost-work digest gets a clickable list in place of the
+      // prose bullets. Falls back to the prose when the field is absent.
+      var _lwHtml = _lostWorkNotesHtml(d);
+      if (_lwHtml) notesHtml = _lwHtml;
 
       // Look up contact email/phone if we have a contactId or clientId
       var contactEmail = '';
@@ -23866,7 +23886,12 @@ window.openContactDetail = async function(contactId) {
           '</div>' +
         '</div>';
     }
-    body.innerHTML = _memBtns + _dupBtns + _cgPrepBtns + infoCard + contactSection + detailSection;
+    /* v150.33 — arrived here from the lost-work digest: offer the way back, so
+       five records can be fixed in one pass instead of five trips via My Day. */
+    var _lwBack = (_lostWorkReturn && docId !== _LOST_WORK_TASK_ID)
+      ? '<button type="button" class="lw-back" onclick="_lostWorkBack()">&lsaquo; Back to the lost work list</button>'
+      : '';
+    body.innerHTML = _lwBack + _memBtns + _dupBtns + _cgPrepBtns + infoCard + contactSection + detailSection;
     // The edit panel is built as a string, so its chips can only be drawn
     // once it is actually in the DOM.
     window._grantChips('editGrant');
@@ -24010,6 +24035,57 @@ window.openContactDetail = async function(contactId) {
     } catch (err) {
       body.innerHTML = '<p style="color:#DC2626;">Error: ' + err.message + '</p>';
     }
+  };
+
+  /* The nightly sweepLostWork digest (interactions/lost-work-digest) names the
+     records that have fallen out of every My Day. It writes lostWorkRows so this
+     panel can do the one thing the prose list could not: open each record. The
+     rows carry their own whyLabel, so the wording lives in the sweep only.
+     (v150.33) */
+  var _LOST_WORK_TASK_ID = 'lost-work-digest';
+  var _lostWorkReturn = false;
+
+  function _lostWorkNotesHtml(d) {
+    var rows = d && d.lostWorkRows;
+    if (!Array.isArray(rows) || !rows.length) return null;
+    var order = [], byWhy = {};
+    rows.forEach(function(r) {
+      var why = String((r && r.why) || 'other');
+      if (!byWhy[why]) { byWhy[why] = []; order.push(why); }
+      byWhy[why].push(r);
+    });
+    var n = rows.length;
+    var html = '<div class="lw-intro">' + n + ' open record' + (n === 1 ? '' : 's') +
+      ' nobody can see. Click one to fix it — it opens ready to edit.</div>';
+    order.forEach(function(why) {
+      var group = byWhy[why];
+      html += '<div class="lw-why">' + group.length + ' × ' +
+        rsEscape(String(group[0].whyLabel || why)) + '</div>';
+      group.forEach(function(r) {
+        var id = String((r && r.id) || '');
+        if (!id) return;
+        html += '<button type="button" class="lw-row" onclick="_lostWorkOpen(' + _jsArg(id) + ')">' +
+          '<span class="lw-sum">' + rsEscape(String(r.summary || '(no summary)')) + '</span>' +
+          (r.who ? '<span class="lw-who">' + rsEscape(String(r.who)) + '</span>' : '') +
+          '<span class="lw-go">Fix &rsaquo;</span>' +
+        '</button>';
+      });
+    });
+    html += '<div class="lw-foot">This task rewrites itself every morning and ' +
+      'closes when the list is empty.</div>';
+    return html;
+  }
+
+  /* adminEdit is honoured only for admin/superAdmin (viewInteraction). Anyone
+     else lands on the ordinary read-only card, which is the right fallback. */
+  window._lostWorkOpen = function(id) {
+    _lostWorkReturn = true;
+    viewInteraction(id, { adminEdit: true });
+  };
+
+  window._lostWorkBack = function() {
+    _lostWorkReturn = false;
+    viewInteraction(_LOST_WORK_TASK_ID);
   };
 
   // Render notes text — splits on "\n---\n" delimiter to show appended entries nicely
@@ -24682,6 +24758,7 @@ window.openContactDetail = async function(contactId) {
 
   window.closeIxView = function() {
     _ixViewDocId = null;
+    _lostWorkReturn = false; // v150.33 — the digest trail ends when the panel does
     _ixViewInteractionType = null; // v145.0.2
     _ixViewIsCaseAdvocacy = false; // v148.13
     document.getElementById('ixViewOverlay').classList.remove('active');
