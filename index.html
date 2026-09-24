@@ -5582,7 +5582,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.41</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.42</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6634,6 +6634,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                     slot.innerHTML=window._arBar(s,true)
                       +'<div class="next"><span class="ar-stage" style="color:'+s.stage[1]+'">'+s.stage[0]+'</span>'+extra+'</div>';
                     slot.style.display='';
+                    // Clicking the bar itself (not the rest of the card) opens the
+                    // side panel with the readiness section added (v150.48-STAGE).
+                    slot.style.cursor='pointer';
+                    slot.title='Show the readiness detail in the side panel';
+                    slot.onclick=function(ev){ ev.stopPropagation(); window.openCaseReadiness(d._id); };
                     if(s.now>=10){ var note=document.getElementById('mdCaseNote'+_ri); if(note) note.style.display='none'; }
                   });
                 })();
@@ -24053,7 +24058,13 @@ window.openContactDetail = async function(contactId) {
     var _lwBack = (_lostWorkReturn && docId !== _LOST_WORK_TASK_ID)
       ? '<button type="button" class="lw-back" onclick="_lostWorkBack()">&lsaquo; Back to the lost work list</button>'
       : '';
-    body.innerHTML = _lwBack + _memBtns + _dupBtns + _cgPrepBtns + infoCard + contactSection + detailSection;
+    /* v150.48-STAGE — opened from the readiness bar on My Day: show the family's
+       readiness (bar, starting point until confirmed, AI checks) in the panel. */
+    var _arCid = (window._ixArWanted === docId && d.contactId) ? d.contactId : '';
+    window._ixArWanted = null;
+    var _arHost = _arCid ? '<div id="ixArHost"><div style="font-size:.8rem;color:var(--text-soft);padding:6px 0;">Loading readiness&hellip;</div></div>' : '';
+    body.innerHTML = _lwBack + _memBtns + _dupBtns + _cgPrepBtns + infoCard + contactSection + _arHost + detailSection;
+    if (_arCid && window._ixArFill) window._ixArFill(_arCid);
     /* The edit panel is built as a string, so its chips can only be drawn
        once it is actually in the DOM. */
     window._grantChips('editGrant');
@@ -55210,6 +55221,96 @@ window.carConfirmStart = async function(i) {
     r.arS = window._arScores(r.ar, r.started);
     _carRerenderOpen(i);
     _showToast('Starting score confirmed at ' + v + '.', '#16A34A');
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirm'; }
+    if (msg) msg.textContent = 'Could not save: ' + (e.message || e);
+  }
+};
+
+/* ── Readiness in the Interaction Detail side panel (v150.48-STAGE) ───────────
+   Opened by clicking the readiness bar on a My Day open-case card. Shows the
+   bar, the Starting point box (only until someone confirms it), and the AI
+   checks card, using the same pieces as the Case Advocacy report. */
+window._ixArWanted = null;
+window.openCaseReadiness = function(docId) {
+  window._ixArWanted = docId;
+  viewInteraction(docId);
+};
+
+window._ixArFill = async function(cid) {
+  var host = document.getElementById('ixArHost');
+  if (!host) return;
+  var docs = await window._arLoadDocs([cid]);
+  var a = docs[cid];
+  host = document.getElementById('ixArHost');
+  if (!host) return;
+  if (!a) {
+    host.innerHTML = '<div class="ct-detail-section-label">Self-advocacy readiness</div>' +
+      '<div style="font-size:.82rem;color:var(--text-soft);margin-bottom:10px;">Not scored yet.</div>';
+    return;
+  }
+  var s = window._arScores(a, null);
+  var checks = [];
+  try {
+    var snap = await db.collection('advocacyReadiness').doc(cid).collection('checks').orderBy('checkedAt', 'asc').get();
+    checks = snap.docs.map(function(x) { return x.data() || {}; });
+  } catch (e) {
+    if (!_arWarned) { _arWarned = true; console.warn('advocacyReadiness checks read failed:', e && e.message); }
+  }
+  host = document.getElementById('ixArHost');
+  if (!host) return;
+
+  var html = '<div class="ct-detail-section-label">Self-advocacy readiness</div>';
+  if (s) {
+    html += '<div style="margin:2px 0 12px;">' + window._arBar(s, false) +
+      '<div class="ar-stage" style="color:' + s.stage[1] + '">' + s.stage[0] + '</div></div>';
+  }
+  // Starting point: only until it has been confirmed.
+  if (!s || !s.confirmed) {
+    var sg = a.startSuggested || {};
+    var cur = s ? s.start : null, opts = '';
+    for (var v = 0; v <= 6; v += 0.5) {
+      opts += '<option value="' + v + '"' + (cur === v ? ' selected' : '') + '>' + v + '</option>';
+    }
+    html += '<div class="ar-bd" style="display:block;padding:0 0 12px;"><h5>Starting point &middot; ' + (s ? _arFmt(s.start) : '—') + ' of 10</h5>' +
+      '<div class="ar-base">' +
+        (sg.quote
+          ? 'Suggested from the intake conversation' + (sg.sourceDate ? ' on ' + _arEsc(sg.sourceDate) : '') + ':' +
+            '<q>' + _arEsc(sg.quote) + '</q>'
+          : '<div style="margin-bottom:4px;">No suggestion from the intake notes yet.</div>') +
+        '<span class="ov">Not confirmed yet. Confirm it or change it.</span>' +
+        '<div class="ar-confirm">Starting score <select id="ixArStartSel">' + opts + '</select>' +
+          '<button type="button" id="ixArStartBtn" onclick="ixArConfirmStart(' + _jsArg(cid) + ')">Confirm</button>' +
+          '<span id="ixArStartMsg"></span></div>' +
+      '</div></div>';
+  }
+  html += '<div class="ar-bd" style="display:block;padding:0 0 14px;"><h5>AI checks, every other day &middot; +' +
+    (s ? _arFmt(s.delta) : '0') + ' so far</h5>' + _carChecksHtml({ _checks: checks }) + '</div>';
+  host.innerHTML = html;
+};
+
+window.ixArConfirmStart = async function(cid) {
+  var sel = document.getElementById('ixArStartSel');
+  var btn = document.getElementById('ixArStartBtn');
+  var msg = document.getElementById('ixArStartMsg');
+  if (!cid || !sel) return;
+  var v = Number(sel.value);
+  if (isNaN(v) || v < 0 || v > 6) { if (msg) msg.textContent = 'Pick a score from 0 to 6.'; return; }
+  var who = (window.currentUserData && window.currentUserData.displayName) || '';
+  var uid = (window.currentUserData && window.currentUserData.uid) ||
+            ((firebase.auth().currentUser || {}).uid) || '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    await db.collection('advocacyReadiness').doc(cid).update({
+      startScore: v,
+      startConfirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      startConfirmedBy: who,
+      startConfirmedByUid: uid
+    });
+    if (window.auditLog) window.auditLog('Confirmed advocacy readiness start', cid + ': ' + v + ' (from the side panel)');
+    _showToast('Starting score confirmed at ' + v + '.', '#16A34A');
+    window._ixArFill(cid);
+    if (typeof window.loadMyDayOpenCases === 'function') window.loadMyDayOpenCases();
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Confirm'; }
     if (msg) msg.textContent = 'Could not save: ' + (e.message || e);
