@@ -5581,7 +5581,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.49-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.50-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7151,7 +7151,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #B45309;" data-roles="superAdmin,admin,partner" onclick="cmsBuildMissingContactReport()" title="Contacts with no phone and no email, so nobody can reach them at all.">
               <div style="font-size:1.4rem;margin-bottom:6px;">&#128245;</div>
               <div style="font-weight:700;font-size:.92rem;">Missing Phone &amp; Email</div>
-              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Contacts we have no way to reach. Click a name to open the contact and add a phone or email.</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Contacts we have no way to reach, including fake numbers like 123456789. Click a name to open the contact and add a real phone or email.</div>
             </div>
             <!-- Ke Ola Mamo monthly report (v150.20-STAGE). The agreement pays on a
                  monthly program report, so this exists to be submitted, not just read.
@@ -53539,6 +53539,33 @@ window.prExportCsv = function() {
      Read only -- it lists, the contact card is where the fix is made. Scoped
      like every other report: partners their own island, admins LDAH, Super
      Admin + Sandy the LDAH / PIP / Both toggle. */
+  /* A phone nobody can call: a counting run (123456789, 1234567890, 0987654321),
+     one digit repeated, or too few / too many-but-not-enough digits to dial.
+     Returns a short reason, or '' when the number looks real. (v150.44) */
+  window.ldahPlaceholderPhone = function(v) {
+    var s = String(v || '').trim();
+    if (!s) return '';
+    if (/^(none|n\/?a|na|no phone|unknown|-+|x+|0)$/i.test(s)) return 'Placeholder phone';
+    var dg = s.replace(/\D/g, '');
+    if (dg.length === 11 && dg.charAt(0) === '1') dg = dg.slice(1);
+    if (!dg) return 'Placeholder phone';
+    if (/^(\d)\1+$/.test(dg)) return 'Placeholder phone';
+    if (dg.length >= 6 && ('12345678901234567890'.indexOf(dg) !== -1 || '09876543210987654321'.indexOf(dg) !== -1)) return 'Placeholder phone';
+    if (dg.length < 7 || dg.length === 8 || dg.length === 9) return 'Incomplete phone';
+    return '';
+  };
+  /* An email that cannot receive mail: no @, no dot in the domain, or an obvious
+     filler (none@none.com, test@test.com, anything @example.com). (v150.44) */
+  window.ldahPlaceholderEmail = function(v) {
+    var s = String(v || '').trim().toLowerCase();
+    if (!s) return '';
+    var m = s.match(/^([^@\s]+)@([^@\s]+\.[^@\s]+)$/);
+    if (!m) return 'Not a real email';
+    if (/^(none|noemail|no-email|no\.email|noone|na|n\/a|test|testing|x+|abc|email|no|nothing|unknown|fake)$/.test(m[1])) return 'Placeholder email';
+    if (/^(example\.(com|org|net)|none\.com|test\.com|email\.com|noemail\.com|na\.com|fake\.com)$/.test(m[2])) return 'Placeholder email';
+    return '';
+  };
+
   window.cmsBuildMissingContactReport = async function() {
     _cmsShowOnlyReport('missingContactInGrid');
     var body = document.getElementById('mcBody');
@@ -53546,11 +53573,23 @@ window.prExportCsv = function() {
     try {
       var snap = await db.collection('contacts').get();
       var docs = [];
+      /* v150.44 — a fake or broken phone/email is as unreachable as a blank one.
+         Daniel 2026-09-24: quick-adds were going in with 123456789 and similar,
+         which the old empty-string test counted as "has a phone". Every row now
+         says WHY it is listed. */
       snap.forEach(function(d) {
         var x = d.data() || {};
         if (x.archived === true) return;
-        if (String(x.phone || '').trim() || String(x.email || '').trim()) return;
-        x._id = d.id; docs.push(x);
+        var ph = String(x.phone || '').trim(), em = String(x.email || '').trim();
+        var phBad = window.ldahPlaceholderPhone(ph), emBad = window.ldahPlaceholderEmail(em);
+        var why = [];
+        if (!ph && !em) why.push('No phone or email');
+        else {
+          if (phBad) why.push(phBad + ' (' + ph + ')');
+          if (emBad) why.push(emBad + ' (' + em + ')');
+        }
+        if (!why.length) return;
+        x._id = d.id; x._why = why.join(' \u00b7 '); docs.push(x);
       });
       docs = window.scopeReportDocs(docs, 'mc');
       window.renderReportScopeToggle('mcScopeHost', 'mc', 'both', 'rptSetScopeMC');
@@ -53560,14 +53599,14 @@ window.prExportCsv = function() {
       if (st) st.textContent = docs.length + ' contact' + (docs.length === 1 ? '' : 's') + ' \u00b7 generated ' + new Date().toLocaleString();
       if (!body) return;
       if (!docs.length) {
-        body.innerHTML = '<div style="padding:24px;text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);color:#15803D;font-weight:600;">Everyone here has a phone or an email. Nothing to fix.</div>';
+        body.innerHTML = '<div style="padding:24px;text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);color:#15803D;font-weight:600;">Everyone here has a real phone or email. Nothing to fix.</div>';
         return;
       }
       var th = 'text-align:left;padding:8px 10px;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:2px solid #E2E8F0;background:#F8FAFC;';
       var td = 'padding:8px 10px;border-bottom:1px solid #F1F5F9;font-size:.86rem;vertical-align:top;';
       var html = '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow-x:auto;">'
         + '<table style="width:100%;border-collapse:collapse;"><thead><tr>'
-        + '<th style="' + th + '">Name</th><th style="' + th + '">Type</th><th style="' + th + '">Island</th>'
+        + '<th style="' + th + '">Name</th><th style="' + th + '">Why it is listed</th><th style="' + th + '">Type</th><th style="' + th + '">Island</th>'
         + '<th style="' + th + '">Added</th><th style="' + th + '">Added by</th><th style="' + th + '">Source</th>'
         + '</tr></thead><tbody>';
       docs.forEach(function(c) {
@@ -53576,6 +53615,7 @@ window.prExportCsv = function() {
         var added = ms(c.createdAt) ? new Date(ms(c.createdAt)).toLocaleDateString() : '\u2014';
         html += '<tr>'
           + '<td style="' + td + '"><a href="#" onclick="event.preventDefault();openContactDetail(\'' + id + '\')" style="color:#0E7490;font-weight:600;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;">' + rsEscape(nm) + '</a></td>'
+          + '<td style="' + td + 'color:' + (c._why === 'No phone or email' ? 'var(--text-soft)' : '#B45309;font-weight:600') + ';">' + rsEscape(c._why) + '</td>'
           + '<td style="' + td + '">' + rsEscape(c.type || '\u2014') + '</td>'
           + '<td style="' + td + '">' + rsEscape(c.partnerIsland || c.island || '\u2014') + '</td>'
           + '<td style="' + td + 'white-space:nowrap;">' + rsEscape(added) + '</td>'
