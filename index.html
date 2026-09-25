@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.16</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.17</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -50351,6 +50351,8 @@ window.cmsBuildStaffActivityReport = async function() {
     return '';
   }
 
+  window._normalizeAgeRange = _normalizeAgeRange;   // the PTI report reads it (v151.17)
+
   // Esc helper (page already has rsEscape — alias for clarity locally).
   function _esc(v) { return rsEscape(v == null ? '' : String(v)); }
 
@@ -58756,8 +58758,75 @@ function _pbBuildSections(modes, pdf) {
       h += '<div class="pb-empty">No child was added to a family record in this period.</div>';
       h += '<div class="pb-note">Age is recorded per child on the family record (<code>ageRange</code>, or <code>childAgeRange</code> on older entries), and each child is placed in a period by the date it was added. There is no date of birth anywhere in the system, so nothing else can supply an age.</div>';
     }
+    h += _pbEnteredAtEvents(D, ctx);
     return h;
   });
+
+  /* ── Entered at events (v151.17) ─────────────────────────────────────
+     Daniel 2026-09-25: figures typed on the Event Attendance card for Age,
+     Ethnicity and Disability (events where people rarely register) must reach
+     this report. They are a TOP-UP, shown on their own: for each session in
+     the period, the typed figure minus the people already NAMED on that
+     event's signups, never below zero -- so a registered person is never
+     counted twice. Sessions come from the same scope as everything else here,
+     so PIP / LDAH and the date range already apply. */
+  function _pbEnteredAtEvents(D, ctx) {
+    var AGE_LBL = { '0-2': 'Birth-2', '3-5': '3-5', '6-12': '6-12', '13-17': '13-18', 'Adult': 'Beyond H.S.' };
+    var named = {};   // eventId -> { age:{}, eth:{}, dis:{} }
+    function namedFor(eventId) {
+      if (named[eventId]) return named[eventId];
+      var n = { age: {}, eth: {}, dis: {} };
+      (_pbCache.signups || []).forEach(function (sg) {
+        if (sg.eventId !== eventId) return;
+        var x = sg.raw || {}, reg = x.registration || x.specialCapture || {};
+        _pbSignupDisabilities(x).forEach(function (c) { n.dis[c] = (n.dis[c] || 0) + 1; });
+        var kids = Array.isArray(reg.children) ? reg.children : (Array.isArray(x.children) ? x.children : []);
+        var ages = kids.length ? kids.map(function (k) { return k && (k.ageRange || k.childAgeRange); })
+                               : [reg.ageRange || reg.childAgeRange || x.childAgeRange];
+        ages.forEach(function (a) {
+          var c = window._normalizeAgeRange ? window._normalizeAgeRange(a) : '';
+          if (c) n.age[c] = (n.age[c] || 0) + 1;
+        });
+        var eth = reg.primaryEthnicity || reg.ethnicity || x.ethnicity || '';
+        if (eth && window._bucketEthnicity) { var b = window._bucketEthnicity(eth); if (b) n.eth[b] = (n.eth[b] || 0) + 1; }
+      });
+      return (named[eventId] = n);
+    }
+    var groups = [['age', 'ageOverrides', 'Age of children'], ['eth', 'ethnicityOverrides', 'Primary ethnicity'], ['dis', 'disabilityOverrides', 'Federal disability categories']];
+    var tot = { age: {}, eth: {}, dis: {} }, detail = [], any = false;
+    D.sessions.forEach(function (r) {
+      groups.forEach(function (g) {
+        var ov = r.s && r.s[g[1]];
+        if (!ov || typeof ov !== 'object') return;
+        var nm = namedFor(r.eventId)[g[0]];
+        Object.keys(ov).forEach(function (k) {
+          var v = Number(ov[k]);
+          if (!isFinite(v) || v <= 0) return;
+          var extra = Math.max(0, v - (nm[k] || 0));
+          if (!extra) return;
+          any = true;
+          tot[g[0]][k] = (tot[g[0]][k] || 0) + extra;
+          detail.push({ date: r.date, what: r.title + ' — ' + (g[0] === 'age' ? (AGE_LBL[k] || k) : k), amount: '+' + _pbFmt(extra) });
+        });
+      });
+    });
+    var h = '<div class="pb-sub">Entered at events <span class="pb-count">people who did not register</span></div>';
+    if (!any) return h + '<div class="pb-empty">No figures were typed on an Event Attendance card for this period.</div>';
+    groups.forEach(function (g) {
+      var keys = Object.keys(tot[g[0]]);
+      if (!keys.length) return;
+      var sum = 0;
+      h += '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>' + _pbEsc(g[2]) + '</th><th class="num">Added</th></tr></thead><tbody>';
+      keys.sort(function (a, b) { return tot[g[0]][b] - tot[g[0]][a]; }).forEach(function (k) {
+        sum += tot[g[0]][k];
+        h += '<tr><td>' + _pbEsc(g[0] === 'age' ? (AGE_LBL[k] || k) : k) + '</td><td class="num">' + _pbFmt(tot[g[0]][k]) + '</td></tr>';
+      });
+      h += '<tr class="pb-total"><td>Total</td><td class="num">' + _pbFmt(sum) + '</td></tr></tbody></table></div>';
+    });
+    h += '<div class="pb-note">Typed by staff on the Event Attendance card for events where people did not register. Each figure counts only the people above those already named on that event&rsquo;s signups, so nobody above is counted twice. These are not in the tables above.</div>';
+    h += _pbDetail('Where the entered figures came from', detail, ctx);
+    return h;
+  }
 
   /* ── 4. Resource Dissemination ─────────────────────────────────────── */
   add(4, 'Resource Dissemination', function (ctx) {
