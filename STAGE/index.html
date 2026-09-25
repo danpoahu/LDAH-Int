@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.18-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.19-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13699,6 +13699,29 @@ var _photoPendingByIsland = {};
        !important, so the event modal's own show/hide toggles can't bring
        them back (v151.11). */
     document.body.classList.toggle('sp-role', role === 'superPartner');
+    /* PIP (v151.19, Daniel 2026-09-25): Screening is disabled for partner
+       accounts for now, and Case advocacy files the family under the partner
+       themselves -- the pill tips say so. */
+    try {
+      var _pipAcct = role === 'partner' || role === 'superPartner';
+      var _scr = document.getElementById('intScreening');
+      if (_scr) {
+        _scr.disabled = _pipAcct;
+        if (_pipAcct) _scr.checked = false;
+        var _scrPill = _scr.closest('.ix-pill');
+        if (_scrPill) {
+          if (!_scrPill.hasAttribute('data-tip-staff')) _scrPill.setAttribute('data-tip-staff', _scrPill.getAttribute('data-tip') || '');
+          _scrPill.setAttribute('data-tip', _pipAcct ? 'Screening is not available for Pacific partner accounts.' : _scrPill.getAttribute('data-tip-staff'));
+          _scrPill.style.opacity = _pipAcct ? '.45' : '';
+          _scrPill.style.cursor = _pipAcct ? 'not-allowed' : '';
+        }
+      }
+      var _caPill = (document.getElementById('intCaseAdvocacy') || {}).closest ? document.getElementById('intCaseAdvocacy').closest('.ix-pill') : null;
+      if (_caPill) {
+        if (!_caPill.hasAttribute('data-tip-staff')) _caPill.setAttribute('data-tip-staff', _caPill.getAttribute('data-tip') || '');
+        _caPill.setAttribute('data-tip', _pipAcct ? 'Tick to put this family in your own open cases.' : _caPill.getAttribute('data-tip-staff'));
+      }
+    } catch (_) {}
     document.querySelectorAll('[data-roles]').forEach(el => {
       const allowed = el.getAttribute('data-roles').split(',').map(r => r.trim());
       el.style.display = allowed.includes(role) ? '' : 'none';
@@ -21918,11 +21941,22 @@ window.openContactDetail = async function(contactId) {
     // advocacy is turned on, before the 24h auto-destruct can fire.
     await _retainCgDocsForCaseAdvocacy(sourceData.contactId);
 
+    /* PIP (v151.19, Daniel 2026-09-25): a partner who ticks Case advocacy
+       takes the case themselves -- "it just goes right into their advocacy
+       bucket". They handle few, and nobody allocates them the way Noe does for
+       LDAH, so no coordinator task, no notice to her, and no LDAH opening
+       letter to the family. The case carries the family's island so the
+       partner (and their Super Partner) can see it. */
+    var _selfPartner = !!(window.isPartnerUser && window.isPartnerUser());
+    if (_selfPartner && !advocateName) advocateName = (currentUserData && (currentUserData.displayName || currentUserData.email)) || '';
+
     // No advocate chosen → the task belongs to the coordinator, who allocates
     // the parent consultant. Resolved by email, not display name.
     var unassigned = !advocateName;
     var ownerName = unassigned ? CASE_ADVOCACY_COORDINATOR.name : advocateName;
-    var uid = unassigned
+    var uid = _selfPartner
+      ? ((currentUserData && currentUserData.uid) || '')
+      : unassigned
       ? await _resolveStaffUidByEmail(CASE_ADVOCACY_COORDINATOR.email)
       : await _resolveStaffUidByName(advocateName);
 
@@ -21972,6 +22006,12 @@ window.openContactDetail = async function(contactId) {
       // stamp the advocate fields when one was actually named — re-ticking the
       // box with a blank picker must not wipe a known advocate off the source.
       var srcUpdate = { caseAdvocacy: true, caseAdvocacyInteractionId: existingId };
+      /* A partner re-ticking a family that already has an open case just joins
+         it -- never reassigns someone else's case or pages the coordinator. */
+      if (_selfPartner) {
+        await db.collection('interactions').doc(sourceId).update(srcUpdate);
+        return { interactionId: existingId, uid: currentOwnerUid, reassigned: false };
+      }
       if (!unassigned) {
         srcUpdate.caseAdvocateName = advocateName;
         srcUpdate.caseAdvocateUid = uid || '';
@@ -22250,6 +22290,9 @@ window.openContactDetail = async function(contactId) {
          stamped 'management' by the server instead. (2026-09-16) */
       serviceLevel: 'advocacy',
       caseAdvocacySourceId: sourceId,
+      /* The family's island goes on the case (v151.19). Without it a partner's
+         case was an LDAH record they could never see -- the "orphan" cases. */
+      partnerIsland: sourceData.partnerIsland || '',
       createdBy: creator,
       createdByUid: (currentUserData && currentUserData.uid) || '',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -22267,7 +22310,7 @@ window.openContactDetail = async function(contactId) {
     }
     await db.collection('interactions').doc(sourceId).update(srcNewUpdate);
 
-    if (uid && typeof createNotification === 'function') {
+    if (uid && !_selfPartner && typeof createNotification === 'function') {
       await createNotification({
         recipientUid: uid,
         recipientName: ownerName,
@@ -22290,9 +22333,10 @@ window.openContactDetail = async function(contactId) {
     }
     // Only once a consultant is named — the letter is signed by them, so an
     // unassigned case waits for the coordinator to allocate it.
-    if (!unassigned) {
+    if (!unassigned && !_selfPartner) {   // no LDAH opening letter for a PIP family (v151.19)
       await window._caSendOpeningLetter(sourceData.contactId, advocateName, { quiet: true });
     }
+    if (_selfPartner) _showToast('Case advocacy is on — ' + (sourceData.contactName || 'this family') + ' is now in your open cases.', '#16A34A');
     return { interactionId: newRef.id, uid: uid, reassigned: false, unassigned: unassigned };
   };
 
@@ -22412,7 +22456,8 @@ window.openContactDetail = async function(contactId) {
     // 'Screening' used to be an interaction TYPE, which meant a screening could
     // not also record its tier — screenings are always Tier 4. It is a flag now,
     // and the flag is what sends the consent form. (v148.14)
-    var _isScreening = !!(document.getElementById('intScreening') || {}).checked;
+    var _isScreening = !!(document.getElementById('intScreening') || {}).checked
+      && !(window.isPartnerUser && window.isPartnerUser());   // screening is off for PIP (v151.19)
 
     var data = {
       channel: channel,
@@ -24427,11 +24472,13 @@ window.openContactDetail = async function(contactId) {
         var caAdvControl = caCanPick
           ? '<select id="ixCaseAdvocate" data-current-name="' + rsEscape(caAdvName) + '"><option value="">— Select advocate —</option></select>'
           : '<span style="font-weight:700;color:var(--text-dark);">' +
-              (caAdvName ? rsEscape(caAdvName) : 'Coordinator to assign') + '</span>' +
+              (caAdvName ? rsEscape(caAdvName) : ((window.isPartnerUser && window.isPartnerUser()) ? 'You' : 'Coordinator to assign')) + '</span>' +
             '<input type="hidden" id="ixCaseAdvocate" value="' + rsEscape(caAdvName) +
               '" data-current-name="' + rsEscape(caAdvName) + '">';
         var caAdvHint = caCanPick
           ? 'Turning this on creates a 3-month follow-up task for the advocate. Requires an attached contact.'
+          : (window.isPartnerUser && window.isPartnerUser())
+          ? 'Turning this on puts this family in your open cases.'   // PIP self-assign (v151.19)
           : 'Only ' + rsEscape((window.CASE_ADVOCACY_COORDINATOR || {}).name || 'the case advocacy coordinator') +
             ' assigns the advocate. Turning this on sends the request to her.';
         /* LOCKED once a family is actually in advocacy. (2026-08-31)
