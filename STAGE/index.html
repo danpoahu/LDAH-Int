@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.19-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.20-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11242,7 +11242,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 </script>
 
 <!-- Internal chat — see chat-core.js -->
-<script src="chat-core.js?v=149.19-STAGE"></script>
+<script src="chat-core.js?v=151.20-STAGE"></script>
 <script>
   LDAHChat.mount(document.getElementById('chatMount'), {
     mode: 'modal',
@@ -13100,6 +13100,7 @@ var _photoPendingByIsland = {};
             email: user.email,
             role: currentUserData.role,
             online: true,
+            archived: false,   // signing in means active; clears a stale archive mark (v151.20)
             lastSeen: firebase.firestore.FieldValue.serverTimestamp()
           }, { merge: true }).catch(function(e){ console.warn('Chat presence write failed (update Firestore rules):', e.message); });
           // Presence heartbeat — update lastSeen every 5 minutes to stay green
@@ -14632,6 +14633,7 @@ var _photoPendingByIsland = {};
       /* Anonymous public-page sessions write "Unknown" with no email; they are
          not staff. Shown to anyone without the roster filter (v151.19). */
       if (!d.email || /^unknown$/i.test(String(d.displayName).trim())) return;
+      if (d.archived === true) return;   // left LDAH (v151.20)
       // Archived or deleted from userRoles - not staff, not on the strip.
       if (_presenceAllowedUids && !_presenceAllowedUids[doc.id]) return;
       if (_presenceHidden(doc.id, d)) return;
@@ -15498,6 +15500,10 @@ var _photoPendingByIsland = {};
             previousRole: cached.role
           });
           auditLog('Removed user role', 'Archived ' + cached.name + ' (' + (cached.email || uid) + ')');
+          /* Mark the presence doc too (v151.20). Only accounts that can read
+             the whole roster could tell an archived person from staff, so
+             everyone else -- partners, Super Partners -- kept seeing them. */
+          try { await db.collection('chatPresence').doc(uid).set({ archived: true, online: false }, { merge: true }); } catch (_) {}
           cached.isArchived = true;
           cached.role = '';
           // Show archived toggle so user can see the result
@@ -15553,6 +15559,7 @@ var _photoPendingByIsland = {};
             restoredBy: currentUserData.uid
           });
           auditLog('Updated user role', 'Restored ' + cached.name + ' (' + (cached.email || uid) + ') to dailyUser');
+          try { await db.collection('chatPresence').doc(uid).set({ archived: false }, { merge: true }); } catch (_) {}
           cached.isArchived = false;
           cached.role = 'dailyUser';
           renderUserRolesTable();
