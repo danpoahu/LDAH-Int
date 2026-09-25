@@ -850,6 +850,7 @@ window.LDAHChat = (function () {
           var d = doc.data();
           if (d.uid === myUid) return; // exclude self
           if (_chatArchivedUids.has(d.uid || doc.id)) return; // exclude archived
+          if (d.archived === true) return; // archived, for anyone who cannot read the roster (2026-09-25)
           // Not on the current staff list at all — a deleted account's ghost.
           if (_chatAllowedUids && !_chatAllowedUids.has(d.uid || doc.id)) return;
           // Hidden people are not rendered at all — not online, not offline.
