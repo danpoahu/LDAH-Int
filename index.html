@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.20</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.21</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6588,7 +6588,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 var now=Date.now();
                 rows.forEach(function(d){
                   d._days=d.createdAt&&d.createdAt.toMillis?Math.floor((now-d.createdAt.toMillis())/86400000):null;
-                  d._unassigned=!d.caseAdvocateName;
+                  /* PIP cases are never "unassigned": a partner who ticks advocacy
+                     is the advocate, and nobody allocates them (v151.21). Fall back
+                     to the owner's name for a case made before that rule. */
+                  if(!d.caseAdvocateName && d.partnerIsland && d.owner) d.caseAdvocateName=d.owner;
+                  d._unassigned=!d.caseAdvocateName && !d.partnerIsland;
                 });
                 // Unassigned first — those are the coordinator's queue and are
                 // nobody's caseload until someone is named. Then oldest first.
@@ -6613,7 +6617,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   var _tk=todayKey(), due='';
                   if(d.followUpDate&&d.followUpDate<_tk) due='<span style="font-size:.66rem;font-weight:800;letter-spacing:.04em;border-radius:20px;padding:3px 8px;margin-left:6px;background:#FECACA;color:#991B1B;">FOLLOW-UP OVERDUE</span>';
                   else if(d.followUpDate===_tk) due='<span style="font-size:.66rem;font-weight:800;letter-spacing:.04em;border-radius:20px;padding:3px 8px;margin-left:6px;background:#FFEDD5;color:#9A3412;">FOLLOW-UP TODAY</span>';
-                  var who=d._unassigned?'Needs advocate':esc(d.caseAdvocateName);
+                  var who=d._unassigned?'Needs advocate':esc(d.caseAdvocateName||d.owner||'');
                   return '<div class="case'+(d._unassigned?' unassigned':'')+'" onclick="viewInteraction(\''+esc(d._id)+'\')">'
                     +'<div><div class="ttl">'+esc(d.contactName||'(no contact)')+due+'</div>'
                     +'<div class="sub">'+sub.join(' &middot; ')+'</div>'
@@ -22244,8 +22248,9 @@ window.openContactDetail = async function(contactId) {
         _showToast('Saved, but "' + advocateName + '" has no LDAH-Int login — the task won\u2019t reach a My Day until reassigned.', '#D97706');
       }
       // Advocate now named on this family → send the opening letter (the CF
-      // no-ops if it already went out for them).
-      await window._caSendOpeningLetter(sourceData.contactId, advocateName, { quiet: true });
+      // no-ops if it already went out for them). Never for a PIP family: no
+      // consent letter for PIP at this time (Daniel 2026-09-25, v151.21).
+      if (!sourceData.partnerIsland) await window._caSendOpeningLetter(sourceData.contactId, advocateName, { quiet: true });
       return { interactionId: existingId, uid: uid, reassigned: true };
     }
 
@@ -22343,7 +22348,7 @@ window.openContactDetail = async function(contactId) {
     }
     // Only once a consultant is named — the letter is signed by them, so an
     // unassigned case waits for the coordinator to allocate it.
-    if (!unassigned && !_selfPartner) {   // no LDAH opening letter for a PIP family (v151.19)
+    if (!unassigned && !_selfPartner && !sourceData.partnerIsland) {   // no consent letter for a PIP family (v151.19/v151.21)
       await window._caSendOpeningLetter(sourceData.contactId, advocateName, { quiet: true });
     }
     if (_selfPartner) _showToast('Case advocacy is on — ' + (sourceData.contactName || 'this family') + ' is now in your open cases.', '#16A34A');
@@ -25263,7 +25268,8 @@ window.openContactDetail = async function(contactId) {
             (_priorIxData.contactName || '(no contact)') + ' — ' + newName +
             ' became the named advocate when the allocation task was reassigned (' + _ixViewDocId + ')');
           if (_priorIxData.contactId && typeof window._caSendOpeningLetter === 'function') {
-            var _lr = await window._caSendOpeningLetter(_priorIxData.contactId, newName, { quiet: true });
+            var _lr = _priorIxData.partnerIsland ? null   // no consent letter for PIP (v151.21)
+              : await window._caSendOpeningLetter(_priorIxData.contactId, newName, { quiet: true });
             if (_lr && _lr.skipped === 'already-sent') {
               _showToast('Advocate set to ' + newName + '. Opening letter was already sent ' +
                          (_lr.sentAt || 'earlier') + ' — not resent.', '#0891B2');
