@@ -5582,7 +5582,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.45</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v150.46</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12158,7 +12158,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       try {
         var nsSnap = await db.collectionGroup('signups').where('timestamp','>=',cutoff).get();
         for (var ni = 0; ni < nsSnap.docs.length; ni++) {
-          var ns = nsSnap.docs[ni]; var nd = ns.data();
+          var ns = nsSnap.docs[ni]; var nd = ns.data(); if (nd.archived === true) continue;
           var parentRef = ns.ref.parent.parent;
           var parentDoc = await parentRef.get();
           var evTitle = (parentDoc.data()||{}).title || 'Unknown Event';
@@ -12171,7 +12171,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
       try {
         var crSnap = await db.collectionGroup('signups').where('registrationCompletedAt','>=',cutoff).get();
         for (var ci2 = 0; ci2 < crSnap.docs.length; ci2++) {
-          var cr = crSnap.docs[ci2]; var cd = cr.data();
+          var cr = crSnap.docs[ci2]; var cd = cr.data(); if (cd.archived === true) continue;
           var pRef = cr.ref.parent.parent;
           var pDoc = await pRef.get();
           var pTitle = (pDoc.data()||{}).title || 'Unknown Event';
@@ -23255,8 +23255,8 @@ window.openContactDetail = async function(contactId) {
         if (_actEv.length) {
           var _signupProms = _actEv.map(function(_e) {
             var _c = _e.isRec ? 'recurringEvents' : 'events';
-            return db.collection(_c).doc(_e.id).collection('signups').orderBy('timestamp','desc').limit(10).get().then(function(sSnap) {
-              sSnap.forEach(function(doc) { var d=doc.data(); _pushDashForm('Signup', d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', _e.title+(d.participationType==='Group'?' (Group)':''), d.status, d.timestamp, d.linkedContactId || d.contactId || ''); });
+            return db.collection(_c).doc(_e.id).collection('signups').orderBy('timestamp','desc').limit(25).get().then(function(sSnap) {
+              sSnap.forEach(function(doc) { var d=doc.data(); if (d.archived===true) return; _pushDashForm('Signup', d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'—', _e.title+(d.participationType==='Group'?' (Group)':''), d.status, d.timestamp, d.linkedContactId || d.contactId || ''); });
             });
           });
           await Promise.all(_signupProms);
@@ -26264,7 +26264,7 @@ window.openContactDetail = async function(contactId) {
               return Promise.all(_activeEvIds.map(function(_ev) {
                 var _col = _ev.isRecurring ? 'recurringEvents' : 'events';
                 return db.collection(_col).doc(_ev.id).collection('signups').get().then(function(sSnap) {
-                  sSnap.forEach(function(doc) { var d = doc.data(); var sName = d.name || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
+                  sSnap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; var sName = d.name || [d.firstName,d.lastName].filter(Boolean).join(' ') || '—';
                     _pushForm('Signup', sName, _ev.title + (d.participationType === 'Group' ? ' (Group: '+(d.groupName||'')+')' : ''), d.status||'pending', d.timestamp); });
                 });
               }));
@@ -27360,6 +27360,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
           var supSnap = await db.collection(colName).doc(evDoc.id).collection('signups').orderBy('timestamp', 'desc').limit(300).get();
           supSnap.forEach(function(sDoc) {
             var sd = sDoc.data();
+            if (sd.archived === true) return;
             _gsCache.signups.push({
               id: sDoc.id,
               name: sd.name || [sd.firstName, sd.lastName].filter(Boolean).join(' ') || '',
@@ -38068,7 +38069,7 @@ function crGetAffectedSignups(allSignups, sessionKey) {
   var activeStatuses = ['confirmed', 'pending', 'new', 'confirmed-virtual', 'confirmed-in-person'];
   var escapedKey = crEscapeSessionKey(sessionKey);
   return allSignups.filter(function (s) {
-    if (!s || activeStatuses.indexOf(s.status) === -1) return false;
+    if (!s || s.archived === true || activeStatuses.indexOf(s.status) === -1) return false;
     // Use canonical accessor if available; fall back to raw fields.
     var sessions = (typeof getSignupSessions === 'function')
       ? getSignupSessions(s)
@@ -41694,6 +41695,9 @@ window.cmsExportSignupsCsvFromModal = function() {
 };
 
 window.cmsExportSignupsCsv = function(eventTitle, signups) {
+  // Drop archived junk (no name AND no email, e.g. the 9-24 blank submissions);
+  // real archived families stay in the export as the training deck promises. (2026-09-25)
+  signups = (signups || []).filter(function(s) { return !(s && s.archived === true && !String(s.name || s.firstName || '').trim() && !String(s.email || '').trim()); });
   // v120.1.0 — expanded with demographic columns to support government reporting.
   // Per-row precedence: signup.registration.X · signup.X · contact.children[N] for child cols.
   var baseHeaders = ['Name', 'Email', 'Phone', 'Type', 'Volunteers', 'Group', 'Dates/Sessions', 'Registrant', 'Student', 'Grade', 'School', 'Care Coordinator', 'IEP Review', 'Re-eval Date', 'Comments', 'Status', 'Registration Status', 'Admin Notes', 'Timestamp'];
@@ -55906,6 +55910,7 @@ async function _pbLoadAll() {
   signups.forEach(function (s) {
     var x = s.raw || {};
     if (String(x.status || '').toLowerCase() === 'cancelled') return;
+    if (x.archived === true && String(x.status || '').toLowerCase() !== 'completed') return;
     var sel = [].concat(x.selectedSessions || [], x.selectedDates || []);
     if (sel.length) {
       sel.forEach(function (k) {
