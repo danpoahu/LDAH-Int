@@ -5581,7 +5581,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.9-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.10-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7291,6 +7291,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                    neither total means anything. A partner sees only the PIP
                    button, and only their own island within it. -->
               <div style="display:flex;gap:8px;margin-top:12px;" id="fbScopeBtns">
+                <!-- Super Partner island filter (v151.10); data-roles hides it for everyone else. -->
+                <select id="fbIslandSel" data-roles="superPartner" onclick="event.stopPropagation()" onchange="window._rptIsland=this.value" title="Build the report for one Pacific partner island, or all six." style="font-size:.8rem;font-weight:700;padding:5px 8px;border:1px solid #7C3AED;border-radius:6px;background:#fff;color:#5B21B6;">
+                  <option value="">All six islands</option><option>American Samoa</option><option>Guam</option><option>CNMI</option><option>Micronesia</option><option>Marshall Islands</option><option>Palau</option>
+                </select>
                 <button class="btn btn-ghost" id="fbScopeLdah" data-roles="superAdmin,admin" style="font-size:.8rem;padding:5px 14px;border:1px solid #1a3c6e;border-radius:6px;background:#fff;color:#1a3c6e;font-weight:700;cursor:pointer;" onclick="event.stopPropagation();cmsBuildFeedbackReport('ldah')" title="Shows feedback about LDAH events only, leaving Pacific partner events out.">LDAH</button>
                 <button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;border:1px solid #7C3AED;border-radius:6px;background:#fff;color:#7C3AED;font-weight:700;cursor:pointer;" onclick="event.stopPropagation();cmsBuildFeedbackReport('pip')" title="Shows feedback about Pacific partner events only.">PIP</button>
                 <button class="btn btn-ghost" id="fbScopeBoth" style="display:none;font-size:.8rem;padding:5px 14px;border:1px solid #475569;border-radius:6px;background:#fff;color:#475569;font-weight:700;cursor:pointer;" onclick="event.stopPropagation();cmsBuildFeedbackReport('both')" title="Shows LDAH and Pacific partner feedback together in one list.">Both</button>
@@ -13539,11 +13543,33 @@ var _photoPendingByIsland = {};
      Noe; this keeps it off Mackenzie's and Leilani's plate. It is a workload
      boundary, not a confidentiality one: the Firestore rules let any signed-in
      staff member read these collections, and always have. */
+  /* ── Super Partner report island filter (v151.10) ─────────────────────
+     Spec: reports are "PIP only, always, with an island filter". One choice
+     shared by every report, '' = all six islands. A no-op for anyone else. */
+  window._rptIsland = '';
+  window._rptIslandOK = function(d) {
+    if (!window._rptIsland || !(window.isSuperPartner && window.isSuperPartner())) return true;
+    return !!(d && d.partnerIsland === window._rptIsland);
+  };
+  window.rptIslandSelectHtml = function(onchangeJs) {
+    var h = '<select class="no-print" onchange="' + onchangeJs + '" onclick="event.stopPropagation()" title="Show one Pacific partner island, or all six." '
+      + 'style="font-size:.78rem;font-weight:700;padding:5px 8px;border:1px solid #7C3AED;border-radius:6px;background:#fff;color:#5B21B6;vertical-align:middle;margin-left:6px;">'
+      + '<option value="">All six islands</option>';
+    PARTNER_ISLANDS.forEach(function(isl) {
+      h += '<option value="' + _piEsc(isl) + '"' + (window._rptIsland === isl ? ' selected' : '') + '>' + _piEsc(isl) + '</option>';
+    });
+    return h + '</select>';
+  };
+  window.rptSetIsland = function(key, isl) {
+    if (!(window.isSuperPartner && window.isSuperPartner())) return;
+    window._rptIsland = PARTNER_ISLANDS.indexOf(String(isl || '')) !== -1 ? String(isl) : '';
+    if (_RPT_RERUN[key]) _RPT_RERUN[key]();
+  };
   window.scopeReportDocs = function(docs, key) {
     if (!Array.isArray(docs)) return docs;
     /* Partners first (v151.0): a Super Partner is PIP-only and a plain partner
        is island-scoped, whatever key is passed -- neither ever holds the toggle. */
-    if (window.isPartnerUser()) return docs.filter(window._partnerScopeOK);
+    if (window.isPartnerUser()) return docs.filter(function(d) { return window._partnerScopeOK(d) && window._rptIslandOK(d); });
     /* LDAH / PIP / Both toggle (v150.5; every LDAH staff role v151.0). */
     if (key && window.canToggleReportScope()) return window.filterByReportScope(docs, window.getReportScope(key, 'ldah'));
     if (window.currentUserData && window.currentUserData.role === 'superAdmin') return docs;
@@ -13603,7 +13629,8 @@ var _photoPendingByIsland = {};
     /* A Super Partner has no switch, but is told what they are looking at. */
     if (window.isSuperPartner && window.isSuperPartner()) {
       host.style.display = '';
-      host.innerHTML = '<span class="no-print" title="Pacific partner (PIP) records only, all six islands." style="display:inline-block;font-size:.78rem;font-weight:700;padding:6px 12px;border-radius:6px;background:#7C3AED;color:#fff;vertical-align:middle;">PIP only</span>';
+      host.innerHTML = '<span class="no-print" title="Pacific partner (PIP) records only, all six islands." style="display:inline-block;font-size:.78rem;font-weight:700;padding:6px 12px;border-radius:6px;background:#7C3AED;color:#fff;vertical-align:middle;">PIP only</span>'
+        + (['is', 'cd', 'mc', 'cr'].indexOf(key) !== -1 ? window.rptIslandSelectHtml("rptSetIsland('" + key + "', this.value)") : '');
       return;
     }
     if (!window.canToggleReportScope()) { host.innerHTML = ''; host.style.display = 'none'; return; }
@@ -18649,6 +18676,9 @@ var _photoPendingByIsland = {};
             ? '<span style="color:#cbd5e1;">—</span>'
             : '<span style="color:#16a34a;display:inline-flex;align-items:center;" title="Opted in"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>') + '</span>') +
           '<span class="ct-row-actions">' +
+            /* Partners edit (never archive) the PIP contacts in their scope (v151.9). */
+            (!isAdmin && !archivedView && window.isPartnerUser && window.isPartnerUser() && c.partnerIsland && window._partnerScopeOK(c)
+              ? '<button onclick="event.stopPropagation(); openContactForm(\'' + c.id + '\')" title="Opens this contact in the edit form.">Edit</button>' : '') +
             (isAdmin ? '<button onclick="event.stopPropagation(); openContactForm(\'' + c.id + '\')" title="Opens this contact in the edit form without opening their detail panel first.">Edit</button>' +
               (archivedView
                 ? '<button onclick="event.stopPropagation(); restoreContact(\'' + c.id + '\', \'' + rsEscape(c.displayName) + '\')" style="color:#15803D;" title="Puts this archived contact back into the normal contact list.">Restore</button>'
@@ -18810,7 +18840,9 @@ var _photoPendingByIsland = {};
     if (docId && window.isPartnerUser && window.isPartnerUser()) {
       var _pExisting = null;
       try { _pExisting = _allContacts.find(function(x) { return x.id === docId; }) || null; } catch (e) {}
-      if (!window.isPartnerRecord(_pExisting)) {
+      /* Stamped AND in this account's scope: own island for a partner, any of
+         the six for a Super Partner (v151.9). */
+      if (!(window.isPartnerRecord(_pExisting) && window._partnerScopeOK(_pExisting))) {
         alert('You can only edit contacts your partner organization added.');
         return;
       }
@@ -19923,6 +19955,11 @@ window.openContactDetail = async function(contactId) {
 
     try {
       var doc = await db.collection('contacts').doc(contactId).get();
+      /* Partners: Edit shows on a PIP contact in their scope (v151.9). */
+      if (editBtn && !isAdmin && window.isPartnerUser && window.isPartnerUser() && doc.exists) {
+        var _cdData = doc.data() || {};
+        editBtn.style.display = (_cdData.partnerIsland && window._partnerScopeOK(_cdData)) ? 'inline-block' : 'none';
+      }
       if (!doc.exists) {
         body.innerHTML = '<p style="color:#DC2626;text-align:center;padding:30px;">Contact not found.</p>';
         return;
@@ -49221,6 +49258,7 @@ window.cmsBuildFeedbackReport = async function(scope) {
   var _fbPip = _fbPartner || scope === 'pip';
   /* A Super Partner (all six islands) is PIP-wide, not one island (v151.0). */
   var _fbIsland = (_fbPartner && !(window.isAllIslandsPartner && window.isAllIslandsPartner())) ? window.currentPartnerIsland() : '';
+  if (window.isSuperPartner && window.isSuperPartner()) _fbIsland = window._rptIsland || '';   // island filter (v151.10)
   var _fbLabel = _fbBoth ? 'LDAH + PIP' : (_fbPip ? (_fbIsland || 'Pacific Island Partners') : 'LDAH');
   _showToast('Building ' + _fbLabel + ' feedback report...', '#0891B2');
   try {
@@ -50660,6 +50698,7 @@ window.cmsBuildStaffActivityReport = async function() {
     b.style.display = show ? '' : 'none';
   }
 
+  window.cmsEARerenderCards = function() { _renderCardList(); };
   function _renderFilterBar() {
     _eaSyncUpcomingBtn();
     var bar = document.getElementById('eaFilterBar');
@@ -50720,6 +50759,11 @@ window.cmsBuildStaffActivityReport = async function() {
       html += '<button type="button" onclick="cmsEASetScope(\'both\')" style="flex:1;border:none;cursor:pointer;font-size:.8rem;font-weight:700;padding:7px 4px;'
            + (_both ? 'background:#475569;color:#fff;' : 'background:#fff;color:#475569;') + '" title="Count LDAH and Pacific partner events together in one set of figures.">Both</button>';
       html += '</div></div>';
+    }
+    /* Super Partner: PIP only, with an island filter (v151.10). */
+    if (window.isSuperPartner && window.isSuperPartner()) {
+      html += '<div><label style="display:block;font-size:.72rem;color:var(--text-soft);font-weight:600;margin-bottom:3px;">PIP ONLY &middot; ISLAND</label>'
+        + window.rptIslandSelectHtml("window._rptIsland=this.value;cmsEARerenderCards()").replace('margin-left:6px;', 'width:100%;padding:7px 10px;') + '</div>';
     }
     html += '<div><button class="btn btn-ghost" style="width:100%;font-size:.82rem;" onclick="cmsEAClearFilters()" title="Resets every filter box above back to its starting value.">Clear</button></div>';
     bar.innerHTML = html;
@@ -50798,6 +50842,7 @@ window.cmsBuildStaffActivityReport = async function() {
       if (_evd.infoOnly === true || _evd.flyerOnly === true || String(_evd.eventType || '') === 'flyer') return false;
       if (!showZero && (r.totalAttended || 0) === 0) return false;
       if (f.year && String(r.year) !== String(f.year)) return false;
+      if (!window._rptIslandOK(r.eventDoc || {})) return false;   // Super Partner island (v151.10)
       if (f.program && f.program !== '__all__') {
         var _eaType = (r.eventDoc && r.eventDoc.isOneOff) ? 'One-Off' : _classifyEAEventType(r.eventTitle, r.eventDoc);
         if (f.program === '__programs__') { if (_eaType === 'One-Off') return false; }
@@ -55131,6 +55176,7 @@ window.prExportCsv = function() {
       ? window.filterByReportScope(_crRows, window.getReportScope('cr', 'ldah'), function(r) { return r.partner; })
       : ((window.isSuperPartner && window.isSuperPartner())
           ? window.filterByReportScope(_crRows, 'pip', function(r) { return r.partner; })
+              .filter(function(r) { return window._rptIslandOK({ partnerIsland: r.partnerIsland }); })
           : _crRows);
     _crScopedLast = _crScoped;   // the CSV exports what the scope shows (v151.9)
     var qEl = document.getElementById('crSearch');
