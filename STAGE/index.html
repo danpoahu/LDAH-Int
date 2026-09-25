@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.11-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.12-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -51062,6 +51062,22 @@ window.cmsBuildStaffActivityReport = async function() {
     return html;
   }
 
+  /* One editable figure in Age / Ethnicity / Disability (v151.12). Shows the
+     typed number when there is one, else the auto count; the hint underneath
+     says which. Clearing the box goes back to auto. */
+  function _eaDemoCell(r, kind, key, autoVal) {
+    var ov = _eaDemoOverrides(r, kind)[key];
+    var has = typeof ov === 'number' && isFinite(ov);
+    var enc = _attrJsArg(key);
+    return '<td style="padding:4px 8px;border-bottom:1px solid #F1F5F9;text-align:right;white-space:nowrap;">'
+      + '<input type="number" min="0" value="' + (has ? ov : autoVal) + '" '
+      + 'onblur="cmsEASaveDemoOverride(decodeURIComponent(\'' + _attrJsArg(r.id) + '\'),\'' + kind + '\',decodeURIComponent(\'' + enc + '\'),this.value)" '
+      + 'title="Type the real number if people did not register. Clear the box to go back to the automatic count." '
+      + 'style="width:70px;padding:3px 7px;border:1px solid #CBD5E1;border-radius:6px;font-size:.86rem;text-align:right;">'
+      + '<span style="display:inline-block;min-width:92px;margin-left:8px;font-size:.7rem;text-align:left;color:' + (has && ov !== autoVal ? '#9A3412' : 'var(--text-soft)') + ';">'
+      + 'Auto: ' + autoVal + (has && ov !== autoVal ? ' (entered)' : '') + '</span></td>';
+  }
+
   // Render the 11-section pink-sheet expansion.
   function _renderExpandedBody(r) {
     var html = '';
@@ -51164,21 +51180,21 @@ window.cmsBuildStaffActivityReport = async function() {
 
     // 4. Age of Children
     html += _section('Age of Children');
-    var ageCounts = _computeAgeCounts(r);
+    var ageAuto = _computeAgeCountsAuto(r);
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.86rem;">';
     _eaAgeBuckets.forEach(function(b) {
       html += '<tr><td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;">' + _esc(b.label) + '</td>';
-      html += '<td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:600;">' + (ageCounts[b.canon] || 0) + '</td></tr>';
+      html += _eaDemoCell(r, 'age', b.canon, ageAuto[b.canon] || 0) + '</tr>';
     });
     html += '</table>';
 
     // 5. Primary Ethnicity
     html += _section('Primary Ethnicity');
-    var ethCounts = _computeEthnicityCounts(r);
+    var ethAuto = _computeEthnicityCountsAuto(r);
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.86rem;">';
     _eaEthnicityBuckets.forEach(function(lbl) {
       html += '<tr><td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;">' + _esc(lbl) + '</td>';
-      html += '<td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:600;">' + (ethCounts[lbl] || 0) + '</td></tr>';
+      html += _eaDemoCell(r, 'eth', lbl, ethAuto[lbl] || 0) + '</tr>';
     });
     html += '</table>';
 
@@ -51189,11 +51205,11 @@ window.cmsBuildStaffActivityReport = async function() {
 
     // 7. Federal Disability Categories
     html += _section('Federal Disability Categories');
-    var disCounts = _computeDisabilityCounts(r);
+    var disAuto = _computeDisabilityCountsAuto(r);
     html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.86rem;">';
     _eaDisabList.forEach(function(lbl) {
       html += '<tr><td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;">' + _esc(lbl) + '</td>';
-      html += '<td style="padding:6px 8px;border-bottom:1px solid #F1F5F9;text-align:right;font-weight:600;">' + (disCounts[lbl] || 0) + '</td></tr>';
+      html += _eaDemoCell(r, 'dis', lbl, disAuto[lbl] || 0) + '</tr>';
     });
     html += '</table>';
 
@@ -51394,9 +51410,9 @@ window.cmsBuildStaffActivityReport = async function() {
   }
 
   // ── Age of children: tally attendees' canonical ageRange ──
-  function _computeAgeCounts(r) {
+  function _computeAgeCountsAuto(r) {
     var counts = { '0-2':0, '3-5':0, '6-12':0, '13-17':0, 'Adult':0 };
-    r.signups.forEach(function(s) {
+    (r.signups || []).forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = _eaSignupReg(s);
       // Multi-child: registration.children[] → specialCapture → the linked
@@ -51421,10 +51437,10 @@ window.cmsBuildStaffActivityReport = async function() {
   }
 
   // ── Ethnicity tally (uses _bucketEthnicity) ──
-  function _computeEthnicityCounts(r) {
+  function _computeEthnicityCountsAuto(r) {
     var counts = {};
     _eaEthnicityBuckets.forEach(function(b) { counts[b] = 0; });
-    r.signups.forEach(function(s) {
+    (r.signups || []).forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = _eaSignupReg(s);
       var children = _eaChildRows(s, reg); // signup → booth capture → linked contact
@@ -51441,11 +51457,38 @@ window.cmsBuildStaffActivityReport = async function() {
     return counts;
   }
 
+  /* ── Hand-entered demographics (v151.12) ──────────────────────────────
+     Daniel 2026-09-25: events such as Helping Babies Hear rarely register
+     people, so the tallies read 0. Staff can type the real figure for any row
+     of Age of Children, Primary Ethnicity and Federal Disability Categories.
+     Stored per event (or per session) as three maps on the summary --
+     ageOverrides {canon: n}, ethnicityOverrides {label: n},
+     disabilityOverrides {label: n}. A typed number wins; a cleared box goes
+     back to the auto count. Every reader goes through the wrappers below, so
+     the card, the print and the export all agree. */
+  var _EA_DEMO_OV = { age: 'ageOverrides', eth: 'ethnicityOverrides', dis: 'disabilityOverrides' };
+  function _eaDemoOverrides(r, kind) {
+    var m = r && r.summary && r.summary[_EA_DEMO_OV[kind]];
+    return (m && typeof m === 'object') ? m : {};
+  }
+  function _eaApplyDemo(auto, r, kind) {
+    var ov = _eaDemoOverrides(r, kind), out = {};
+    Object.keys(auto).forEach(function(k) { out[k] = auto[k]; });
+    Object.keys(ov).forEach(function(k) { if (typeof ov[k] === 'number' && isFinite(ov[k])) out[k] = ov[k]; });
+    return out;
+  }
+  function _eaHasDemoOverrides(r) {
+    return ['age', 'eth', 'dis'].some(function(k) { return Object.keys(_eaDemoOverrides(r, k)).length > 0; });
+  }
+  function _computeAgeCounts(r)        { return _eaApplyDemo(_computeAgeCountsAuto(r), r, 'age'); }
+  function _computeEthnicityCounts(r)  { return _eaApplyDemo(_computeEthnicityCountsAuto(r), r, 'eth'); }
+  function _computeDisabilityCounts(r) { return _eaApplyDemo(_computeDisabilityCountsAuto(r), r, 'dis'); }
+
   // ── Federal Disability Categories tally ──
-  function _computeDisabilityCounts(r) {
+  function _computeDisabilityCountsAuto(r) {
     var counts = {};
     _eaDisabList.forEach(function(d) { counts[d] = 0; });
-    r.signups.forEach(function(s) {
+    (r.signups || []).forEach(function(s) {
       if (!_signupAttendedAny(s, r.sessionDateKeys || [r.sessionDate], r.isPerSession)) return;
       var reg = _eaSignupReg(s);
       var children = _eaChildRows(s, reg); // signup → booth capture → linked contact
@@ -51580,6 +51623,43 @@ window.cmsBuildStaffActivityReport = async function() {
     eaProfOtherSpecify:    { field: 'attendanceProfessionalOtherSpecify',   kind: 'string' },
     eaMilitaryActive:      { field: 'attendanceMilitaryActiveDuty',         kind: 'number' },
   };
+  /* Save one hand-entered demographic figure (v151.12). The whole map is
+     written, not a dotted path -- labels such as "Beyond H.S." and
+     "ADD-ADHD" are not safe inside a Firestore field path. Blank = remove. */
+  window.cmsEASaveDemoOverride = async function(rowId, kind, key, rawVal) {
+    var field = _EA_DEMO_OV[kind];
+    if (!field) return;
+    var row = _eaCache.eventDates.find(function(x) { return x.id === rowId; });
+    if (!row) return;
+    var cur = Object.assign({}, _eaDemoOverrides(row, kind));
+    var txt = String(rawVal == null ? '' : rawVal).trim();
+    var n = parseInt(txt, 10);
+    var before = cur[key];
+    if (txt === '' || !isFinite(n) || n < 0) delete cur[key]; else cur[key] = n;
+    if (before === cur[key]) return;   // nothing changed -- no write, no audit line
+    try {
+      var base = (row.isPerSession && row.sessionDate) ? ('sessionSummaries.' + row.sessionDate + '.') : 'summary.';
+      var upd = {};
+      upd[base + field] = cur;
+      upd[base + 'completedAt'] = firebase.firestore.FieldValue.serverTimestamp();
+      upd[base + 'completedBy'] = (currentUserData && currentUserData.displayName) || 'Unknown';
+      await db.collection(row.collection).doc(row.eventId).update(upd);
+      row.summary = row.summary || {};
+      row.summary[field] = cur;
+      if (typeof auditLog === 'function') {
+        auditLog('Updated attendance demographics', (row.eventTitle || 'Event') + (row.sessionDate ? ' [' + row.sessionDate + ']' : '') + ' -- ' + field + '[' + key + '] = ' + (key in cur ? cur[key] : 'auto'));
+      }
+      if (typeof _showToast === 'function') _showToast('Saved.', '#059669');
+      _renderCardList();
+      if (_eaModalCurrentId === rowId) {
+        var mb = document.getElementById('eaModalBody');
+        if (mb) mb.innerHTML = _renderExpandedBody(row);
+      }
+    } catch (err) {
+      if (typeof _showToast === 'function') _showToast('Save failed: ' + err.message, '#DC2626');
+    }
+  };
+
   window.cmsEASaveAttendanceField = async function(rowId, prefix, rawVal) {
     var spec = _eaAttendanceFieldMap[prefix];
     if (!spec) return;
@@ -53210,7 +53290,7 @@ window.prExportCsv = function() {
           military,
         ];
 
-        if (hasSignups) {
+        if (hasSignups || _eaHasDemoOverrides(r)) {   // hand-entered figures export too (v151.12)
           var ageCounts = _computeAgeCounts(r);
           AGE_MAP.forEach(function(a) { row.push(a.canon ? (ageCounts[a.canon] || 0) : ''); });
           var ethCounts = _computeEthnicityCounts(r);
