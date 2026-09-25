@@ -5581,7 +5581,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.5-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.6-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6554,6 +6554,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                      and nobody else's — which is right: an unallocated case is
                      not yet anyone's caseload. */
                   if(d.caseAdvocateUid!==_vUid && d.ownerUid!==_vUid) return;
+                  if(window._myDayIslandOK&&!window._myDayIslandOK(d)) return;   // Super Partner island chip (v151.6)
                   var key=d.contactId||('_'+doc.id);
                   var advocate=d.caseAdvocateName||'';
                   var prev=byFamily[key];
@@ -6881,6 +6882,15 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                    filtering after limit(12) would leave the feed near empty. */
                 var _updPartner=!!(window.isPartnerUser&&window.isPartnerUser());
                 var rs=await db.collection('interactions').orderBy('createdAt','desc').limit(_updPartner?300:12).get();
+                window._myDayUpdSnap=rs;   // re-rendered by the Super Partner island chips (v151.6)
+                window._renderMyDayUpdates(rs);
+              }catch(e){
+                empty('myDayUpdates','Could not load updates.');
+                console.warn('loadMyDay updates:',e&&e.message);
+              }
+            };
+            window._renderMyDayUpdates=function(rs){
+              try{
                 var rows=[];
                 rs.forEach(function(doc){var d=doc.data();if(d.channel==='Internal Chat')return;if(!window._partnerScopeOK(d))return;if(window._myDayIslandOK&&!window._myDayIslandOK(d))return;rows.push(d);});
                 rows=rows.slice(0,10);
@@ -6901,7 +6911,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 setText('myDayUpdateCount',rows.length);
               }catch(e){
                 empty('myDayUpdates','Could not load updates.');
-                console.warn('loadMyDay updates:',e&&e.message);
+                console.warn('loadMyDay updates render:',e&&e.message);
               }
             };
 
@@ -6964,7 +6974,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                       var _seenPar={},_pars=[];
                       items.forEach(function(it){if(it.evRef&&!_seenPar[it.evRef.path]){_seenPar[it.evRef.path]=true;_pars.push(it.evRef);}});
                       await Promise.all(_pars.map(_rsParent));
-                      items=items.filter(function(it){return !!(it.evRef&&window._partnerScopeOK(scopeCache[it.evRef.path]||{}));}).slice(0,30);
+                      items=items.filter(function(it){var sc=it.evRef?(scopeCache[it.evRef.path]||{}):null;return !!(sc&&window._partnerScopeOK(sc)&&window._myDayIslandOK(sc));}).slice(0,30);
                       items.forEach(function(it){it.title=titleCache[it.evRef.path]||'Event';});
                     }
                     if(!items.length){empty('dashRecentSignups',_rsPartner?'No recent signups for Pacific partner events.':'No signups yet.');return;}
@@ -13982,7 +13992,7 @@ var _photoPendingByIsland = {};
               id: doc.id, title: d.title, date: eventDate,
               sessionLabel: _lblMap[_evIso] || '',
               location: d.location || '', description: d.description || '',
-              isRecurring: false
+              isRecurring: false, partnerIsland: d.partnerIsland || ''
             });
           } else {
             keys.forEach(function(k) {
@@ -13993,7 +14003,7 @@ var _photoPendingByIsland = {};
                 id: doc.id, title: d.title, date: dt,
                 sessionLabel: _lblMap[k] || '',
                 location: d.location || '', description: d.description || '',
-                isRecurring: false
+                isRecurring: false, partnerIsland: d.partnerIsland || ''
               });
             });
           }
@@ -14015,7 +14025,7 @@ var _photoPendingByIsland = {};
               id: doc.id, title: d.title, date: occ.date,
               sessionLabel: _lblMapR[occIso] || '',
               location: occ.schedule.location || '', description: d.description || '',
-              isRecurring: true, schedule: occ.schedule
+              isRecurring: true, schedule: occ.schedule, partnerIsland: d.partnerIsland || ''
             });
           });
         });
@@ -14098,6 +14108,13 @@ var _photoPendingByIsland = {};
     return m;
   }
 
+  /* Redraw the calendar from its cache when the Super Partner island chip
+     changes (v151.6). No reads: the cache already holds all six islands. */
+  window._dashCalRerender = function() {
+    if (!_dashCalYear) return;
+    renderMiniCalendar(_dashCalYear, _dashCalMonth);
+    if (_dashCalEvents) renderDashEventsList(_dashCalEvents, _dashCalSelectedDay);
+  };
   function renderMiniCalendar(year, month) {
     var container = document.getElementById('dashMiniCal');
     if (!container) return;
@@ -14114,6 +14131,7 @@ var _photoPendingByIsland = {};
     var eventDays = {};
     if (_dashCalEvents) {
       _dashCalEvents.forEach(function(ev) {
+        if (!window._myDayIslandOK(ev)) return;   // Super Partner island chip (v151.6)
         if (ev.date.getFullYear() === year && ev.date.getMonth() === month) {
           eventDays[ev.date.getDate()] = true;
         }
@@ -14186,6 +14204,7 @@ var _photoPendingByIsland = {};
     var container = document.getElementById('dashEventsList');
     if (!container) return;
     if (!events) { container.innerHTML = '<div class="empty-msg">Loading events...</div>'; return; }
+    events = events.filter(window._myDayIslandOK);   // Super Partner island chip (v151.6)
 
     var filtered;
     if (selectedDay) {
@@ -23718,6 +23737,13 @@ window.openContactDetail = async function(contactId) {
     }
     // Recounts the KPI cards too (it ends by calling updateDashKPIs).
     if (typeof window.loadDashRecentInteractions === 'function') window.loadDashRecentInteractions();
+    /* v151.6: the chips looked dead -- the feed, open cases, recent signups and
+       calendar never re-drew. The feed and calendar re-render from cache; open
+       cases and recent signups re-query (one read each, parents are cached). */
+    if (window._myDayUpdSnap && typeof window._renderMyDayUpdates === 'function') window._renderMyDayUpdates(window._myDayUpdSnap);
+    if (typeof window.loadMyDayOpenCases === 'function') window.loadMyDayOpenCases();
+    if (typeof window.loadMyDayRecentSignups === 'function') window.loadMyDayRecentSignups();
+    if (typeof window._dashCalRerender === 'function') window._dashCalRerender();
   };
 
   // Update dashboard KPI counters from Firestore
