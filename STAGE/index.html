@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.22-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.23-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -19873,6 +19873,39 @@ var _photoPendingByIsland = {};
       //            matches once BOTH sides are lowercased
       // The re-check in pass 2 matters: two contacts can share a name, and
       // without it one family's email could be shown on another's card.
+      /* Partner accounts cannot read the Email Log. Their card asks a Cloud
+         Function, which checks the family is one of THEIRS (v151.23). */
+      if (window.isPartnerUser && window.isPartnerUser()) {
+        var _pRes = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/partnerContactEmails', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken: await firebase.auth().currentUser.getIdToken(), contactId: ctx.contactId })
+        });
+        var _pj = {}; try { _pj = await _pRes.json(); } catch (_) {}
+        if (!_pRes.ok) {
+          box.innerHTML = '<div style="color:#94A3B8;font-size:.85rem;">' + rsEscape(_pRes.status === 403 ? 'Emails are shown for your own partner families only.' : ('Could not load emails: ' + (_pj.error || _pRes.status))) + '</div>';
+          return;
+        }
+        var _pRows = (_pj.rows || []).map(function(r) {
+          var ms = r.sentAtMs || 0;
+          r.sentAt = ms ? { toMillis: function() { return ms; }, toDate: function() { return new Date(ms); } } : null;
+          return r;
+        });
+        ctx.docs = _pRows;
+        if (!_pRows.length) { box.innerHTML = '<div style="color:#94A3B8;font-size:.85rem;">No system emails found for ' + rsEscape((_pj.emails || ctx.emails).join(', ')) + '.</div>'; return; }
+        box.innerHTML = _pRows.map(function(r, i){
+          var dt = r.sentAt ? r.sentAt.toDate() : null;
+          var when = dt ? dt.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+          var chip = r.success ? '<span style="color:#16A34A;font-size:.72rem;font-weight:700;white-space:nowrap;">Sent</span>' : '<span style="color:#DC2626;font-size:.72rem;font-weight:700;white-space:nowrap;">Failed</span>';
+          return '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#fff;">' +
+              '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;">' +
+                '<span style="font-weight:600;font-size:.9rem;color:#0891B2;cursor:pointer;" onclick="ctViewEmail(' + i + ')">' + rsEscape(r.subject || '(no subject)') + '</span>' + chip +
+              '</div>' +
+              '<div style="font-size:.75rem;color:#64748B;margin-top:2px;">' + rsEscape(when) + (r.type ? ' \u00b7 ' + rsEscape(r.type) : '') + '</div>' +
+              '<div id="ctEmailPrev' + i + '" style="display:none;margin-top:8px;"></div>' +
+            '</div>';
+        }).join('');
+        return;
+      }
       var _rowsById = {};
       var snap = await db.collection('emailLog').where('to', 'in', ctx.emails).orderBy('sentAt', 'desc').limit(50).get();
       snap.forEach(function(d){ _rowsById[d.id] = Object.assign({ _id: d.id }, d.data()); });
