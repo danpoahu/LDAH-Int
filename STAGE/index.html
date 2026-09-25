@@ -5581,7 +5581,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.8-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.9-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7072,7 +7072,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               if (!_spViewer && MYDAY_VIEWAS_OWNERS.indexOf(me.uid) === -1) { bar.style.display = 'none'; return; }
               if (sel.options.length > 1) { bar.style.display = 'flex'; return; } // already built
               try {
-                var snap = await db.collection('userRoles').get();
+                var snap = await window._userRolesListQuery(db).get();
                 var staff = [];
                 window._viewAsStaffById = {};
                 var seenEmails = {};
@@ -12981,7 +12981,10 @@ var _photoPendingByIsland = {};
         if (_userRolesUnsubscribe) { _userRolesUnsubscribe(); _userRolesUnsubscribe = null; }
         // One-time get for initial load, then attach real-time listener
         const roleDoc = await db.collection('userRoles').doc(user.uid).get();
-        if (roleDoc.exists && roleDoc.data().role) {
+        /* Fail closed on a role this build does not know (v151.9). An unknown
+           role used to pass as unscoped staff -- Home showed every Hawaiʻi
+           record -- so a typo, or a new role reaching an older build, leaked. */
+        if (roleDoc.exists && VALID_ROLES.indexOf(roleDoc.data().role) !== -1) {
           currentUserData = {
             uid: user.uid,
             email: user.email,
@@ -13001,7 +13004,10 @@ var _photoPendingByIsland = {};
             var d = snap.data();
             var changed = false;
             if (d.displayName && d.displayName !== currentUserData.displayName) { currentUserData.displayName = d.displayName; changed = true; }
-            if (d.role && d.role !== currentUserData.role) { currentUserData.role = d.role; changed = true; }
+            if (d.role && d.role !== currentUserData.role) {
+              if (VALID_ROLES.indexOf(d.role) === -1) { currentUserData = null; showAccessDenied(); return; }   // fail closed (v151.9)
+              currentUserData.role = d.role; changed = true;
+            }
             if ((d.island || '') !== currentUserData.island) { currentUserData.island = d.island || ''; changed = true; }
             if ((d.location || '') !== currentUserData.location) {
               currentUserData.location = d.location || '';
@@ -13289,6 +13295,26 @@ var _photoPendingByIsland = {};
   window.isPartnerUser = function() {
     var r = window.currentUserData && window.currentUserData.role;
     return r === 'partner' || r === 'superPartner';
+  };
+  /* The userRoles list a Super Partner may read (rules 2026-09-25): partner
+     accounts only, and the query itself must say so or Firestore refuses the
+     whole list. Everyone else keeps the full collection (optionally ordered).
+     No orderBy on the partner path -- 'in' plus orderBy needs an index. */
+  /* A task a partner may open and count: in scope by its island stamp, OR
+     their own (owner / case advocate), OR -- for a Super Partner -- owned by
+     any partner account. System tasks such as "Possible duplicate" carry no
+     stamp and were refused as "another organization" (v151.9). */
+  window._partnerTaskOK = function(d) {
+    if (window._partnerScopeOK(d)) return true;
+    if (!d) return false;
+    var me = window.currentUserData || {};
+    if (me.uid && (d.ownerUid === me.uid || d.caseAdvocateUid === me.uid)) return true;
+    return !!(window.isSuperPartner && window.isSuperPartner() && window._myDayAllPipOK && window._myDayAllPipOK(d));
+  };
+  window._userRolesListQuery = function(fdb, orderField) {
+    var col = fdb.collection('userRoles');
+    if (window.isSuperPartner && window.isSuperPartner()) return col.where('role', 'in', ['partner', 'superPartner']);
+    return orderField ? col.orderBy(orderField) : col;
   };
   window.isSuperPartner = function() {
     return !!(window.currentUserData && window.currentUserData.role === 'superPartner');
@@ -14299,7 +14325,7 @@ var _photoPendingByIsland = {};
   var _presenceAllowedUids = null;
 
   function _loadPresenceAllowed() {
-    return db.collection('userRoles').get().then(function(snap) {
+    return window._userRolesListQuery(db).get().then(function(snap) {
       var live = {};
       snap.forEach(function(d) { if ((d.data() || {}).isArchived !== true) live[d.id] = true; });
       _presenceAllowedUids = live;
@@ -16940,7 +16966,7 @@ var _photoPendingByIsland = {};
   window.initWeatherSystem = async function() {
     try {
       var _wdb = firebase.firestore();
-      var snapshot = await _wdb.collection('userRoles').get();
+      var snapshot = await window._userRolesListQuery(_wdb).get();
       snapshot.forEach(function(doc) {
         var d = doc.data();
         var resolved = resolveLocation(d.location);
@@ -21684,7 +21710,7 @@ window.openContactDetail = async function(contactId) {
       console.warn('_resolveStaffUidByEmail (owners) failed:', e && e.message);
     }
     try {
-      var snap = await db.collection('userRoles').get();
+      var snap = await window._userRolesListQuery(db).get();
       var found = '';
       snap.forEach(function(doc) {
         if (found) return;
@@ -23437,7 +23463,7 @@ window.openContactDetail = async function(contactId) {
       };
       /* Super Partner only (v151.0). A one-island partner's quick-add is left
          exactly as it was -- see the v151.0 report: it has never stamped. */
-      if (window.isSuperPartner && window.isSuperPartner()) window.partnerStamp(doc, _qcSpIsland);
+      window.partnerStamp(doc, _qcSpIsland);   // both partner roles; a no-op for staff. A one-island partner's quick-add was unstamped and vanished from their list (v151.9)
       var ref = await db.collection('contacts').add(doc);
 
       // Add to local cache so the interaction-form save gate finds it
@@ -23833,7 +23859,7 @@ window.openContactDetail = async function(contactId) {
            Sandy was shown "14 follow-ups due, 9 overdue" when not one of them
            was hers. For staff _kpiPartner is false, so _inScope is always true
            and none of these numbers move. */
-        var _inScope = window._partnerScopeOK(d) && window._myDayIslandOK(d);   // + Super Partner island chip (v151.0)
+        var _inScope = window._partnerTaskOK(d) && window._myDayIslandOK(d);   // + Super Partner island chip (v151.0); own/partner-owned tasks count too (v151.9)
         var _countsForClosed = _inScope;
         // Count interactions logged this week
         if (_inScope && d.createdAt && d.createdAt.toDate && d.createdAt.toDate() >= startOfWeek) {
@@ -24080,7 +24106,7 @@ window.openContactDetail = async function(contactId) {
 
          Same civil-message pattern as openContactForm: the Firestore rule
          refuses the write anyway, this just says so before anything is typed. */
-      if (!window._partnerScopeOK(d)) {
+      if (!window._partnerTaskOK(d)) {
         try { document.getElementById('ixViewOverlay').classList.remove('active'); } catch (e) {}
         body.innerHTML = '';
         alert('This interaction belongs to another organization. You can view the list, but only your own records can be opened.');
@@ -24849,7 +24875,7 @@ window.openContactDetail = async function(contactId) {
   async function _getAssignablePartnerOwners() {
     if (_assignablePartnersCache) return _assignablePartnersCache;
     try {
-      var snap = await db.collection('userRoles').orderBy('displayName').get();
+      var snap = await window._userRolesListQuery(db, 'displayName').get();
       var list = [], seen = {};
       snap.forEach(function(doc) {
         var d = doc.data() || {};
@@ -24861,9 +24887,11 @@ window.openContactDetail = async function(contactId) {
         if (seen[key]) return;
         seen[key] = true;
         var nm = d.displayName || d.email || 'Unknown';
+        var plain = nm;   // the name written to `owner`, without the island label (v151.9)
         if (d.role === 'partner' && d.location) nm += ' (' + d.location + ')';
-        list.push({ uid: doc.id, displayName: nm, email: email });
+        list.push({ uid: doc.id, displayName: nm, name: plain, email: email });
       });
+      list.sort(function(a, b) { return String(a.displayName).localeCompare(String(b.displayName)); });
       _assignablePartnersCache = list;
       return list;
     } catch (err) {
@@ -24911,7 +24939,13 @@ window.openContactDetail = async function(contactId) {
     var currentUid = sel.getAttribute('data-current-uid') || '';
     var currentName = sel.getAttribute('data-current-name') || '';
     var owners = await _getAssignableOwners();
-    var html = '<option value="">— Unassigned —</option>';
+    /* A Super Partner never un-assigns: an ownerless task shows in nobody's
+       My Day. The empty option stays only as a disabled placeholder for a
+       record that already has no owner (v151.9). */
+    var _spNoUnassign = !!(window.isSuperPartner && window.isSuperPartner());
+    var html = _spNoUnassign
+      ? (currentUid ? '' : '<option value="" disabled selected>— Choose a partner —</option>')
+      : '<option value="">— Unassigned —</option>';
     /* The assignable list is Oahu staff only, but an interaction can legitimately
        be owned by somebody outside it — a partner (Sandy records the PIP figures)
        or Daniel, both of whom the board report's own "Assign to" picker offers.
@@ -24940,9 +24974,15 @@ window.openContactDetail = async function(contactId) {
   window._applyOwnerChange = async function(newUid) {
     if (!_ixViewDocId) return;
     var newName = '';
+    if (!newUid && window.isSuperPartner && window.isSuperPartner()) {
+      throw new Error('Choose a partner to assign this to.');
+    }
     if (newUid) {
-      var picked = (_assignableOwnersCache || []).find(function(o) { return o.uid === newUid; });
-      if (picked) newName = picked.displayName;
+      /* A Super Partner's picker is filled from the partner cache, not the
+         staff one -- looking only in the staff cache wrote owner: '' (v151.9). */
+      var picked = (_assignableOwnersCache || []).find(function(o) { return o.uid === newUid; })
+        || (_assignablePartnersCache || []).find(function(o) { return o.uid === newUid; });
+      if (picked) newName = picked.name || picked.displayName;
     }
     {
       // Capture the prior owner before reassigning so we can clear their stale
@@ -26844,7 +26884,7 @@ window.openContactDetail = async function(contactId) {
 
   async function _getIXStaffList() {
     if (_ixStaffCache) return _ixStaffCache;
-    var snap = await db.collection('userRoles').get();
+    var snap = await window._userRolesListQuery(db).get();
     var ldah = [], partners = [], seenEmails = {};
     _ixLdahUids = {};
     _ixPartnerUids = {};
@@ -55017,7 +55057,8 @@ window.prExportCsv = function() {
         nameById[c.id] = {
           name: (d.displayName || [d.firstName, d.lastName].filter(Boolean).join(' ') || '').trim(),
           email: String(d.email || ''),
-          partner: !!d.partnerIsland
+          partner: !!d.partnerIsland,
+          island: String(d.partnerIsland || '')
         };
       });
 
@@ -55032,6 +55073,7 @@ window.prExportCsv = function() {
           name: who.name || '(contact not found)',
           email: who.email,
           partner: !!who.partner,
+          partnerIsland: who.island || '',
           updatedAt: _crMs(rec.progress.updatedAt),
           startedAt: 0,
           tiers: {}
@@ -55067,6 +55109,9 @@ window.prExportCsv = function() {
       /* Super Partner: PIP members only, dropped at load so the count and the
          CSV export agree with the screen (v151.0). */
       if (window.isSuperPartner && window.isSuperPartner()) _crRows = _crRows.filter(function(r) { return r.partner; });
+      /* Both partner roles: only members in their own scope. A plain partner
+         was never filtered and saw every LDAH member (v151.9). */
+      if (window.isPartnerUser && window.isPartnerUser()) _crRows = _crRows.filter(function(r) { return window._partnerScopeOK({ partnerIsland: r.partnerIsland }); });
       var st = document.getElementById('crGeneratedAt');
       if (st) st.textContent = 'Generated ' + new Date().toLocaleString() + ' · ' + _crRows.length + ' member(s)';
       cmsRenderCertificationReport();
@@ -55087,6 +55132,7 @@ window.prExportCsv = function() {
       : ((window.isSuperPartner && window.isSuperPartner())
           ? window.filterByReportScope(_crRows, 'pip', function(r) { return r.partner; })
           : _crRows);
+    _crScopedLast = _crScoped;   // the CSV exports what the scope shows (v151.9)
     var qEl = document.getElementById('crSearch');
     var q = String((qEl && qEl.value) || '').trim().toLowerCase();
     var rows = q ? _crScoped.filter(function(r) {
@@ -55145,12 +55191,14 @@ window.prExportCsv = function() {
     body.innerHTML = html;
   };
 
+  var _crScopedLast = null;
   window.crExportCSV = function() {
     if (!_crRows.length) { alert('No certification data loaded.'); return; }
+    var _crOut = _crScopedLast || _crRows;
     var out = [['Name', 'Email', 'Contact ID', 'Started',
                 'Bronze lessons done', 'Bronze lessons total', 'Bronze quiz %', 'Bronze quiz score',
                 'Bronze quiz attempts', 'Bronze passed', 'Certificate number', 'Certificate name', 'Certificate issued']];
-    _crRows.forEach(function(r) {
+    _crOut.forEach(function(r) {
       var b = r.tiers.bronze;
       out.push([
         r.name, r.email, r.contactId, _crDate(r.startedAt),
@@ -55246,7 +55294,7 @@ window.prExportCsv = function() {
     if (body) body.innerHTML = '<div class="cms-empty"><p>Loading training records&hellip;</p></div>';
     try {
       var sessSnap = await db.collection('trainingSessions').get();
-      var userSnap = await db.collection('userRoles').get();
+      var userSnap = await window._userRolesListQuery(db).get();
       /* The Pacific Partners deck at ldahawaii.org/PIP/ has no login, so it
          cannot write userRoles.trainingProgress (keyed by Firebase uid). It
          writes its own collection keyed by the email typed on slide one, and
@@ -57525,7 +57573,7 @@ var _pbStaff = null, _pbStaffProm = null;
 function _pbLoadStaff() {
   if (_pbStaff) return Promise.resolve(_pbStaff);
   if (_pbStaffProm) return _pbStaffProm;
-  _pbStaffProm = db.collection('userRoles').get().then(function (snap) {
+  _pbStaffProm = window._userRolesListQuery(db).get().then(function (snap) {
     var out = [];
     snap.forEach(function (d) {
       var v = d.data() || {};
