@@ -5581,7 +5581,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.3-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6873,9 +6873,16 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
               // Updates feed — recent interactions across the org.
               try{
-                var rs=await db.collection('interactions').orderBy('createdAt','desc').limit(12).get();
+                /* Partners (v151.3-STAGE): PIP only sees PIP. The feed reads
+                   interactions only, so each row is tested on its OWN
+                   partnerIsland with _partnerScopeOK -- an unstamped (LDAH /
+                   Hawaii) interaction is hidden. A wider window is read for
+                   them because most of the newest twelve are LDAH work and
+                   filtering after limit(12) would leave the feed near empty. */
+                var _updPartner=!!(window.isPartnerUser&&window.isPartnerUser());
+                var rs=await db.collection('interactions').orderBy('createdAt','desc').limit(_updPartner?300:12).get();
                 var rows=[];
-                rs.forEach(function(doc){var d=doc.data();if(d.channel==='Internal Chat')return;rows.push(d);});
+                rs.forEach(function(doc){var d=doc.data();if(d.channel==='Internal Chat')return;if(!window._partnerScopeOK(d))return;if(window._myDayIslandOK&&!window._myDayIslandOK(d))return;rows.push(d);});
                 rows=rows.slice(0,10);
                 if(!rows.length){empty('myDayUpdates','No recent activity.');}
                 else{
@@ -6927,17 +6934,40 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                     var items=[];
                     snap.forEach(function(doc){var dd=doc.data()||{};if(dd.archived===true)return;items.push({d:dd,evRef:doc.ref.parent.parent});});
                     items.sort(function(a,b){var at=tsToDate(a.d.timestamp),bt=tsToDate(b.d.timestamp);return (bt?bt.getTime():0)-(at?at.getTime():0);});
-                    items=items.slice(0,30);
+                    /* Partners (v151.3-STAGE): a signup carries no island of its
+                       own, so it is scoped by its PARENT event / program's
+                       partnerIsland via _partnerScopeOK. Parent docs are read
+                       once and cached with the title; a parent that cannot be
+                       read is treated as out of scope (fails closed). Staff keep
+                       the old path: slice to 30 first, then fetch titles. */
+                    var _rsPartner=!!(window.isPartnerUser&&window.isPartnerUser());
                     var titleCache=window._recentSignupTitleCache;
-                    for(var i=0;i<items.length;i++){
-                      var ref=items[i].evRef;
-                      if(ref&&!(ref.path in titleCache)){
-                        try{var ev=await ref.get();titleCache[ref.path]=(ev.exists&&ev.data().title)||'Event';}
-                        catch(_){titleCache[ref.path]='Event';}
-                      }
-                      items[i].title=ref?titleCache[ref.path]:'Event';
+                    var scopeCache=window._recentSignupScopeCache=window._recentSignupScopeCache||{};
+                    async function _rsParent(ref){
+                      if(!ref||(ref.path in titleCache&&ref.path in scopeCache))return;
+                      try{var ev=await ref.get();var evd=ev.exists?(ev.data()||{}):null;
+                        titleCache[ref.path]=(evd&&evd.title)||'Event';
+                        scopeCache[ref.path]={partnerIsland:(evd&&evd.partnerIsland)||''};}
+                      catch(_){titleCache[ref.path]='Event';scopeCache[ref.path]={partnerIsland:''};}
                     }
-                    if(!items.length){empty('dashRecentSignups','No signups yet.');return;}
+                    if(!_rsPartner){
+                      items=items.slice(0,30);
+                      for(var i=0;i<items.length;i++){
+                        var ref=items[i].evRef;
+                        if(ref&&!(ref.path in titleCache)){
+                          try{var ev=await ref.get();titleCache[ref.path]=(ev.exists&&ev.data().title)||'Event';}
+                          catch(_){titleCache[ref.path]='Event';}
+                        }
+                        items[i].title=ref?titleCache[ref.path]:'Event';
+                      }
+                    }else{
+                      var _seenPar={},_pars=[];
+                      items.forEach(function(it){if(it.evRef&&!_seenPar[it.evRef.path]){_seenPar[it.evRef.path]=true;_pars.push(it.evRef);}});
+                      await Promise.all(_pars.map(_rsParent));
+                      items=items.filter(function(it){return !!(it.evRef&&window._partnerScopeOK(scopeCache[it.evRef.path]||{}));}).slice(0,30);
+                      items.forEach(function(it){it.title=titleCache[it.evRef.path]||'Event';});
+                    }
+                    if(!items.length){empty('dashRecentSignups',_rsPartner?'No recent signups for Pacific partner events.':'No signups yet.');return;}
                     host.innerHTML=items.map(function(it){
                       var d=it.d,nm=d.name||[d.firstName,d.lastName].filter(Boolean).join(' ')||'Someone';
                       var initials=nm.split(/\s+/).map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
@@ -7028,9 +7058,20 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 staff.sort(function(a, b) { return a.name.localeCompare(b.name); });
                 // No "Myself" option — selecting your own name shows your own My Day.
                 // Default-select the current user so it opens on self.
-                sel.innerHTML = staff.map(function(s) {
+                /* v151.3-STAGE: when the signed-in user is not in the list (a
+                   Super Partner, or an account the IT_Help test above skips),
+                   the browser selected the first partner by default and the
+                   picker claimed to be viewing someone else while My Day still
+                   showed the viewer's own day. A "Myself" option (value '' ->
+                   _myDayViewAs null) now leads the list and is selected. */
+                /* A Super Partner always gets "Myself" first, with their own
+                   name dropped from the list so it is not offered twice. */
+                if (_spViewer) staff = staff.filter(function(s) { return s.uid !== me.uid; });
+                var _meListed = staff.some(function(s) { return s.uid === me.uid; });
+                sel.innerHTML = (_meListed ? '' : '<option value="" selected>Myself</option>') + staff.map(function(s) {
                   return '<option value="' + esc(s.uid) + '"' + (s.uid === me.uid ? ' selected' : '') + '>' + esc(s.name) + '</option>';
                 }).join('');
+                sel.value = _meListed ? me.uid : '';
                 bar.style.display = 'flex';
               } catch (e) {
                 bar.style.display = 'none';
@@ -7517,8 +7558,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div class="card" id="dashCalendarCard">
             <div class="card-header">
               <div>
-                <h3 title="Upcoming LDAH events month by month; a dot marks a day with something on">Community Calendar</h3>
-                <p>Upcoming LDAH events</p>
+                <h3 id="dashCalTitle" title="Upcoming LDAH events month by month; a dot marks a day with something on">Community Calendar</h3>
+                <p id="dashCalSub">Upcoming LDAH events</p>
               </div>
               <div class="dash-cal-nav">
                 <button onclick="calNavPrev()" title="Show the previous month">&lsaquo;</button>
@@ -13850,9 +13891,25 @@ var _photoPendingByIsland = {};
     configurable: true
   });
 
+  /* Partners (v151.3-STAGE): PIP only sees PIP. The calendar lists only
+     events / programmes whose own partnerIsland passes _partnerScopeOK, and
+     the subtitle says so. The cache remembers whose scope built it, so a
+     partner signing in after staff in the same tab never inherits the
+     unfiltered list (the global search reads this cache too). */
+  var _dashCalScopeKey = null;
+  function _dashCalCurrentScopeKey() {
+    if (!(window.isPartnerUser && window.isPartnerUser())) return 'staff';
+    return 'partner:' + ((window.currentUserData && window.currentUserData.uid) || '');
+  }
   function loadDashboardCalendar() {
     var now = new Date();
     if (!_dashCalYear) { _dashCalYear = now.getFullYear(); _dashCalMonth = now.getMonth(); }
+    var _calPartner = !!(window.isPartnerUser && window.isPartnerUser());
+    var _calSub = document.getElementById('dashCalSub');
+    if (_calSub) _calSub.textContent = _calPartner ? 'Upcoming Pacific partner events' : 'Upcoming LDAH events';
+    var _calTitle = document.getElementById('dashCalTitle');
+    if (_calTitle) _calTitle.title = (_calPartner ? 'Upcoming Pacific partner events' : 'Upcoming LDAH events') + ' month by month; a dot marks a day with something on';
+    if (_dashCalScopeKey !== _dashCalCurrentScopeKey() && !_dashCalEventsLoading) _dashCalEvents = null;
     renderMiniCalendar(_dashCalYear, _dashCalMonth);
     if (!_dashCalEvents && !_dashCalEventsLoading) {
       _dashCalEventsLoading = true;
@@ -13884,6 +13941,7 @@ var _photoPendingByIsland = {};
              edLoadEvents already applies. */
           if (d.archived === true) return;
           if (d.isOneOff === true) return;
+          if (!window._partnerScopeOK(d)) return;   // partners: own partnerIsland in scope only (v151.3-STAGE)
           var _lblMap = _calEventLabelMap(d);
           var eventDate = d.eventDate ? new Date(d.eventDate + 'T00:00:00') : null;
           var startDate = d.startDate ? new Date(d.startDate + 'T00:00:00') : null;
@@ -13945,6 +14003,7 @@ var _photoPendingByIsland = {};
           var d = doc.data();
           if (d.active === false) return; // skip inactive (needed when using shared cache)
           if (!d.title) return;
+          if (!window._partnerScopeOK(d)) return;   // partners: own partnerIsland in scope only (v151.3-STAGE)
           var _lblMapR = _calEventLabelMap(d);
           var occs = _calGetOccurrences(d.schedules, 90);
           occs.forEach(function(occ) {
@@ -13961,7 +14020,12 @@ var _photoPendingByIsland = {};
           });
         });
         merged.sort(function(a, b) { return a.date - b.date; });
+        /* Every row survived _partnerScopeOK above; the flag lets global
+           search tell a partner-built cache from a staff-built one. */
+        var _calScoped = !!(window.isPartnerUser && window.isPartnerUser());
+        merged.forEach(function(ev) { ev._scopeOK = _calScoped; });
         _dashCalEvents = merged;
+        _dashCalScopeKey = _dashCalCurrentScopeKey();
         _dashCalEventsLoading = false;
         renderMiniCalendar(_dashCalYear, _dashCalMonth);
         renderDashEventsList(_dashCalEvents, _dashCalSelectedDay);
@@ -18374,6 +18438,7 @@ var _photoPendingByIsland = {};
         snap.forEach(function(doc) {
           var d = doc.data();
           if (d.archived === true) return;
+          if (!window._partnerScopeOK(d)) return;   // partners: PIP contacts only; this cache also feeds global search (v151.3-STAGE)
           _allContacts.push({ id: doc.id, ...d });
         });
         buildContactDatalist();
@@ -18403,7 +18468,7 @@ var _photoPendingByIsland = {};
         if (forceRefresh || !_ctArchivedCache) {
           var _as = await db.collection('contacts').where('archived', '==', true).get();
           _ctArchivedCache = [];
-          _as.forEach(function(doc) { _ctArchivedCache.push({ id: doc.id, ...doc.data() }); });
+          _as.forEach(function(doc) { var _ad = doc.data(); if (!window._partnerScopeOK(_ad)) return; _ctArchivedCache.push({ id: doc.id, ..._ad }); });
           _ctArchivedCache.sort(function(a, b) { return String(a.displayName || '').localeCompare(String(b.displayName || '')); });
         }
         _ctSource = _ctArchivedCache;
@@ -23468,7 +23533,12 @@ window.openContactDetail = async function(contactId) {
       });
 
       // ── Merge form submissions into dashboard feed (all queries in parallel) ──
-      try {
+      /* Partners (v151.3-STAGE): skipped entirely. Web forms carry no
+         partnerIsland (they are LDAH / Hawaii intake), and the signup merge
+         below read every active event, so a partner's "Interactions logged"
+         tile counted LDAH signups and forms. The Interactions screen already
+         shows partners no form entries, so the tile now matches it. */
+      if (!(window.isPartnerUser && window.isPartnerUser())) try {
         function _pushDashForm(channel, name, summary, status, ts, linkedContactId) {
           docs.push({ id: null, _isForm: true, data: {
             channel: channel, contactName: name, summary: summary,
@@ -23764,6 +23834,7 @@ window.openContactDetail = async function(contactId) {
         var d = doc.data();
         /* Shared with the Events & Programs list — see window.ldahEventState. */
         if (window.ldahEventState(d, today, false) !== 'active') return;
+        if (!window._partnerScopeOK(d)) return;   // partners: only events stamped in their scope (v151.3-STAGE)
         activeCount++;
         pendingCount += evPC[doc.id] ? evPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
@@ -23773,6 +23844,7 @@ window.openContactDetail = async function(contactId) {
            test only `archived`, so a paused programme and a recurring FLYER
            whose removeDate had passed both stayed counted. */
         if (window.ldahEventState(d, today, true) !== 'active') return;
+        if (!window._partnerScopeOK(d)) return;   // partners: only programmes stamped in their scope (v151.3-STAGE)
         activeCount++;
         pendingCount += pgPC[doc.id] ? pgPC[doc.id].pendingCount : (_sigFresh ? 0 : (d.pendingCount || 0));
       });
@@ -27685,6 +27757,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
               phone: sd.phone || '',
               status: sd.status || '',
               eventTitle: evData.title || '',
+              eventPartnerIsland: evData.partnerIsland || '',   // parent's stamp, for partner scoping (v151.3-STAGE)
               eventId: evDoc.id,
               collection: colName,
               isRecurring: colName === 'recurringEvents',
@@ -27743,6 +27816,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (contacts && contacts.length) {
       results.contacts = [];
       contacts.forEach(function(c) {
+        // Belt and braces: _allContacts is scoped where it is filled, but some fills predate that (v151.3-STAGE).
+        if (!window._partnerScopeOK(c)) return;
         var s = [c.displayName, c.email, c.phone, c.organization, c.location, c.grantProgram, c.type, c.notes].join(' ').toLowerCase();
         var cHit = s.includes(q) || (window.LDAHFormat && LDAHFormat.gsPhoneMatch && LDAHFormat.gsPhoneMatch(query, [c.phone]));
         if (cHit && results.contacts.length < 5) {
@@ -27763,6 +27838,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       _gsCache.interactions.forEach(function(ix) {
         // dailyUser/dataUser only see own interactions
         if (!isAdmin && ix.ownerUid !== myUid) return;
+        if (!window._partnerScopeOK(ix)) return;   // partners: the record's own partnerIsland (v151.3-STAGE)
         var s = [ix.contactName, ix.summary, ix.notes, ix.channel, ix.interactionType, ix.grantProgram, ix.owner, ix.status].join(' ').toLowerCase();
         if (s.includes(q) && results.interactions.length < 5) {
           results.interactions.push({
@@ -27804,6 +27880,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       results.signups = [];
       _gsCache.signups.forEach(function(su) {
         if (results.signups.length >= 8) return;
+        // Partners: scoped by the PARENT event / programme's partnerIsland (v151.3-STAGE).
+        if (!window._partnerScopeOK({ partnerIsland: su.eventPartnerIsland })) return;
         if (isSignupKeyword) {
           results.signups.push({
             title: su.name || '(No name)',
@@ -27837,6 +27915,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (calEvents && calEvents.length) {
       results.events = [];
       calEvents.forEach(function(ev) {
+        // Partners: the calendar cache is already scoped; skip it outright if it was built for another scope.
+        if (window.isPartnerUser && window.isPartnerUser() && ev._scopeOK !== true) return;
         var s = [ev.title, ev.location, ev.description].join(' ').toLowerCase();
         if (s.includes(q) && results.events.length < 5) {
           var dateStr = ev.date ? ev.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
@@ -53432,7 +53512,7 @@ window.prExportCsv = function() {
       try {
         var _cs = await db.collection('contacts').orderBy('displayName').get();
         _allContacts = [];
-        _cs.forEach(function(cd) { var x = cd.data(); if (x.archived === true) return; _allContacts.push({ id: cd.id, ...x }); });
+        _cs.forEach(function(cd) { var x = cd.data(); if (x.archived === true) return; if (!window._partnerScopeOK(x)) return; _allContacts.push({ id: cd.id, ...x }); });
       } catch (_) {}
     }
     var presenterSel = '', matPacked = {}, matDiss = {};
