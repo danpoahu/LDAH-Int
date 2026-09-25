@@ -5581,7 +5581,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.6-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.7-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6553,7 +6553,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                      (see spawnOrReassignCaseAdvocacy), so they land in her pile
                      and nobody else's — which is right: an unallocated case is
                      not yet anyone's caseload. */
-                  if(d.caseAdvocateUid!==_vUid && d.ownerUid!==_vUid) return;
+                  if(window._myDayIsAllPip&&window._myDayIsAllPip()){ if(!window._partnerScopeOK(d)) return; }   // All PIP partners (v151.7)
+                  else if(d.caseAdvocateUid!==_vUid && d.ownerUid!==_vUid) return;
                   if(window._myDayIslandOK&&!window._myDayIslandOK(d)) return;   // Super Partner island chip (v151.6)
                   var key=d.contactId||('_'+doc.id);
                   var advocate=d.caseAdvocateName||'';
@@ -6595,7 +6596,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 setText('myDayCasesN',rows.length);
                 setText('myDayCasesCount',rows.length);
                 var h=document.getElementById('myDayCasesHeading');
-                if(h) h.textContent='My open cases';
+                if(h) h.textContent=(window._myDayIsAllPip&&window._myDayIsAllPip())?'Open PIP cases':'My open cases';
                 if(!rows.length){
                   empty('myDayCases', 'No advocacy cases assigned to ' + _vWho + '.');
                   return;
@@ -6676,6 +6677,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                   var d=doc.data();d._id=doc.id;
                   if(d.channel==='Internal Chat')return;
                   if(window._myDayIslandOK&&!window._myDayIslandOK(d))return; // Super Partner island chip (v151.0)
+                  if(window._myDayIsAllPip&&window._myDayIsAllPip()&&!window._partnerScopeOK(d))return; // All PIP partners: PIP records only (v151.7)
                   /* The CASE FILE lives in "My open cases" (v150.2). Listing it here
                      as well showed every family twice -- Lauren Vigil, Lance
                      Kahiamoe-Terukina 9-17 -- and ticking this copy off closed the
@@ -6732,6 +6734,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                       var typePill=d.interactionType?'<span class="pill followup">'+esc(d.interactionType)+'</span>':'';
                       var person=d.contactName?' — '+(d.contactId?'<a href="#" class="person" style="text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;cursor:pointer;" onclick="event.preventDefault();event.stopPropagation();openContactDetail(\''+esc(d.contactId)+'\')">'+esc(d.contactName)+'</a>':'<span class="person">'+esc(d.contactName)+'</span>'):'';
                       var sub=[];
+                      if(window._myDayIsAllPip&&window._myDayIsAllPip()&&d.owner)sub.push('<b>'+esc(d.owner)+'</b>');   // whose to-do (v151.7)
                       if(d.status)sub.push(esc(d.status));
                       if(d.channel)sub.push(esc(d.channel));
                       if(d.followUpDate)sub.push((r.bucket==='done'?'was due ':'follow-up ')+esc(d.followUpDate));
@@ -6851,9 +6854,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 }
                 setText('myDayTodoCount',Math.min(list.length,15));
               };
-              if(u.uid){
-                window._myDayTasksUnsub=db.collection('interactions')
-                  .where('ownerUid','==',u.uid).where('status','==','Open')
+              var _allPip=window._myDayIsAllPip&&window._myDayIsAllPip();
+              if(u.uid||_allPip){
+                window._myDayTasksUnsub=(_allPip
+                  ? db.collection('interactions').where('status','==','Open')
+                  : db.collection('interactions').where('ownerUid','==',u.uid).where('status','==','Open'))
                   .onSnapshot(function(snap){try{window._renderMyDayTasks(snap);}catch(_e){console.warn('loadMyDay render:',_e&&_e.message);}},
                     function(e){
                       ['myDayOverdueN','myDayTodayN','myDayWeekN'].forEach(function(id){setText(id,'—');});var _oc1=document.getElementById('myDayOverdueChip');if(_oc1)_oc1.classList.remove('blink');
@@ -6864,8 +6869,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                 // count() aggregation (1 read) instead of scanning all closed
                 // history; refreshes when My Day (re)loads (login / Viewing-as).
                 try{
+                  if(_allPip) setText('myDayDoneN','—');   // no single owner in All PIP partners (v151.7)
+                  else{
                   var _dc=await db.collection('interactions').where('ownerUid','==',u.uid).where('status','==','Closed').count().get();
                   setText('myDayDoneN',_dc.data().count);
+                  }
                 }catch(e){setText('myDayDoneN','—');console.warn('loadMyDay done count:',e&&e.message);}
               }else{
                 empty('myDayTodos','No interactions assigned to you yet.');
@@ -7027,6 +7035,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               'hj6YnfnZ66Yul9mtnULRW5FTWKH3'  // La'a Salvani
             ];
             window._myDayViewAs = null;
+            /* Super Partner "All PIP partners" view (v151.7). Her default: My Day
+               lists every partner's open to-dos and cases, not just her own --
+               Daniel saw "4 follow-ups due" over an empty list. Kept apart from
+               _myDayViewAs so the Alerts panel never sees a fake uid. */
+            window._myDayAllPip = true;
+            window._myDayIsAllPip = function() {
+              return !!(window._myDayAllPip && !window._myDayViewAs && window.isSuperPartner && window.isSuperPartner());
+            };
             window.cmsSetupMyDayViewAs = async function() {
               var bar = document.getElementById('myDayViewAsBar');
               var sel = document.getElementById('myDayViewAsSelect');
@@ -7078,10 +7094,11 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                    name dropped from the list so it is not offered twice. */
                 if (_spViewer) staff = staff.filter(function(s) { return s.uid !== me.uid; });
                 var _meListed = staff.some(function(s) { return s.uid === me.uid; });
-                sel.innerHTML = (_meListed ? '' : '<option value="" selected>Myself</option>') + staff.map(function(s) {
+                sel.innerHTML = (_spViewer ? '<option value="__allpip__" selected>All PIP partners</option>' : '')
+                  + (_meListed ? '' : '<option value=""' + (_spViewer ? '' : ' selected') + '>Myself</option>') + staff.map(function(s) {
                   return '<option value="' + esc(s.uid) + '"' + (s.uid === me.uid ? ' selected' : '') + '>' + esc(s.name) + '</option>';
                 }).join('');
-                sel.value = _meListed ? me.uid : '';
+                sel.value = _spViewer ? (window._myDayAllPip ? '__allpip__' : '') : (_meListed ? me.uid : '');
                 bar.style.display = 'flex';
               } catch (e) {
                 bar.style.display = 'none';
@@ -7092,6 +7109,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               var sel = document.getElementById('myDayViewAsSelect');
               if (!sel) return;
               var uid = sel.value;
+              window._myDayAllPip = uid === '__allpip__';
+              if (uid === '__allpip__') uid = '';
               window._myDayViewAs = uid
                 ? ((window._viewAsStaffById && window._viewAsStaffById[uid])
                     || { uid: uid, displayName: sel.options[sel.selectedIndex].textContent })
