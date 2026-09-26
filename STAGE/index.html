@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.27-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.28-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6823,6 +6823,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                         else if(d.cgCaseReviewSignupPath)
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#7C3AED;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenCaseReview(\''+d._id+'\')">Open Case Review &rarr;</button>';
                         // Photo Release guardrail tasks (gated on photoReleaseId).
+                        /* Missing event location (2026-09-25): opens that event's Edit
+                           One-Off form right here. Closing the task tells Daniel to check. */
+                        else if(d.workflowStep==='fixEventLocation'&&d.workflowEventId)
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#DB2777;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();cmsOpenOneOffModal(\''+esc(d.workflowEventId)+'\')" title="Opens the event so you can type where it happened (a place, or Zoom). Save, then tick this task off.">Add location</button>';
                         else if(d.workflowStep==='photoReleaseVerify')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoVerify(\''+d._id+'\')">Review / Revert &rarr;</button>';
                         else if(d.workflowStep==='photoReleaseStall')
@@ -13709,6 +13713,22 @@ var _photoPendingByIsland = {};
        !important, so the event modal's own show/hide toggles can't bring
        them back (v151.11). */
     document.body.classList.toggle('sp-role', role === 'superPartner');
+    /* Contact Island dropdown (v151.28, Daniel 2026-09-25): partner accounts
+       choose from the six Pacific islands, never the Hawaiian ones. The
+       one-off "New contact" island clones these options, so it follows. */
+    try {
+      var _ctIsl = document.getElementById('ctIsland');
+      if (_ctIsl) {
+        if (!_ctIsl.hasAttribute('data-staff-options')) _ctIsl.setAttribute('data-staff-options', _ctIsl.innerHTML);
+        if (role === 'partner' || role === 'superPartner') {
+          _ctIsl.innerHTML = '<option value="">-- Select island --</option>' +
+            ['American Samoa', 'Guam', 'CNMI', 'Micronesia', 'Marshall Islands', 'Palau'].map(function(i) {
+              return '<option value="' + i + '">' + i + '</option>'; }).join('');
+        } else {
+          _ctIsl.innerHTML = _ctIsl.getAttribute('data-staff-options');
+        }
+      }
+    } catch (_) {}
     /* PIP (v151.19, Daniel 2026-09-25): Screening is disabled for partner
        accounts for now, and Case advocacy files the family under the partner
        themselves -- the pill tips say so. */
@@ -18982,6 +19002,11 @@ var _photoPendingByIsland = {};
     document.getElementById('ctZipCode').value = '';
     document.getElementById('ctIsland').value = '';
     window._ctIslandTouched = false;
+    /* A one-island partner's contacts default to their own island (v151.28). */
+    if (window.isPartnerUser && window.isPartnerUser() && window.currentPartnerIsland && window.currentPartnerIsland()) {
+      document.getElementById('ctIsland').value = window.currentPartnerIsland();
+      window._ctIslandTouched = true;
+    }
     ctIslandHint('');
     document.querySelectorAll('input[name="ctMilitaryStatus"]').forEach(function(r) { r.checked = r.value === 'Not military'; });
     document.getElementById('ctMilBranchWrap').classList.remove('show');
@@ -19040,6 +19065,12 @@ var _photoPendingByIsland = {};
           var _isl = d.island || '';
           if (_isl === 'Off Island') _isl = 'Other';
           if (_isl === 'Unknown') _isl = '';
+          /* Partner contacts were saved as island "Other" with the real island
+             in partnerIsland; show that one in the Pacific list (v151.28). */
+          if (window.isPartnerUser && window.isPartnerUser()) {
+            var _pipIsl = ['American Samoa', 'Guam', 'CNMI', 'Micronesia', 'Marshall Islands', 'Palau'];
+            if (_pipIsl.indexOf(_isl) === -1) _isl = (_pipIsl.indexOf(d.partnerIsland) !== -1) ? d.partnerIsland : '';
+          }
           document.getElementById('ctIsland').value = _isl;
           window._ctIslandTouched = !!_isl;
           ctIslandHint(_isl ? '' : (d.island === 'Unknown' ? 'This contact has no island on file — please pick one.' : ''));
@@ -19185,11 +19216,22 @@ var _photoPendingByIsland = {};
 
   // A staff member's choice always wins — once they pick, typing a zip must not
   // silently overwrite them.
-  window.ctIslandTouched = function() { window._ctIslandTouched = true; ctIslandHint(''); };
+  window.ctIslandTouched = function() {
+    window._ctIslandTouched = true; ctIslandHint('');
+    /* A Super Partner answering Island has also answered "Which island is
+       this for?" -- fill that in if it is still blank (v151.28). */
+    try {
+      if (window.isSuperPartner && window.isSuperPartner() && window.spPickerValue && !window.spPickerValue('ctSpIslandHost')) {
+        var _v = (document.getElementById('ctIsland') || {}).value || '';
+        if (_v) window.spPickerRender('ctSpIslandHost', _v);
+      }
+    } catch (_) {}
+  };
 
   window.ctIslandFromZip = function() {
     var sel = document.getElementById('ctIsland');
     if (!sel || window._ctIslandTouched) return;
+    if (window.isPartnerUser && window.isPartnerUser()) return;   // Hawaiʻi zips only; partners pick a Pacific island (v151.28)
     var zip = (document.getElementById('ctZipCode') || {}).value || '';
     var isl = window.ldahIslandFromZip(zip);
     if (isl) {
@@ -19279,7 +19321,9 @@ var _photoPendingByIsland = {};
     var _islandSel = document.getElementById('ctIsland');
     var _islandVal = _islandSel ? _islandSel.value : '';
     if (!_islandVal) {
-      alert('Please choose an island before saving.\n\nIt fills in automatically once a Hawaiʻi zip code is entered. If the person is not in Hawaiʻi, choose "All Other Locations".');
+      alert((window.isPartnerUser && window.isPartnerUser())
+        ? 'Please choose which island this person lives on before saving.'
+        : 'Please choose an island before saving.\n\nIt fills in automatically once a Hawaiʻi zip code is entered. If the person is not in Hawaiʻi, choose "All Other Locations".');
       if (_islandSel) { _islandSel.focus(); }
       ctIslandHint('Please choose an island.');
       return;
@@ -53895,7 +53939,15 @@ window.prExportCsv = function() {
     }
     // Partner contacts are stored as island "Other" + partnerIsland; no Hawaiian island applies.
     var isl = document.getElementById('ooNewIsland');
-    if (isl) isl.style.display = window.isPartnerUser() ? 'none' : '';
+    /* Partners now see the six Pacific islands here too (v151.28), defaulting
+       to their own island or the event's. */
+    if (isl) {
+      isl.style.display = '';
+      if (window.isPartnerUser()) {
+        var _evIsl = (document.getElementById('oneOffPartnerIsland') || {}).value || '';
+        isl.value = window.currentPartnerIsland() || _evIsl || '';
+      }
+    }
     var dg = document.getElementById('ooNewDisab');
     if (dg) dg.innerHTML = (window.CT_DISABILITY_LIST || []).map(function(d) {
       return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="ooNewDisabCb" value="' + _esc(d) + '"><span>' + _esc(d) + '</span></label>';
@@ -54069,7 +54121,7 @@ window.prExportCsv = function() {
      ['militaryStatus', 'ooNewMilitary'], ['howHeard', 'ooNewHowHeard'], ['zipCode', 'ooNewZip']].forEach(function(p) {
       var v = _ooVal(p[1]); if (v) details[p[0]] = v;
     });
-    var _isl = window.isPartnerUser() ? 'Other' : _ooVal('ooNewIsland');
+    var _isl = _ooVal('ooNewIsland') || (window.isPartnerUser() ? (window.currentPartnerIsland() || 'Other') : '');
     if (_isl) details.island = _isl;
     var _dis = [];
     document.querySelectorAll('.ooNewDisabCb:checked').forEach(function(cb) { _dis.push(cb.value); });
@@ -54375,7 +54427,11 @@ window.prExportCsv = function() {
          card and any detail window open behind the editor (v151.25). A full
          rebuild reset the filters and left the open card stale. */
       var _eaDone = (typeof window._eaLiveRefresh === 'function') ? await window._eaLiveRefresh(true) : false;
-      if (!_eaDone && typeof window.cmsBuildEventAttendanceReport === 'function') await window.cmsBuildEventAttendanceReport();
+      /* Only rebuild the report when it is on screen. Saved from a My Day task
+         button, the report is not open, and rebuilding would pull the page
+         into Reports (v151.28). */
+      var _eaPanel = document.getElementById('eventAttendanceInGrid');
+      if (!_eaDone && _eaPanel && _eaPanel.offsetParent && typeof window.cmsBuildEventAttendanceReport === 'function') await window.cmsBuildEventAttendanceReport();
     } catch (e) {
       _showToast('Error saving: ' + (e && e.message || e), '#DC2626');
     } finally {
