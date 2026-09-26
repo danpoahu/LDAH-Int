@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.33-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.34-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -52306,6 +52306,11 @@ window.cmsBuildStaffActivityReport = async function() {
   // saves and re-collapses/re-expands the report card, _refreshRow pulls
   // the latest summary doc.
   window.cmsEAOpenSummaryEditor = async function(id) {
+    if (window._ldahBusy) window._ldahBusy(true, 'Opening summary…');   // v151.34
+    try { return await _cmsEAOpenSummaryEditorInner(id); }
+    finally { if (window._ldahBusy) window._ldahBusy(false); }
+  };
+  async function _cmsEAOpenSummaryEditorInner(id) {
     console.log('cmsEAOpenSummaryEditor fired for', id);
     var row = _eaCache.eventDates.find(function(x) { return x.id === id; });
     if (!row) {
@@ -54231,22 +54236,51 @@ window.prExportCsv = function() {
     sel.value = selected || '';
   }
 
+  /* "Loading..." spinner over the page (v151.34, Daniel 2026-09-26: Edit Summary
+     sat with nothing on screen). Reusable; hides itself after 20 s as a safety
+     net so a failed load can never leave the page blocked. */
+  window._ldahBusy = function(on, label) {
+    var el = document.getElementById('ldahBusyMask');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ldahBusyMask';
+      el.style.cssText = 'position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.28);';
+      el.innerHTML = '<div style="background:#fff;border-radius:12px;padding:18px 26px;box-shadow:0 10px 30px rgba(0,0,0,.2);display:flex;align-items:center;gap:12px;font-weight:700;color:#0E7490;">'
+        + '<span style="width:22px;height:22px;border:3px solid #BAE6FD;border-top-color:#0891B2;border-radius:50%;display:inline-block;animation:ldahSpin .8s linear infinite;"></span>'
+        + '<span id="ldahBusyLabel">Loading…</span></div>';
+      var st = document.createElement('style');
+      st.textContent = '@keyframes ldahSpin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(st);
+      document.body.appendChild(el);
+    }
+    clearTimeout(window._ldahBusyTimer);
+    if (on) {
+      var lb = document.getElementById('ldahBusyLabel'); if (lb) lb.textContent = label || 'Loading…';
+      el.style.display = 'flex';
+      window._ldahBusyTimer = setTimeout(function() { el.style.display = 'none'; }, 20000);
+    } else {
+      el.style.display = 'none';
+    }
+  };
+
   window.cmsOpenOneOffModal = async function(editId, futureMode) {
+    window._ldahBusy(true, editId ? 'Opening event…' : 'Loading…');
+    try {
     _ooEditId = editId || null;
     _ooFutureMode = !!futureMode;
     _ooAttendees = [];
     _ooExistingContactIds = {};
     _ooEditIdx = -1;
     window.cmsOoCancelNeedContact();
-    try { if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') await window.loadContacts(); } catch (_) {}
-    // Reports may open this modal without the Contacts UI loaded; ensure the
-    // attendee lookup always has the FULL contact list (every type, not just parents).
-    if (!_allContacts || !_allContacts.length) {
-      try {
-        var _cs = await db.collection('contacts').orderBy('displayName').get();
-        _allContacts = [];
-        _cs.forEach(function(cd) { var x = cd.data(); if (x.archived === true) return; if (!window._partnerScopeOK(x)) return; _allContacts.push({ id: cd.id, ...x }); });
-      } catch (_) {}
+    /* SPEED (v151.34): start every load at once instead of one after another.
+       The event, its attendees and the presenter list are needed to draw the
+       form; the contact list only feeds the attendee search box, so it loads
+       in the background and never holds the form up. */
+    var _ooEvP = _ooEditId ? db.collection('events').doc(_ooEditId).get() : null;
+    var _ooSuP = _ooEditId ? db.collection('events').doc(_ooEditId).collection('signups').get() : null;
+    try { if (typeof window.cmsGetActivePresenterStaff === 'function') window.cmsGetActivePresenterStaff(); } catch (_) {}
+    if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') {
+      try { Promise.resolve(window.loadContacts()).catch(function() {}); } catch (_) {}
     }
     var presenterSel = '', matPacked = {}, matDiss = {};
     var ov = document.getElementById('oneOffOverlay');
@@ -54313,7 +54347,7 @@ window.prExportCsv = function() {
     window.populateTierDropdowns();
     if (_ooEditId) {
       try {
-        var doc = await db.collection('events').doc(_ooEditId).get();
+        var doc = await _ooEvP;
         if (doc.exists) {
           var d = doc.data();
           /* Editing an upcoming event must not archive it. The save below
@@ -54338,7 +54372,7 @@ window.prExportCsv = function() {
           document.getElementById('oneOffPresenterComments').value = (d.summary && d.summary.presenterComments) || '';
           if (d.eventDate) dEl.value = d.eventDate;
         }
-        var sSnap = await db.collection('events').doc(_ooEditId).collection('signups').get();
+        var sSnap = await _ooSuP;
         sSnap.forEach(function(sd) {
           var s = sd.data();
           var cid = s.linkedContactId || '';
@@ -54355,6 +54389,7 @@ window.prExportCsv = function() {
     _ooRenderAttendees();
     _ooWireSearch();
     if (ov) ov.style.display = 'flex';
+    } finally { window._ldahBusy(false); }
   };
 
   window.cmsCloseOneOffModal = function() {
