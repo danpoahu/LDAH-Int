@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.24-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.25-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -50609,9 +50609,10 @@ window.cmsBuildStaffActivityReport = async function() {
   }
   window._eaDetachLive = _eaDetachLive;
 
-  async function _eaLiveRefresh() {
-    if (!_eaCache.built) return;
+  async function _eaLiveRefresh(withOneOffs) {
+    if (!_eaCache.built) return false;
     try {
+      if (withOneOffs) _eaCache.oneOffsLoaded = true;   // a one-off was just saved: it must be in the data
       /* Rebuild the DATA, keep the VIEW. cmsBuildEventAttendanceReport resets
          filters to defaults, so calling it here would wipe whatever the user
          had typed every time somebody scanned a QR code. */
@@ -50624,10 +50625,21 @@ window.cmsBuildStaffActivityReport = async function() {
       _eaCache.showZero = keepZero;
       _renderFilterBar();
       _renderCardList();
+      /* The detail window behind an edit showed the OLD figures until a full
+         browser reload (Daniel 2026-09-25). Redraw it from the new data, or
+         close it if that card no longer exists (its date changed). v151.25 */
+      if (_eaModalCurrentId) {
+        var _openRow = _eaCache.eventDates.find(function(x) { return x.id === _eaModalCurrentId; });
+        if (_openRow) window.openEAModal(_eaModalCurrentId);
+        else window.closeEAModal();
+      }
+      return true;
     } catch (e) {
       console.warn('EA live refresh failed:', e.message);
+      return false;
     }
   }
+  window._eaLiveRefresh = _eaLiveRefresh;
 
   function _eaAttachLive() {
     _eaDetachLive();
@@ -54349,7 +54361,11 @@ window.prExportCsv = function() {
       if (typeof auditLog === 'function') auditLog(_ooEditId ? 'Updated one-off event' : 'Created one-off event', name + ' — ' + dateIso + ' — ' + _ooAttendees.length + ' attendee(s)');
       _showToast(_ooEditId ? 'One-off event updated.' : 'One-off event added.', '#16A34A');
       window.cmsCloseOneOffModal();
-      if (typeof window.cmsBuildEventAttendanceReport === 'function') await window.cmsBuildEventAttendanceReport();
+      /* Refresh in place: keep the filters, pull the one-offs, and redraw the
+         card and any detail window open behind the editor (v151.25). A full
+         rebuild reset the filters and left the open card stale. */
+      var _eaDone = (typeof window._eaLiveRefresh === 'function') ? await window._eaLiveRefresh(true) : false;
+      if (!_eaDone && typeof window.cmsBuildEventAttendanceReport === 'function') await window.cmsBuildEventAttendanceReport();
     } catch (e) {
       _showToast('Error saving: ' + (e && e.message || e), '#DC2626');
     } finally {
