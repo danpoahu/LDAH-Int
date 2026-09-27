@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Training Deck Report — LDAH</title>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+:root{--ink:#0F172A;--soft:#475569;--line:#E2E8F0;--navy:#1a3c6e;--teal:#0E7490;--pink:#DB2777;--bg:#F8FAFC}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;line-height:1.45}
+.wrap{max-width:1280px;margin:0 auto;padding:24px 20px 60px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;border-bottom:3px solid var(--navy);padding-bottom:12px;margin-bottom:18px}
+header h1{margin:0;font-size:1.6rem;color:var(--navy);flex:1;min-width:260px}
+header .sub{color:var(--soft);font-size:.9rem;width:100%}
+select,button,input{font:inherit}
+select{padding:7px 10px;border:1px solid #CBD5E1;border-radius:8px;background:#fff;font-weight:700;color:var(--navy)}
+button{padding:7px 14px;border-radius:8px;border:1px solid #CBD5E1;background:#fff;font-weight:700;color:var(--navy);cursor:pointer}
+button.pri{background:var(--navy);color:#fff;border-color:var(--navy)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 18px}
+.tile{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 2px 10px rgba(15,23,42,.06);border-left:4px solid var(--teal)}
+.tile b{display:block;font-size:1.7rem;line-height:1.1;color:var(--navy)}
+.tile span{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--soft);font-weight:700}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.bar label{font-size:.88rem;color:var(--soft);display:flex;align-items:center;gap:6px}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(15,23,42,.06);font-size:.88rem}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#F1F5F9;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--soft)}
+td small{display:block;color:var(--soft);font-size:.76rem}
+.pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:.72rem;font-weight:800;white-space:nowrap}
+.done{background:#DCFCE7;color:#166534}.prog{background:#E0F2FE;color:#075985}.none{background:#F1F5F9;color:#64748B}
+.role{background:#F3E8FF;color:#6B21A8}
+.pb{width:130px;height:9px;border-radius:999px;background:#E2E8F0;overflow:hidden;margin:3px 0}
+.pb i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--pink))}
+.qz{display:inline-block;margin:0 4px 3px 0;border-radius:6px;padding:1px 6px;font-size:.74rem;font-weight:700;background:#FEF3C7;color:#92400E}
+.qz.full{background:#DCFCE7;color:#166534}
+.msg{background:#fff;border-radius:12px;padding:28px;text-align:center;color:var(--soft);box-shadow:0 2px 10px rgba(15,23,42,.06)}
+.note{font-size:.84rem;color:var(--soft);margin:14px 2px}
+@media (max-width:760px){.hide-sm{display:none}}
+</style></head>
+<body><div class="wrap">
+<header><h1>Training Deck Report</h1>
+ <select id="deck" aria-label="Choose a training deck"></select>
+ <button id="csv">Download CSV</button>
+ <div class="sub" id="sub">Who watched each training deck, how long they spent, how far they got, and how they did on the quizzes.</div></header>
+<div id="body"><div class="msg">Loading…</div></div>
+<p class="note">Time spent counts only while the deck is open on screen and playing or being clicked; an idle open tab does not add time. Quiz shows answers that were right on the first try, per section. Times are Hawaiʻi time.</p>
+</div>
+<script>
+(function(){
+firebase.initializeApp({apiKey:'AIzaSyAU3CQ07bCVKlJ1qGak-150kaJEyPKldLk',authDomain:'ldah-932d5.firebaseapp.com',projectId:'ldah-932d5',storageBucket:'ldah-932d5.firebasestorage.app',messagingSenderId:'662130454003',appId:'1:662130454003:web:437576d5a5811ecd8df686'});
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const msg=t=>{$('body').innerHTML='<div class="msg">'+t+'</div>'};
+const ms=v=>!v?0:(v.toMillis?v.toMillis():Date.parse(v)||0);
+const hst=m=>m?new Date(m-10*3600e3).toISOString().slice(0,16).replace('T',' '):'—';
+const dur=s=>{s=Math.round(s||0);if(!s)return '—';const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+'h '+m+'m':m?m+'m':s+'s'};
+const ROLE={superAdmin:'Super Admin',admin:'Admin',partner:'Partner',superPartner:'Super Partner',dailyUser:'Staff'};
+let RECS=[],PARTNERS=[],MYROLE='',rows=[];
+
+firebase.auth().onAuthStateChanged(async u=>{
+ if(!u||u.isAnonymous){msg('Please sign in to the dashboard first, then reload this page.');return}
+ const db=firebase.firestore();
+ try{
+  const me=await db.collection('userRoles').doc(u.uid).get();
+  MYROLE=(me.exists&&me.data().role)||'';
+  if(!['superAdmin','superPartner'].includes(MYROLE)){msg('This report is for Super Admins and Super Partners.');return}
+  const snap=await db.collection('partnerTrainingProgress').get();
+  RECS=snap.docs.map(d=>Object.assign({_id:d.id},d.data()));
+  if(MYROLE==='superPartner')RECS=RECS.filter(r=>r.partner===true||['partner','superPartner'].includes(r.role));
+  try{const ps=await db.collection('userRoles').where('role','in',['partner','superPartner']).get();
+   PARTNERS=ps.docs.map(d=>d.data()).filter(p=>!p.archived&&p.email).map(p=>({name:String(p.displayName||p.email).replace(/^[.\s]+/,''),email:String(p.email).toLowerCase(),role:p.role}))}catch(e){PARTNERS=[]}
+  const decks={};RECS.forEach(r=>{if(!r.sessionId)return;const d=decks[r.sessionId]||(decks[r.sessionId]={id:r.sessionId,title:r.sessionTitle||r.sessionId,n:0,last:0});d.n++;d.last=Math.max(d.last,ms(r.lastActiveAt)||ms(r.updatedAt))});
+  const list=Object.values(decks).sort((a,b)=>b.last-a.last);
+  if(!list.length){msg('Nobody has opened a tracked training deck yet.');return}
+  const want=new URLSearchParams(location.search).get('deck');
+  $('deck').innerHTML=list.map(d=>`<option value="${esc(d.id)}"${d.id===want?' selected':''}>${esc(d.title)} (${d.n})</option>`).join('');
+  $('deck').onchange=draw;draw();
+ }catch(e){msg('Could not load the report: '+esc(e.code||e.message))}
+});
+
+function draw(){
+ const id=$('deck').value;
+ const recs=RECS.filter(r=>r.sessionId===id);
+ const seen=new Set(recs.map(r=>String(r.personEmail||'').toLowerCase()));
+ const pipDeck=/pip|partner/i.test(id);
+ const notStarted=pipDeck?PARTNERS.filter(p=>!seen.has(p.email)&&!/dan@oahuappdesign/.test(p.email)):[];
+ const secs=new Set();recs.forEach(r=>Object.keys(r.quiz||{}).forEach(s=>secs.add(s)));
+ const S=[...secs].sort((a,b)=>+a.slice(1)-+b.slice(1));
+ rows=recs.map(r=>{
+  const q={};S.forEach(s=>{const x=(r.quiz||{})[s]||{};const k=Object.keys(x);q[s]={n:k.length,first:k.filter(j=>x[j].firstTry===true).length,att:k.reduce((a,j)=>a+(x[j].attempts||0),0)}});
+  return {name:r.personName||r.personEmail,email:r.personEmail||'',role:ROLE[r.role]||r.role||(r.partner?'Partner':''),
+   started:ms(r.startedAt)||ms(r.updatedAt),last:ms(r.lastActiveAt)||ms(r.updatedAt),active:r.activeSeconds||0,
+   furthest:r.furthest||0,total:r.total||0,pct:r.percent||0,visits:r.visits||0,done:r.status==='completed',completed:ms(r.completedAt),q}
+ }).sort((a,b)=>b.last-a.last);
+ const done=rows.filter(r=>r.done).length,act=rows.filter(r=>r.active),avg=act.length?act.reduce((a,r)=>a+r.active,0)/act.length:0;
+ let qn=0,qf=0;rows.forEach(r=>S.forEach(s=>{qn+=r.q[s].n;qf+=r.q[s].first}));
+ const tiles=`<div class="tiles"><div class="tile"><b>${rows.length}</b><span>Started</span></div><div class="tile"><b>${done}</b><span>Finished</span></div>
+  ${pipDeck?`<div class="tile"><b>${notStarted.length}</b><span>Partners not started</span></div>`:''}
+  <div class="tile"><b>${dur(avg)}</b><span>Average time spent</span></div><div class="tile"><b>${qn?Math.round(qf/qn*100)+'%':'—'}</b><span>Quiz right first try</span></div></div>`;
+ const tr=r=>`<tr><td><b>${esc(r.name)}</b><small>${esc(r.email)}</small></td><td>${r.role?`<span class="pill role">${esc(r.role)}</span>`:''}</td>
+  <td class="hide-sm">${hst(r.started)}</td><td>${hst(r.last)}</td><td><b>${dur(r.active)}</b></td>
+  <td><div class="pb"><i style="width:${Math.min(100,r.pct)}%"></i></div><small>slide ${r.furthest} of ${r.total} · ${r.pct}%</small></td>
+  <td>${S.map(s=>r.q[s].n?`<span class="qz${r.q[s].first===r.q[s].n?' full':''}" title="${r.q[s].att} clicks">${esc(s)} ${r.q[s].first}/${r.q[s].n}</span>`:'').join('')||'—'}</td>
+  <td class="hide-sm">${r.visits||'—'}</td><td>${r.done?`<span class="pill done">Finished</span><small>${hst(r.completed)}</small>`:'<span class="pill prog">In progress</span>'}</td></tr>`;
+ const ns=p=>`<tr><td><b>${esc(p.name)}</b><small>${esc(p.email)}</small></td><td><span class="pill role">${esc(ROLE[p.role]||p.role)}</span></td><td class="hide-sm">—</td><td>—</td><td>—</td><td>—</td><td>—</td><td class="hide-sm">—</td><td><span class="pill none">Not started</span></td></tr>`;
+ $('body').innerHTML=tiles+`<table><thead><tr><th>Person</th><th>Role</th><th class="hide-sm">Started</th><th>Last active</th><th>Time spent</th><th>How far</th><th>Quiz (first try)</th><th class="hide-sm">Opens</th><th>Status</th></tr></thead>
+  <tbody>${rows.map(tr).join('')}${notStarted.map(ns).join('')}</tbody></table>`;
+ window._csv=[['Name','Email','Role','Started (HST)','Last active (HST)','Time spent (min)','Furthest slide','Total slides','Percent',...S.map(s=>s+' first try'),'Opens','Status','Finished (HST)'],
+  ...rows.map(r=>[r.name,r.email,r.role,hst(r.started),hst(r.last),Math.round(r.active/60),r.furthest,r.total,r.pct,...S.map(s=>r.q[s].n?r.q[s].first+'/'+r.q[s].n:''),r.visits,r.done?'Finished':'In progress',r.done?hst(r.completed):'']),
+  ...notStarted.map(p=>[p.name,p.email,ROLE[p.role]||p.role,'','','','','','',...S.map(()=>''),'','Not started',''])];
+}
+$('csv').onclick=()=>{if(!window._csv)return;const t=window._csv.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='training-'+$('deck').value+'.csv';a.click()};
+})();
+</script></body></html>
