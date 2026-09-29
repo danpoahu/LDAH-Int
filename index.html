@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.44</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.45</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12948,7 +12948,7 @@ var _photoPendingByIsland = {};
     if (typeof loadContacts === 'function') {
       db.collection('contacts').orderBy('displayName').get().then(function(snap) {
         _allContacts = [];
-        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; if (!window._partnerScopeOK(d)) return; _allContacts.push({ id: doc.id, ...d }); });
+        snap.forEach(function(doc) { var d = doc.data(); if (d.archived === true) return; if (!window._contactVisibleToMe(d)) return; _allContacts.push({ id: doc.id, ...d }); });
         buildContactDatalist();
       }).catch(function() {});
     }
@@ -13626,6 +13626,14 @@ var _photoPendingByIsland = {};
   // Super Partner (v151.0): any record stamped with one of the six partner
   // islands, and nothing else -- never an unstamped LDAH record, and never a
   // stray stamp outside the six.
+  /* Contacts only (v151.45): every staff member and partner has ONE card marked
+     crossPlatform, visible on both sides, so a partner can add Rosie or Noe to an
+     attendance list instead of inventing a second card for them (Daniel, 2026-09-29).
+     Reads were already open in the rules; this was a client filter. Editing stays
+     governed by the rules, so a partner can pick a staff card but not change it. */
+  window._contactVisibleToMe = function(d) {
+    return !!(d && d.crossPlatform === true) || window._partnerScopeOK(d);
+  };
   window._partnerScopeOK = function(d) {
     if (!window.isPartnerUser || !window.isPartnerUser()) return true;
     if (window.isSuperPartner()) return !!(d && d.partnerIsland && PARTNER_ISLANDS.indexOf(d.partnerIsland) !== -1);
@@ -18717,7 +18725,7 @@ var _photoPendingByIsland = {};
         snap.forEach(function(doc) {
           var d = doc.data();
           if (d.archived === true) return;
-          if (!window._partnerScopeOK(d)) return;   // partners: PIP contacts only; this cache also feeds global search (v151.3-STAGE)
+          if (!window._contactVisibleToMe(d)) return;   // partners: PIP contacts + cross-platform staff/partner cards; also feeds global search (v151.45)
           _allContacts.push({ id: doc.id, ...d });
         });
         buildContactDatalist();
@@ -22743,8 +22751,10 @@ window.openContactDetail = async function(contactId) {
   // Resolves to { action:'use', contact } | { action:'create' } | { action:'cancel' }.
   // Resolves 'create' immediately when there is no collision, so callers can
   // await it unconditionally.
-  window._confirmDuplicateContact = function(name) {
+  window._confirmDuplicateContact = function(name, extraHits) {
     var hits = window._findNameCollisions(name);
+    /* extraHits (v151.45): matches found another way, e.g. the same phone number. */
+    (extraHits || []).forEach(function(h) { if (!hits.some(function(x) { return x.contact.id === h.contact.id; })) hits.push(h); });
     if (!hits.length) return Promise.resolve({ action: 'create' });
 
     var ov = document.getElementById('dupGuardOverlay');
@@ -22753,9 +22763,10 @@ window.openContactDetail = async function(contactId) {
     if (!ov) return Promise.resolve({ action: 'create' });   // markup missing: never block a save
 
     var exact = hits.filter(function(h) { return h.kind === 'exact'; }).length;
+    var _byPhone = hits.filter(function(h) { return h.kind === 'phone'; }).length;
     sub.textContent = hits.length === 1
-      ? (exact ? 'One contact already uses this name.' : 'A contact with a very similar name already exists.')
-      : hits.length + ' contacts already use a name like this.';
+      ? (exact ? 'One contact already uses this name.' : (_byPhone ? 'A contact already has this phone number.' : 'A contact with a very similar name already exists.'))
+      : hits.length + ' contacts already match this name or phone number.';
 
     var esc = function(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; };
     var ini = function(n) { return window._ctTokens(n).slice(0, 2).map(function(w) { return w.charAt(0).toUpperCase(); }).join(''); };
@@ -22764,8 +22775,8 @@ window.openContactDetail = async function(contactId) {
       var bits = [c.email, c.island, c.type].filter(Boolean).join(' \u00b7 ');
       return '<div class="dg-row"><div class="dg-av">' + esc(ini(c.displayName)) + '</div>' +
              '<div class="dg-nm"><b>' + esc(c.displayName) + '</b><span>' + esc(bits || 'no other details on file') + '</span></div>' +
-             '<span class="dg-tag' + (h.kind === 'close' ? ' close' : '') + '">' +
-             (h.kind === 'exact' ? 'same name' : 'similar') + '</span></div>';
+             '<span class="dg-tag' + (h.kind !== 'exact' ? ' close' : '') + '">' +
+             (h.kind === 'exact' ? 'same name' : (h.kind === 'phone' ? 'same phone' : 'similar')) + '</span></div>';
     }).join('');
 
     ov.classList.add('open');
@@ -28256,7 +28267,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       results.contacts = [];
       contacts.forEach(function(c) {
         // Belt and braces: _allContacts is scoped where it is filled, but some fills predate that (v151.3-STAGE).
-        if (!window._partnerScopeOK(c)) return;
+        if (!window._contactVisibleToMe(c)) return;
         var s = [c.displayName, c.email, c.phone, c.organization, c.location, c.grantProgram, c.type, c.notes].join(' ').toLowerCase();
         var cHit = s.includes(q) || (window.LDAHFormat && LDAHFormat.gsPhoneMatch && LDAHFormat.gsPhoneMatch(query, [c.phone]));
         if (cHit && results.contacts.length < 5) {
@@ -54457,6 +54468,37 @@ window.prExportCsv = function() {
     var email = (document.getElementById('ooNewEmail').value || '').trim().toLowerCase();
     var _reachErr = _ooReachError(phone, email);
     if (_reachErr) { _showToast(_reachErr, '#DC2626'); return; }
+    /* Duplicate stop (v151.45, Daniel 2026-09-29: "if she duplicates stop her in
+       her tracks"). The one-off quick-add was the only create path with no check,
+       and it produced most of the September clean-up. */
+    if (email && /@(ldahawaii|ldah)\.org$/.test(email)) {
+      _showToast('Staff are already in the system. Search their name in the box above and pick them.', '#DC2626');
+      return;
+    }
+    if (email) {
+      var _sameEmail = _allContacts.find(function(c) {
+        return String(c.email || '').trim().toLowerCase() === email
+          || (Array.isArray(c.additionalEmails) && c.additionalEmails.some(function(e) { return String(e || '').trim().toLowerCase() === email; }));
+      });
+      if (_sameEmail) {
+        var _seName = _sameEmail.displayName || [_sameEmail.firstName, _sameEmail.lastName].filter(Boolean).join(' ') || 'another contact';
+        _showToast('That email already belongs to ' + _seName + '. Each person needs their own email, or pick ' + _seName + ' from the search box.', '#DC2626');
+        return;
+      }
+    }
+    var _phoneKey = phone.replace(/\D/g, '').slice(-10);
+    var _phoneHits = _phoneKey.length >= 7 ? _allContacts.filter(function(c) {
+      return String(c.phone || '').replace(/\D/g, '').slice(-10) === _phoneKey;
+    }).map(function(c) { return { contact: c, kind: 'phone' }; }) : [];
+    var _dup = await window._confirmDuplicateContact(name, _phoneHits);
+    if (_dup.action === 'cancel') return;
+    if (_dup.action === 'use' && _dup.contact) {
+      window.cmsOoPickContact(_dup.contact.id);
+      ['ooNewName', 'ooNewPhone', 'ooNewEmail'].forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ''; });
+      var _nb = document.getElementById('oneOffNewContactBox');
+      if (_nb) _nb.style.display = 'none';
+      return;
+    }
     function _ooVal(id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
     var details = {};
     [['ethnicity', 'ooNewEthnicity'], ['childAgeRange', 'ooNewAgeRange'], ['childGender', 'ooNewChildGender'],
