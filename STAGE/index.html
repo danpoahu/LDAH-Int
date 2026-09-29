@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.52-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.53-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -19545,6 +19545,18 @@ var _photoPendingByIsland = {};
     var _spFirst = document.getElementById('ctSecondFirstName').value.trim();
     var _spLast = document.getElementById('ctSecondLastName').value.trim();
     var _spEmail = document.getElementById('ctSecondEmail').value.trim();
+    /* v151.53: one family, one card, but each adult keeps their own email. */
+    if (_spEmail) {
+      var _spKey = _spEmail.toLowerCase();
+      if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(_spEmail)) { alert('The second parent / guardian email doesn\u2019t look right.'); return; }
+      if (String(emailVal || '').toLowerCase().split(/[;,]/).map(function(e) { return e.trim(); }).indexOf(_spKey) !== -1) {
+        alert('The second parent / guardian needs their own email, different from the main one on this card.'); return;
+      }
+      var _spOther = (window._allContacts || []).find(function(c) { return c.id !== editId && window._contactEmails(c).indexOf(_spKey) !== -1; });
+      if (_spOther) {
+        alert('That email already belongs to ' + (_spOther.displayName || 'another contact') + '. The second parent / guardian needs their own email.'); return;
+      }
+    }
     if (_spEmail) {
       data.secondParent = { firstName: _spFirst, lastName: _spLast, email: _spEmail };
     } else if (editId) {
@@ -22792,6 +22804,17 @@ window.openContactDetail = async function(contactId) {
   /* Shared by BOTH quick-add paths (one-off attendance, interaction form), so the
      two cannot drift (v151.48). Returns { error } to stop, or { phoneHits } for the
      duplicate dialog. Staff emails and an email already on a card stop outright. */
+  /* Every email a card holds (v151.53): the email box may hold several separated by
+     ; or , and a family's second parent / guardian has their own. */
+  window._contactEmails = function(c) {
+    var out = [];
+    String((c && c.email) || '').split(/[;,]/).forEach(function(e) { e = e.trim().toLowerCase(); if (e) out.push(e); });
+    (Array.isArray(c && c.additionalEmails) ? c.additionalEmails : []).forEach(function(e) { e = String(e || '').trim().toLowerCase(); if (e) out.push(e); });
+    var sp = c && c.secondParent && String(c.secondParent.email || '').trim().toLowerCase();
+    if (sp) out.push(sp);
+    return out;
+  };
+
   window._contactEntryGuard = function(email, phone) {
     email = String(email || '').trim().toLowerCase();
     if (email && /@(ldahawaii|ldah)\.org$/.test(email)) {
@@ -22799,8 +22822,7 @@ window.openContactDetail = async function(contactId) {
     }
     if (email) {
       var same = (window._allContacts || _allContacts || []).filter(function(c) {
-        return String(c.email || '').trim().toLowerCase() === email
-          || (Array.isArray(c.additionalEmails) && c.additionalEmails.some(function(e) { return String(e || '').trim().toLowerCase() === email; }));
+        return window._contactEmails(c).indexOf(email) !== -1;
       });
       if (same.length) {
         // The person's own cross-platform card first, so the message names the real owner.
@@ -22808,7 +22830,7 @@ window.openContactDetail = async function(contactId) {
         var names = same.map(function(c) { return c.displayName || [c.firstName, c.lastName].filter(Boolean).join(' ') || 'another contact'; });
         var nm = names[0];
         var others = names.length > 1 ? ' (it is also on ' + names.slice(1).join(', ') + ')' : '';
-        return { error: 'That email already belongs to ' + nm + others + '. Each person needs their own email, or pick ' + nm + ' instead.' };
+        return { error: 'That email already belongs to ' + nm + others + '. Each person needs their own email. Same family? Open ' + nm + '\u2019s card, click Edit, and add them under Second parent / guardian with their own email.' };
       }
     }
     var key = String(phone || '').replace(/\D/g, '').slice(-10);
