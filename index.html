@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.47</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.48</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22789,6 +22789,31 @@ window.openContactDetail = async function(contactId) {
   // Resolves to { action:'use', contact } | { action:'create' } | { action:'cancel' }.
   // Resolves 'create' immediately when there is no collision, so callers can
   // await it unconditionally.
+  /* Shared by BOTH quick-add paths (one-off attendance, interaction form), so the
+     two cannot drift (v151.48). Returns { error } to stop, or { phoneHits } for the
+     duplicate dialog. Staff emails and an email already on a card stop outright. */
+  window._contactEntryGuard = function(email, phone) {
+    email = String(email || '').trim().toLowerCase();
+    if (email && /@(ldahawaii|ldah)\.org$/.test(email)) {
+      return { error: 'Staff are already in the system. Search their name and pick them.' };
+    }
+    if (email) {
+      var same = (window._allContacts || _allContacts || []).find(function(c) {
+        return String(c.email || '').trim().toLowerCase() === email
+          || (Array.isArray(c.additionalEmails) && c.additionalEmails.some(function(e) { return String(e || '').trim().toLowerCase() === email; }));
+      });
+      if (same) {
+        var nm = same.displayName || [same.firstName, same.lastName].filter(Boolean).join(' ') || 'another contact';
+        return { error: 'That email already belongs to ' + nm + '. Each person needs their own email, or pick ' + nm + ' instead.' };
+      }
+    }
+    var key = String(phone || '').replace(/\D/g, '').slice(-10);
+    var hits = key.length >= 7 ? (window._allContacts || _allContacts || []).filter(function(c) {
+      return String(c.phone || '').replace(/\D/g, '').slice(-10) === key;
+    }).map(function(c) { return { contact: c, kind: 'phone' }; }) : [];
+    return { phoneHits: hits };
+  };
+
   window._confirmDuplicateContact = function(name, extraHits) {
     var hits = window._findNameCollisions(name);
     /* extraHits (v151.45): matches found another way, e.g. the same phone number. */
@@ -23774,7 +23799,9 @@ window.openContactDetail = async function(contactId) {
     // Duplicate guard (v148.8). Was an exact lowercase compare, which missed
     // spacing, punctuation, word order and typos. Now the shared check, and
     // the staffer decides rather than being silently redirected.
-    var _dupChoice = await window._confirmDuplicateContact(full);
+    var _qcGuard = window._contactEntryGuard(email, phone);   // v151.48: same checks as the one-off quick-add
+    if (_qcGuard.error) { _showToast(_qcGuard.error, '#DC2626'); return; }
+    var _dupChoice = await window._confirmDuplicateContact(full, _qcGuard.phoneHits);
     if (_dupChoice.action === 'cancel') return;
     if (_dupChoice.action === 'use') {
       var existing = _dupChoice.contact;
@@ -54509,25 +54536,9 @@ window.prExportCsv = function() {
     /* Duplicate stop (v151.45, Daniel 2026-09-29: "if she duplicates stop her in
        her tracks"). The one-off quick-add was the only create path with no check,
        and it produced most of the September clean-up. */
-    if (email && /@(ldahawaii|ldah)\.org$/.test(email)) {
-      _showToast('Staff are already in the system. Search their name in the box above and pick them.', '#DC2626');
-      return;
-    }
-    if (email) {
-      var _sameEmail = _allContacts.find(function(c) {
-        return String(c.email || '').trim().toLowerCase() === email
-          || (Array.isArray(c.additionalEmails) && c.additionalEmails.some(function(e) { return String(e || '').trim().toLowerCase() === email; }));
-      });
-      if (_sameEmail) {
-        var _seName = _sameEmail.displayName || [_sameEmail.firstName, _sameEmail.lastName].filter(Boolean).join(' ') || 'another contact';
-        _showToast('That email already belongs to ' + _seName + '. Each person needs their own email, or pick ' + _seName + ' from the search box.', '#DC2626');
-        return;
-      }
-    }
-    var _phoneKey = phone.replace(/\D/g, '').slice(-10);
-    var _phoneHits = _phoneKey.length >= 7 ? _allContacts.filter(function(c) {
-      return String(c.phone || '').replace(/\D/g, '').slice(-10) === _phoneKey;
-    }).map(function(c) { return { contact: c, kind: 'phone' }; }) : [];
+    var _guard = window._contactEntryGuard(email, phone);
+    if (_guard.error) { _showToast(_guard.error, '#DC2626'); return; }
+    var _phoneHits = _guard.phoneHits;
     var _dup = await window._confirmDuplicateContact(name, _phoneHits);
     if (_dup.action === 'cancel') return;
     if (_dup.action === 'use' && _dup.contact) {
@@ -62162,11 +62173,11 @@ window.cmsBuildMembershipReport = async function() {
         </select>
       </div>
       <div>
-        <label for="qcPhone">Phone (optional)</label>
+        <label for="qcPhone">Phone</label>
         <input id="qcPhone" type="tel" placeholder="(808) 555-0123" />
       </div>
     </div>
-    <label for="qcEmail">Email (optional)</label>
+    <label for="qcEmail">Email</label>
     <input id="qcEmail" type="email" placeholder="parent@example.com" />
     <!-- Super Partner island picker (v151.0); hidden for everyone else. -->
     <div id="qcSpIslandHost" style="display:none;margin-top:10px;"></div>
