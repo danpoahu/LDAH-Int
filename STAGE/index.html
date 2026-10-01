@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.71-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.72-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -58384,13 +58384,45 @@ function _pbSignupDate(sig, ev) {
 /* Read once, filter in memory. Changing the range must not re-read every signup
    in the database — that is the difference between controls that feel instant
    and controls nobody touches twice. */
+/* Loading message with a spinner (v151.72). Only drawn while pbBody holds no
+   finished report, so a Re-read never blanks the report until it is replaced. */
+function _pbProgress(msg) {
+  var body = document.getElementById('pbBody');
+  if (!body || (body.querySelector('.pb-head') && !body.querySelector('.pb-loading'))) return;
+  body.innerHTML = '<style>@keyframes pbSpin{to{transform:rotate(360deg)}}</style>' +
+    '<div class="pb-card pb-loading" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:22px;">' +
+      '<span style="width:22px;height:22px;border:3px solid #CCFBF1;border-top-color:#0F766E;border-radius:50%;display:inline-block;flex:none;animation:pbSpin .8s linear infinite;"></span>' +
+      '<span>' + msg + '</span></div>';
+}
+
 async function _pbLoadAll() {
   if (_pbCache) return _pbCache;
-  var evSnap = await db.collection('events').get();
-  var recSnap = await db.collection('recurringEvents').get();
+  /* Speed (v151.72): the three big collections start reading now, alongside
+     the events, instead of one after another further down. */
+  var _pbQuiet = function (p) { p.catch(function () {}); return p; };
+  var _ixP = _pbQuiet(db.collection('interactions').get());
+  var _ctP = _pbQuiet(db.collection('contacts').get());
+  var _fbP = _pbQuiet(db.collection('eventFeedback').get());
+  _pbProgress('Reading events&hellip;');
+  var _evRec = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
+  var evSnap = _evRec[0], recSnap = _evRec[1];
   var sources = [];
   evSnap.forEach(function (d) { sources.push({ id: d.id, v: d.data() || {}, coll: 'events' }); });
   recSnap.forEach(function (d) { sources.push({ id: d.id, v: d.data() || {}, coll: 'recurringEvents' }); });
+
+  /* Speed (v151.72): every event's signups used to be read one at a time
+     inside the loop below: 269 events at about a quarter of a second each, so
+     the report sat on its loading message for over a minute (Daniel, 10-01).
+     They are now read 30 at a time, up front, with a running count. */
+  var _suSnaps = new Array(sources.length);
+  for (var _b = 0; _b < sources.length; _b += 30) {
+    _pbProgress('Reading sign-ups: ' + _b + ' of ' + sources.length + ' events&hellip;');
+    var _got = await Promise.all(sources.slice(_b, _b + 30).map(function (e) {
+      return db.collection(e.coll).doc(e.id).collection('signups').get();
+    }));
+    for (var _k = 0; _k < _got.length; _k++) _suSnaps[_b + _k] = _got[_k];
+  }
+  _pbProgress('Reading interactions and contacts&hellip;');
 
   var sessions = [], signups = [];
   for (var i = 0; i < sources.length; i++) {
@@ -58475,7 +58507,7 @@ async function _pbLoadAll() {
       });
     }
 
-    var su = await db.collection(e.coll).doc(e.id).collection('signups').get();
+    var su = _suSnaps[i];
     su.forEach(function (sd) {
       var x = sd.data() || {};
       signups.push({ id: sd.id, eventId: e.id, coll: e.coll, pip: !!pIsland, pIsland: pIsland,
@@ -58484,7 +58516,7 @@ async function _pbLoadAll() {
     });
   }
 
-  var ixSnap = await db.collection('interactions').get();
+  var ixSnap = await _ixP;
   var interactions = [];
   ixSnap.forEach(function (d) {
     var x = d.data() || {};
@@ -58501,7 +58533,7 @@ async function _pbLoadAll() {
     });
   });
 
-  var ctSnap = await db.collection('contacts').get();
+  var ctSnap = await _ctP;
   var contacts = [], children = [];
   ctSnap.forEach(function (d) {
     var x = d.data() || {};
@@ -58623,7 +58655,7 @@ async function _pbLoadAll() {
      persisted for legacy readers"). This report was one of those legacy readers,
      so an evaluation arriving after the summary was saved never reached the
      board figures. eventFeedback.sessionDate holds the session key verbatim. */
-  var fbSnap = await db.collection('eventFeedback').get();
+  var fbSnap = await _fbP;
   var _evalByKey = {};
   fbSnap.forEach(function (d) {
     var x = d.data() || {};
@@ -58700,7 +58732,8 @@ window.cmsBuildPtiBoardReport = async function () {
   var _tp = document.getElementById('pbTaskPanel');
   if (_tp) { _tp.style.display = 'none'; _tp.innerHTML = ''; }
   var body = document.getElementById('pbBody');
-  if (body) body.innerHTML = '<div class="pb-card" style="text-align:center;">Reading events, interactions and contacts&hellip;</div>';
+  if (body) body.innerHTML = '';
+  _pbProgress('Reading events, interactions and contacts&hellip;');
   try {
     await _pbLoadAll();
     _pbRender();
