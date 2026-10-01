@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.69</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.70</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -58019,7 +58019,7 @@ window.ixArConfirmStart = async function(cid) {
    The other two exist so mis-stamped partner data can be found and cleaned up.
    Only partnerIsland marks a record as PIP; location, island and title say
    nothing about ownership. */
-var _pbState = { from: '', to: '', scope: 'ldah', view: 'board' };
+var _pbState = { from: '', to: '', scope: 'ldah', view: 'board', partner: '' };
 var _pbCache = null;
 
 /* What the report SAYS it contains, in words, on screen and on paper. */
@@ -58030,6 +58030,19 @@ var _PB_SCOPE_TEXT = {
 };
 /* The short form, for the running footer on every printed page. */
 var _PB_SCOPE_TAG = { ldah: 'LDAH only', pip: 'PIP only', both: 'LDAH + PIP' };
+/* Partner filter (v151.70): one Pacific partner island, or '' for all of them.
+   Only means anything while PIP is showing; LDAH and Both ignore it. Not saved:
+   the report always opens on all partners so nobody reads one island's figures
+   believing they are the whole programme. */
+function _pbPartner() {
+  var p = _pbState.partner || '';
+  if (!p || !(_pbPipOnly() || _pbState.scope === 'pip')) return '';
+  return p;
+}
+function _pbScopeTag() {
+  var p = _pbPartner();
+  return (_PB_SCOPE_TAG[_pbState.scope] || 'LDAH only') + (p ? ' \u00b7 ' + p : '');
+}
 
 function _pbScopeOk(v) { return (v === 'pip' || v === 'both') ? v : 'ldah'; }
 
@@ -58662,6 +58675,7 @@ window.cmsBuildPtiBoardReport = async function () {
   var _pbStored = _pbLoadScope();
   /* A Super Partner opens on PIP and stays there (v151.0). A cache built for
      another role in this tab is thrown away, so the PIP-only load step runs. */
+  _pbState.partner = '';                         /* always opens on all partners */
   if (_pbPipOnly()) {
     if (_pbCache && !_pbCache._pipOnly) _pbCache = null;
     _pbState.scope = 'pip';
@@ -58746,6 +58760,14 @@ window.pbSetScope = function (s) {
   _pbRender();
 };
 
+/* Partner filter (v151.70). Re-renders from the cache, like the scope toggle. */
+window.pbSetPartner = function (p) {
+  var list = window.PARTNER_ISLANDS_LIST || [];
+  _pbState.partner = (list.indexOf(p) !== -1) ? p : '';
+  _pbRenderControls();
+  _pbRender();
+};
+
 /* Everything is cached on first open, so work entered while the report sits on
    screen will not appear until the cache is thrown away. */
 window.pbRefresh = async function () {
@@ -58782,6 +58804,17 @@ function _pbRenderControls() {
           '<button type="button" onclick="pbSetScope(\'both\')" title="Everything, unfiltered \u2014 LDAH and Pacific partner records together. Not a Hawaii PTI figure."' +
             (_pbState.scope === 'both' ? ' style="background:#475569;color:#fff;"' : '') + '>Both</button>' +
         '</div></div>')) +
+      /* Partner filter (v151.70): PIP view only. All partners, or one island. */
+      ((!_cpir && (_pbPipOnly() || _pbState.scope === 'pip'))
+        ? '<div><label class="pb-lbl">Partner</label><div class="pb-seg" style="flex-wrap:wrap;">' +
+            ['', ].concat(window.PARTNER_ISLANDS_LIST || []).map(function (p) {
+              var on = (_pbState.partner || '') === p;
+              return '<button type="button" onclick="pbSetPartner(\'' + _pbEsc(p) + '\')" title="' +
+                (p ? 'Only ' + _pbEsc(p) + ' records. Every section, the PDF title and the footer say so.' : 'Every Pacific partner island together.') + '"' +
+                (on ? ' style="background:#7C3AED;color:#fff;"' : '') + '>' + (p ? _pbEsc(p) : 'All partners') + '</button>';
+            }).join('') +
+          '</div></div>'
+        : '') +
       '<div><label class="pb-lbl">From</label>' +
         '<input type="date" id="pbFrom" value="' + _pbEsc(_pbState.from) + '" onchange="pbSetDate(\'from\',this.value)" title="Start of the reporting period every figure in this report is counted over."></div>' +
       '<div><label class="pb-lbl">To</label>' +
@@ -59534,6 +59567,8 @@ function _pbStat(value, label, note) {
    way and a later re-filter inside a section cannot drift from it. r.pip is set
    at load time from partnerIsland and nothing else. */
 function _pbKeep(r) {
+  var _pp = _pbPartner();                         /* one partner island, PIP view only */
+  if (_pp) return !!(r && r.pip && r.pIsland === _pp);
   if (_pbPipOnly()) return !!(r && r.pip);       /* Super Partner: PIP only, always */
   var sc = _pbState.scope;
   if (sc === 'both') return true;                 /* everything, unfiltered */
@@ -59560,8 +59595,11 @@ function _pbScope() {
     upcoming: _pbCache.sessions.filter(function (s) {
       return keep(s) && s.date && s.date > _pbState.to && s.date <= _pbISO(horizon);
     }),
-    pipTotal: _pbCache.sessions.filter(function (s) { return s.pip && _pbInRange(s.date); }).length +
-              _pbCache.interactions.filter(function (x) { return x.pip && _pbInRange(x.date); }).length,
+    pipTotal: (function () {
+      var pp = _pbPartner();
+      var isPip = function (r) { return r.pip && (!pp || r.pIsland === pp) && _pbInRange(r.date); };
+      return _pbCache.sessions.filter(isPip).length + _pbCache.interactions.filter(isPip).length;
+    })(),
     byId: (function () { var m = {}; _pbCache.contacts.forEach(function (c) { m[c.id] = c; }); return m; })()
   };
 }
@@ -60102,7 +60140,8 @@ function _pbHeaderHtml(D, modes) {
       ? ' ' + _pbFmt(_n) + ' Pacific partner (PIP) record' + _s + ' in this period ' + (_n === 1 ? 'was' : 'were') + ' left out of every figure below.'
       : ' No Pacific partner (PIP) records fall in this period.';
   } else if (_sc === 'pip') {
-    _line += ' Every figure below is partner work only and is NOT a Hawaii PTI board figure.' +
+    _line += (_pbPartner() ? ' ' + _pbEsc(_pbPartner()) + ' only; the other partner islands are left out.' : '') +
+             ' Every figure below is partner work only and is NOT a Hawaii PTI board figure.' +
              (_n ? ' ' + _pbFmt(_n) + ' PIP-stamped record' + _s + ' in this period.' : '');
   } else {
     _line += ' Not a Hawaii PTI board figure \u2014 the figures below mix both programmes.' +
@@ -60141,7 +60180,7 @@ function _pbRender() {
     h += '<div class="pb-card"><h3 class="pb-h">' + sec.n + '. ' + _pbEsc(sec.title) + '</h3>' + sec.html + '</div>';
   });
   h += '<div class="pb-foot">Read-only report. Figures are recomputed from live records for ' + _pbEsc(_pbRangeLabel()) +
-       ' (' + _pbEsc(_PB_SCOPE_TAG[_pbState.scope] || 'LDAH only') + ')' +
+       ' (' + _pbEsc(_pbScopeTag()) + ')' +
        ' each time it is generated; nothing here is stored or written back.</div>';
   host.innerHTML = h;
 }
@@ -60813,7 +60852,7 @@ window.cmsExportPtiBoardPdf = function () {
   var period = _pbRangeLabel();
   /* The scope rides in the document title as well, because that is what the
      browser offers as the saved filename. */
-  var _scopeTag = _PB_SCOPE_TAG[_pbState.scope] || 'LDAH only';
+  var _scopeTag = _pbScopeTag();
   var title = 'PTI Report — ' + period + ' — ' + _scopeTag;
 
   var body = _pbHeaderHtml(D, modes);
