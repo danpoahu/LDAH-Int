@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.80</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.81</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6867,6 +6867,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                             +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();cmsViewSignups(' + _jsArg(d.cgEventId||'') + ',true,\'Connect-Gen\')">Today&rsquo;s Connect-Gen &rarr;</button>'
                             +(d.summarySignupId?'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();cmsCgSummaryOpen(' + _jsArg(d.summaryCollection||'recurringEvents') + ',' + _jsArg(d.summaryEventId||'') + ',' + _jsArg(d.summarySignupId) + ')">AI Summary &rarr;</button>':'')
                             +'</div>';
+                      }
+                      // Rate a school meeting (v151.81): one click records the outcome on
+                      // the meeting itself and closes the task. Daniel: "always use deep
+                      // link buttons" -- never "open interaction X and set Y".
+                      if(r.bucket!=='done'&&d.workflowStep==='rateMeeting'&&d.rateMeetingId&&!actionBtn){
+                        var _rmB=function(v,l,bg){return '<button class="btn" style="font-size:.72rem;padding:5px 11px;background:'+bg+';color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();myDayRateMeeting('+_jsArg(d._id)+','+_jsArg(d.rateMeetingId)+','+_jsArg(v)+')">'+l+'</button>';};
+                        actionBtn='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:7px;" onclick="event.stopPropagation();">'
+                          +'<span style="font-size:.72rem;font-weight:700;color:#334155;">How did it go?</span>'
+                          +_rmB('worked','Worked','#16A34A')+_rmB('partly','Partly','#D97706')+_rmB('didnt','Didn&rsquo;t','#DC2626')
+                          +'<label style="font-size:.74rem;color:#334155;display:inline-flex;align-items:center;gap:4px;margin-left:4px;cursor:pointer;"><input type="checkbox" id="rmLed_'+esc(d._id)+'"> Parent led it</label>'
+                          +'<button class="btn btn-ghost" style="font-size:.72rem;padding:4px 9px;" onclick="event.stopPropagation();viewInteraction('+_jsArg(d.rateMeetingId)+')">Open the meeting &rarr;</button>'
+                          +'</div>';
                       }
                       // Training reminder (v151.77): Remind me later on the sign-in popup.
                       if(r.bucket!=='done'&&d.workflowStep==='training'&&!actionBtn)
@@ -47883,6 +47895,32 @@ async function _wnSweepTasks() {
 window.addEventListener('focus', function() {
   if (_wn.openTasks > 0 && Date.now() - _wn.lastSweep > 60000) _wnSweepTasks();
 });
+
+/* My Day "Rate the school meeting" (v151.81). Writes the same two fields, with the
+   same audit line, as the meeting's own detail card (saveInteractionDetail), then
+   closes the task. Tick "Parent led it" before clicking an outcome. */
+window.myDayRateMeeting = async function(taskId, meetingId, outcome) {
+  if (['worked', 'partly', 'didnt'].indexOf(outcome) < 0 || !meetingId) return;
+  var ledEl = document.getElementById('rmLed_' + taskId), led = !!(ledEl && ledEl.checked);
+  var label = ({ worked: 'Worked', partly: 'Partly', didnt: 'Didn\u2019t' })[outcome];
+  try {
+    var mref = db.collection('interactions').doc(meetingId), ms = await mref.get();
+    if (!ms.exists) { if (typeof _showToast === 'function') _showToast('That meeting record could not be found.', '#B45309'); return; }
+    var md = ms.data() || {};
+    await mref.update({ meetingOutcome: outcome, meetingParentLed: led, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (window.auditLog) window.auditLog('Recorded school meeting outcome',
+      (md.contactName || meetingId) + ': ' + outcome + (led ? ', parent led it' : '') + ' (from My Day task)');
+    var tref = db.collection('interactions').doc(taskId), ts = await tref.get();
+    var prev = ts.exists ? String((ts.data() || {}).notes || '') : '';
+    await tref.update({ status: 'Closed', notes: prev + '\n---\n[' + new Date().toLocaleString('en-US') + '] Rated: ' + label + (led ? ', parent led it' : '') + '.',
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (typeof window._clearAssignmentNotifs === 'function') await window._clearAssignmentNotifs(taskId);
+    if (typeof _showToast === 'function') _showToast('Saved: ' + label + (led ? ', parent led it' : '') + '. Task closed.', '#16A34A');
+  } catch (e) {
+    console.warn('rate meeting:', e && e.message);
+    if (typeof _showToast === 'function') _showToast('Could not save the rating: ' + (e && e.message), '#DC2626');
+  }
+};
 
 // My Day "Launch training": the full training when there is one, else the mini deck.
 window.wnLaunchTraining = async function(cardId) {
