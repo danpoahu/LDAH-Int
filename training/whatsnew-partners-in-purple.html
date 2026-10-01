@@ -1,0 +1,139 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>What’s new: Partners in Purple — Training</title>
+<link rel="stylesheet" href="deck-base.css">
+<!-- Same Firebase build as the dashboard, so the deck shares its sign-in and records progress. -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+/* Every class here starts with wn- so nothing collides with deck-base.css. */
+/* ---------- the dashboard top bar (index.html .topbar / .topbar-presence-strip) ---------- */
+.wn-bar{position:absolute;left:58px;top:130px;width:1172px;height:150px;background:#fff;border:1px solid #D5DEE8;border-radius:12px;box-shadow:0 14px 36px rgba(15,23,42,.16);z-index:4;display:flex;font-family:"Nunito Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:#1E293B;overflow:hidden}
+.wn-left{width:190px;display:flex;align-items:center;justify-content:center;border-right:1px solid #EEF2F6}
+.wn-left img{height:92px}
+.wn-right{flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:18px 22px}
+.wn-nav{display:flex;gap:10px}
+.wn-nav span{font-size:15px;font-weight:700;color:#475569;background:#F1F5F9;border-radius:8px;padding:8px 14px}
+.wn-nav span.on{background:#0E7490;color:#fff}
+/* the strip itself: drawn at 1.5x the live .82rem / 8px dot so it reads in a small popup */
+.topbar-presence-strip{display:flex;align-items:center;gap:15px;min-height:40px}
+.tp-user{display:inline-flex;align-items:center;gap:6px;font-size:19.5px;font-weight:600;white-space:nowrap;padding:3px 6px;color:#1E293B;flex-shrink:0;border-radius:6px;transition:color .7s}
+.tp-user .tp-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.tp-dot.green{background:#16A34A}
+.tp-dot.yellow{background:#EAB308}
+.tp-dot.red{background:#DC2626;opacity:.6}
+.tp-user.tp-pip{color:#7C3AED}
+.tp-user.off{opacity:.5}
+.wn-sep{width:1px;height:26px;background:#E2E8F0}
+/* native-looking hover tooltip */
+.wn-tip{position:absolute;z-index:20;background:#F8FAFC;border:1px solid #94A3B8;color:#1E293B;font:500 17px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;padding:5px 10px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.18);white-space:nowrap;opacity:0}
+/* explanation cards under the bar */
+.wn-cards{position:absolute;left:58px;top:330px;width:1172px;display:flex;gap:22px}
+.wn-card{flex:1;background:#fff;border-radius:14px;box-shadow:0 6px 20px rgba(15,40,70,.10);padding:22px 24px;opacity:0;transform:translateY(16px)}
+.wn-card .wn-ch{display:flex;align-items:center;gap:12px;font-size:25px;font-weight:800;margin-bottom:8px}
+.wn-card .wn-ch i{width:22px;height:22px;border-radius:50%;display:inline-block}
+.wn-card p{margin:0;font-size:19px;line-height:1.4;color:#475569}
+.wn-card.pip{border-top:6px solid #7C3AED}
+.wn-card.ldah{border-top:6px solid #0E7490}
+/* cover art: a mini strip floating on the right */
+.wn-cv{position:absolute;left:770px;top:150px;width:440px;background:#fff;border-radius:14px;box-shadow:0 24px 50px rgba(0,0,0,.35);padding:18px 20px;color:#1E293B;transform:rotate(3deg);animation:bob 6s ease-in-out infinite;z-index:3}
+.wn-cv .topbar-presence-strip{flex-wrap:wrap;gap:10px 14px}
+.wn-cv .tp-user{font-size:17px}
+.wn-cv small{display:block;font-size:13px;color:#64748B;margin-bottom:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+/* in the sign-in popup the popup has its own buttons, so the deck draws none */
+body.wn-popup [data-go=skip],body.wn-popup [data-go=close]{display:none!important}
+</style></head><body>
+<div id="view"><div id="stage"><div id="nbar"><i></i></div>
+<div id="scenes"></div>
+<div id="spot"></div>
+<svg id="cursor" viewBox="0 0 28 32"><path d="M3 2 L3 26 L9.5 19.5 L14 29 L18.5 27 L14 17.5 L23 17.5 Z" fill="#fff" stroke="#0F172A" stroke-width="2" stroke-linejoin="round"/></svg>
+</div></div>
+<div id="cap" aria-live="polite"></div>
+<div id="bar">
+ <button id="prev">Back</button><button id="play">Start</button><button id="next">Next</button>
+ <div id="dots"></div>
+ <button id="capbtn" aria-pressed="false">Captions</button><button id="voice" aria-pressed="true">Voice on</button>
+</div>
+<script>
+const DECK_ID='whatsnew-partners-in-purple';
+if(new URLSearchParams(location.search).get('src')==='popup')document.body.classList.add('wn-popup');
+
+/* The strip below is drawn from index.html renderPresenceStrip / .tp-user / .tp-pip
+   (v151.76, 2026-10-01). Every name is made up. */
+
+/* ---- helpers ---- */
+function all(s){return[...document.querySelectorAll('.scene.on '+s)]}
+const show=(e,ms=500)=>anim(e,[{opacity:0,transform:'translateY(16px)'},{opacity:1,transform:'none'}],ms,'ease-out').then(()=>{e.style.opacity=1;e.style.transform='none'});
+
+/* ---- people: s = green / yellow / red, pip = Pacific partner ---- */
+const P={
+ alex:{l:'Alex K.',n:'Alex Kahn',s:'green'},
+ jordan:{l:'Jordan P.',n:'Jordan Price',s:'green'},
+ sam:{l:'Sam T.',n:'Sam Torres',s:'yellow'},
+ casey:{l:'Casey W.',n:'Casey Wells',s:'red'},
+ pat:{l:'Pat R.',n:'Pat Rivera',s:'green',pip:1},
+ lee:{l:'Lee M.',n:'Lee Morgan',s:'red',pip:1}
+};
+/* the chip, as _chip() writes it */
+const CHIP=(k,pipOn=true)=>{const u=P[k];return `<span class="tp-user${u.pip&&pipOn?' tp-pip':''}${u.s==='red'?' off':''} k-${k}"><span class="tp-dot ${u.s}"></span>${u.l}</span>`};
+/* renderPresenceStrip order: LDAH online, LDAH idle, LDAH signed off, then every partner */
+const ORDER=['alex','jordan','sam','casey','pat','lee'];
+/* the order before v151.75: by colour only, partners mixed in, all one colour */
+const OLD=['alex','jordan','pat','sam','casey','lee'];
+const BAR=(order,pipOn=true)=>`<div class="wn-bar"><div class="wn-left"><img src="../logo_blue.png" alt="LDAH"></div><div class="wn-right">
+ <div class="topbar-presence-strip">${order.map(k=>CHIP(k,pipOn)).join('')}</div>
+ <div class="wn-nav"><span class="on">Home</span><span>My Day</span><span>Contacts</span><span>Events</span><span>Reports</span></div></div></div>`;
+const CARD=(cls,dot,h,p)=>`<div class="wn-card ${cls}"><div class="wn-ch">${dot?`<i style="background:${dot}"></i>`:''}${h}</div><p>${p}</p></div>`;
+async function tip(k,text){const c=q('.k-'+k);await move(c,800);const p=pos(c);
+ const t=add(`<div class="wn-tip">${text}</div>`);t.style.left=(p.x+18)+'px';t.style.top=(p.y+p.h+14)+'px';
+ await anim(t,[{opacity:0},{opacity:1}],250,'ease-out');t.style.opacity=1;return t}
+/* slide chips into a new order (FLIP) */
+async function reorder(order){const strip=q('.topbar-presence-strip');const before={};
+ order.forEach(k=>{before[k]=q('.k-'+k).getBoundingClientRect().left});
+ order.forEach(k=>strip.appendChild(q('.k-'+k)));
+ await Promise.all(order.map(k=>{const e=q('.k-'+k);const dx=(before[k]-e.getBoundingClientRect().left)/scale;
+  return dx?anim(e,[{transform:`translateX(${dx}px)`},{transform:'none'}],900,'cubic-bezier(.45,.05,.25,1)'):null}))}
+
+const COVER_LOGO=`<div class="ldah-logo" style="position:absolute;left:70px;top:22px;background:#fff;border-radius:14px;padding:6px 10px;box-shadow:0 4px 14px rgba(0,0,0,.18);animation:rise .6s both"><img src="../logo_blue.png" alt="LDAH" style="height:80px;display:block"></div>`;
+
+const SC=[
+// ================= COVER =================
+{cls:'cover',html:()=>`${COVER_LOGO}<div class="brand">What’s new · The top bar</div><div class="hello">Hi <span class="nm"></span></div>
+ <h1>Who’s signed in, at a glance</h1><p class="sub" style="top:360px">Colours, the new purple partners, and what hovering shows. Under a minute.</p>
+ <div class="wn-cv"><small>Signed in now</small><div class="topbar-presence-strip">${ORDER.map(k=>CHIP(k)).join('')}</div></div>
+ <div class="spark" style="left:1200px;top:110px">${SPARK}</div><div class="spark" style="left:740px;top:470px;animation-delay:1s">${SPARK}</div>
+ <div class="gate" style="top:450px"><button class="btn" data-go="start">Play</button><button class="btn ghost" data-go="skip">Skip for now</button><label><input type="checkbox" id="voiceChk" checked> Read it out loud to me</label></div>${WAVES}`,
+ steps:[{say:'Hi {name}! Here is a quick look at the strip at the top of the dashboard that shows who is signed in.'}]},
+
+// ================= THE DOTS =================
+{html:()=>HEAD('The dots','What each colour means')+BAR(ORDER)+`<div class="wn-cards">
+ ${CARD('','#16A34A','Green','Online right now.')}${CARD('','#EAB308','Yellow','Signed in, but idle for a while.')}${CARD('','rgba(220,38,38,.6)','Faded red','Signed off recently.')}</div>`,
+ steps:[
+  {say:'Each name has a coloured dot.',act:async()=>{spot(q('.topbar-presence-strip'),8)}},
+  {say:'Green means online right now.',act:async()=>{spot(q('.k-alex'),6);await show(all('.wn-card')[0])}},
+  {say:'Yellow means signed in, but idle.',act:async()=>{spot(q('.k-sam'),6);await show(all('.wn-card')[1])}},
+  {say:'A faded red name signed off recently.',act:async()=>{spot(q('.k-casey'),6);await show(all('.wn-card')[2])}}
+ ]},
+
+// ================= PARTNERS IN PURPLE =================
+{html:()=>HEAD('New','Pacific partners in purple')+BAR(OLD,false)+`<div class="wn-cards">
+ ${CARD('ldah','','LDAH staff','Shown first, in the usual dark text, sorted by status.')}${CARD('pip','','Pacific partners','Shown in purple, always after every LDAH staff member.')}</div>`,
+ steps:[
+  {say:'Pacific partners now show in purple.',act:async()=>{spot(null);await wait(300);all('.tp-user').forEach(e=>{if(P[e.className.match(/k-(\w+)/)[1]].pip)e.classList.add('tp-pip')});await wait(700);spot(q('.k-pat'),6)}},
+  {say:'They always come after every LDAH staff member, whatever their status.',act:async()=>{spot(null);await reorder(ORDER);await show(all('.wn-card')[0]);await show(all('.wn-card')[1]);const a=pos(q('.k-pat')),b=pos(q('.k-lee'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},8)}},
+  {say:'Hover over any name to see who it is. A partner also says Pacific partner.',act:async()=>{spot(null);
+    let t=await tip('jordan','Jordan Price (online)');await wait(1400);t.remove();
+    t=await tip('pat','Pat Rivera · Pacific partner (online)');spot(t,6)}}
+ ]},
+
+// ================= WRAP UP =================
+{cls:'cover',html:()=>`${COVER_LOGO}<div class="brand">What’s new · The top bar</div><div class="hello">That’s it</div><h1>Know who to message</h1>
+ <p class="sub" style="top:340px">Dark text is LDAH staff. Purple is a Pacific partner. The dot tells you who is around right now.</p>
+ <div class="wn-cv" style="top:420px;left:70px;transform:none;animation:rise .6s .5s both;width:auto"><div class="topbar-presence-strip">${ORDER.map(k=>CHIP(k)).join('')}</div></div>
+ <div class="gate" style="top:520px"><button class="btn ghost" data-go="again">Watch again</button><button class="btn" data-go="close">Close</button></div>${WAVES}`,
+ steps:[{say:'So at a glance you can tell who is LDAH and who is a partner, and you know who to message. That’s all!',act:async()=>{await wait(400);confetti(640,300,140)}}]}
+];
+</script>
+<script src="deck-engine.js"></script>
+<script src="deck-tracker.js"></script></body></html>
