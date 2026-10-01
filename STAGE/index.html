@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.65-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.66-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20209,6 +20209,28 @@ var _photoPendingByIsland = {};
     inp.click();
   };
 
+  /* Vision printout photo on a screening (v151.66). Same private route as consents. */
+  window.ctScViewPrintout = async function(contactId, screeningId, idx) {
+    try {
+      var snap = await db.collection('contacts').doc(contactId).get();
+      var scr = (((snap.data() || {}).screenings) || []).filter(function (s) { return s && s.id === screeningId; })[0] || {};
+      var rec = (scr.printouts || [])[idx];
+      if (!rec || !rec.storagePath) throw new Error('That photo is no longer on this screening.');
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var r = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/getScreeningConsentDownloadUrl', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, storagePath: rec.storagePath })
+      });
+      var d = await r.json();
+      if (!r.ok || !d.url) throw new Error(d.error || 'Could not open that photo.');
+      cmsCgLightboxOpen(d.url, 'image/jpeg', 'Vision printout');
+      var _dl = document.getElementById('cmsCgLightboxDl');
+      if (_dl) _dl.onclick = null;
+    } catch (e) {
+      if (typeof _showToast === 'function') _showToast(e.message || 'Could not open that photo.', '#DC2626');
+    }
+  };
+
   window.ctScViewConsent = async function(contactId, idx) {
     var msg = document.getElementById('ctScUploadMsg_' + contactId);
     try {
@@ -20607,6 +20629,13 @@ window.openContactDetail = async function(contactId) {
             if (_resWhen || _res.screenedBy) railHtml += '<div style="font-size:.75rem;color:#94A3B8;margin-top:2px;">Screened ' + _resWhen + (_res.screenedBy ? ' by ' + rsEscape(_res.screenedBy) : '') + '</div>';
             railHtml += '<div style="font-size:.75rem;color:#94A3B8;">Results ' + (_res.resultsSentAt ? 'emailed to family' : 'not yet sent') + '</div></div>';
           }
+          /* Vision printout photos taken on screening day (v151.66). Private:
+             each opens through a 10-minute signed link and every view is logged. */
+          if (Array.isArray(_srp.printouts) && _srp.printouts.length) {
+            railHtml += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">' + _srp.printouts.map(function (_p, _pi) {
+              return '<button onclick="event.stopPropagation(); ctScViewPrintout(\'' + contactId + '\', \'' + (_srp.id || '') + '\', ' + _pi + ')" style="font-size:.78rem;font-weight:600;color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;padding:4px 10px;cursor:pointer;">Vision printout' + (_srp.printouts.length > 1 ? ' ' + (_pi + 1) : '') + '</button>';
+            }).join('') + '</div>';
+          }
           railHtml += '<div style="margin-top:10px;"><button onclick="event.stopPropagation(); openScreeningResults(\'' + contactId + '\', \'' + (_srp.id || '') + '\')" style="font-size:.8rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 12px;cursor:pointer;">' + (_res ? 'Edit / send results' : 'Enter results') + '</button></div>';
           /* Consent provenance. A screening carried out before the online
              consent form existed (July 2026) was consented on PAPER, so saying
@@ -20614,7 +20643,12 @@ window.openContactDetail = async function(contactId) {
              something untrue on a child's health record. Those entries carry
              paperConsent:true and get their own line. */
           railHtml += '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed #A7F3D0;font-size:.78rem;color:#64748B;">';
-          if (_srp.paperConsent) {
+          if (_srp.source === 'school-paper') {
+            /* Collected on paper by the school (v151.66): never "electronically signed". */
+            railHtml += '<strong style="color:#B45309;">Paper consent</strong> &mdash; collected by ' + rsEscape(_srp.location || 'the school') + (_srp.classroom ? ', ' + rsEscape(_srp.classroom) + ' class' : '') +
+                        '; signed by ' + rsEscape(_srp.signedName || 'the parent') + (_srp.signedAtDate ? ' on <strong>' + rsEscape(_srp.signedAtDate) + '</strong>' : '') + '.';
+            if (_srp.scheduled && Array.isArray(_srp.scheduled.dates) && !_res) railHtml += '<br><strong style="color:#0369A1;">Screening scheduled</strong> ' + rsEscape(_srp.scheduled.dates.join(' / ')) + (_srp.scheduled.time ? ', ' + rsEscape(_srp.scheduled.time) : '');
+          } else if (_srp.paperConsent) {
             railHtml += '<strong style="color:#B45309;">Paper consent</strong> &mdash; signed on the day, filed in the office.';
             if (_srp.consentNote) railHtml += '<br>' + rsEscape(_srp.consentNote);
             if (_srpWhen) railHtml += '<br>Screened <strong>' + rsEscape(_srpWhen) + '</strong>';
