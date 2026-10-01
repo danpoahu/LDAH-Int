@@ -37,6 +37,31 @@
   var lastInput = Date.now(), lastScene = 0, sceneIdx = 0, sceneTotal = 0;
   var furthest = 0, completed = false;
   var seenFirst = {}, knownFurthest = 0, knownCompleted = false;
+  // Quiz score for THIS run (2026-10-01). quiz.S{n}.q{i}.firstTry keeps only the very first
+  // answer ever given, so a person who fails could never pass on a retake. Each page load is
+  // one run: its first-try answers are scored when the run reaches the last scene and written
+  // as quizScore / quizCorrect / quizTotal / quizRuns / quizBest, plus quizPassed +
+  // quizPassedAt (sticky) at 70% or better. Additive fields only: older readers ignore them.
+  var PASS_PCT = 70, runFirst = {}, runScored = false, knownPassed = false, knownBest = 0;
+  function quizQuestions() {
+    try { if (typeof window.QUIZ_TOTAL === 'number') return window.QUIZ_TOTAL; } catch (e) {}
+    var n = 0;
+    try {
+      if (typeof SC !== 'undefined' && SC && SC.length) SC.forEach(function (s) {
+        if (!s || s.cls !== 'quiz' || !Array.isArray(s.steps)) return;
+        s.steps.forEach(function (st) { if (st && typeof st.say === 'string' && /^Question \d+\./.test(st.say)) n++; });
+      });
+    } catch (e) {}
+    return n;
+  }
+  function runResult() {
+    var keys = Object.keys(runFirst), ok = 0;
+    keys.forEach(function (k) { if (runFirst[k]) ok++; });
+    var tot = Math.max(quizQuestions(), keys.length);
+    var score = tot ? Math.round(ok / tot * 100) : null;
+    return { answered: keys.length, correct: ok, total: tot, score: score,
+             passed: tot ? score >= PASS_PCT : null, finished: completed };
+  }
 
   function note(html) {
     var n = document.getElementById('trackNote');
@@ -103,9 +128,12 @@
       var p = pendQuiz[k] || (pendQuiz[k] = { attempts: 0, first: null });
       p.attempts += 1;
       if (p.first === null) p.first = !!correct;
+      if (!(k in runFirst)) runFirst[k] = !!correct;
       dirty = true;
       flush();
-    }
+    },
+    // This run's quiz result, for the dashboard popup (same origin) to read.
+    result: function () { return runResult(); }
   };
 
   function flush() {
@@ -125,6 +153,16 @@
     var best = Math.max(furthest, knownFurthest);
     if (best) { upd.furthest = best; if (tot) upd.percent = Math.min(100, Math.round(best / tot * 100)); knownFurthest = best; }
     if (completed && !knownCompleted) { upd.completedAt = new Date().toISOString(); knownCompleted = true; }
+    if (completed && !runScored) {
+      var rr = runResult();
+      if (rr.total) {
+        runScored = true;
+        upd.quizScore = rr.score; upd.quizCorrect = rr.correct; upd.quizTotal = rr.total;
+        upd.quizAt = new Date().toISOString(); upd.quizRuns = inc(1);
+        if (rr.score > knownBest) { upd.quizBest = rr.score; knownBest = rr.score; }
+        if (rr.passed && !knownPassed) { upd.quizPassed = true; upd.quizPassedAt = upd.quizAt; knownPassed = true; }
+      }
+    }
     upd.status = knownCompleted ? 'completed' : 'in-progress';
     pend = { active: 0, slide: {}, visit: {} }; pendQuiz = {}; dirty = false; flushing = true;
     ref.update(upd).catch(function (e) { console.warn('training tracker write failed', e && e.code); })
@@ -151,6 +189,7 @@
         return ref.get().then(function (snap) {
           var old = snap.exists ? (snap.data() || {}) : {};
           knownFurthest = old.furthest || 0; knownCompleted = old.status === 'completed';
+          knownPassed = old.quizPassed === true; knownBest = Number(old.quizBest) || 0;
           Object.keys(old.quiz || {}).forEach(function (s) {
             Object.keys(old.quiz[s] || {}).forEach(function (q) {
               if (typeof (old.quiz[s][q] || {}).firstTry === 'boolean') seenFirst[s + '.' + q] = true;
@@ -164,6 +203,7 @@
             visits: inc(1), lastActiveAt: ts, lastSource: SRC
           };
           base[SRC === 'popup' ? 'opensPopup' : 'opensSelf'] = inc(1);
+          if (quizQuestions()) base.quizQuestions = quizQuestions();
           if (!snap.exists) {
             base.startedAt = ts; base.sessionDate = new Date().toISOString().slice(0, 10);
             base.status = 'in-progress'; base.activeSeconds = 0; base.furthest = 0; base.percent = 0; base.skips = 0;
