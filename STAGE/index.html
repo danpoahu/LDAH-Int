@@ -5584,7 +5584,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.67-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.68-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -54781,6 +54781,40 @@ window.prExportCsv = function() {
     { k: 'flyers', label: 'Flyers' },
     { k: 'newsletters', label: 'Newsletters' }
   ];
+  /* Other materials rows (v151.68). */
+  var _OO_OTHER_MAX = 3;
+  function _ooOtherRowHtml(i, o) {
+    o = o || {};
+    var cell = 'width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;';
+    return '<tr><td style="padding:3px 6px;"><input type="text" id="ooMatOtherName_' + i + '" placeholder="Other (type what it was)" value="' + _esc(o.name || '') + '" oninput="ooOtherMaybeAddRow(' + i + ')" style="width:100%;padding:4px 6px;border:1px dashed #94A3B8;border-radius:5px;font-size:.82rem;"></td>' +
+      '<td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatOtherPacked_' + i + '" value="' + (typeof o.packed === 'number' ? o.packed : 0) + '" style="' + cell + '"></td>' +
+      '<td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatOtherDiss_' + i + '" value="' + (typeof o.disseminated === 'number' ? o.disseminated : 0) + '" style="' + cell + '"></td></tr>';
+  }
+  function _ooRenderOther(list) {
+    var body = document.getElementById('ooMatOtherBody'); if (!body) return;
+    list = (Array.isArray(list) ? list : []).filter(function (o) { return o && String(o.name || '').trim(); }).slice(0, _OO_OTHER_MAX);
+    var rows = list.length < _OO_OTHER_MAX ? list.concat([{}]) : list;
+    body.innerHTML = rows.map(function (o, i) { return _ooOtherRowHtml(i, o); }).join('');
+  }
+  window.ooOtherMaybeAddRow = function (i) {
+    var body = document.getElementById('ooMatOtherBody'); if (!body) return;
+    var n = body.querySelectorAll('tr').length;
+    var el = document.getElementById('ooMatOtherName_' + i);
+    if (i === n - 1 && n < _OO_OTHER_MAX && el && el.value.trim()) {
+      body.insertAdjacentHTML('beforeend', _ooOtherRowHtml(n, {}));
+    }
+  };
+  function _ooOtherFromInputs() {
+    var out = [];
+    for (var i = 0; i < _OO_OTHER_MAX; i++) {
+      var nm = document.getElementById('ooMatOtherName_' + i); if (!nm) break;
+      var name = nm.value.trim(); if (!name) continue;
+      out.push({ name: name,
+        packed: parseInt((document.getElementById('ooMatOtherPacked_' + i) || {}).value) || 0,
+        disseminated: parseInt((document.getElementById('ooMatOtherDiss_' + i) || {}).value) || 0 });
+    }
+    return out;
+  }
   function _ooMaterialsFromInputs() {
     var packed = {}, diss = {};
     _OO_MATERIALS.forEach(function(m) {
@@ -54789,8 +54823,9 @@ window.prExportCsv = function() {
       packed[m.k] = p ? (parseInt(p.value) || 0) : 0;
       diss[m.k] = d ? (parseInt(d.value) || 0) : 0;
     });
-    return { packed: packed, diss: diss };
+    return { packed: packed, diss: diss, other: _ooOtherFromInputs() };
   }
+  function _ooFeedbackOn() { var c = document.getElementById('ooFeedbackChk'); return !c || c.checked === true; }
   function _ooFillMaterials(packedMap, dissMap) {
     packedMap = packedMap || {}; dissMap = dissMap || {};
     _OO_MATERIALS.forEach(function(m) {
@@ -54870,7 +54905,7 @@ window.prExportCsv = function() {
     if ((!_allContacts || !_allContacts.length) && typeof window.loadContacts === 'function') {
       try { Promise.resolve(window.loadContacts()).catch(function() {}); } catch (_) {}
     }
-    var presenterSel = '', matPacked = {}, matDiss = {};
+    var presenterSel = '', matPacked = {}, matDiss = {}, matOther = [], _ooFbOn = true;
     var ov = document.getElementById('oneOffOverlay');
     document.getElementById('oneOffModalTitle').textContent = _ooEditId
       ? 'Edit One-Off Event'
@@ -54956,6 +54991,8 @@ window.prExportCsv = function() {
           if (_pCnt && typeof _ov.attTotal === 'number') _pCnt.value = _ov.attTotal;
           matPacked = (d.summary && d.summary.materialsPacked) || {};
           matDiss = (d.summary && d.summary.materialsDisseminated) || {};
+          matOther = (d.summary && Array.isArray(d.summary.materialsOther)) ? d.summary.materialsOther : [];
+          _ooFbOn = d.feedbackEmails !== false;
           document.getElementById('oneOffLocation').value = d.location || '';
           if (typeof window.partnerPickerInit === 'function') {
             window.partnerPickerInit('oneOffPartnerIslandRow', 'oneOffPartnerIsland', d.partnerIsland || '');
@@ -54979,6 +55016,15 @@ window.prExportCsv = function() {
     }
     await _ooFillPresenters(presenterSel);
     _ooFillMaterials(matPacked, matDiss);
+    _ooRenderOther(matOther);
+    /* Feedback tick box: beside TOTAL for partners, under the list for staff. */
+    var _fbWrap = document.getElementById('ooFeedbackWrap'), _fbChk = document.getElementById('ooFeedbackChk');
+    if (_fbChk) _fbChk.checked = _ooFbOn;
+    var _cntBox = document.getElementById('oneOffPartnerCountBox'), _cntRow = document.getElementById('oneOffCountRow');
+    if (_fbWrap) {
+      if (_cntBox && _cntBox.style.display !== 'none' && _cntRow) { _cntRow.appendChild(_fbWrap); _fbWrap.style.margin = '0'; }
+      else { var _lst = document.getElementById('oneOffAttendeeList'); if (_lst && _lst.parentNode) _lst.parentNode.insertBefore(_fbWrap, _lst.nextSibling); _fbWrap.style.margin = '8px 0'; }
+    }
     _ooRenderAttendees();
     _ooWireSearch();
     if (ov) ov.style.display = 'flex';
@@ -55050,7 +55096,7 @@ window.prExportCsv = function() {
       if (eventId) {
         var _ooUpd = {
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.presenterComments': comments, updatedAt: ts()
+          isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.materialsOther': mats.other, 'summary.presenterComments': comments, feedbackEmails: _ooFeedbackOn(), updatedAt: ts()
         };
         if (_ooPartnerChange !== null) {
           _ooUpd.partnerIsland = (_ooPartnerChange === '')
@@ -55065,7 +55111,7 @@ window.prExportCsv = function() {
       } else {
         var _ooNew = window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, presenterComments: comments },
+          isOneOff: true, feedbackEmails: _ooFeedbackOn(), summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, materialsOther: mats.other, presenterComments: comments },
             partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [],
           /* Upcoming events stay live until the day after they happen — the
              nightly sweep archives them then. Only these carry qrTableEvent,
@@ -55092,7 +55138,9 @@ window.prExportCsv = function() {
           attendanceStatus: 'attended', attendanceMarkedAt: ts(), attendanceMarkedBy: staffName,
           selectedDates: [dateDisplay], registration: _ooReg(c),
           eventId: eventId, eventTitle: name,
-          source: 'one-off gathering', isOneOffAttendee: true, createdAt: ts()
+          source: 'one-off gathering', isOneOffAttendee: true,
+          feedbackRequested: _ooFeedbackOn(),   /* server sends feedback only when true (v151.68) */
+          createdAt: ts()
         });
       }
       if (typeof auditLog === 'function') auditLog(_ooEditId ? 'Updated one-off event' : 'Created one-off event', name + ' — ' + dateIso + ' — ' + _ooAttendees.length + ' attendee(s)');
@@ -63072,6 +63120,10 @@ window.cmsBuildMembershipReport = async function() {
             <tr><td style="padding:3px 6px;">Flyers</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_flyers" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_flyers" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
             <tr><td style="padding:3px 6px;">Newsletters</td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatPacked_newsletters" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td><td style="text-align:center;padding:3px;"><input type="number" min="0" id="ooMatDiss_newsletters" value="0" style="width:54px;padding:4px;border:1px solid #CBD5E1;border-radius:5px;text-align:center;font-size:.82rem;"></td></tr>
           </tbody>
+          <!-- Other materials (v151.68): up to 3 free-text rows; the next blank
+               row opens once the one above has a name. Saved as
+               summary.materialsOther, which every report already counts. -->
+          <tbody id="ooMatOtherBody"></tbody>
         </table>
       </div>
       <div style="margin-bottom:16px;">
@@ -63131,6 +63183,14 @@ window.cmsBuildMembershipReport = async function() {
           <button type="button" onclick="cmsOoCancelNeedContact()" style="font-size:.82rem;background:#fff;color:#475569;border:1px solid #CBD5E1;border-radius:6px;padding:6px 12px;cursor:pointer;margin-left:6px;">Cancel</button>
         </div>
         <div id="oneOffAttendeeList"></div>
+        <!-- Feedback emails (v151.68). One control: it sits to the right of the
+             TOTAL box for partners and under the attendee list for staff. Each
+             attendee added in this save is stamped feedbackRequested, and the
+             server sends only when it is true. -->
+        <label id="ooFeedbackWrap" style="display:flex;align-items:flex-start;gap:8px;font-size:.82rem;color:#334155;line-height:1.35;max-width:300px;margin:8px 0;cursor:pointer;">
+          <input type="checkbox" id="ooFeedbackChk" checked style="margin-top:2px;width:16px;height:16px;flex:none;">
+          <span><b>Send feedback emails</b><br><span style="color:#64748B;">The attendees above with an email will get a short feedback request after the event.</span></span>
+        </label>
         <!-- Partners get the picker AND this headcount box (2026-09-03): a booth
              at someone else's event yields only a number, but a session they run
              themselves has names they were previously unable to record. The
@@ -63139,8 +63199,10 @@ window.cmsBuildMembershipReport = async function() {
              report already reads when an event has no per-person signups. -->
         <div id="oneOffPartnerCountBox" style="display:none;">
           <label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">How many people attended?</label>
+          <div id="oneOffCountRow" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
           <input id="oneOffPartnerCount" type="number" min="0" step="1" placeholder="e.g. 24"
                  style="width:160px;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+          </div>
           <div style="margin-top:8px;padding:8px 10px;background:#FEF3C7;border:1px solid #F59E0B;border-left:4px solid #D97706;border-radius:6px;font-size:.82rem;color:#78350F;line-height:1.4;"><b>This is the TOTAL attendance</b>, including the people you marked attended above. Example: 2 named above and 36 more with no names &rarr; enter 38.</div>
         </div>
       </div>
