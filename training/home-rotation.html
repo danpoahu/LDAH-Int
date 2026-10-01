@@ -147,6 +147,24 @@
     .scene,.reveal,.cursor,.click-ring,.spot{animation:none !important;transition:none !important;opacity:1 !important;transform:none !important;visibility:visible}
     .scene:not(.active){opacity:0 !important;visibility:hidden !important}
   }
+  /* quick check (quiz) */
+  .scene.quiz{justify-content:flex-start;padding-top:22px}
+  .qz-top{display:flex;align-items:center;gap:18px;justify-content:center}
+  .qz-stars{display:flex;gap:7px}
+  .qz-stars i{width:28px;height:28px;background:#dfd8c8;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);transition:background .3s}
+  .qz-stars i.on{background:#F59E0B}
+  .qz-sub{font-size:15.5px;color:var(--ink-soft);margin-top:6px;text-align:center}
+  .qz-card{width:min(860px,94%);background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:18px 26px 12px;margin-top:14px;text-align:left}
+  .qz-n{font-size:12.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+  .qz-q{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:clamp(18px,2vw,23px);line-height:1.25;margin:5px 0 12px}
+  .qz-o{display:flex;align-items:center;gap:12px;width:100%;text-align:left;font:inherit;font-size:16.5px;font-weight:600;background:#faf8f3;border:2px solid var(--line);border-radius:12px;padding:9px 14px;margin-bottom:8px;cursor:pointer;color:var(--ink);transition:border-color .2s,background .2s}
+  .qz-o:hover:not([disabled]){border-color:var(--ocean-bright);background:#eef7fa}
+  .qz-o[disabled]{cursor:default}
+  .qz-L{width:30px;height:30px;border-radius:50%;background:var(--ocean);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-weight:800}
+  .qz-o.no{border-color:#DC2626;background:#FEF2F2;animation:qzShake .4s}.qz-o.no .qz-L{background:#DC2626}
+  .qz-o.yes{border-color:#16A34A;background:#F0FDF4}.qz-o.yes .qz-L{background:#16A34A}
+  .qz-fb{min-height:24px;font-size:15.5px;font-weight:700;margin-top:2px}.qz-fb.good{color:#15803D}.qz-fb.bad{color:#B91C1C}
+  @keyframes qzShake{20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
 </style>
 <!-- Same Firebase build as the dashboard, so the deck shares its sign-in and records progress. -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -159,7 +177,7 @@
   <div class="topbar">
     <div class="brand">LDAH <span>· Home Rotation Tour</span></div>
     <div class="topbar-right">
-      <div class="scene-count"><span id="sceneNow">1</span> / <span id="sceneTotal">7</span></div>
+      <div class="scene-count"><span id="sceneNow">1</span> / <span id="sceneTotal">8</span></div>
       <button class="skip-btn" id="skipBtn">Skip tour</button>
     </div>
   </div>
@@ -254,6 +272,14 @@
       <p class="kicker">Dated events show their date; standing items like <b>Membership</b> say <b>ongoing</b> and stay in until you untick them.</p>
     </section>
 
+    <!-- QUICK CHECK · 3 questions (ldahTrack.quiz records each answer; the first one counts) -->
+    <section class="scene quiz" data-dur="600000" data-narration="Quick check. Three quick questions. Your first answer to each one counts.">
+      <div class="eyebrow">Quick check</div>
+      <div class="qz-top"><h2>Three quick questions.</h2><div class="qz-stars" id="qzStars"><i></i><i></i><i></i></div></div>
+      <p class="qz-sub">Your first answer to each one counts. Take your time: the next question waits for you.</p>
+      <div class="qz-card" id="qzCard"></div>
+    </section>
+
     <!-- 7 · RECAP -->
     <section class="scene" data-dur="16000" data-narration="That's the whole job. C M S, Home Rotation. The green counter says what's live. Tick in, untick out — it reaches the website home page and the app splash. Two at a time, rotated fairly, so everything gets seen. Mahalo!">
       <div class="eyebrow">Recap</div>
@@ -272,7 +298,7 @@
           <div><b>Two at a time, rotated fairly</b><p>Visitors aren&rsquo;t shown repeats until they&rsquo;ve seen the rest — everything you tick gets its turn.</p></div>
         </div>
       </div>
-      <p class="kicker reveal d4">Questions or odd cases: bring them to Daniel. Mahalo!</p>
+      <p class="kicker reveal d4">Not sure about something? Come back and watch this again any time, or look in Training Videos. Mahalo!</p>
     </section>
 
   </div>
@@ -375,10 +401,12 @@
     var pick = synth.getVoices().filter(function(v){ return v.name === voiceSel.value; })[0];
     if(pick) u.voice = pick;
     u.rate = 1.0; u.pitch = 1.0;
+    var at = idx;
     u.onend = function(){
       speaking = false; clearInterval(heartbeat);
       if(narrOn && playing){
         setTimeout(function(){
+          if(at !== idx || qzHold()) return;
           if(narrOn && playing){
             if(idx < scenes.length-1) go(idx+1);
             else finishTour('done');
@@ -413,6 +441,73 @@
   });
   var dots = Array.prototype.slice.call(dotsWrap.children);
 
+  /* ---------- quick check: 3 questions, held until answered ---------- */
+  var qz = { i: 0, done: false };
+  function qzOn(){ return !!(scenes[idx] && scenes[idx].classList.contains('quiz')); }
+  function qzHold(){ return qzOn() && !qz.done; }
+  function qzSpeak(text, cb){
+    var fired = false, fin = function(){ if(fired) return; fired = true; if(cb) cb(); };
+    if(!narrOn || !synth){ if(cb) setTimeout(fin, 1400); return; }
+    stopSpeech();
+    var u = new SpeechSynthesisUtterance(text);
+    var pick = synth.getVoices().filter(function(v){ return v.name === voiceSel.value; })[0];
+    if(pick) u.voice = pick;
+    u.onend = fin; u.onerror = fin;
+    synth.speak(u);
+  }
+  function qzRender(){
+    var Q = QZ[qz.i], card = document.getElementById('qzCard');
+    var stars = document.querySelectorAll('#qzStars i');
+    for(var k = 0; k < stars.length; k++) stars[k].classList.toggle('on', k < qz.i || (qz.done && k <= qz.i));
+    card.innerHTML = '<div class="qz-n">Question ' + (qz.i+1) + ' of ' + QZ.length + '</div><div class="qz-q">' + Q.q + '</div>' +
+      Q.o.map(function(o, j){ return '<button type="button" class="qz-o" data-j="' + j + '"><span class="qz-L">' + 'ABC'[j] + '</span><span>' + o + '</span></button>'; }).join('') +
+      '<div class="qz-fb"></div>';
+    var btns = Array.prototype.slice.call(card.querySelectorAll('.qz-o')), fb = card.querySelector('.qz-fb');
+    var finish = function(){
+      btns.forEach(function(b){ b.disabled = true; });
+      btns[Q.a].classList.add('yes');
+      if(stars[qz.i]) stars[qz.i].classList.add('on');
+      fb.className = 'qz-fb good'; fb.textContent = 'Yes! ' + Q.y;
+    };
+    if(qz.done){ finish(); return; }
+    btns.forEach(function(b, j){
+      b.addEventListener('click', function(){
+        if(b.disabled) return;
+        if(window.ldahTrack) ldahTrack.quiz(QZ_SEC, qz.i, j === Q.a);
+        if(j === Q.a){
+          finish();
+          var at = qz.i;
+          qzSpeak('Yes! ' + Q.y, function(){ setTimeout(function(){ if(qzOn() && qz.i === at && !qz.done) qzNext(); }, 600); });
+        } else {
+          b.disabled = true; b.classList.add('no');
+          fb.className = 'qz-fb bad'; fb.textContent = 'Not quite. ' + Q.n + ' Try again.';
+          qzSpeak('Not quite. ' + Q.n + ' Try again.');
+        }
+      });
+    });
+  }
+  function qzNext(){
+    if(qz.i < QZ.length-1){
+      qz.i++; qzRender();
+      if(playing) qzSpeak('Question ' + (qz.i+1) + '. ' + QZ[qz.i].q);
+    } else {
+      qz.done = true; qzRender();
+      if(playing) setTimeout(function(){ if(qzOn()) go(idx+1); }, 700);
+    }
+  }
+  function qzEnter(){
+    if(!qzOn()) return;
+    qzRender();
+    scenes[idx].setAttribute('data-narration', qz.done ? 'Quick check. All three done.' :
+      (qz.i === 0 ? 'Quick check. Three quick questions. Your first answer to each one counts. ' : '') + 'Question ' + (qz.i+1) + '. ' + QZ[qz.i].q);
+  }
+
+  var QZ_SEC = 'Section 1', QZ = [
+    {q:'You want a new flyer to show on the website home page. Where do you go?', o:['CMS, then Home Rotation','Admin, then List Management','Main, then Reports'], a:0, y:'CMS, then Home Rotation. The green counter shows how many are live.', n:'Home Rotation lives under the CMS tab.'},
+    {q:'An event should come off the home page and the app splash today. What do you do?', o:['Delete the event','Wait for it to drop off on its own','Untick it in Home Rotation'], a:2, y:'Untick it. One click pulls it back out.', n:'Ticked is in, unticked is out. Nothing needs deleting.'},
+    {q:'Eight items are ticked. How does a visitor see them?', o:['All eight at once','Two at a time, with no repeats until they have seen the rest','Only the two newest'], a:1, y:'Two at a time, rotated fairly, so every ticked item gets its turn.', n:'Think about how the rotation shares the space.'}
+  ];
+
   function go(i){
     if(i<0) i = 0;
     if(i>=scenes.length) i = scenes.length-1;
@@ -423,6 +518,7 @@
     s.classList.add('active');
     dots.forEach(function(d,k){ d.classList.toggle('on', k===idx); });
     sceneNow.textContent = idx+1;
+    qzEnter();
     sceneDur = reduced ? 900000 : parseInt(s.getAttribute('data-dur'),10) || 10000;
     if(narrOn && !reduced){
       var words = (s.getAttribute('data-narration')||'').split(/\s+/).length;
@@ -436,7 +532,7 @@
   function schedule(){
     clearTimeout(timer); cancelAnimationFrame(raf);
     if(playing && !reduced && !narrOn){
-      timer = setTimeout(function(){
+      timer = setTimeout(function(){ if(qzHold()) return;
         if(idx < scenes.length-1) go(idx+1);
         else finishTour('done');
       }, sceneDur - paused);
@@ -513,5 +609,6 @@
   go(0); setPlaying(false); setVoiceUI();
 })();
 </script>
+<script>window.QUIZ_TOTAL=3;</script>
 <script src="deck-tracker.js"></script></body>
 </html>
