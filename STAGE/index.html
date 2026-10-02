@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.85-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.86-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7486,7 +7486,8 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             </label>
             <label style="font-size:.8rem;color:var(--text-soft);display:inline-flex;align-items:center;gap:6px;">Sort:
               <select id="carSort" onchange="carApplySort()" style="font-family:inherit;font-size:.8rem;">
-                <option value="days" selected>Open (oldest first)</option>
+                <option value="col" selected>By column (click a heading)</option>
+                <option value="days">Open (oldest first)</option>
                 <option value="readiness">Readiness (lowest first)</option>
                 <option value="progress">Most progress</option>
               </select>
@@ -58243,10 +58244,44 @@ window.carToggleNotes = function (i) {
 /* Sort (v150.40-STAGE). Open cases always first, as before; the select only
    orders within each group. Families with no score yet go to the bottom of the
    two readiness orders rather than pretending to be a 0. */
+/* Clickable column headings (v151.86): Family, Advocate, Started, Open and the
+   readiness score. Default is Started, oldest to newest (Daniel 10-01). Open
+   cases still come first; unscored families sit at the bottom of a score sort
+   whichever way it runs. */
+var _carCol = { key: 'started', dir: 'asc' };
+var _CAR_COL_FIRST = { name: 'asc', advocate: 'asc', started: 'asc', days: 'desc', score: 'desc' };
+window.carSortBy = function(key) {
+  if (!_CAR_COL_FIRST[key]) return;
+  _carCol = (_carCol.key === key)
+    ? { key: key, dir: _carCol.dir === 'asc' ? 'desc' : 'asc' }
+    : { key: key, dir: _CAR_COL_FIRST[key] };
+  var sel = document.getElementById('carSort'); if (sel) sel.value = 'col';
+  carApplySort();
+};
+function _carColCmp(a, b) {
+  var k = _carCol.key, s = _carCol.dir === 'asc' ? 1 : -1;
+  if (k === 'score') {
+    if (!!a.arS !== !!b.arS) return a.arS ? -1 : 1;           // unscored always last
+    return a.arS && b.arS ? s * (a.arS.now - b.arS.now) : 0;
+  }
+  if (k === 'name' || k === 'advocate') {
+    var x = String(a[k] || ''), y = String(b[k] || '');
+    if (!x !== !y) return x ? -1 : 1;                          // blank advocate last
+    return s * x.localeCompare(y);
+  }
+  if (k === 'started') {
+    var p = a.started ? a.started.getTime() : null, q = b.started ? b.started.getTime() : null;
+    if ((p == null) !== (q == null)) return p == null ? 1 : -1;
+    return s * ((p || 0) - (q || 0));
+  }
+  if ((a.days == null) !== (b.days == null)) return a.days == null ? 1 : -1;
+  return s * ((a.days || 0) - (b.days || 0));
+}
 function _carSortRows() {
-  var mode = (document.getElementById('carSort') || {}).value || 'days';
+  var mode = (document.getElementById('carSort') || {}).value || 'col';
   _carRows.sort(function(a, b) {
     if (a.open !== b.open) return a.open ? -1 : 1;
+    if (mode === 'col') { var c = _carColCmp(a, b); if (c) return c; return String(a.name || '').localeCompare(String(b.name || '')); }
     if (mode !== 'days') {
       if (!!a.arS !== !!b.arS) return a.arS ? -1 : 1;
       if (a.arS && b.arS) {
@@ -61537,7 +61572,18 @@ function _carRender() {
     '<table style="width:100%;border-collapse:collapse;font-size:.86rem;min-width:1150px;">' +
     '<thead><tr style="background:#F5F3FF;">' +
     ['Family', 'Advocate', 'Started', 'Open', 'Self-advocacy readiness', 'Authorization', 'Welcome letter', 'Member', 'Next follow-up']
-      .map(function(t) { return '<th style="text-align:left;padding:9px 12px;color:#6D28D9;font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;' + (t === 'Self-advocacy readiness' ? 'min-width:250px;' : '') + '">' + t + '</th>'; }).join('') +
+      .map(function(t) {
+        var key = ({ 'Family': 'name', 'Advocate': 'advocate', 'Started': 'started', 'Open': 'days', 'Self-advocacy readiness': 'score' })[t];
+        var colMode = ((document.getElementById('carSort') || {}).value || 'col') === 'col';
+        var on = key && colMode && _carCol.key === key;
+        var arrow = key ? (on ? (_carCol.dir === 'asc' ? ' &#9650;' : ' &#9660;') : ' <span style="opacity:.35">&#8693;</span>') : '';
+        var tip = key === 'score' ? 'Sort by readiness score, high to low or low to high' :
+                  key === 'started' ? 'Sort by start date, oldest to newest or newest to oldest' :
+                  key === 'days' ? 'Sort by how long the case has been open' : key ? 'Sort A to Z or Z to A' : '';
+        return '<th style="text-align:left;padding:9px 12px;color:#6D28D9;font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;' +
+          (t === 'Self-advocacy readiness' ? 'min-width:250px;' : '') + (key ? 'cursor:pointer;user-select:none;' + (on ? 'background:#EDE9FE;' : '') : '') + '"' +
+          (key ? ' onclick="carSortBy(\'' + key + '\')" title="' + tip + '"' : '') + '>' + t + arrow + '</th>';
+      }).join('') +
     '</tr></thead><tbody>';
 
   rows.forEach(function(r, _i) {
