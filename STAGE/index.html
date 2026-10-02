@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.99-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.0-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -43931,6 +43931,15 @@ function _vfaSectionHtml(app) {
     + '<div class="vfa-body" id="vfaBody_' + id + '"><div class="vfa-msg">Loading…</div></div></details>';
 }
 
+/* A direct server get sometimes reports "missing" for a doc that exists, just after a
+   page load (stale IndexedDB "no document" entry; seen 10-02). A documentId query is
+   reliable, so a "missing" answer is double-checked that way before it is believed. */
+window._fsGetSure = async function(coll, id) {
+  var snap = await db.collection(coll).doc(id).get({ source: 'server' });
+  if (snap.exists) return snap;
+  var q = await db.collection(coll).where(firebase.firestore.FieldPath.documentId(), '==', id).get({ source: 'server' });
+  return q.size ? q.docs[0] : snap;
+};
 function _vfaLoad(id) {
   if (!_vfaCanRead() || !document.getElementById('vfaBody_' + id)) return;
   var c = window._vfaCache[id];
@@ -43938,7 +43947,7 @@ function _vfaLoad(id) {
   if (c && c.loading) return;
   window._vfaCache[id] = { loading: true };
   // Server read: a cached "does not exist" must never claim they have not applied.
-  db.collection('volunteerApplicationDetails').doc(id).get({ source: 'server' }).then(function (snap) {
+  window._fsGetSure('volunteerApplicationDetails', id).then(function (snap) {
     if (!snap.exists && snap.metadata && snap.metadata.fromCache) throw { code: 'offline' };
     window._vfaCache[id] = snap.exists ? { doc: snap.data() } : { missing: true };
     _vfaPaint(id);
@@ -44453,7 +44462,7 @@ window.cmsVolOnbLoadAll = async function() {
 };
 window.cmsVolOnbFetchOne = async function(id) {
   var ref = db.collection('volunteerOnboarding').doc(id);
-  var res = await Promise.all([ref.get(), ref.collection('logs').orderBy('serviceDate', 'desc').get()]);
+  var res = await Promise.all([window._fsGetSure('volunteerOnboarding', id), ref.collection('logs').orderBy('serviceDate', 'desc').get()]);
   var logs = [];
   res[1].forEach(function(d) { logs.push(Object.assign({ id: d.id }, d.data())); });
   return { doc: res[0].exists ? (res[0].data() || {}) : null, logs: logs };
