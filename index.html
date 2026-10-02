@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.86</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v151.87</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -47711,7 +47711,8 @@ function _wnButtons() {
 function _wnById() { var m = {}; (_wn.cards || []).forEach(function(c) { m[c.id] = c; }); return m; }
 
 window._wnOpen = function(v, mode, pos) {
-  _wn.card = v; _wn.mode = mode || 'whatsnew'; _wn.pos = pos || null; _wn.started = null; _wn.doneNow = false;
+  _wn.card = v; _wn.mode = mode || 'whatsnew'; _wn.pos = pos || null; _wn.started = null; _wn.doneNow = false; _wn.skipOk = false;
+  _wnSkipToastHide();
   var nh = _wn.mode === 'newhire';
   _wnEl('wnKicker').textContent = nh ? ('New hire training' + (pos ? ' ' + pos.n + ' of ' + pos.of : '')) : 'What’s new';
   _wnEl('wnHead').style.background = nh ? 'linear-gradient(135deg,#B45309,#D97706)' :
@@ -47731,6 +47732,7 @@ window._wnOpen = function(v, mode, pos) {
 };
 
 function _wnTeardown() {
+  _wnSkipToastHide();
   var fr = _wnEl('wnFrame');
   if (fr) {
     try { if (fr.contentWindow && fr.contentWindow.speechSynthesis) fr.contentWindow.speechSynthesis.cancel(); } catch (e) {}
@@ -47741,9 +47743,34 @@ function _wnTeardown() {
   _wn.card = null; _wn.mode = ''; _wn.started = null; _wn.doneNow = false;
 }
 // The X and Esc: closes for this sign-in only. A new-hire card cannot be closed until passed.
+/* "Are you sure?" before skipping (v151.87, Daniel 10-02). A What's-new item is
+   short, so Remind me later or the X on one that was never started first asks
+   whether they really want to skip it. Once they say yes, it goes ahead. */
+function _wnSkipToastHide() { var t = document.getElementById('wnSkipToast'); if (t) t.remove(); }
+function _wnSkipGuard(go) {
+  var v = _wn.card;
+  if (!v || _wn.mode === 'newhire' || _wn.started || _wn.doneNow || _wn.skipOk) return false;
+  _wnSkipToastHide();
+  var t = document.createElement('div');
+  t.id = 'wnSkipToast';
+  t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:100001;background:#0F172A;color:#fff;' +
+    'border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:92vw;' +
+    'box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:.9rem;';
+  var len = v.duration ? 'only about ' + v.duration + ' long' : 'only about a minute long';
+  t.innerHTML = '<span>This one is <b>' + rsEscape(len) + '</b>. Are you sure you want to skip it?</span>' +
+    '<button type="button" id="wnSkipWatch" style="background:#0891B2;color:#fff;border:none;border-radius:7px;padding:7px 14px;font-weight:700;cursor:pointer;">Watch it now</button>' +
+    '<button type="button" id="wnSkipYes" style="background:transparent;color:#CBD5E1;border:1px solid #475569;border-radius:7px;padding:7px 12px;cursor:pointer;">Yes, skip</button>';
+  document.body.appendChild(t);
+  document.getElementById('wnSkipWatch').onclick = function() { _wnSkipToastHide(); };
+  document.getElementById('wnSkipYes').onclick = function() { _wnSkipToastHide(); _wn.skipOk = true; go(); };
+  setTimeout(function() { if (document.getElementById('wnSkipToast') === t) _wnSkipToastHide(); }, 15000);
+  return true;
+}
 window.wnClose = function() {
   if (!_wn.card) return;
   if (_wn.mode === 'newhire' && !_wn.doneNow) return;
+  if (_wnSkipGuard(function() { window.wnClose(); })) return;
+  _wnSkipToastHide();
   _wnTeardown();
 };
 
@@ -47838,6 +47865,8 @@ function _wnAddDaysHst(n) {
    person's existing training tasks, so a failed log write can never make a second one. */
 window.wnRemind = async function() {
   var v = _wn.card; if (!v || _wn.mode === 'newhire') return;
+  if (_wnSkipGuard(function() { window.wnRemind(); })) return;
+  _wnSkipToastHide();
   var uid = currentUserData.uid, now = new Date().toISOString(), L = _wn.log[v.id] || {};
   var p = { remindedAt: now, remindCount: (Number(L.remindCount) || 0) + 1 };
   var made = false;
