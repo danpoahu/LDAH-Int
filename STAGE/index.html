@@ -5607,7 +5607,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.17-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.19-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7416,6 +7416,15 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #475569;display:none;" id="deviceReportCard" onclick="cmsBuildDeviceReport()" title="The device, browser and screen size each person signs in on, so new screens are designed to fit them.">
               <div style="font-weight:700;font-size:.92rem;">Devices &amp; Screens</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Each person's devices and browsers, with screen, usable and window sizes recorded at sign-in. Small windows are shaded.</div>
+            </div>
+            <!-- Pacific Reach (v152.18-STAGE). Opens reach.html in a new tab: the map
+                 counts contacts live in the browser, aggregate only. Super Admin only;
+                 starts hidden and applyRolePermissions shows it for data-roles; the
+                 page runs its own Super Admin check before reading anything. -->
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #0E7C86;display:none;" data-roles="superAdmin" onclick="window.open('reach.html','_blank','noopener')" title="A live map of where LDAH contacts are, across Hawaiʻi and the Pacific partner areas. Opens in a new tab.">
+              <div style="margin-bottom:6px;color:#0E7C86;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+              <div style="font-weight:700;font-size:.92rem;">Pacific Reach</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Where LDAH reaches across Hawaiʻi and the Pacific &mdash; live counts and a guided tour</div>
             </div>
           </div>
         </div>
@@ -15120,6 +15129,51 @@ var _photoPendingByIsland = {};
     return false;
   }
 
+  /* Newest version beside the grey one (2026-10-03). Daniel: show the most
+     up-to-date version in red, underlined, and reload when it is clicked.
+     Pages ignores Range requests, so stream the page and stop as soon as the
+     version span has gone past (about the first 280 KB of 3.9 MB). Only runs
+     once a check has already found this tab behind. */
+  var _staleLatestFor = null;
+  async function _staleLatestVersion() {
+    try {
+      var res = await fetch(location.pathname + '?_sv=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok || !res.body) return null;
+      var rd = res.body.getReader(), dec = new TextDecoder(), txt = '';
+      while (true) {
+        var r = await rd.read();
+        if (r.done) break;
+        txt += dec.decode(r.value, { stream: true });
+        var m = txt.match(/id="buildVersion"[^>]*>([^<]+)</);
+        if (m) { try { rd.cancel(); } catch (e) {} return m[1].trim(); }
+        if (txt.length > 1500000) { try { rd.cancel(); } catch (e) {} break; }
+      }
+    } catch (e) {}
+    return null;
+  }
+  function _staleShowLatest(v) {
+    var cur = document.getElementById('buildVersion');
+    if (!cur || !v || v === cur.textContent.trim()) return;
+    var a = document.getElementById('buildVersionNew');
+    if (!a) {
+      a = document.createElement('a');
+      a.id = 'buildVersionNew';
+      a.href = '#';
+      a.title = 'A newer version is out. Click to update.';
+      a.style.cssText = 'position:absolute;top:4px;right:8px;font-size:.65rem;font-weight:700;color:#DC2626;'
+        + 'text-decoration:underline;cursor:pointer;z-index:2;';
+      a.addEventListener('click', function(e) {
+        e.preventDefault();
+        _stalePresenceStamp({ staleReloadClickedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        setTimeout(function() { location.reload(); }, 300);
+      });
+      cur.parentNode.insertBefore(a, cur.nextSibling);
+    }
+    a.textContent = v;
+    cur.style.right = (8 + a.offsetWidth + 6) + 'px';   // grey sits just left of the red
+  }
+  window._staleShowLatest = _staleShowLatest;   // lets a test (or support) show it by hand
+
   async function _staleCheck() {
     try {
       var now = await _staleFetchEtag();
@@ -15129,6 +15183,7 @@ var _photoPendingByIsland = {};
       // Recorded before the nudge-hour gate below: whether this tab is behind
       // live is a fact an issue report needs at any hour. (2026-09-04)
       window.__ldahStale = true;
+      if (_staleLatestFor !== now) { _staleLatestFor = now; _staleLatestVersion().then(_staleShowLatest); }
 
       /* Only surface during the 6–7am HST hour (2026-08-20). Int ships many
          times a day right now, and a reload prompt on every push is noise —
