@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.12-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.13-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13364,16 +13364,23 @@ var _photoPendingByIsland = {};
             role: currentUserData.role,
             online: true,
             archived: false,   // signing in means active; clears a stale archive mark (v151.20)
-            lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+            lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+            // A fresh load is current by definition (2026-10-03).
+            appVersion: (typeof window._presenceVersionFields === 'function') ? window._presenceVersionFields().appVersion : '',
+            staleBanner: false,
+            staleBannerSince: null,
+            loadedAt: firebase.firestore.FieldValue.serverTimestamp()
           }, { merge: true }).catch(function(e){ console.warn('Chat presence write failed (update Firestore rules):', e.message); });
           // Presence heartbeat — update lastSeen every 5 minutes to stay green
           if (window._presenceHeartbeat) clearInterval(window._presenceHeartbeat);
           window._presenceHeartbeat = setInterval(function() {
             if (currentUserData && currentUserData.uid) {
-              db.collection('chatPresence').doc(currentUserData.uid).update({
-                online: true,
-                lastSeen: firebase.firestore.FieldValue.serverTimestamp()
-              }).catch(function(){});
+              var _hb = { online: true, lastSeen: firebase.firestore.FieldValue.serverTimestamp() };
+              if (typeof window._presenceVersionFields === 'function') {
+                var _vf = window._presenceVersionFields();
+                _hb.appVersion = _vf.appVersion; _hb.staleBanner = _vf.staleBanner;
+              }
+              db.collection('chatPresence').doc(currentUserData.uid).update(_hb).catch(function(){});
             }
           }, 5 * 60 * 1000);
           // Initialize topbar presence strip
@@ -14832,6 +14839,22 @@ var _photoPendingByIsland = {};
     return res.headers.get('etag') || res.headers.get('last-modified') || null;
   }
 
+  /* Who is on an old version (2026-10-03). Daniel: "is there any way to know
+     and be sure Sandy is getting this message?" Every tab now reports, in its
+     own chatPresence doc, the version it runs, whether this bar is showing and
+     when Reload now was clicked. The names row reads it (Daniel only). A tab
+     opened before this release reports nothing, which itself means old code. */
+  window._presenceVersionFields = function() {
+    var v = document.getElementById('buildVersion');
+    return { appVersion: v ? v.textContent.trim() : '', staleBanner: !!document.getElementById('staleBanner') };
+  };
+  function _stalePresenceStamp(fields) {
+    try {
+      var u = window.currentUserData;
+      if (u && u.uid) db.collection('chatPresence').doc(u.uid).set(fields, { merge: true }).catch(function() {});
+    } catch (e) {}
+  }
+
   function _staleBanner() {
     if (document.getElementById('staleBanner')) return;
     var b = document.createElement('div');
@@ -14843,7 +14866,11 @@ var _photoPendingByIsland = {};
       + '<button type="button" id="staleReloadBtn" style="background:#fff;color:#0E5F7A;border:none;border-radius:6px;'
       + 'padding:6px 14px;font-weight:700;cursor:pointer;font-size:.82rem;white-space:nowrap;">Reload now</button>';
     document.body.appendChild(b);
-    document.getElementById('staleReloadBtn').addEventListener('click', function() { location.reload(); });
+    _stalePresenceStamp({ staleBanner: true, staleBannerSince: firebase.firestore.FieldValue.serverTimestamp() });
+    document.getElementById('staleReloadBtn').addEventListener('click', function() {
+      _stalePresenceStamp({ staleReloadClickedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      setTimeout(function() { location.reload(); }, 400);   // let the stamp leave first
+    });
   }
 
   /* Is there anything on screen worth not throwing away?
@@ -14956,6 +14983,29 @@ var _photoPendingByIsland = {};
     return !_presenceWithinOfficeHours();
   }
 
+  /* Version check on the names row (2026-10-03) -- Daniel only. */
+  var PRESENCE_VERSION_VIEWERS = ['YmGV2TlBGqR01dVdxZ0rtFLEFCG3'];
+  function _presenceShowVersions() {
+    var me = window.currentUserData || {};
+    return PRESENCE_VERSION_VIEWERS.indexOf(me.uid) !== -1;
+  }
+  function _presenceTime(ts) {
+    try { return ts && ts.toDate ? ts.toDate().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; } catch (e) { return ''; }
+  }
+  // '' when current, else a sentence for the hover.
+  function _presenceVersionNote(d) {
+    var mineEl = document.getElementById('buildVersion');
+    var mine = mineEl ? mineEl.textContent.trim().replace(/-STAGE$/, '') : '';
+    var theirs = String(d.appVersion || '').replace(/-STAGE$/, '');
+    var parts = [];
+    if (!theirs) parts.push('version not reported: this tab was opened before v152.13, so it is running old code');
+    else if (mine && theirs !== mine) parts.push('running ' + d.appVersion + ' (current ' + mine + ')');
+    if (d.staleBanner) parts.push('out-of-date bar showing' + (d.staleBannerSince ? ' since ' + _presenceTime(d.staleBannerSince) : ''));
+    if (!parts.length) return '';
+    parts.push(d.staleReloadClickedAt ? 'last clicked Reload now at ' + _presenceTime(d.staleReloadClickedAt) : 'has not clicked Reload now');
+    return parts.join('; ');
+  }
+
   function renderPresenceStrip(snap) {
     var scrollEl = document.getElementById('presenceScrollOnline');
     var fixedEl = document.getElementById('presenceFixedOffline');
@@ -14980,6 +15030,7 @@ var _photoPendingByIsland = {};
 
       var entry = { displayLabel: displayLabel, name: d.displayName, lastSeenMs: lastSeenMs,
                     pip: d.role === 'partner' || d.role === 'superPartner' };
+      if (_presenceShowVersions()) entry.verNote = _presenceVersionNote(d);
 
       if (d.online && !isStale) {
         entry.status = 'green';
@@ -15004,8 +15055,12 @@ var _photoPendingByIsland = {};
 
     var _chip = function(u) {
       var lbl = u.status === 'green' ? 'online' : (u.status === 'yellow' ? 'idle' : 'offline');
-      return '<span class="' + _cls(u) + '" title="' + _who(u) + ' (' + lbl + ')"' + (u.status === 'red' ? ' style="opacity:.5;"' : '') +
-             '><span class="tp-dot ' + u.status + '"></span>' + u.displayLabel + '</span>';
+      // Amber dot = an old version open (Daniel only; offline tabs reload fresh next time).
+      var old = u.verNote && u.status !== 'red';
+      var tip = _who(u) + ' (' + lbl + ')' + (old ? ' \u2014 ' + u.verNote : '');
+      return '<span class="' + _cls(u) + '" title="' + String(tip).replace(/"/g, '&quot;') + '"' + (u.status === 'red' ? ' style="opacity:.5;"' : '') +
+             '><span class="tp-dot ' + u.status + '"></span>' + u.displayLabel +
+             (old ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#F59E0B;margin-left:4px;vertical-align:middle;"></span>' : '') + '</span>';
     };
     var _isStaff = function(u) { return !u.pip; };
     var _isPip = function(u) { return u.pip; };
