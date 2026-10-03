@@ -4,6 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>LDAH • Interaction Log Dashboard</title>
+  <!-- Installable as "LDAH Dashboard" (2026-10-03): desktop/taskbar icon that
+       always opens in Chrome. Deliberately NO service worker, so an installed
+       window can never be served stale code; it loads the page like a tab. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="img/app-icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="LDAH Dashboard">
+  <meta name="theme-color" content="#0E5F7A">
+  <script>
+    /* Chrome fires this once, early, when the page can be installed. Keep it
+       for the one-time "Put the dashboard on your desktop?" card. */
+    window.__ldahInstallEvt = null;
+    window.addEventListener('beforeinstallprompt', function(e) { e.preventDefault(); window.__ldahInstallEvt = e; });
+    window.addEventListener('appinstalled', function() { try { localStorage.setItem('ldahInstallOffer', 'done'); } catch (x) {} });
+  </script>
 
   <!-- Fonts per LDAH site -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -5593,7 +5607,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.15</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.16</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13133,6 +13147,62 @@ var _photoPendingByIsland = {};
      iPhone/iPad (googlechromes://) and Android (intent://); on a Windows PC or
      a Mac no browser lets a page launch another one, so there the popup offers
      Copy link + Get Chrome. "Not now" hides it for 7 days on that browser. */
+  /* One-time "Put the dashboard on your desktop?" card (2026-10-03). Daniel
+     wanted an LDAH icon on the desktop the first time someone uses the
+     dashboard. A page cannot place one by itself; Chrome can, with one click on
+     its own Install prompt. Chrome only (an icon installed from Edge would open
+     in Edge); iPad/iPhone Safari get the two taps; Mac Safari the menu path.
+     Never shown inside the installed app, and never again after an answer. */
+  var _IO_KEY = 'ldahInstallOffer';
+  window._installOffer = function(opts) {
+    try {
+      opts = opts || {};
+      var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+      if (standalone && !opts.force) return;
+      try { if (!opts.force && localStorage.getItem(_IO_KEY)) return; } catch (e) { if (!opts.force) return; }
+      if (document.getElementById('browserNudge') || document.getElementById('installOffer')) return;
+      var p = window._uaProfile ? window._uaProfile() : {};
+      var fam = String(p.browser || '').replace(/\s*\d+$/, '');
+      var dev = p.device || '';
+      var mode = '';
+      if (fam === 'Chrome' && window.__ldahInstallEvt) mode = 'prompt';
+      else if (fam === 'Safari' && (dev === 'iPad' || dev === 'iPhone')) mode = 'ios';
+      else if (fam === 'Safari' && dev === 'Mac') mode = 'macsafari';
+      if (opts.force && !mode) mode = opts.force === true ? 'prompt' : opts.force;
+      if (!mode) return;
+      var where = (dev === 'iPad' || dev === 'iPhone') ? 'Home Screen' : (dev === 'Mac' ? 'Dock' : 'desktop');
+      var body = mode === 'prompt'
+        ? 'Adds an <strong>LDAH Dashboard</strong> icon to your ' + (dev === 'Mac' ? 'Dock and Applications' : 'desktop and taskbar') + '. It always opens the dashboard in Chrome.'
+        : mode === 'ios'
+        ? 'Tap the <strong>Share</strong> button (the square with an arrow), then <strong>Add to Home Screen</strong>, then <strong>Add</strong>.'
+        : 'In the menu bar click <strong>File</strong>, then <strong>Add to Dock</strong>, then <strong>Add</strong>.';
+      var btn = 'border:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:.86rem;cursor:pointer;';
+      var card = document.createElement('div');
+      card.id = 'installOffer';
+      card.setAttribute('role', 'dialog');
+      card.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:99998;background:#fff;border-radius:14px;max-width:360px;width:calc(100vw - 36px);'
+        + 'padding:16px 16px 14px;box-shadow:0 12px 36px rgba(0,0,0,.22);border:1px solid #e2e8f0;font-family:inherit;';
+      card.innerHTML = '<div style="display:flex;gap:12px;align-items:flex-start;">'
+        + '<img src="' + (location.pathname.indexOf('/STAGE/') !== -1 ? '../' : '') + 'img/app-icon-192.png" alt="" width="44" height="44" style="border-radius:10px;flex:none;">'
+        + '<div><div style="font-weight:800;color:#0f172a;font-size:.98rem;margin-bottom:4px;">Put the dashboard on your ' + where + '?</div>'
+        + '<div style="font-size:.85rem;color:#334155;line-height:1.45;">' + body + '</div></div></div>'
+        + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">'
+        + '<button type="button" id="ioNo" style="' + btn + 'background:#f1f5f9;color:#334155;">' + (mode === 'prompt' ? 'No thanks' : 'Got it') + '</button>'
+        + (mode === 'prompt' ? '<button type="button" id="ioYes" style="' + btn + 'background:#1a73e8;color:#fff;">Add icon</button>' : '')
+        + '</div>';
+      document.body.appendChild(card);
+      var close = function(v) { try { localStorage.setItem(_IO_KEY, v); } catch (e) {} var c = document.getElementById('installOffer'); if (c) c.remove(); };
+      document.getElementById('ioNo').addEventListener('click', function() { close(mode === 'prompt' ? 'no' : 'shown-steps'); });
+      var yes = document.getElementById('ioYes');
+      if (yes) yes.addEventListener('click', async function() {
+        var ev = window.__ldahInstallEvt;
+        if (!ev) { close('no-prompt'); return; }
+        try { ev.prompt(); var r = await ev.userChoice; window.__ldahInstallEvt = null; close(r && r.outcome === 'accepted' ? 'done' : 'no'); }
+        catch (e) { close('no-prompt'); }
+      });
+    } catch (e) { console.warn('install offer:', e && e.message); }
+  };
+
   var _BN_KEY = 'ldahBrowserNudgeUntil';
   window._browserNudge = function(opts) {
     try {
@@ -13167,6 +13237,7 @@ var _photoPendingByIsland = {};
         + '<a href="' + getHref + '" target="_blank" rel="noopener" style="' + btn + 'background:#e8f0fe;color:#1a73e8;text-decoration:none;">Get Chrome</a>'
         + '<button type="button" id="bnLater" style="' + btn + 'background:#f1f5f9;color:#334155;margin-left:auto;">Not now</button>'
         + '</div>'
+        + '<div style="font-size:.8rem;color:#64748b;line-height:1.45;margin-top:12px;">Once you are in Chrome, the dashboard will offer to put an <strong>LDAH Dashboard</strong> icon on your desktop, so it always opens in Chrome.</div>'
         + '<div id="bnMsg" style="display:none;font-size:.82rem;color:#15803d;margin-top:10px;"></div>'
         + '</div>';
       document.body.appendChild(ov);
@@ -13458,6 +13529,8 @@ var _photoPendingByIsland = {};
           } catch (e) { console.warn('device stamp:', e && e.message); }
           // Not Chrome or Safari: suggest Chrome (2026-10-03). After the app shows.
           setTimeout(function() { if (typeof window._browserNudge === 'function') window._browserNudge(); }, 1500);
+          // One-time desktop icon offer (2026-10-03), after the Chrome nudge would have shown.
+          setTimeout(function() { if (typeof window._installOffer === 'function') window._installOffer(); }, 5000);
           db.collection('chatPresence').doc(user.uid).set({
             uid: user.uid,
             displayName: currentUserData.displayName,
