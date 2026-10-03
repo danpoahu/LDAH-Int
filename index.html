@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.4</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.8</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9928,6 +9928,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
     .vdoc-tag.part{background:#FFFBEB;color:#B45309;border-color:#FDE68A;}
     .vdoc-tag.ok{background:#F0FDF4;color:#15803D;border-color:#BBF7D0;}
     .vdoc-tag.hrs{background:#ECFEFF;color:#0E7490;border-color:#A5F3FC;}
+    /* Volunteer QR check-in: "On site now" strip above the Roster (2026-10-02) */
+    .vonsite{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;padding:9px 12px;border:1px solid #BBF7D0;background:#F0FDF4;border-radius:12px;font-size:.84rem;}
+    .vonsite.empty{border-color:#E2E8F0;background:#F8FAFC;color:#64748B;}
+    .vonsite-h{font-weight:800;color:#15803D;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
+    .vonsite.empty .vonsite-h{color:#64748B;}
+    .vonsite-dot{width:9px;height:9px;border-radius:50%;background:#16A34A;box-shadow:0 0 0 3px rgba(22,163,74,.18);}
+    .vonsite.empty .vonsite-dot{background:#94A3B8;box-shadow:none;}
+    .vonsite-p{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #BBF7D0;border-radius:999px;padding:4px 11px;cursor:pointer;font:inherit;font-size:.82rem;color:#14532D;}
+    .vonsite-p:hover{border-color:#16A34A;}
+    .vonsite-p small{color:#64748B;font-weight:600;}
+    .vonsite-p.stale{border-color:#FDE68A;background:#FFFBEB;color:#78350F;}
+    .vonsite-r{margin-left:auto;background:none;border:none;color:#0E7490;font:inherit;font-size:.8rem;font-weight:700;cursor:pointer;text-decoration:underline;padding:4px;}
     #cmsVolDocsPanel{border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;background:#FCFDFE;}
     #cmsVolDocsPanel .vdoc-loading{font-size:.86rem;color:#64748B;}
     #cmsVolDocsPanel .vdoc-send{border-bottom:1px dashed #E2E8F0;padding-bottom:10px;margin-bottom:6px;}
@@ -10036,8 +10048,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <div class="vros-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="cmsVolRosterSearch" placeholder="Search approved volunteers by name or email…" oninput="cmsRenderRoster()"></div>
           <div id="cmsVolRosterFilters" class="vros-chips"></div>
           <div style="flex:1"></div>
+          <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsVolCheckinPoster()" title="Print a QR poster volunteers scan to check in and out">Check-in QR poster</button>
           <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsRosterSelectAll()">Select all</button>
         </div>
+        <div id="cmsVolOnSite" style="display:none;"></div>
         <div id="cmsVolRosterGrid" class="vros-grid"><div class="cms-empty"><p>Loading roster…</p></div></div>
         <div id="cmsVolRosterBar" class="vros-bar" style="display:none;">
           <span class="vros-bar-n"><b id="cmsVolRosterSelCount">0</b> volunteers selected</span>
@@ -43729,8 +43743,9 @@ function _vacOppTitle(app) {
 // Applications as grouped card grids (2026-10-02). Same data, same filter
 // chips, same archived toggle; a click opens the full application in a modal
 // whose buttons call the SAME handlers as before (cmsUpdateAppStatus,
-// cmsArchiveApp, cmsSaveAppNotes). Accepted applications now show in the last
-// group ("Accepted or Declined") as well as on the Roster.
+// cmsArchiveApp, cmsSaveAppNotes). Accepted applications are NOT shown here:
+// they live on the Roster tab only (Daniel 10-02, "accepted == roster"). A
+// declined volunteer comes back here, in the "Declined" group.
 var _cmsVolAppModalId = null;
 function cmsRenderApplications() {
   var all = (_cmsVolunteerApps || []);
@@ -44211,9 +44226,10 @@ window.cmsUpdateAppStatus = async function(appId, status) {
     await db.collection('volunteers').doc(appId).update({ status: status });
     var app = _cmsVolunteerApps.find(function(a) { return a.id === appId; });
     if (app) app.status = status;
-    var appName = app ? (app.name || appId) : appId;
+    var appName = app ? ([app.firstName, app.lastName].filter(Boolean).join(' ') || app.name || appId) : appId;
     auditLog('Updated application status', appName + ' — Status: ' + status);
     cmsRenderApplications();
+    if (typeof cmsRenderRoster === 'function') cmsRenderRoster();   // accepted <-> other moves them on/off the Roster
     _showToast('Status updated.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
@@ -44224,7 +44240,7 @@ window.cmsSaveAppNotes = async function(appId, textareaId) {
     await db.collection('volunteers').doc(appId).update({ adminNotes: notes });
     var app = _cmsVolunteerApps.find(function(a) { return a.id === appId; });
     if (app) app.adminNotes = notes;
-    var appName = app ? (app.name || appId) : appId;
+    var appName = app ? ([app.firstName, app.lastName].filter(Boolean).join(' ') || app.name || appId) : appId;
     auditLog('Updated application notes', appName);
     _showToast('Notes saved.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
@@ -44466,6 +44482,7 @@ window.cmsRenderRoster = function() {
   if (!grid) return;
   var all = window.cmsAcceptedVolunteers();
   if (!window._cmsVolOnb && typeof cmsVolOnbEnsure === 'function') cmsVolOnbEnsure();   // docs tags (2026-10-02)
+  if (typeof cmsVolRenderOnSite === 'function') cmsVolRenderOnSite();   // QR check-in strip (2026-10-02)
   // Badge on the tab
   var badge = document.getElementById('cmsVolRosterCountBadge');
   if (badge) { badge.textContent = all.length; badge.style.display = all.length ? 'inline-block' : 'none'; }
@@ -44554,11 +44571,34 @@ window.cmsRosterDetails = function(id) {
   html += '<div class="vd-lbl">Admin notes</div>' +
     '<textarea id="' + notesId + '" rows="4" style="width:100%;font-size:.88rem;border:1px solid #CBD5E1;border-radius:8px;padding:9px 11px;resize:vertical;font-family:inherit;" placeholder="Internal notes…">' + rsEscape(v.adminNotes || '') + '</textarea>' +
     '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;margin-top:8px;" onclick="cmsSaveAppNotes(\'' + rsEscape(v.id) + '\',\'' + notesId + '\')">Save notes</button>';
+  // Leaving the roster (2026-10-02): an accepted volunteer needs a way off it.
+  // Same handlers as the Applications cards (cmsUpdateAppStatus / cmsArchiveApp).
+  html += '<div class="vd-lbl">Roster status</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+      '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;" onclick="cmsRosterSetStatus(' + _vdEsc(JSON.stringify(v.id)) + ',\'interviewing\')" title="Move back to the Applications tab (Interviewing)">Move back to Applications</button>' +
+      '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;color:#B91C1C;border-color:#FECACA;" onclick="cmsRosterSetStatus(' + _vdEsc(JSON.stringify(v.id)) + ',\'declined\')">Mark declined</button>' +
+      '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;color:#B91C1C;border-color:#FECACA;" onclick="cmsRosterSetStatus(' + _vdEsc(JSON.stringify(v.id)) + ',\'archive\')">Decline and archive</button>' +
+    '<div style="flex-basis:100%;font-size:.78rem;color:var(--text-soft);">Declined volunteers leave the Roster and show in Applications under Declined. No email is sent.</div></div>';
   document.getElementById('cmsVolDetailBody').innerHTML = html;
   document.getElementById('cmsVolDetailMsg').textContent = '';
   document.getElementById('cmsVolDetailOverlay').style.display = 'flex';
   if (typeof cmsRenderVolDocs === 'function') cmsRenderVolDocs(v.id);
   if (typeof _vfaLoad === 'function') _vfaLoad(v.id);
+};
+
+window.cmsRosterSetStatus = async function(id, action) {
+  var v = (_cmsVolunteerApps || []).find(function(a) { return a.id === id; });
+  var name = v ? ([v.firstName, v.lastName].filter(Boolean).join(' ') || 'this volunteer') : 'this volunteer';
+  var q = action === 'interviewing' ? 'Move ' + name + ' back to Applications (Interviewing)? They leave the Roster.'
+        : action === 'archive' ? 'Decline and archive ' + name + '? They leave the Roster. You can restore them from Applications (Show Archived).'
+        : 'Mark ' + name + ' as declined? They leave the Roster and show in Applications under Declined.';
+  if (!confirm(q)) return;
+  await cmsUpdateAppStatus(id, action === 'interviewing' ? 'interviewing' : 'declined');
+  var after = (_cmsVolunteerApps || []).find(function(a) { return a.id === id; });
+  if (!after || after.status === 'accepted') return;   // the update failed; its toast says why
+  if (action === 'archive') await cmsArchiveApp(id, true);
+  document.getElementById('cmsVolDetailOverlay').style.display = 'none';
+  if (typeof cmsRenderRoster === 'function') cmsRenderRoster();
 };
 
 // ── Volunteer onboarding documents (2026-10-02) ───────────────────────────
@@ -44570,7 +44610,12 @@ window.cmsRosterDetails = function(id) {
 window._cmsVolOnb = null;          // { volunteerId: onboardingDoc } once loaded
 window._cmsVolOnbErr = '';
 window._cmsVolOnbLoading = false;
-window.VOL_DOCS_DEFAULT_SUPERVISOR = 'Rosie Rowe';
+// Default supervisor printed on the Confidentiality Agreement: the signed-in
+// staff member (no real name hard-coded in served code). Still editable.
+window.cmsVolDocsDefaultSupervisor = function() {
+  var u = window.currentUserData || {};
+  return String(u.displayName || u.name || '').trim();
+};
 
 function _vdEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function _vdHrs(n) { n = Math.round((Number(n) || 0) * 100) / 100; return n % 1 === 0 ? String(n) : n.toFixed(2).replace(/0$/, ''); }
@@ -44632,11 +44677,149 @@ window.cmsVolDocsTag = function(v) {
   var map = window._cmsVolOnb;
   if (!map || window._cmsVolOnbErr) return '';   // unreadable is not the same as "not sent"
   var o = map[v.id];
-  if (!o || !o.sentAt) return '<span class="vdoc-tag none" title="Volunteer documents have not been sent">Docs not sent</span>';
+  if (!o || !o.sentAt) {
+    var s0 = cmsVolDocsStatus(o);
+    return '<span class="vdoc-tag none" title="Volunteer documents have not been sent">Docs not sent</span>' +
+      (s0.entries ? '<span class="vdoc-tag hrs" title="Hours in the volunteer\'s Service Log">' + _vdHrs(s0.hours) + ' h logged</span>' : '');
+  }
   var s = cmsVolDocsStatus(o);
   var h = '<span class="vdoc-tag ' + (s.done === s.of ? 'ok' : 'part') + '" title="Confidentiality, Drug-Free and Emergency Contact forms completed">Docs ' + s.done + '/' + s.of + '</span>';
   if (s.entries) h += '<span class="vdoc-tag hrs" title="Hours in the volunteer\'s Service Log">' + _vdHrs(s.hours) + ' h logged</span>';
   return h;
+};
+
+// ── Volunteer QR check-in (2026-10-02) ────────────────────────────────────
+// Staff print a poster; volunteers scan it and the public page
+// volunteer-checkin.html checks them in / out through Cloud Functions, which
+// keep volunteerOnboarding/{id}.openCheckIn while they are on site. Staff only
+// READ it here (same read as the docs tags, no new rules).
+// STAGE page for now; switch to the root path when the page is promoted.
+window.VOL_CHECKIN_PAGE_URL = 'https://www.ldahawaii.org/volunteer-checkin.html';
+window.VOL_CHECKIN_SITES = ['', 'Office', 'Event'];
+
+window.cmsVolCheckinUrl = function(site) {
+  return window.VOL_CHECKIN_PAGE_URL + (site ? '?site=' + encodeURIComponent(site) : '');
+};
+
+// Who is checked in right now, newest first.
+window.cmsVolOnSiteList = function(map, nowMs) {
+  var out = [], now = nowMs || Date.now();
+  var byId = {};
+  try { (window.cmsAcceptedVolunteers ? window.cmsAcceptedVolunteers() : []).forEach(function(v) { byId[v.id] = v; }); } catch (e) {}
+  Object.keys(map || {}).forEach(function(id) {
+    var o = map[id] || {}, oc = o.openCheckIn;
+    if (!oc || !oc.at) return;
+    var d = oc.at.toDate ? oc.at.toDate() : new Date(oc.at);
+    if (!d || isNaN(d)) return;
+    var v = byId[id];
+    var name = v ? [v.firstName, v.lastName].filter(Boolean).join(' ') : (o.volunteerName || 'Volunteer');
+    var ms = d.getTime();
+    var hstDay = function(t) { return new Date(t - 10 * 3600 * 1000).toISOString().slice(0, 10); };
+    out.push({ id: id, name: name, at: d, site: oc.site || '', mins: Math.max(0, Math.floor((now - ms) / 60000)),
+      stale: (now - ms > 12 * 3600 * 1000) || hstDay(ms) !== hstDay(now) });
+  });
+  out.sort(function(a, b) { return b.at - a.at; });
+  return out;
+};
+
+window.cmsVolRenderOnSite = function() {
+  var el = document.getElementById('cmsVolOnSite');
+  if (!el) return;
+  var map = window._cmsVolOnb;
+  if (!map || window._cmsVolOnbErr) { el.style.display = 'none'; return; }   // unreadable is not "nobody"
+  var list = cmsVolOnSiteList(map);
+  var fresh = list.filter(function(x) { return !x.stale; });
+  var stale = list.filter(function(x) { return x.stale; });
+  var dur = function(m) { var h = Math.floor(m / 60); return (h ? h + ' h ' : '') + (m % 60) + ' m'; };
+  var t = function(d) { return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase(); };
+  var pill = function(x) {
+    var when = x.stale ? 'since ' + x.at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + t(x.at) + ', no check-out' : 'in ' + t(x.at) + ' &middot; ' + dur(x.mins);
+    return '<button type="button" class="vonsite-p' + (x.stale ? ' stale' : '') + '" onclick="cmsRosterDetails(' + _vdEsc(JSON.stringify(x.id)) + ')" title="Open ' + _vdEsc(x.name) + '">' +
+      '<b>' + _vdEsc(x.name) + '</b><small>' + when + (x.site ? ' &middot; ' + _vdEsc(x.site) : '') + '</small></button>';
+  };
+  var h = '<span class="vonsite-h"><span class="vonsite-dot"></span>On site now' + (fresh.length ? ' (' + fresh.length + ')' : '') + '</span>';
+  h += fresh.length ? fresh.map(pill).join('') : '<span>No volunteers checked in right now.</span>';
+  if (stale.length) h += '<span style="color:#92400E;font-weight:700;margin-left:6px;">Forgot to check out:</span>' + stale.map(pill).join('');
+  h += '<button type="button" class="vonsite-r" onclick="cmsVolOnSiteRefresh()">Refresh</button>';
+  el.className = 'vonsite' + (fresh.length || stale.length ? '' : ' empty');
+  el.innerHTML = h;
+  el.style.display = '';
+};
+
+window.cmsVolOnSiteRefresh = function() {
+  if (typeof cmsVolOnbEnsure === 'function') cmsVolOnbEnsure(true);
+};
+
+// Auto-refresh "On site now" every 60 s, only while the Roster pane is on screen
+// and the tab is visible (one small read of volunteerOnboarding per minute).
+window._cmsVolOnSiteTimer = window._cmsVolOnSiteTimer || setInterval(function() {
+  try {
+    if (document.hidden) return;
+    var pane = document.getElementById('cmsVolunteersRosterPane');
+    if (!pane || pane.offsetParent === null) return;
+    if (window._cmsVolOnbLoading) return;
+    cmsVolOnSiteRefresh();
+  } catch (e) {}
+}, 60000);
+
+// Printable poster: LDAH logo, the QR, three short steps. One QR per site
+// choice is drawn up front so the site buttons swap them with no script.
+window.cmsVolCheckinPoster = function() {
+  if (typeof window._cmsQRPngForUrl !== 'function' || typeof qrcode !== 'function') { _showToast('The QR code tool did not load. Refresh the page and try again.', '#DC2626'); return; }
+  var E = _vdEsc;
+  var logo = location.origin + location.pathname.replace(/[^/]*$/, '') + 'logo_transparent.png';
+  var variants = window.VOL_CHECKIN_SITES.map(function(site) {
+    var url = cmsVolCheckinUrl(site);
+    return { site: site, key: site ? site.toLowerCase().replace(/[^a-z0-9]/g, '') : 'any', url: url, png: window._cmsQRPngForUrl(url) };
+  });
+  var css = '@page{size:letter;margin:0}*{box-sizing:border-box}' +
+    'body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;background:#eef1f5;color:#12232e}' +
+    '.bar{background:#fff;padding:12px;text-align:center;border-bottom:1px solid #dfe5ec;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;font-size:14px}' +
+    '.bar button{font:inherit;font-size:14px;padding:9px 16px;border-radius:8px;border:1px solid #0E7490;background:#fff;color:#0E7490;cursor:pointer;font-weight:600}' +
+    '.bar button.pr{background:#0E7490;color:#fff}' +
+    '.sheet{width:8.5in;height:11in;background:#fff;margin:18px auto;padding:.55in .7in .5in;display:flex;flex-direction:column;align-items:center;text-align:center;box-shadow:0 2px 18px rgba(20,40,60,.18)}' +
+    '.logo{width:1.5in;height:1.5in;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.org{font-size:11.5pt;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#0E4C6B;margin-top:6px}' +
+    '.rule{width:100%;height:5px;background:linear-gradient(90deg,#0E4C6B,#0891B2);border-radius:3px;margin:14px 0 20px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    'h1{font-size:34pt;line-height:1.1;margin:0;color:#0E4C6B}' +
+    '.h1b{font-size:22pt;font-weight:700;color:#15803D;margin:6px 0 0}' +
+    '.v{display:none;flex-direction:column;align-items:center}' +
+    '.sitelbl{display:inline-block;margin-top:14px;font-size:15pt;font-weight:800;color:#0E7490;border:2px solid #0E7490;border-radius:999px;padding:4px 20px}' +
+    '.qr{width:3.85in;height:3.85in;image-rendering:pixelated;border:1px solid #dfe5ec;border-radius:12px;margin-top:18px}' +
+    '.url{font-size:8.5pt;color:#93a1b0;margin-top:6px;word-break:break-all}' +
+    'ol{list-style:none;padding:0;margin:20px 0 0;text-align:left;width:100%;max-width:6.2in}' +
+    'ol li{display:flex;gap:14px;align-items:flex-start;font-size:15pt;line-height:1.3;margin:0 0 12px}' +
+    'ol li span{flex-shrink:0;width:34px;height:34px;border-radius:50%;background:#0E7490;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14pt;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.first{font-size:12pt;color:#3d4b59;margin-top:auto;padding-top:10px;max-width:6.4in;line-height:1.4}' +
+    '.foot{font-size:10pt;color:#5d6b7d;margin-top:8px}' +
+    variants.map(function(v) { return 'body.s-' + v.key + ' .v-' + v.key; }).join(',') + '{display:flex}' +
+    variants.map(function(v) { return 'body.s-' + v.key + ' .b-' + v.key; }).join(',') + '{background:#0E7490;color:#fff}' +
+    '@media print{.bar{display:none}body{background:#fff}.sheet{margin:0;box-shadow:none}}';
+  var bar = '<div class="bar"><span>Site on the poster:</span>' + variants.map(function(v) {
+    return '<button type="button" class="b-' + v.key + '" onclick="document.body.className=\'s-' + v.key + '\'">' + (v.site ? E(v.site) : 'No site') + '</button>';
+  }).join('') + '<button type="button" class="pr" onclick="window.print()">Print poster</button></div>';
+  var qrs = variants.map(function(v) {
+    return '<div class="v v-' + v.key + '">' + (v.site ? '<span class="sitelbl">' + E(v.site) + '</span>' : '') +
+      '<img class="qr" src="' + v.png + '" alt="Volunteer check-in QR code"><div class="url">' + E(v.url) + '</div></div>';
+  }).join('');
+  var w = window.open('', '_blank', 'width=900,height=1100');
+  if (!w) { _showToast('Allow pop-ups to open the poster.', '#D97706'); return; }
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Volunteer check-in poster</title><style>' + css + '</style></head><body class="s-any">' + bar +
+    '<div class="sheet">' +
+      '<img class="logo" src="' + E(logo) + '" alt="Leadership in Disabilities and Achievement of Hawai&#699;i">' +
+      '<div class="rule"></div>' +
+      '<h1>Volunteers</h1><div class="h1b">Scan to check in and out</div>' +
+      qrs +
+      '<ol>' +
+        '<li><span>1</span><div>Open your phone camera and point it at the code.</div></li>' +
+        '<li><span>2</span><div>Tap <b>Check in</b> when you arrive.</div></li>' +
+        '<li><span>3</span><div>Tap <b>Check out</b> when you leave, then tap what you did. Your hours are logged for you.</div></li>' +
+      '</ol>' +
+      '<div class="first"><b>First time on this phone?</b> Enter the email you applied with. We will email you a link; open it on this phone and it will remember you.</div>' +
+      '<div class="foot">Questions? Call (808) 536-9684</div>' +
+    '</div></body></html>');
+  w.document.close();
+  if (window.auditLog) try { window.auditLog('volunteer_checkin_poster', 'Opened the volunteer check-in QR poster'); } catch (e) {}
 };
 
 // Documents panel inside the Roster detail popup.
@@ -44667,7 +44850,7 @@ window.cmsRenderVolDocs = async function(volunteerId, preloaded) {
   if (o.lastSendError) h += '<div class="vdoc-warn">The last email failed: ' + _vdEsc(o.lastSendError) + '</div>';
   if (canSend) {
     h += '<div class="vdoc-send-row"><label for="cmsVolDocsSup">Supervising staff person</label>' +
-      '<input id="cmsVolDocsSup" type="text" maxlength="80" value="' + _vdEsc(o.supervisorName || window.VOL_DOCS_DEFAULT_SUPERVISOR) + '" title="Printed on the Confidentiality Agreement as the person who answers the volunteer\'s questions">' +
+      '<input id="cmsVolDocsSup" type="text" maxlength="80" value="' + _vdEsc(o.supervisorName || cmsVolDocsDefaultSupervisor()) + '" title="Printed on the Confidentiality Agreement as the person who answers the volunteer\'s questions">' +
       '<button class="btn btn-primary" id="cmsVolDocsSendBtn" type="button" onclick="cmsSendVolDocs(\'' + _vdEsc(volunteerId) + '\')" title="Emails the volunteer a branded LDAH email with a button to their documents page">' + (o.sentAt ? 'Resend documents' : 'Send volunteer documents') + '</button></div>';
   }
   h += '</div>';
@@ -44718,7 +44901,7 @@ window.cmsRenderVolDocs = async function(volunteerId, preloaded) {
 window.cmsSendVolDocs = async function(volunteerId) {
   var v = (_cmsVolunteerApps || []).find(function(a) { return a.id === volunteerId; });
   if (!v) { _showToast('Could not find that volunteer.', '#DC2626'); return; }
-  var sup = ((document.getElementById('cmsVolDocsSup') || {}).value || '').trim() || window.VOL_DOCS_DEFAULT_SUPERVISOR;
+  var sup = ((document.getElementById('cmsVolDocsSup') || {}).value || '').trim() || cmsVolDocsDefaultSupervisor();
   var name = [v.firstName, v.lastName].filter(Boolean).join(' ') || v.email;
   var cur = (window._cmsVolDocsCur && window._cmsVolDocsCur.id === volunteerId) ? (window._cmsVolDocsCur.doc || {}) : {};
   var verb = cur.sentAt ? 'Resend' : 'Send';
@@ -44903,6 +45086,7 @@ window.cmsArchiveApp = async function(appId, archive) {
     if (app) app.archived = !!archive;
     auditLog(archive ? 'Archived volunteer application' : 'Restored volunteer application', appName);
     cmsRenderApplications();
+    if (typeof cmsRenderRoster === 'function') cmsRenderRoster();
     _showToast(archive ? 'Application archived.' : 'Application restored.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
