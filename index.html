@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.13</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.14</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7395,6 +7395,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
               <div style="font-weight:700;font-size:.92rem;">PTI Report</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">The reporting-period board document &mdash; training by tier, individual assistance, demographics, materials and case advocacy &mdash; for any date range.</div>
             </div>
+            <!-- Devices & Screens (v152.14-STAGE). Gated by uid, not role: no
+                 data-roles on purpose, because applyRolePermissions would un-hide
+                 it. Shown only by _deviceReportCanView() there; the builder
+                 refuses everyone else too. -->
+            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #475569;display:none;" id="deviceReportCard" onclick="cmsBuildDeviceReport()" title="The device, browser and screen size each person signs in on, so new screens are designed to fit them.">
+              <div style="font-weight:700;font-size:.92rem;">Devices &amp; Screens</div>
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Each person's devices and browsers, with screen, usable and window sizes recorded at sign-in. Small windows are shaded.</div>
+            </div>
           </div>
         </div>
 
@@ -7621,6 +7629,18 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildMissingContactReport()" title="Refresh">&#x21bb; Refresh</button>
           </div>
           <div id="mcBody"></div>
+        </div>
+
+        <!-- Devices & Screens (in-grid; v152.14-STAGE). Viewer list in DEVICE_REPORT_VIEWERS. -->
+        <div id="deviceReportInGrid" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsCloseDeviceReport()">&larr; Back to Reports</button>
+            <h2 style="font-family:'Outfit',sans-serif;color:#475569;margin:0;flex:1;">Devices &amp; Screens</h2>
+            <span id="dvGeneratedAt" style="font-size:.82rem;color:var(--text-soft);"></span>
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildDeviceReport()" title="Refresh">&#x21bb; Refresh</button>
+            <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsDeviceReportCsv()" title="Every row on screen as a CSV">Download CSV</button>
+          </div>
+          <div id="dvBody"></div>
         </div>
 
         <!-- Feedback Report (in-grid; v151.41 — was a new-tab page). Built by cmsBuildFeedbackReport. -->
@@ -13327,6 +13347,55 @@ var _photoPendingByIsland = {};
                 lastBrowser: _ua.browser,
                 lastDeviceAt: new Date().toISOString()
               }, { merge: true }).catch(function(e) { console.warn('device stamp:', e && e.message); });
+              /* Screen size per device (v152.14-STAGE, Daniel 2026-10-03), for the
+                 Devices & Screens report: designs should fit the screens staff
+                 really have. One entry per device + browser family + screen
+                 size; the browser key leaves out the version so an auto-update
+                 does not start a new entry (the stored browser keeps it).
+
+                 set() with merge:true merges by leaf field path, nested maps
+                 included, so only devices.<key>.<field> paths are written and
+                 every other device entry on the doc survives. firstSeen is
+                 sent only when the doc read just above at sign-in has no entry
+                 under this key; count uses increment so two tabs opening at
+                 once still add up. Never writes role. */
+              var _scrPrev = (roleDoc.data() || {}).devices || {};
+              var _scrNow = new Date().toISOString();
+              var _scrW = Number(screen.width) || 0, _scrH = Number(screen.height) || 0;
+              var _scrSan = function(v) { return String(v || '').replace(/[^A-Za-z0-9_]/g, '_'); };
+              var _scrKey = _scrSan(_ua.device) + '__' + _scrSan(String(_ua.browser || '').replace(/\s+\d+$/, '')) + '__' + _scrW + 'x' + _scrH;
+              var _scrWinW = Number(window.innerWidth) || 0, _scrWinH = Number(window.innerHeight) || 0;
+              var _scrEntry = {
+                device: _ua.device,
+                browser: _ua.browser,
+                screenW: _scrW, screenH: _scrH,
+                availW: Number(screen.availWidth) || 0, availH: Number(screen.availHeight) || 0,
+                winW: _scrWinW, winH: _scrWinH,
+                dpr: Math.round((Number(window.devicePixelRatio) || 1) * 100) / 100,
+                touch: (navigator.maxTouchPoints || 0) > 0,
+                orientation: _scrWinW >= _scrWinH ? 'landscape' : 'portrait',
+                lastSeen: _scrNow
+              };
+              var _scrDevEntry = Object.assign({}, _scrEntry, { count: firebase.firestore.FieldValue.increment(1) });
+              if (!_scrPrev[_scrKey] || !_scrPrev[_scrKey].firstSeen) _scrDevEntry.firstSeen = _scrNow;
+              var _scrDevices = {}; _scrDevices[_scrKey] = _scrDevEntry;
+              db.collection('userRoles').doc(user.uid).set({
+                devices: _scrDevices,
+                lastScreen: Object.assign({ key: _scrKey }, _scrEntry)
+              }, { merge: true }).catch(function(e) { console.warn('screen stamp:', e && e.message); });
+              /* A window can still be settling its size at load. Look again
+                 after 5 seconds and write only when it changed. */
+              setTimeout(function() {
+                try {
+                  var w2 = Number(window.innerWidth) || 0, h2 = Number(window.innerHeight) || 0;
+                  if (w2 === _scrWinW && h2 === _scrWinH) return;
+                  if (!window.currentUserData || window.currentUserData.uid !== user.uid) return;
+                  var upd = { winW: w2, winH: h2, orientation: w2 >= h2 ? 'landscape' : 'portrait' };
+                  var dv = {}; dv[_scrKey] = upd;
+                  db.collection('userRoles').doc(user.uid).set({ devices: dv, lastScreen: upd }, { merge: true })
+                    .catch(function(e) { console.warn('screen restamp:', e && e.message); });
+                } catch (e2) { console.warn('screen restamp:', e2 && e2.message); }
+              }, 5000);
             }
           } catch (e) { console.warn('device stamp:', e && e.message); }
           db.collection('chatPresence').doc(user.uid).set({
@@ -14039,6 +14108,9 @@ var _photoPendingByIsland = {};
     // PTI Report tile: Super Admin + Super Partner, by role (v151.0) -- see _pbCanView.
     try { var _ptiC = document.getElementById('ptiReportCard');
           if (_ptiC) _ptiC.style.display = (typeof window._pbCanView === 'function' && window._pbCanView()) ? '' : 'none'; } catch(_){}
+    // Devices & Screens tile: by uid, DEVICE_REPORT_VIEWERS only (v152.14-STAGE).
+    try { var _dvC = document.getElementById('deviceReportCard');
+          if (_dvC) _dvC.style.display = (typeof window._deviceReportCanView === 'function' && window._deviceReportCanView()) ? '' : 'none'; } catch(_){}
     try { if (typeof syncNavTabs === 'function') syncNavTabs(); } catch(_){}
   }
 
@@ -54747,7 +54819,7 @@ window._CMS_REPORT_PANELS = [
   'membershipReportInGrid', 'caseAdvocacyReportInGrid', 'websiteAppAnalyticsInGrid',
   'nhSurveyReportInGrid', 'participationReportInGrid', 'itHelpReportInGrid',
   'ptiBoardReportInGrid', 'missingContactInGrid', 'screeningsInGrid', 'komReportInGrid',
-  'feedbackReportInGrid'
+  'feedbackReportInGrid', 'deviceReportInGrid'
 ];
 
 /* Show / hide the dashboard right column (Community Calendar, Recent Signups,
@@ -57206,6 +57278,179 @@ window.prExportCsv = function() {
     }
   };
   window.cmsCloseMissingContactReport = function() { _cmsShowOnlyReport(null); };
+
+  /* ══════════════════════════════════════════════════════════════════════
+     DEVICES & SCREENS  (v152.14-STAGE, Daniel 2026-10-03)
+
+     What each staff and partner account signs in on: device, browser, and the
+     screen / usable / window sizes stamped at sign-in (userRoles.devices, one
+     entry per device + browser family + screen size). Exists so new screens
+     are designed for the windows people really have; staff machines are often
+     1366x768, so a window narrower than 1366 or shorter than 700 is shaded.
+
+     READ ONLY. Viewers by uid, gated in two places: the tile (hidden in
+     applyRolePermissions) and this builder, which is the one that refuses. */
+  var DEVICE_REPORT_VIEWERS = ['YmGV2TlBGqR01dVdxZ0rtFLEFCG3'];
+  window._deviceReportCanView = function() {
+    var me = window.currentUserData || {};
+    return !!me.uid && DEVICE_REPORT_VIEWERS.indexOf(me.uid) !== -1;
+  };
+  var _dvRows = [];
+  function _dvWhen(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? '' : d.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+  function _dvSize(w, h) { return (w && h) ? (w + ' x ' + h) : ''; }
+  function _dvSmall(r) { return !!(r.winW && r.winH && (r.winW < 1366 || r.winH < 700)); }
+  function _dvKind(device) {
+    var d = String(device || '');
+    if (d === 'Windows PC') return 'win';
+    if (d === 'Mac') return 'mac';
+    if (/iPhone|iPad|Android/.test(d)) return 'mobile';
+    return 'other';
+  }
+
+  window.cmsBuildDeviceReport = async function() {
+    if (!window._deviceReportCanView()) return;
+    _cmsShowOnlyReport('deviceReportInGrid');
+    var body = document.getElementById('dvBody');
+    if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading devices&hellip;</div>';
+    try {
+      var snap = await db.collection('userRoles').get();
+      var rows = [], people = 0;
+      snap.forEach(function(d) {
+        var u = d.data() || {};
+        if (u.isArchived === true) return;
+        var name = String(u.displayName || '').trim() || String(u.email || '').split('@')[0] || d.id;
+        var role = String(u.role || '');
+        var devs = (u.devices && typeof u.devices === 'object') ? u.devices : {};
+        var keys = Object.keys(devs);
+        if (keys.length) {
+          people++;
+          keys.forEach(function(k) {
+            var e = devs[k] || {};
+            rows.push({
+              name: name, role: role, device: String(e.device || ''), browser: String(e.browser || ''),
+              screenW: Number(e.screenW) || 0, screenH: Number(e.screenH) || 0,
+              availW: Number(e.availW) || 0, availH: Number(e.availH) || 0,
+              winW: Number(e.winW) || 0, winH: Number(e.winH) || 0,
+              dpr: (e.dpr == null ? '' : e.dpr), touch: e.touch === true,
+              count: Number(e.count) || 0, firstSeen: String(e.firstSeen || ''), lastSeen: String(e.lastSeen || ''),
+              recorded: true
+            });
+          });
+        } else if (u.lastDevice || u.lastBrowser) {
+          people++;
+          rows.push({
+            name: name, role: role, device: String(u.lastDevice || ''), browser: String(u.lastBrowser || ''),
+            screenW: 0, screenH: 0, availW: 0, availH: 0, winW: 0, winH: 0, dpr: '', touch: null,
+            count: 0, firstSeen: '', lastSeen: String(u.lastDeviceAt || ''), recorded: false
+          });
+        }
+      });
+      rows.sort(function(a, b) {
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || String(b.lastSeen).localeCompare(String(a.lastSeen));
+      });
+      _dvRows = rows;
+
+      var st = document.getElementById('dvGeneratedAt');
+      if (st) st.textContent = 'generated ' + new Date().toLocaleString();
+      if (!body) return;
+      if (!rows.length) {
+        body.innerHTML = '<div style="padding:24px;text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);color:var(--text-soft);">Nobody has signed in since device logging started.</div>';
+        return;
+      }
+
+      /* Summary, from the rows that carry sizes. */
+      var sized = rows.filter(function(r) { return r.recorded; });
+      var winTally = {}, smallest = null, touchN = 0, kinds = { win: 0, mac: 0, mobile: 0, other: 0 }, smallN = 0;
+      rows.forEach(function(r) { kinds[_dvKind(r.device)]++; });
+      sized.forEach(function(r) {
+        if (r.touch) touchN++;
+        if (_dvSmall(r)) smallN++;
+        if (r.winW && r.winH) {
+          var k = (Math.round(r.winW / 10) * 10) + ' x ' + (Math.round(r.winH / 10) * 10);
+          winTally[k] = (winTally[k] || 0) + 1;
+          if (!smallest || r.winW * r.winH < smallest.winW * smallest.winH) smallest = r;
+        }
+      });
+      var common = '', commonN = 0;
+      Object.keys(winTally).forEach(function(k) { if (winTally[k] > commonN) { common = k; commonN = winTally[k]; } });
+      var pill = 'display:inline-block;margin:0 14px 6px 0;';
+      var sum = '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:14px 16px;margin-bottom:14px;font-size:.88rem;line-height:1.6;">'
+        + '<div><span style="' + pill + '"><b>' + people + '</b> ' + (people === 1 ? 'person' : 'people') + '</span>'
+        + '<span style="' + pill + '"><b>' + rows.length + '</b> device' + (rows.length === 1 ? '' : 's') + (rows.length !== sized.length ? ' (' + (rows.length - sized.length) + ' with no sizes recorded yet)' : '') + '</span>'
+        + '<span style="' + pill + '"><b>' + kinds.win + '</b> Windows PC</span>'
+        + '<span style="' + pill + '"><b>' + kinds.mac + '</b> Mac</span>'
+        + '<span style="' + pill + '"><b>' + kinds.mobile + '</b> phone or tablet</span>'
+        + (kinds.other ? '<span style="' + pill + '"><b>' + kinds.other + '</b> other</span>' : '')
+        + '<span style="' + pill + '"><b>' + touchN + '</b> on touch</span></div>'
+        + '<div>Most common browser window: <b>' + (common ? rsEscape(common) + '</b> (' + commonN + ')' : 'none recorded yet</b>')
+        + ' &middot; Smallest window: <b>' + (smallest ? rsEscape(_dvSize(smallest.winW, smallest.winH)) + '</b> (' + rsEscape(smallest.name + ', ' + smallest.device) + ')' : 'none recorded yet</b>') + '</div>'
+        + '<div style="margin-top:4px;color:var(--text-soft);"><span style="display:inline-block;width:12px;height:12px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:3px;vertical-align:-1px;margin-right:6px;"></span>'
+        + smallN + ' device' + (smallN === 1 ? '' : 's') + ' with a window narrower than 1366 or shorter than 700, shaded below. Staff screens are often 1366 x 768.</div>'
+        + '</div>';
+
+      var th = 'text-align:left;padding:8px 10px;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:2px solid #E2E8F0;background:#F8FAFC;white-space:nowrap;';
+      var td = 'padding:8px 10px;border-bottom:1px solid #F1F5F9;font-size:.86rem;vertical-align:top;';
+      var heads = ['Person', 'Role', 'Device', 'Browser', 'Screen', 'Usable', 'Window', 'Pixel ratio', 'Touch', 'Times used', 'First seen', 'Last seen'];
+      var html = sum + '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow-x:auto;">'
+        + '<table style="width:100%;border-collapse:collapse;"><thead><tr>'
+        + heads.map(function(h) { return '<th style="' + th + '">' + h + '</th>'; }).join('')
+        + '</tr></thead><tbody>';
+      rows.forEach(function(r) {
+        var bg = _dvSmall(r) ? 'background:#FEF3C7;' : '';
+        var nw = 'white-space:nowrap;';
+        html += '<tr style="' + bg + '">'
+          + '<td style="' + td + 'font-weight:600;">' + rsEscape(r.name) + '</td>'
+          + '<td style="' + td + '">' + rsEscape(r.role || '\u2014') + '</td>'
+          + '<td style="' + td + '">' + rsEscape(r.device || '\u2014') + '</td>'
+          + '<td style="' + td + '">' + rsEscape(r.browser || '\u2014') + '</td>'
+          + (r.recorded
+              ? '<td style="' + td + nw + '">' + rsEscape(_dvSize(r.screenW, r.screenH) || '\u2014') + '</td>'
+                + '<td style="' + td + nw + '">' + rsEscape(_dvSize(r.availW, r.availH) || '\u2014') + '</td>'
+                + '<td style="' + td + nw + (_dvSmall(r) ? 'color:#B45309;font-weight:700;' : '') + '">' + rsEscape(_dvSize(r.winW, r.winH) || '\u2014') + '</td>'
+                + '<td style="' + td + '">' + rsEscape(String(r.dpr)) + '</td>'
+                + '<td style="' + td + '">' + (r.touch ? 'Yes' : 'No') + '</td>'
+                + '<td style="' + td + '">' + (r.count || '') + '</td>'
+              : '<td style="' + td + 'color:var(--text-soft);' + nw + '">Not recorded yet</td>'
+                + '<td style="' + td + '"></td><td style="' + td + '"></td><td style="' + td + '"></td><td style="' + td + '"></td><td style="' + td + '"></td>')
+          + '<td style="' + td + nw + '">' + rsEscape(_dvWhen(r.firstSeen)) + '</td>'
+          + '<td style="' + td + nw + '">' + rsEscape(_dvWhen(r.lastSeen)) + '</td>'
+          + '</tr>';
+      });
+      body.innerHTML = html + '</tbody></table></div>';
+    } catch (e) {
+      if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load devices: ' + rsEscape(e.message) + '</div>';
+    }
+  };
+  window.cmsCloseDeviceReport = function() { _cmsShowOnlyReport(null); };
+  /* Same CSV shape as crExportCSV: every cell quoted, BOM so Excel keeps the okina. */
+  window.cmsDeviceReportCsv = function() {
+    if (!window._deviceReportCanView()) return;
+    if (!_dvRows.length) { alert('No device data loaded.'); return; }
+    var out = [['Person', 'Role', 'Device', 'Browser', 'Screen width', 'Screen height', 'Usable width', 'Usable height',
+                'Window width', 'Window height', 'Pixel ratio', 'Touch', 'Times used', 'First seen', 'Last seen', 'Small window']];
+    _dvRows.forEach(function(r) {
+      out.push([
+        r.name, r.role, r.device, r.browser,
+        r.recorded ? r.screenW : 'Not recorded yet', r.recorded ? r.screenH : '',
+        r.recorded ? r.availW : '', r.recorded ? r.availH : '',
+        r.recorded ? r.winW : '', r.recorded ? r.winH : '',
+        r.recorded ? r.dpr : '', r.recorded ? (r.touch ? 'Yes' : 'No') : '',
+        r.recorded ? r.count : '', r.firstSeen, r.lastSeen, _dvSmall(r) ? 'Yes' : 'No'
+      ].map(function(v) { var s = (v == null ? '' : String(v)).replace(/"/g, '""'); return '"' + s + '"'; }));
+    });
+    var csv = out.map(function(r) { return r.join(','); }).join('\r\n');
+    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ldah-devices-screens-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   /* ══════════════════════════════════════════════════════════════════════
      KE OLA MAMO — MONTHLY PROGRAM REPORT  (v150.20-STAGE)
