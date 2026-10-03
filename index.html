@@ -5607,7 +5607,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.17</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.18</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -15100,6 +15100,52 @@ var _photoPendingByIsland = {};
     }
     return false;
   }
+
+  /* Newest version beside the grey one (2026-10-03). Daniel: show the most
+     up-to-date version in red, underlined, and reload when it is clicked.
+     Pages ignores Range requests, so stream the page and stop as soon as the
+     version span has gone past (about the first 280 KB of 3.9 MB). Only runs
+     once a check has already found this tab behind. */
+  var _staleLatestFor = null;
+  async function _staleLatestVersion() {
+    try {
+      var res = await fetch(location.pathname + '?_sv=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok || !res.body) return null;
+      var rd = res.body.getReader(), dec = new TextDecoder(), txt = '';
+      while (true) {
+        var r = await rd.read();
+        if (r.done) break;
+        txt += dec.decode(r.value, { stream: true });
+        var m = txt.match(/id="buildVersion"[^>]*>([^<]+)</);
+        if (m) { try { rd.cancel(); } catch (e) {} return m[1].trim(); }
+        if (txt.length > 1500000) { try { rd.cancel(); } catch (e) {} break; }
+      }
+    } catch (e) {}
+    return null;
+  }
+  function _staleShowLatest(v) {
+    var cur = document.getElementById('buildVersion');
+    v = String(v || '').replace(/-STAGE$/, '');   // STAGE shows its number without the suffix
+    if (!cur || !v || v === cur.textContent.trim().replace(/-STAGE$/, '')) return;
+    var a = document.getElementById('buildVersionNew');
+    if (!a) {
+      a = document.createElement('a');
+      a.id = 'buildVersionNew';
+      a.href = '#';
+      a.title = 'A newer version is out. Click to update.';
+      a.style.cssText = 'position:absolute;top:4px;right:8px;font-size:.65rem;font-weight:700;color:#DC2626;'
+        + 'text-decoration:underline;cursor:pointer;z-index:2;';
+      a.addEventListener('click', function(e) {
+        e.preventDefault();
+        _stalePresenceStamp({ staleReloadClickedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        setTimeout(function() { location.reload(); }, 300);
+      });
+      cur.parentNode.insertBefore(a, cur.nextSibling);
+    }
+    a.textContent = v;
+    cur.style.right = (8 + a.offsetWidth + 6) + 'px';   // grey sits just left of the red
+  }
+  window._staleShowLatest = _staleShowLatest;   // lets a test (or support) show it by hand
 
   async function _staleCheck() {
     try {
