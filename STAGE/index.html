@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.4-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.5-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -43743,8 +43743,9 @@ function _vacOppTitle(app) {
 // Applications as grouped card grids (2026-10-02). Same data, same filter
 // chips, same archived toggle; a click opens the full application in a modal
 // whose buttons call the SAME handlers as before (cmsUpdateAppStatus,
-// cmsArchiveApp, cmsSaveAppNotes). Accepted applications now show in the last
-// group ("Accepted or Declined") as well as on the Roster.
+// cmsArchiveApp, cmsSaveAppNotes). Accepted applications are NOT shown here:
+// they live on the Roster tab only (Daniel 10-02, "accepted == roster"). A
+// declined volunteer comes back here, in the "Declined" group.
 var _cmsVolAppModalId = null;
 function cmsRenderApplications() {
   var all = (_cmsVolunteerApps || []);
@@ -44223,9 +44224,10 @@ window.cmsUpdateAppStatus = async function(appId, status) {
     await db.collection('volunteers').doc(appId).update({ status: status });
     var app = _cmsVolunteerApps.find(function(a) { return a.id === appId; });
     if (app) app.status = status;
-    var appName = app ? (app.name || appId) : appId;
+    var appName = app ? ([app.firstName, app.lastName].filter(Boolean).join(' ') || app.name || appId) : appId;
     auditLog('Updated application status', appName + ' — Status: ' + status);
     cmsRenderApplications();
+    if (typeof cmsRenderRoster === 'function') cmsRenderRoster();   // accepted <-> other moves them on/off the Roster
     _showToast('Status updated.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
@@ -44236,7 +44238,7 @@ window.cmsSaveAppNotes = async function(appId, textareaId) {
     await db.collection('volunteers').doc(appId).update({ adminNotes: notes });
     var app = _cmsVolunteerApps.find(function(a) { return a.id === appId; });
     if (app) app.adminNotes = notes;
-    var appName = app ? (app.name || appId) : appId;
+    var appName = app ? ([app.firstName, app.lastName].filter(Boolean).join(' ') || app.name || appId) : appId;
     auditLog('Updated application notes', appName);
     _showToast('Notes saved.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
@@ -44567,11 +44569,34 @@ window.cmsRosterDetails = function(id) {
   html += '<div class="vd-lbl">Admin notes</div>' +
     '<textarea id="' + notesId + '" rows="4" style="width:100%;font-size:.88rem;border:1px solid #CBD5E1;border-radius:8px;padding:9px 11px;resize:vertical;font-family:inherit;" placeholder="Internal notes…">' + rsEscape(v.adminNotes || '') + '</textarea>' +
     '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;margin-top:8px;" onclick="cmsSaveAppNotes(\'' + rsEscape(v.id) + '\',\'' + notesId + '\')">Save notes</button>';
+  // Leaving the roster (2026-10-02): an accepted volunteer needs a way off it.
+  // Same handlers as the Applications cards (cmsUpdateAppStatus / cmsArchiveApp).
+  html += '<div class="vd-lbl">Roster status</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+      '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;" onclick="cmsRosterSetStatus(' + _vdEsc(JSON.stringify(v.id)) + ',\'interviewing\')" title="Move back to the Applications tab (Interviewing)">Move back to Applications</button>' +
+      '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;color:#B91C1C;border-color:#FECACA;" onclick="cmsRosterSetStatus(' + _vdEsc(JSON.stringify(v.id)) + ',\'declined\')">Mark declined</button>' +
+      '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;color:#B91C1C;border-color:#FECACA;" onclick="cmsRosterSetStatus(' + _vdEsc(JSON.stringify(v.id)) + ',\'archive\')">Decline and archive</button>' +
+    '</div><div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Declined volunteers leave the Roster and show in Applications under Declined. No email is sent.</div>';
   document.getElementById('cmsVolDetailBody').innerHTML = html;
   document.getElementById('cmsVolDetailMsg').textContent = '';
   document.getElementById('cmsVolDetailOverlay').style.display = 'flex';
   if (typeof cmsRenderVolDocs === 'function') cmsRenderVolDocs(v.id);
   if (typeof _vfaLoad === 'function') _vfaLoad(v.id);
+};
+
+window.cmsRosterSetStatus = async function(id, action) {
+  var v = (_cmsVolunteerApps || []).find(function(a) { return a.id === id; });
+  var name = v ? ([v.firstName, v.lastName].filter(Boolean).join(' ') || 'this volunteer') : 'this volunteer';
+  var q = action === 'interviewing' ? 'Move ' + name + ' back to Applications (Interviewing)? They leave the Roster.'
+        : action === 'archive' ? 'Decline and archive ' + name + '? They leave the Roster. You can restore them from Applications (Show Archived).'
+        : 'Mark ' + name + ' as declined? They leave the Roster and show in Applications under Declined.';
+  if (!confirm(q)) return;
+  await cmsUpdateAppStatus(id, action === 'interviewing' ? 'interviewing' : 'declined');
+  var after = (_cmsVolunteerApps || []).find(function(a) { return a.id === id; });
+  if (!after || after.status === 'accepted') return;   // the update failed; its toast says why
+  if (action === 'archive') await cmsArchiveApp(id, true);
+  document.getElementById('cmsVolDetailOverlay').style.display = 'none';
+  if (typeof cmsRenderRoster === 'function') cmsRenderRoster();
 };
 
 // ── Volunteer onboarding documents (2026-10-02) ───────────────────────────
@@ -44583,7 +44608,12 @@ window.cmsRosterDetails = function(id) {
 window._cmsVolOnb = null;          // { volunteerId: onboardingDoc } once loaded
 window._cmsVolOnbErr = '';
 window._cmsVolOnbLoading = false;
-window.VOL_DOCS_DEFAULT_SUPERVISOR = 'Rosie Rowe';
+// Default supervisor printed on the Confidentiality Agreement: the signed-in
+// staff member (no real name hard-coded in served code). Still editable.
+window.cmsVolDocsDefaultSupervisor = function() {
+  var u = window.currentUserData || {};
+  return String(u.displayName || u.name || '').trim();
+};
 
 function _vdEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function _vdHrs(n) { n = Math.round((Number(n) || 0) * 100) / 100; return n % 1 === 0 ? String(n) : n.toFixed(2).replace(/0$/, ''); }
@@ -44718,6 +44748,18 @@ window.cmsVolOnSiteRefresh = function() {
   if (typeof cmsVolOnbEnsure === 'function') cmsVolOnbEnsure(true);
 };
 
+// Auto-refresh "On site now" every 60 s, only while the Roster pane is on screen
+// and the tab is visible (one small read of volunteerOnboarding per minute).
+window._cmsVolOnSiteTimer = window._cmsVolOnSiteTimer || setInterval(function() {
+  try {
+    if (document.hidden) return;
+    var pane = document.getElementById('cmsVolunteersRosterPane');
+    if (!pane || pane.offsetParent === null) return;
+    if (window._cmsVolOnbLoading) return;
+    cmsVolOnSiteRefresh();
+  } catch (e) {}
+}, 60000);
+
 // Printable poster: LDAH logo, the QR, three short steps. One QR per site
 // choice is drawn up front so the site buttons swap them with no script.
 window.cmsVolCheckinPoster = function() {
@@ -44734,7 +44776,7 @@ window.cmsVolCheckinPoster = function() {
     '.bar button{font:inherit;font-size:14px;padding:9px 16px;border-radius:8px;border:1px solid #0E7490;background:#fff;color:#0E7490;cursor:pointer;font-weight:600}' +
     '.bar button.pr{background:#0E7490;color:#fff}' +
     '.sheet{width:8.5in;height:11in;background:#fff;margin:18px auto;padding:.55in .7in .5in;display:flex;flex-direction:column;align-items:center;text-align:center;box-shadow:0 2px 18px rgba(20,40,60,.18)}' +
-    '.logo{width:1.15in;height:1.15in;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.logo{width:1.5in;height:1.5in;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     '.org{font-size:11.5pt;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#0E4C6B;margin-top:6px}' +
     '.rule{width:100%;height:5px;background:linear-gradient(90deg,#0E4C6B,#0891B2);border-radius:3px;margin:14px 0 20px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
     'h1{font-size:34pt;line-height:1.1;margin:0;color:#0E4C6B}' +
@@ -44762,8 +44804,7 @@ window.cmsVolCheckinPoster = function() {
   if (!w) { _showToast('Allow pop-ups to open the poster.', '#D97706'); return; }
   w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Volunteer check-in poster</title><style>' + css + '</style></head><body class="s-any">' + bar +
     '<div class="sheet">' +
-      '<img class="logo" src="' + E(logo) + '" alt="LDAH">' +
-      '<div class="org">Leadership in Disabilities &amp; Achievement of Hawai&#699;i</div>' +
+      '<img class="logo" src="' + E(logo) + '" alt="Leadership in Disabilities and Achievement of Hawai&#699;i">' +
       '<div class="rule"></div>' +
       '<h1>Volunteers</h1><div class="h1b">Scan to check in and out</div>' +
       qrs +
@@ -44807,7 +44848,7 @@ window.cmsRenderVolDocs = async function(volunteerId, preloaded) {
   if (o.lastSendError) h += '<div class="vdoc-warn">The last email failed: ' + _vdEsc(o.lastSendError) + '</div>';
   if (canSend) {
     h += '<div class="vdoc-send-row"><label for="cmsVolDocsSup">Supervising staff person</label>' +
-      '<input id="cmsVolDocsSup" type="text" maxlength="80" value="' + _vdEsc(o.supervisorName || window.VOL_DOCS_DEFAULT_SUPERVISOR) + '" title="Printed on the Confidentiality Agreement as the person who answers the volunteer\'s questions">' +
+      '<input id="cmsVolDocsSup" type="text" maxlength="80" value="' + _vdEsc(o.supervisorName || cmsVolDocsDefaultSupervisor()) + '" title="Printed on the Confidentiality Agreement as the person who answers the volunteer\'s questions">' +
       '<button class="btn btn-primary" id="cmsVolDocsSendBtn" type="button" onclick="cmsSendVolDocs(\'' + _vdEsc(volunteerId) + '\')" title="Emails the volunteer a branded LDAH email with a button to their documents page">' + (o.sentAt ? 'Resend documents' : 'Send volunteer documents') + '</button></div>';
   }
   h += '</div>';
@@ -44858,7 +44899,7 @@ window.cmsRenderVolDocs = async function(volunteerId, preloaded) {
 window.cmsSendVolDocs = async function(volunteerId) {
   var v = (_cmsVolunteerApps || []).find(function(a) { return a.id === volunteerId; });
   if (!v) { _showToast('Could not find that volunteer.', '#DC2626'); return; }
-  var sup = ((document.getElementById('cmsVolDocsSup') || {}).value || '').trim() || window.VOL_DOCS_DEFAULT_SUPERVISOR;
+  var sup = ((document.getElementById('cmsVolDocsSup') || {}).value || '').trim() || cmsVolDocsDefaultSupervisor();
   var name = [v.firstName, v.lastName].filter(Boolean).join(' ') || v.email;
   var cur = (window._cmsVolDocsCur && window._cmsVolDocsCur.id === volunteerId) ? (window._cmsVolDocsCur.doc || {}) : {};
   var verb = cur.sentAt ? 'Resend' : 'Send';
@@ -45043,6 +45084,7 @@ window.cmsArchiveApp = async function(appId, archive) {
     if (app) app.archived = !!archive;
     auditLog(archive ? 'Archived volunteer application' : 'Restored volunteer application', appName);
     cmsRenderApplications();
+    if (typeof cmsRenderRoster === 'function') cmsRenderRoster();
     _showToast(archive ? 'Application archived.' : 'Application restored.', '#16A34A');
   } catch (err) { _showToast('Error: ' + err.message, '#DC2626'); }
 };
