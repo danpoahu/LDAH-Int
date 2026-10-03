@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.11-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.12-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6838,6 +6838,10 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                            One-Off form right here. Closing the task tells Daniel to check. */
                         else if(d.workflowStep==='fixEventLocation'&&d.workflowEventId)
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#DB2777;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();cmsOpenOneOffModal(\''+esc(d.workflowEventId)+'\')" title="Opens the event so you can type where it happened (a place, or Zoom). Save, then tick this task off.">Add location</button>';
+                        /* A one-off whose TOTAL box was left at 0 (2026-10-03). Opens the
+                           same One-Off form, where the TOTAL box is. */
+                        else if(d.workflowStep==='enterOneOffTotal'&&d.workflowEventId)
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#DB2777;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();cmsOpenOneOffModal(\''+esc(d.workflowEventId)+'\')" title="Opens the event. Type how many people came in the TOTAL box, Save, then tick this task off.">Enter TOTAL attendance &rarr;</button>';
                         else if(d.workflowStep==='photoReleaseVerify')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoVerify(\''+d._id+'\')">Review / Revert &rarr;</button>';
                         else if(d.workflowStep==='photoReleaseStall')
@@ -10390,9 +10394,37 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           </div>
           <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsExportPledgesCsv()">Export CSV <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Download this data as a spreadsheet file. Opens in Excel, Google Sheets, or Numbers.')">i</span></button>
           <button class="btn btn-ghost" style="font-size:.82rem;" id="cmsWdArchiveTogglePledges" onclick="cmsToggleWdArchived('pledges')">Show Archived</button>
+          <!-- v152.12: volunteer request to pledge signers. Super Admin / Admin only (shown by cmsRenderPledges). -->
+          <button class="btn btn-primary" style="font-size:.82rem;display:none;" id="cmsPledgeInviteAllBtn" onclick="cmsOpenPledgeInvite()">Send volunteer request <span class="cms-ib cms-ib-light" onclick="event.stopPropagation();cmsIbShow(this,'Emails pledge signers an invitation to volunteer with LDAH.<br><br>A preview opens first and lists who will receive it and who is left out (already a volunteer, already invited, no email, or a Student). Nothing is sent until you press <b>Send</b>.')">i</span></button>
         </div>
         <div id="cmsWebDataPledgesCards">
           <div class="cms-empty"><p>Loading pledges...</p></div>
+        </div>
+
+        <!-- v152.12: Send volunteer request modal (preview / test / send) -->
+        <div class="overlay" id="cmsPledgeInviteOverlay">
+          <div class="modal" style="max-width:620px;">
+            <div class="modal-header">
+              <div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="cmsPledgeInviteTitle">Send volunteer request</div></div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <button class="close" type="button" onclick="cmsClosePledgeInvite()">&times;</button>
+              </div>
+            </div>
+            <div class="modal-body" style="display:block;padding:12px 18px 14px;">
+              <label id="cmsPledgeInviteStudentsRow" style="display:flex;align-items:center;gap:8px;font-size:.88rem;color:var(--text-dark);margin-bottom:10px;cursor:pointer;">
+                <input type="checkbox" id="cmsPledgeInviteStudents" onchange="cmsPledgeInvitePreview()"> Include Students
+              </label>
+              <div id="cmsPledgeInviteBody" style="max-height:min(52vh,420px);overflow-y:auto;font-size:.88rem;line-height:1.5;">
+                <div class="cms-empty"><p>Loading preview...</p></div>
+              </div>
+              <div id="cmsPledgeInviteMsg" style="display:none;margin-top:10px;font-size:.86rem;padding:8px 10px;border-radius:8px;"></div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-ghost" id="cmsPledgeInviteCancelBtn" onclick="cmsClosePledgeInvite()">Cancel</button>
+              <button class="btn btn-ghost" id="cmsPledgeInviteTestBtn" onclick="cmsPledgeInviteTest()" disabled>Send a test to me</button>
+              <button class="btn btn-primary" id="cmsPledgeInviteSendBtn" onclick="cmsPledgeInviteSend()" disabled>Send to 0 people</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -46161,6 +46193,7 @@ var _cmsWdEventRequestsFilter = 'all';
 var _cmsWdContactMessagesFilter = 'all';
 var _cmsWebDataActiveTab = 'providers';
 var _cmsWdShowArchived = { providers: false, pledges: false, eventRequests: false, contactMessages: false };
+var _cmsPledgeVolunteerEmails = {};   // v152.12: lower-cased volunteers.email set
 
 window.cmsToggleWdArchived = function(tab) {
   _cmsWdShowArchived[tab] = !_cmsWdShowArchived[tab];
@@ -46234,6 +46267,13 @@ window.cmsLoadPledges = async function() {
   var container = document.getElementById('cmsWebDataPledgesCards');
   if (container && (!container.children.length || container.innerHTML.indexOf('Loading') !== -1))
     container.innerHTML = '<div class="cms-empty"><p>Loading...</p></div>';
+  /* v152.12: volunteer emails (trimmed, lower case) for the green Volunteer pill.
+     Runs alongside the pledge read; a refusal only hides the pill. */
+  var _volProm = db.collection('volunteers').get().then(function(vs) {
+    var set = {};
+    vs.forEach(function(v) { var e = String((v.data() || {}).email || '').trim().toLowerCase(); if (e) set[e] = true; });
+    _cmsPledgeVolunteerEmails = set;
+  }).catch(function(err) { console.warn('[pledges] volunteers read failed', err && err.message); });
   try {
     var snap = await db.collection('pledges').orderBy('submittedAt', 'desc').get();
     _cmsPledges = [];
@@ -46249,6 +46289,7 @@ window.cmsLoadPledges = async function() {
       return;
     }
   }
+  await _volProm;
   cmsRenderPledges();
 };
 
@@ -46364,6 +46405,8 @@ window.cmsRenderProviders = function() {
 
 window.cmsRenderPledges = function() {
   var container = document.getElementById('cmsWebDataPledgesCards');
+  var _allBtn = document.getElementById('cmsPledgeInviteAllBtn');
+  if (_allBtn) _allBtn.style.display = _cmsPledgeCanInvite() ? '' : 'none';
   var showArch = _cmsWdShowArchived['pledges'];
   var filtered = _cmsPledges.filter(function(p) {
     if (p.archived === true && !showArch) return false;
@@ -46372,6 +46415,7 @@ window.cmsRenderPledges = function() {
   });
   if (!filtered.length) { container.innerHTML = '<div class="cms-empty"><p>No pledges' + (_cmsWdPledgesFilter !== 'all' ? ' with status "' + rsEscape(_cmsWdPledgesFilter) + '"' : '') + '.</p></div>'; return; }
   var colorMap = { new: '#64748B', viewed: '#0891B2', acknowledged: '#16A34A' };
+  var canInvite = _cmsPledgeCanInvite();
   var html = '';
   filtered.forEach(function(p) {
     var ts = _cmsWdTs(p);
@@ -46380,21 +46424,209 @@ window.cmsRenderPledges = function() {
     var emailSentBadge = p.confirmationEmailSentAt
       ? '<span style="display:inline-block;background:#DCFCE7;color:#166534;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;">Email sent &check;</span>'
       : '';
+    // v152.12: Volunteer (email matches a volunteers doc) and Invited <date> pills.
+    var isVol = _cmsPledgeIsVolunteer(p);
+    var invitedOn = p.volunteerInviteSentAt ? _cmsPledgeFmtDate(p.volunteerInviteSentAt) : '';
+    var volBadge = isVol
+      ? '<span style="display:inline-block;background:#16A34A;color:#fff;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;">Volunteer</span>'
+      : '';
+    var invBadge = p.volunteerInviteSentAt
+      ? '<span style="display:inline-block;background:#E0F2FE;color:#075985;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;">Invited' + (invitedOn ? ' ' + rsEscape(invitedOn) : '') + '</span>'
+      : '';
+    var roleZip = [p.role ? rsEscape(p.role) : '', p.zip ? rsEscape(String(p.zip)) : ''].filter(Boolean).join(' &middot; ');
     var summary = '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
       '<div>' +
-      '<div style="font-weight:600;font-size:.97rem;">' + rsEscape(p.name || '(No name)') + emailSentBadge + '</div>' +
+      '<div style="font-weight:600;font-size:.97rem;">' + rsEscape(p.name || '(No name)') + emailSentBadge + volBadge + invBadge + '</div>' +
       '<div style="font-size:.84rem;color:var(--text-soft);">' + (p.location ? rsEscape(p.location) : '') + (p.email ? (p.location ? ' &middot; ' : '') + rsEscape(p.email) : '') + '</div>' +
-      (ts ? '<div style="font-size:.79rem;color:var(--text-soft);">' + ts + '</div>' : '') +
+      (roleZip ? '<div style="font-size:.83rem;color:var(--text-soft);">' + roleZip + '</div>' : '') +
+      (ts ? '<div style="font-size:.79rem;color:var(--text-soft);">Pledged ' + ts + '</div>' : '') +
       (msgPreview ? '<div style="font-size:.83rem;color:var(--text-soft);margin-top:4px;">' + msgPreview + '</div>' : '') +
       '</div>' + _cmsWdStatusBadge(p.status || 'new', colorMap) + '</div>' +
       '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;" onclick="event.stopPropagation()">' +
-      _cmsWdStatusBtns(p.id, 'pledges', ['new', 'viewed', 'acknowledged'], colorMap) + '</div>';
+      _cmsWdStatusBtns(p.id, 'pledges', ['new', 'viewed', 'acknowledged'], colorMap) +
+      ((canInvite && !isVol && !p.volunteerInviteSentAt && p.archived !== true)
+        ? '<button class="btn btn-ghost" style="font-size:.76rem;padding:3px 9px;margin-left:auto;color:#0E7490;" onclick="cmsOpenPledgeInvite(\'' + rsEscape(p.id) + '\')">Send volunteer request</button>'
+        : '') +
+      '</div>';
     var details = (p.email ? '<div><b>Email:</b> ' + rsEscape(p.email) + '</div>' : '') +
+      (p.role ? '<div><b>Role:</b> ' + rsEscape(p.role) + '</div>' : '') +
+      (p.zip ? '<div><b>Zip:</b> ' + rsEscape(String(p.zip)) + '</div>' : '') +
       (p.location ? '<div><b>Location:</b> ' + rsEscape(p.location) + '</div>' : '') +
+      (invitedOn ? '<div><b>Volunteer request sent:</b> ' + rsEscape(invitedOn) + '</div>' : '') +
       (p.message ? '<div style="margin-top:6px;white-space:pre-wrap;">' + rsEscape(p.message) + '</div>' : '');
     html += _cmsWdCard(summary, p.id, details, p.archived === true, 'pledges', 'cmsLoadPledges');
   });
   container.innerHTML = html;
+};
+
+/* ── v152.12: Pledge volunteer request ──────────────────────────────
+   Backend: sendPledgeVolunteerInvite (POST, Firebase ID token, Super Admin /
+   Admin). mode 'preview' lists who would get it; 'test' sends one copy to the
+   signed-in user; 'send' emails the eligible list and stamps
+   pledges.volunteerInviteSentAt. The buttons show for superAdmin / admin only;
+   the function enforces the same rule server side. */
+var _CMS_PLEDGE_INVITE_URL = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendPledgeVolunteerInvite';
+var _cmsPledgeInviteState = { pledgeIds: null, eligible: [], busy: false, sent: false };
+
+function _cmsPledgeCanInvite() {
+  var r = window.currentUserData && window.currentUserData.role;
+  return r === 'superAdmin' || r === 'admin';
+}
+function _cmsPledgeIsVolunteer(p) {
+  var e = String((p && p.email) || '').trim().toLowerCase();
+  return !!(e && _cmsPledgeVolunteerEmails[e]);
+}
+function _cmsPledgeFmtDate(ts) {
+  if (!ts) return '';
+  try {
+    if (ts.toDate) return ts.toDate().toLocaleDateString();
+    if (ts.seconds) return new Date(ts.seconds * 1000).toLocaleDateString();
+    if (ts._seconds) return new Date(ts._seconds * 1000).toLocaleDateString();
+    var d = new Date(ts);
+    return isNaN(d.getTime()) ? String(ts) : d.toLocaleDateString();
+  } catch (e) { return ''; }
+}
+async function _cmsPledgeInviteCall(payload) {
+  var user = firebase.auth().currentUser;
+  if (!user) throw new Error('You are signed out. Sign in again and retry.');
+  var tok = await user.getIdToken();
+  var resp = await fetch(_CMS_PLEDGE_INVITE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+    body: JSON.stringify(payload)
+  });
+  var data = null;
+  try { data = await resp.json(); } catch (_) { data = null; }
+  if (!resp.ok) throw new Error((data && data.error) || ('Request failed (' + resp.status + ').'));
+  return data || {};
+}
+function _cmsPledgeInviteMsg(text, kind) {
+  var el = document.getElementById('cmsPledgeInviteMsg');
+  if (!el) return;
+  if (!text) { el.style.display = 'none'; el.textContent = ''; return; }
+  var c = kind === 'error' ? ['#FEF2F2', '#991B1B'] : kind === 'ok' ? ['#F0FDF4', '#166534'] : ['#F1F5F9', '#334155'];
+  el.style.background = c[0]; el.style.color = c[1];
+  el.textContent = text;
+  el.style.display = 'block';
+}
+function _cmsPledgeInviteButtons() {
+  var st = _cmsPledgeInviteState;
+  var n = st.eligible.length;
+  var send = document.getElementById('cmsPledgeInviteSendBtn');
+  var test = document.getElementById('cmsPledgeInviteTestBtn');
+  var stu = document.getElementById('cmsPledgeInviteStudents');
+  if (send) {
+    send.textContent = 'Send to ' + n + ' ' + (n === 1 ? 'person' : 'people');
+    send.disabled = st.busy || st.sent || n === 0;
+    send.style.display = st.sent ? 'none' : '';
+  }
+  if (test) { test.disabled = st.busy || st.sent; test.style.display = st.sent ? 'none' : ''; }
+  if (stu) stu.disabled = st.busy || st.sent;
+  var cancel = document.getElementById('cmsPledgeInviteCancelBtn');
+  if (cancel) { cancel.disabled = st.busy; cancel.textContent = st.sent ? 'Close' : 'Cancel'; }
+}
+
+window.cmsOpenPledgeInvite = function(pledgeId) {
+  if (!_cmsPledgeCanInvite()) { _showToast('Volunteer requests are limited to Super Admin and Admin.', '#B45309'); return; }
+  _cmsPledgeInviteState = { pledgeIds: pledgeId ? [pledgeId] : null, eligible: [], busy: false, sent: false };
+  var title = document.getElementById('cmsPledgeInviteTitle');
+  if (title) {
+    var one = pledgeId ? _cmsPledges.find(function(x) { return x.id === pledgeId; }) : null;
+    title.textContent = 'Send volunteer request' + (one ? ' to ' + (one.name || 'this pledge') : '');
+  }
+  var stu = document.getElementById('cmsPledgeInviteStudents');
+  if (stu) stu.checked = false;
+  _cmsPledgeInviteMsg('');
+  document.getElementById('cmsPledgeInviteOverlay').classList.add('active');
+  cmsPledgeInvitePreview();
+};
+
+window.cmsClosePledgeInvite = function() {
+  if (_cmsPledgeInviteState.busy) return;
+  document.getElementById('cmsPledgeInviteOverlay').classList.remove('active');
+};
+
+window.cmsPledgeInvitePreview = async function() {
+  var st = _cmsPledgeInviteState;
+  var body = document.getElementById('cmsPledgeInviteBody');
+  var stu = document.getElementById('cmsPledgeInviteStudents');
+  st.eligible = []; st.busy = true;
+  _cmsPledgeInviteMsg('');
+  _cmsPledgeInviteButtons();
+  body.innerHTML = '<div class="cms-empty"><p>Loading preview...</p></div>';
+  var payload = { mode: 'preview', includeStudents: !!(stu && stu.checked) };
+  if (st.pledgeIds) payload.pledgeIds = st.pledgeIds;
+  try {
+    var r = await _cmsPledgeInviteCall(payload);
+    var elig = Array.isArray(r.eligible) ? r.eligible : [];
+    var skip = Array.isArray(r.skipped) ? r.skipped : [];
+    st.eligible = elig;
+    var h = '<div style="font-weight:700;color:#166534;margin-bottom:4px;">Will receive (' + elig.length + ')</div>';
+    h += elig.length
+      ? '<ul style="margin:0 0 12px;padding-left:18px;">' + elig.map(function(x) {
+          return '<li>' + rsEscape(x.name || '(No name)') + (x.role ? ' <span style="color:var(--text-soft);">&middot; ' + rsEscape(x.role) + '</span>' : '') + '</li>';
+        }).join('') + '</ul>'
+      : '<div style="color:var(--text-soft);margin-bottom:12px;">Nobody in this list is eligible.</div>';
+    h += '<div style="font-weight:700;color:#B45309;margin-bottom:4px;">Left out (' + skip.length + ')</div>';
+    h += skip.length
+      ? '<ul style="margin:0;padding-left:18px;">' + skip.map(function(x) {
+          return '<li>' + rsEscape(x.name || '(No name)') + (x.role ? ' <span style="color:var(--text-soft);">&middot; ' + rsEscape(x.role) + '</span>' : '') + (x.reason ? ' <span style="color:var(--text-soft);">&mdash; ' + rsEscape(x.reason) + '</span>' : '') + '</li>';
+        }).join('') + '</ul>'
+      : '<div style="color:var(--text-soft);">Nobody is left out.</div>';
+    body.innerHTML = h;
+  } catch (err) {
+    body.innerHTML = '';
+    _cmsPledgeInviteMsg(err.message || String(err), 'error');
+  } finally {
+    st.busy = false;
+    _cmsPledgeInviteButtons();
+  }
+};
+
+window.cmsPledgeInviteTest = async function() {
+  var st = _cmsPledgeInviteState;
+  if (st.busy) return;
+  st.busy = true; _cmsPledgeInviteButtons();
+  _cmsPledgeInviteMsg('Sending a test...', 'info');
+  try {
+    var payload = { mode: 'test' };
+    if (st.pledgeIds) payload.pledgeIds = st.pledgeIds;
+    var r = await _cmsPledgeInviteCall(payload);
+    _cmsPledgeInviteMsg('Test sent to ' + (r.to || 'your address') + '.', 'ok');
+  } catch (err) {
+    _cmsPledgeInviteMsg(err.message || String(err), 'error');
+  } finally {
+    st.busy = false; _cmsPledgeInviteButtons();
+  }
+};
+
+window.cmsPledgeInviteSend = async function() {
+  var st = _cmsPledgeInviteState;
+  if (st.busy || st.sent || !st.eligible.length) return;
+  var n = st.eligible.length;
+  var stu = document.getElementById('cmsPledgeInviteStudents');
+  st.busy = true; _cmsPledgeInviteButtons();
+  var send = document.getElementById('cmsPledgeInviteSendBtn');
+  if (send) send.textContent = 'Sending to ' + n + '...';
+  _cmsPledgeInviteMsg('Sending ' + n + ' volunteer request' + (n === 1 ? '' : 's') + '. Keep this window open.', 'info');
+  try {
+    var payload = { mode: 'send', includeStudents: !!(stu && stu.checked) };
+    if (st.pledgeIds) payload.pledgeIds = st.pledgeIds;
+    var r = await _cmsPledgeInviteCall(payload);
+    var sent = Number(r.sent) || 0;
+    var failed = Array.isArray(r.failed) ? r.failed : [];
+    st.sent = true;
+    var txt = 'Sent ' + sent + '.' + (failed.length ? ' Failed ' + failed.length + ': ' + failed.map(function(f) {
+      return (f && (f.name || f.email || f.id)) || String(f);
+    }).join(', ') + '.' : '');
+    _cmsPledgeInviteMsg(txt, failed.length ? 'error' : 'ok');
+    try { auditLog('Sent pledge volunteer request', sent + ' sent' + (failed.length ? ', ' + failed.length + ' failed' : '') + (st.pledgeIds ? ' (single pledge)' : '')); } catch (_) {}
+    cmsLoadPledges();   // refresh cards behind the modal so Invited pills appear
+  } catch (err) {
+    _cmsPledgeInviteMsg(err.message || String(err), 'error');
+  } finally {
+    st.busy = false; _cmsPledgeInviteButtons();
+  }
 };
 
 window.cmsRenderEventRequests = function() {
@@ -46539,10 +46771,10 @@ window.cmsExportProvidersCsv = function() {
 };
 
 window.cmsExportPledgesCsv = function() {
-  var headers = ['Name', 'Location', 'Email', 'Message', 'Status', 'Submitted'];
+  var headers = ['Name', 'Location', 'Email', 'Role', 'Zip', 'Message', 'Status', 'Volunteer', 'Volunteer Request Sent', 'Submitted'];
   var rows = [headers];
   _cmsPledges.forEach(function(p) {
-    rows.push([p.name, p.location, p.email, p.message, p.status, _cmsWdTsIso(p)]);
+    rows.push([p.name, p.location, p.email, p.role || '', p.zip || '', p.message, p.status, _cmsPledgeIsVolunteer(p) ? 'Yes' : '', p.volunteerInviteSentAt ? _cmsPledgeFmtDate(p.volunteerInviteSentAt) : '', _cmsWdTsIso(p)]);
   });
   _cmsWdDownload(_cmsWdCsvBlob(rows), 'anti-bullying-pledges-' + new Date().toISOString().slice(0,10) + '.csv');
 };
