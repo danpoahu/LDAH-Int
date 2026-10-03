@@ -5593,7 +5593,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.14-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.15-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13155,6 +13155,64 @@ var _photoPendingByIsland = {};
 
     return { device: device, browser: browser };
   };
+  /* "Please use Chrome" popup (2026-10-03). Daniel: anyone on something
+     other than Chrome or Safari gets a nudge at launch, with a button to open
+     the dashboard in Chrome. A web page can only hand itself to Chrome on
+     iPhone/iPad (googlechromes://) and Android (intent://); on a Windows PC or
+     a Mac no browser lets a page launch another one, so there the popup offers
+     Copy link + Get Chrome. "Not now" hides it for 7 days on that browser. */
+  var _BN_KEY = 'ldahBrowserNudgeUntil';
+  window._browserNudge = function(opts) {
+    try {
+      opts = opts || {};
+      var p = window._uaProfile ? window._uaProfile() : null;
+      if (!p) return;
+      var fam = String(p.browser || '').replace(/\s*\d+$/, '');
+      if (!opts.force && (fam === 'Chrome' || fam === 'Safari')) return;
+      if (!opts.force) {
+        try { if (Number(localStorage.getItem(_BN_KEY) || 0) > Date.now()) return; } catch (e) {}
+      }
+      if (document.getElementById('browserNudge')) return;
+      var url = location.origin + location.pathname;
+      var dev = p.device || '';
+      var openHref = '';
+      if (dev === 'iPhone' || dev === 'iPad') openHref = 'googlechromes://' + url.replace(/^https?:\/\//, '');
+      else if (/^Android/.test(dev)) openHref = 'intent://' + url.replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end';
+      var getHref = (dev === 'iPhone' || dev === 'iPad') ? 'https://apps.apple.com/app/google-chrome/id535886823'
+                  : /^Android/.test(dev) ? 'https://play.google.com/store/apps/details?id=com.android.chrome'
+                  : 'https://www.google.com/chrome/';
+      var btn = 'border:none;border-radius:8px;padding:10px 18px;font-weight:700;font-size:.9rem;cursor:pointer;';
+      var ov = document.createElement('div');
+      ov.id = 'browserNudge';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      ov.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="bnTitle" style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:24px 24px 20px;box-shadow:0 18px 50px rgba(0,0,0,.3);font-family:inherit;">'
+        + '<div id="bnTitle" style="font-size:1.15rem;font-weight:800;color:#0f172a;margin-bottom:8px;">Please use Google Chrome</div>'
+        + '<div style="font-size:.92rem;color:#334155;line-height:1.5;">You are using <strong>' + String(p.browser).replace(/[<>&"]/g, '') + '</strong>. The dashboard works best, and picks up updates most reliably, in Google Chrome.</div>'
+        + (openHref ? '' : '<div style="font-size:.86rem;color:#475569;line-height:1.5;margin-top:10px;">Click <strong>Copy link</strong>, open Chrome, and paste the link into the address bar.</div>')
+        + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px;">'
+        + (openHref ? '<a id="bnOpen" href="' + openHref + '" style="' + btn + 'background:#1a73e8;color:#fff;text-decoration:none;">Open in Chrome</a>'
+                    : '<button type="button" id="bnCopy" style="' + btn + 'background:#1a73e8;color:#fff;">Copy link</button>')
+        + '<a href="' + getHref + '" target="_blank" rel="noopener" style="' + btn + 'background:#e8f0fe;color:#1a73e8;text-decoration:none;">Get Chrome</a>'
+        + '<button type="button" id="bnLater" style="' + btn + 'background:#f1f5f9;color:#334155;margin-left:auto;">Not now</button>'
+        + '</div>'
+        + '<div id="bnMsg" style="display:none;font-size:.82rem;color:#15803d;margin-top:10px;"></div>'
+        + '</div>';
+      document.body.appendChild(ov);
+      var close = function() { var e = document.getElementById('browserNudge'); if (e) e.remove(); };
+      document.getElementById('bnLater').addEventListener('click', function() {
+        try { localStorage.setItem(_BN_KEY, String(Date.now() + 7 * 24 * 60 * 60 * 1000)); } catch (e) {}
+        close();
+      });
+      var cp = document.getElementById('bnCopy');
+      if (cp) cp.addEventListener('click', function() {
+        var msg = document.getElementById('bnMsg');
+        var done = function(ok) { msg.style.display = 'block'; msg.style.color = ok ? '#15803d' : '#b91c1c';
+          msg.textContent = ok ? 'Link copied. Open Chrome and paste it into the address bar.' : 'Could not copy. The link is: ' + url; };
+        try { navigator.clipboard.writeText(url).then(function() { done(true); }, function() { done(false); }); } catch (e) { done(false); }
+      });
+    } catch (e) { console.warn('browser nudge:', e && e.message); }
+  };
+
   if (!_isSafari) {
     db.enablePersistence({ synchronizeTabs: true }).catch(function(err) {
       if (err.code === 'failed-precondition') {
@@ -13426,6 +13484,8 @@ var _photoPendingByIsland = {};
               }, 5000);
             }
           } catch (e) { console.warn('device stamp:', e && e.message); }
+          // Not Chrome or Safari: suggest Chrome (2026-10-03). After the app shows.
+          setTimeout(function() { if (typeof window._browserNudge === 'function') window._browserNudge(); }, 1500);
           db.collection('chatPresence').doc(user.uid).set({
             uid: user.uid,
             displayName: currentUserData.displayName,
