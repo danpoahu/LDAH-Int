@@ -5607,7 +5607,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.21</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.22</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -48985,6 +48985,14 @@ window._wnChoose = function(ctx) {
   var role = ctx.role || '', sec = _wnSectionFor(role), now = ctx.now || Date.now();
   ctx.byId = {}; (ctx.cards || []).forEach(function(v) { ctx.byId[v.id] = v; });
   var live = (ctx.cards || []).filter(function(v) { return v.archived !== true && !!v.driveUrl; });
+  /* REQUIRED What's new (2026-10-03). Daniel: a short one everyone sees first at
+     their next sign-in and cannot skip. whatsNewRequired:true on a whatsNew card
+     puts it ahead of everything, new-hire decks included, until it is done. */
+  var _rqToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Honolulu' });
+  var rq = live.filter(function(v) { return v.whatsNew === true && v.whatsNewRequired === true && _wnAudienceOk(v, role) && !_wnItemDone(v, ctx)
+      && !(v.whatsNewDate && String(v.whatsNewDate) > _rqToday); })
+    .sort(function(a, b) { return String(a.whatsNewDate || '').localeCompare(String(b.whatsNewDate || '')) || String(a.title || '').localeCompare(String(b.title || '')); });
+  if (rq.length) return { card: rq[0], mode: 'required', pos: null, newHire: false };
   var age = ctx.createdAt ? (now - ctx.createdAt.getTime()) : Infinity;
   var isNew = age >= -864e5 && age < WN_NEWHIRE_DAYS * 864e5;
   if (isNew) {
@@ -49083,14 +49091,16 @@ function _wnButtons() {
   var full = v && _wnFullOf(v, { byId: _wnById() });
   _wnEl('wnFullBtn').style.display = full ? '' : 'none';
   // After the mini is finished, Remind me later stays only when a full training follows it.
-  _wnEl('wnRemindBtn').style.display = (!nh && (!_wn.doneNow || full)) ? '' : 'none';
-  _wnEl('wnCloseX').style.display = (!nh || _wn.doneNow) ? '' : 'none';
+  var rq = _wn.mode === 'required', rqOpen = rq && !_wn.doneNow && !_wn.reqUnlocked;
+  _wnEl('wnRemindBtn').style.display = (!nh && !rq && (!_wn.doneNow || full)) ? '' : 'none';
+  _wnEl('wnCloseX').style.display = ((!nh && !rqOpen) || _wn.doneNow) ? '' : 'none';
   _wnEl('wnRetryBtn').style.display = 'none';
   var done = _wnEl('wnDoneBtn');
+  done.style.display = rqOpen ? 'none' : '';
   if (_wn.doneNow) done.textContent = nh ? 'Close' : 'Got it';
   else if (nh && deck) done.textContent = 'Check my result';
   else done.textContent = 'Got it';
-  _wnEl('wnHint').textContent = _wn.doneNow ? '' :
+  _wnEl('wnHint').textContent = _wn.doneNow ? '' : rqOpen ? 'Short and important for everyone. Play it to the end to continue.' :
     (nh ? (deck ? 'New hire training. Finish the walkthrough and pass its quiz (' + WN_PASS_PCT + '% on first tries) to close this.' : 'New hire training. Watch it, then press Got it.')
         : ((v && v.duration) ? 'About ' + v.duration + '.' : ''));
 }
@@ -49098,6 +49108,13 @@ function _wnById() { var m = {}; (_wn.cards || []).forEach(function(c) { m[c.id]
 
 window._wnOpen = function(v, mode, pos) {
   _wn.card = v; _wn.mode = mode || 'whatsnew'; _wn.pos = pos || null; _wn.started = null; _wn.doneNow = false; _wn.skipOk = false;
+  _wn.reqUnlocked = false;
+  /* Safety net for a required deck that cannot finish on some device (sound
+     blocked, a frame that will not load): Got it appears after 2.5 minutes. */
+  if (_wn.mode === 'required') {
+    clearTimeout(_wn.reqTimer);
+    _wn.reqTimer = setTimeout(function() { if (_wn.card === v && !_wn.doneNow) { _wn.reqUnlocked = true; _wnButtons(); } }, 150000);
+  }
   _wnSkipToastHide();
   var nh = _wn.mode === 'newhire';
   _wnEl('wnKicker').textContent = nh ? ('New hire training' + (pos ? ' ' + pos.n + ' of ' + pos.of : '')) : 'What’s new';
@@ -49155,6 +49172,7 @@ function _wnSkipGuard(go) {
 window.wnClose = function() {
   if (!_wn.card) return;
   if (_wn.mode === 'newhire' && !_wn.doneNow) return;
+  if (_wn.mode === 'required' && !_wn.doneNow && !_wn.reqUnlocked) return;
   if (_wnSkipGuard(function() { window.wnClose(); })) return;
   _wnSkipToastHide();
   _wnTeardown();
@@ -49172,6 +49190,7 @@ async function _wnMarkDone(v, how, extra) {
 window.wnGotIt = async function() {
   var v = _wn.card; if (!v) return;
   if (_wn.doneNow) { _wnTeardown(); return; }
+  if (_wn.mode === 'required' && !_wn.reqUnlocked) return;
   if (_wn.mode === 'newhire') {
     if (_trKind(v) === 'deck') { await _wnCheckNewHire(true); return; }
     await _wnMarkDone(v, 'gotit');
@@ -49250,7 +49269,7 @@ function _wnAddDaysHst(n) {
 /* Remind me later: ONE task per person per item, ever. Checked against the log AND the
    person's existing training tasks, so a failed log write can never make a second one. */
 window.wnRemind = async function() {
-  var v = _wn.card; if (!v || _wn.mode === 'newhire') return;
+  var v = _wn.card; if (!v || _wn.mode === 'newhire' || _wn.mode === 'required') return;
   if (_wnSkipGuard(function() { window.wnRemind(); })) return;
   _wnSkipToastHide();
   var uid = currentUserData.uid, now = new Date().toISOString(), L = _wn.log[v.id] || {};
