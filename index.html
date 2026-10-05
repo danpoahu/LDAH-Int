@@ -5623,7 +5623,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.27</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.28</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12737,6 +12737,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         var _newContacts = [];
         ctSnap2.forEach(function(c) {
           var cdata = c.data();
+          if (!window._sandboxOK(cdata)) return;
           if (_isInternalOrTest(cdata.displayName || cdata.firstName, cdata.email)) return;
           _newContacts.push({ name: cdata.displayName||cdata.firstName||'Unknown', source: cdata.source || '',
                               time: fmtTs(cdata.createdAt), sort: cdata.createdAt ? (cdata.createdAt.seconds||0) : 0 });
@@ -14217,8 +14218,18 @@ var _photoPendingByIsland = {};
      attendance list instead of inventing a second card for them (Daniel, 2026-09-29).
      Reads were already open in the rules; this was a client filter. Editing stays
      governed by the rules, so a partner can pick a staff card but not change it. */
+  /* Sandbox contacts (v152.29-STAGE): a test record carries sandbox:true and
+     sandboxViewers:[uid,...]. It is invisible to everyone not on its own list
+     and behaves like any real contact for those who are. Always the REAL
+     signed-in uid -- never the Super Admin "Viewing as" person (_myDayViewAs). */
+  window._sandboxOK = function(d) {
+    if (!d || d.sandbox !== true) return true;
+    var _u = (window.currentUserData && window.currentUserData.uid) || '';
+    if (!_u) { try { _u = (firebase.auth().currentUser || {}).uid || ''; } catch (_e) { _u = ''; } }
+    return !!_u && Array.isArray(d.sandboxViewers) && d.sandboxViewers.indexOf(_u) !== -1;
+  };
   window._contactVisibleToMe = function(d) {
-    return !!(d && d.crossPlatform === true) || window._partnerScopeOK(d);
+    return window._sandboxOK(d) && (!!(d && d.crossPlatform === true) || window._partnerScopeOK(d));
   };
   window._partnerScopeOK = function(d) {
     if (!window.isPartnerUser || !window.isPartnerUser()) return true;
@@ -19507,7 +19518,7 @@ var _photoPendingByIsland = {};
         if (forceRefresh || !_ctArchivedCache) {
           var _as = await db.collection('contacts').where('archived', '==', true).get();
           _ctArchivedCache = [];
-          _as.forEach(function(doc) { var _ad = doc.data(); if (!window._partnerScopeOK(_ad)) return; _ctArchivedCache.push({ id: doc.id, ..._ad }); });
+          _as.forEach(function(doc) { var _ad = doc.data(); if (!window._sandboxOK(_ad) || !window._partnerScopeOK(_ad)) return; _ctArchivedCache.push({ id: doc.id, ..._ad }); });
           _ctArchivedCache.sort(function(a, b) { return String(a.displayName || '').localeCompare(String(b.displayName || '')); });
         }
         _ctSource = _ctArchivedCache;
@@ -19944,9 +19955,11 @@ var _photoPendingByIsland = {};
               var revHtml = '';
               revSnap.forEach(function(r) {
                 var rd = r.data() || {};
+                if (!window._sandboxOK(rd)) return;
                 var name = rd.displayName || '(no name)';
                 revHtml += '<div style="margin:2px 0;"><a href="#" style="color:#0891B2;font-weight:600;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;" onclick="event.preventDefault();closeContactForm();openContactDetail(\'' + rsEscape(r.id) + '\')">' + rsEscape(name) + '</a></div>';
               });
+              if (!revHtml) return;
               document.getElementById('ctAdvocateForListItems').innerHTML = revHtml;
               document.getElementById('ctAdvocateForList').style.display = 'block';
             }
@@ -21013,7 +21026,7 @@ window.openContactDetail = async function(contactId) {
         var _cdData = doc.data() || {};
         editBtn.style.display = (_cdData.partnerIsland && window._partnerScopeOK(_cdData)) ? 'inline-block' : 'none';
       }
-      if (!doc.exists) {
+      if (!doc.exists || !window._sandboxOK(doc.data())) {
         body.innerHTML = '<p style="color:#DC2626;text-align:center;padding:30px;">Contact not found.</p>';
         return;
       }
@@ -21585,9 +21598,11 @@ window.openContactDetail = async function(contactId) {
         var parts = [];
         revSnap.forEach(function(r) {
           var rd = r.data() || {};
+          if (!window._sandboxOK(rd)) return;
           var name = rd.displayName || '(no name)';
           parts.push('<a href="#" onclick="event.preventDefault();openContactDetail(\'' + rsEscape(r.id) + '\')" style="color:var(--ocean-deep);font-weight:700;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px;">' + rsEscape(name) + '</a>');
         });
+        if (!parts.length) return;
         val.innerHTML = parts.join(', ');
         row.style.display = '';
       }).catch(function(err) { console.warn('reverse advocate query (detail) failed:', err.message); });
@@ -54592,6 +54607,7 @@ window.cmsBuildStaffActivityReport = async function() {
       var map = {};
       snap.forEach(function(doc) {
         var d = doc.data() || {};
+        if (!window._sandboxOK(d)) return;
         if (Array.isArray(d.children) && d.children.length) map[doc.id] = d.children;
       });
       _eaContactChildren = map;
@@ -57749,7 +57765,7 @@ window.prExportCsv = function() {
     try {
       var snap = await db.collection('contacts').get();
       var docs = [];
-      snap.forEach(function(d){ docs.push(d.data() || {}); });
+      snap.forEach(function(d){ var _x = d.data() || {}; if (!window._sandboxOK(_x)) return; docs.push(_x); });
       docs = window.scopeReportDocs(docs, 'cd');
       window.renderReportScopeToggle('cdScopeHost', 'cd', 'both', 'rptSetScopeCD');
       var agg = _cdAggregate(docs);
@@ -57836,6 +57852,7 @@ window.prExportCsv = function() {
       snap.forEach(function(d) {
         var x = d.data() || {};
         if (x.archived === true) return;
+        if (!window._sandboxOK(x)) return;
         var ph = String(x.phone || '').trim(), em = String(x.email || '').trim();
         var phBad = window.ldahPlaceholderPhone(ph), emBad = window.ldahPlaceholderEmail(em);
         var why = [];
@@ -58183,7 +58200,7 @@ window.prExportCsv = function() {
 
       var allContacts = {};
       var cSnap = await db.collection('contacts').get();
-      cSnap.forEach(function(d) { var x = d.data() || {}; x._id = d.id; allContacts[d.id] = x; });
+      cSnap.forEach(function(d) { var x = d.data() || {}; if (!window._sandboxOK(x)) return; x._id = d.id; allContacts[d.id] = x; });
 
       var served = Object.keys(contactIds).map(function(id) { return allContacts[id]; }).filter(Boolean);
       var nhServed = served.filter(_komIsNativeHawaiian);
@@ -60090,6 +60107,7 @@ window.cmsBuildCaseAdvocacyReport = async function() {
     ]);
     var contacts = {};
     snaps[1].forEach(function(d) { contacts[d.id] = d.data() || {}; });
+    var _carSandboxHidden = function(cid) { return !!(cid && contacts[cid] && !window._sandboxOK(contacts[cid])); };
 
     // Collapse to one entry per family; keep the OLDEST case file as the anchor
     // so "started" is the real start, not the most recent re-open.
@@ -60097,6 +60115,7 @@ window.cmsBuildCaseAdvocacyReport = async function() {
     snaps[0].forEach(function(doc) {
       var v = doc.data() || {}; v._id = doc.id;
       if (!_carIsAdv(v)) return;
+      if (_carSandboxHidden(v.contactId)) return;   /* sandbox family not on my list (v152.29) */
       /* PIP cases are not LDAH's caseload (Daniel 2026-09-25): each partner
          manages their own from My Day. Left out by the case's island stamp,
          or the family's, for cases opened before cases were stamped. v151.29 */
@@ -61084,6 +61103,7 @@ async function _pbLoadAll() {
   var contacts = [], children = [];
   ctSnap.forEach(function (d) {
     var x = d.data() || {};
+    if (!window._sandboxOK(x)) return;   /* sandbox test records (v152.29) */
     /* Imports are not new participants. A civicoreRow stamp or a
        neon-import-* source means the row came off a migration, not off a
        family walking in — counting them as new outreach would overstate the
@@ -65352,7 +65372,7 @@ window.cmsBuildMembershipReport = async function() {
     box.innerHTML = '<span style="font-size:.8rem;color:var(--text-soft);">Searching\u2026</span>';
     try {
       var seen = {}, hits = [];
-      var add = function (d) { if (!seen[d.id]) { seen[d.id] = 1; hits.push({ id: d.id, d: d.data() || {} }); } };
+      var add = function (d) { if (!seen[d.id] && window._sandboxOK(d.data() || {})) { seen[d.id] = 1; hits.push({ id: d.id, d: d.data() || {} }); } };
       var byName = await db.collection('contacts')
         .where('displayName', '>=', q).where('displayName', '<=', q + '\uf8ff').limit(8).get();
       byName.forEach(add);
@@ -65559,6 +65579,7 @@ window.cmsBuildMembershipReport = async function() {
       var rows = [];
       open.forEach(function (o, idx) {
         var c = (contacts[idx] && contacts[idx].exists) ? (contacts[idx].data() || {}) : {};
+        if (!window._sandboxOK(c)) return;   /* sandbox family not on my list (v152.29) */
         var hasEmail = !!String(c.email || '').trim();
         var hasPhone = String(c.phone || '').replace(/\D/g, '').length >= 7;
         if (hasEmail || hasPhone) return;      // reachable — not waiting
@@ -66010,7 +66031,7 @@ window.cmsBuildMembershipReport = async function() {
   function _srBuildRows(snap){
     var rows = [];
     snap.forEach(function(doc){
-      var c = doc.data()||{}; var list = Array.isArray(c.screenings)?c.screenings:[];
+      var c = doc.data()||{}; if (!window._sandboxOK(c)) return; var list = Array.isArray(c.screenings)?c.screenings:[];
       list.forEach(function(s){
         if(!s) return;
         var lions = String(s.source||'') === 'lions-screening';
