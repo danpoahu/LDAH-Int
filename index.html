@@ -5623,7 +5623,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.28</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.29</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14227,6 +14227,17 @@ var _photoPendingByIsland = {};
     var _u = (window.currentUserData && window.currentUserData.uid) || '';
     if (!_u) { try { _u = (firebase.auth().currentUser || {}).uid || ''; } catch (_e) { _u = ''; } }
     return !!_u && Array.isArray(d.sandboxViewers) && d.sandboxViewers.indexOf(_u) !== -1;
+  };
+  /* A sandbox contact's own coordinator, or null (2026-10-05). Practice runs
+     must never put a case task on the real coordinator's list. */
+  window._sandboxCoordFor = async function(contactId) {
+    try {
+      if (!contactId) return null;
+      var c = null;
+      (window._allContacts || []).some(function(x) { if (x && x.id === contactId) { c = x; return true; } return false; });
+      if (!c) { var s = await db.collection('contacts').doc(contactId).get(); c = s.exists ? s.data() : null; }
+      return (c && c.sandbox === true && c.sandboxCoordinator && c.sandboxCoordinator.uid) ? c.sandboxCoordinator : null;
+    } catch (e) { return null; }
   };
   window._contactVisibleToMe = function(d) {
     return window._sandboxOK(d) && (!!(d && d.crossPlatform === true) || window._partnerScopeOK(d));
@@ -22963,6 +22974,11 @@ window.openContactDetail = async function(contactId) {
       : unassigned
       ? await _resolveStaffUidByEmail(CASE_ADVOCACY_COORDINATOR.email)
       : await _resolveStaffUidByName(advocateName);
+    // Sandbox (practice) contacts name their own coordinator (2026-10-05).
+    if (unassigned && !_selfPartner) {
+      var _sbc = await window._sandboxCoordFor(sourceData && sourceData.contactId);
+      if (_sbc) { uid = _sbc.uid; ownerName = _sbc.name || ownerName; }
+    }
 
     // Per-contact idempotency (v146.0.2). A case-advocacy task is unique per
     // CONTACT, not per source interaction. The old guard keyed only on the
@@ -23162,6 +23178,8 @@ window.openContactDetail = async function(contactId) {
 
         try {
           var _coordUid = await _resolveStaffUidByEmail(CASE_ADVOCACY_COORDINATOR.email);
+          var _sbc2 = await window._sandboxCoordFor(sourceData && sourceData.contactId);
+          if (_sbc2) _coordUid = _sbc2.uid;   // practice contact: never Noe's list
           var _who = sourceData.contactName || 'a family';
           var _when = _todayHst();
           var _detail =
