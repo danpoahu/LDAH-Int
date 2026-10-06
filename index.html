@@ -5623,7 +5623,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.32</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.33</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -65236,11 +65236,88 @@ window.cmsBuildMembershipReport = async function() {
       rd.readAsDataURL(f);
     });
   }
+  /* What the EXTRACTOR sees (2026-10-05). A one-page PDF is rendered with
+     pdf.js to a sharp ~2200px JPEG and THAT is read, so handwriting reaches the
+     model at a resolution we chose rather than whatever the API rasterises a
+     PDF to. The image is used ONLY for the reading: the single-page PDF stays
+     the scan that is attached on save and opened by "View page". A huge photo
+     (over 4000px) is scaled down to 2200px; other images go as they are. Any
+     failure here returns null and the file is sent exactly as before. */
+  var SR_EXTRACT_LONG_SIDE = 2200;
+  var SR_EXTRACT_BIG_PHOTO = 4000;
+  var SR_EXTRACT_MAX_B64 = 5 * 1024 * 1024;
+  function _srCanvasJpegB64(c) {
+    var qs = [0.9, 0.8, 0.7];
+    for (var i = 0; i < qs.length; i++) {
+      var b64 = String(c.toDataURL('image/jpeg', qs[i])).split(',')[1] || '';
+      if (b64 && b64.length <= SR_EXTRACT_MAX_B64) return b64;
+    }
+    return null;
+  }
+  function _srWhiteCanvas(w, h) {
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h));
+    var ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+    return { c: c, ctx: ctx };
+  }
+  async function _srPdfToJpegB64(f) {
+    if (typeof _cmsLoadPdfJs !== 'function') return null;
+    var pdfjsLib = await _cmsLoadPdfJs();
+    var pdf = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+    try {
+      /* Only a ONE-page PDF. If pdf-lib could not split a bigger file it arrives
+         whole, and rendering page 1 alone would hide the rest from the reader. */
+      if (pdf.numPages !== 1) return null;
+      var page = await pdf.getPage(1);
+      var vp1 = page.getViewport({ scale: 1 });
+      var vp = page.getViewport({ scale: SR_EXTRACT_LONG_SIDE / Math.max(vp1.width, vp1.height) });
+      var cv = _srWhiteCanvas(vp.width, vp.height);
+      await page.render({ canvasContext: cv.ctx, viewport: vp }).promise;
+      var b64 = _srCanvasJpegB64(cv.c);
+      cv.c.width = 0; cv.c.height = 0;
+      return b64 ? { b64: b64, mediaType: 'image/jpeg' } : null;
+    } finally {
+      try { pdf.destroy(); } catch (_) {}
+    }
+  }
+  function _srLoadImage(f) {
+    return new Promise(function (res, rej) {
+      var url = URL.createObjectURL(f);
+      var img = new Image();
+      img.onload = function () { URL.revokeObjectURL(url); res(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('image did not decode')); };
+      img.src = url;
+    });
+  }
+  async function _srBigPhotoToJpegB64(f) {
+    var img = await _srLoadImage(f);
+    var w = img.naturalWidth, h = img.naturalHeight, longSide = Math.max(w, h);
+    if (!longSide || longSide <= SR_EXTRACT_BIG_PHOTO) return null;
+    var k = SR_EXTRACT_LONG_SIDE / longSide;
+    var cv = _srWhiteCanvas(w * k, h * k);
+    cv.ctx.imageSmoothingEnabled = true;
+    cv.ctx.imageSmoothingQuality = 'high';
+    cv.ctx.drawImage(img, 0, 0, cv.c.width, cv.c.height);
+    var b64 = _srCanvasJpegB64(cv.c);
+    cv.c.width = 0; cv.c.height = 0;
+    return b64 ? { b64: b64, mediaType: 'image/jpeg' } : null;
+  }
+  async function _srExtractPayload(f) {
+    try {
+      if (_srIsPdf(f)) return await _srPdfToJpegB64(f);
+      if (/^image\//.test(f.type || '')) return await _srBigPhotoToJpegB64(f);
+    } catch (e) {
+      console.warn('[screening] could not prepare an image for the reader, sending the file as is:', e && e.message);
+    }
+    return null;
+  }
   async function _srExtract(f) {
-    var b64 = await _srFileB64(f);
+    var payload = await _srExtractPayload(f);
+    if (!payload) payload = { b64: await _srFileB64(f), mediaType: f.type || 'application/pdf' };
     var resp = await fetch(SR_FN_BASE + 'extractScreeningReferral', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileBase64: b64, mediaType: f.type || 'application/pdf' })
+      body: JSON.stringify({ fileBase64: payload.b64, mediaType: payload.mediaType })
     });
     var j = null;
     try { j = await resp.json(); } catch (_) { j = null; }
