@@ -5623,7 +5623,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.29</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.30</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -48859,13 +48859,91 @@ window.pe2RenderCommunity = function(d) {
   for (var r = 1; r <= 10; r++) {
     html += '<div class="pe2-card" style="text-align:center">';
     html += '<div class="pe2-editable" onclick="pe2Edit(\'community\',\'res' + r + 'Photo\',\'Resource ' + r + ' Photo\',\'photo\')"><span class="pe2-badge">Photo</span><img src="' + (d['res' + r + 'Photo'] || '') + '" style="width:100%;height:100px;object-fit:cover;border-radius:8px" onerror="this.style.display=\'none\'"></div>';
-    html += '<div class="pe2-editable" onclick="pe2Edit(\'community\',\'res' + r + 'Title\',\'Resource ' + r + ' Title\',\'richtext\')"><span class="pe2-badge">Edit</span><h3 style="font-size:.88rem">' + (d['res' + r + 'Title'] || '') + '</h3></div></div>';
+    html += '<div class="pe2-editable" onclick="pe2Edit(\'community\',\'res' + r + 'Title\',\'Resource ' + r + ' Title\',\'richtext\')"><span class="pe2-badge">Edit</span><h3 style="font-size:.88rem">' + (d['res' + r + 'Title'] || '') + '</h3></div>';
+    html += pe2CommunityPdfControls(r, d);
+    html += '</div>';
   }
   html += '</div></div>';
   html += '<div class="pe2-cta">';
   html += '<div class="pe2-editable" onclick="pe2Edit(\'community\',\'ctaTitle\',\'CTA Title\',\'richtext\')"><span class="pe2-badge">Edit</span><h2>' + (d.ctaTitle || '') + '</h2></div>';
   html += '<div class="pe2-editable" onclick="pe2Edit(\'community\',\'ctaSubtitle\',\'CTA Subtitle\',\'richtext\')"><span class="pe2-badge">Edit</span><p>' + (d.ctaSubtitle || '') + '</p></div></div>';
   return html;
+};
+
+/* Anti-bullying resource PDFs (v152.32). Each of the 10 Response Kit cards
+   can carry a PDF. Fields are plain strings on pageContent/community:
+     res<N>File     = Storage download URL
+     res<N>FileName = original file name
+     res<N>FileAt   = ISO timestamp of the upload
+   They go through the same draft -> Publish path as res<N>Photo. The previous
+   Storage object is NEVER deleted: emails already sent may link to it. */
+window.pe2CommunityPdfControls = function(r, d) {
+  d = d || {};
+  var url = d['res' + r + 'File'] || '';
+  var name = d['res' + r + 'FileName'] || '';
+  var h = '<div class="pe2-pdf-ctl" style="margin-top:8px;font-size:.78rem">';
+  if (url) {
+    h += '<div style="margin-bottom:6px;word-break:break-word;color:var(--text-soft)">' + cmsEsc(name || 'PDF') + '<br>' +
+      '<a href="' + cmsEsc(url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">View current PDF</a></div>';
+  }
+  h += '<input type="file" accept="application/pdf,.pdf" id="pe2PdfFile' + r + '" style="display:none" onchange="pe2UploadCommunityPdf(' + r + ', this)">';
+  h += '<button type="button" class="pe2-photo-upload-btn" id="pe2PdfBtn' + r + '" style="padding:6px 14px;font-size:.8rem" onclick="event.stopPropagation();document.getElementById(\'pe2PdfFile' + r + '\').click()">' + (url ? 'Replace PDF' : 'Upload PDF') + '</button>';
+  h += '</div>';
+  return h;
+};
+
+window.pe2UploadCommunityPdf = async function(r, inputEl) {
+  var file = inputEl && inputEl.files && inputEl.files[0];
+  if (inputEl) inputEl.value = '';
+  if (!file) return;
+  var page = 'community';
+  // Same gate as pe2Edit: Super Partners and partners cannot edit this page.
+  var role = (window.currentUserData && window.currentUserData.role) || '';
+  if (role === 'superPartner' && window._PE2_SP_PAGE_KEYS.indexOf(page) === -1) {
+    alert('You can only edit the Pacific island pages.');
+    return;
+  }
+  if (role === 'partner') {
+    var allowed = window._pe2PartnerPageKey(window.currentUserData);
+    if (!allowed) { alert('Your account does not have a Pacific island assigned. Please contact your administrator.'); return; }
+    if (page !== allowed) { alert('You can only edit your island\'s content.'); return; }
+  }
+  var isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+  if (!isPdf) { _showToast('Only PDF files can be uploaded here.', '#DC2626'); return; }
+  if (file.size > 25 * 1024 * 1024) { _showToast('That PDF is over 25 MB. Please choose a smaller file.', '#DC2626'); return; }
+
+  var origName = file.name || ('resource-' + r + '.pdf');
+  var safe = origName.replace(/\.pdf$/i, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'resource';
+  var path = 'resources/antiBullying/res' + r + '_' + Date.now() + '_' + safe + '.pdf';
+  var btn = document.getElementById('pe2PdfBtn' + r);
+  var btnText = btn ? btn.textContent : '';
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = 'Uploading 0%'; }
+    _showToast('Uploading ' + origName + '...', '#0891B2');
+    var ref = firebase.storage().ref(path);
+    var task = ref.put(file, { contentType: 'application/pdf' });
+    task.on('state_changed', function(snap) {
+      if (btn && snap.totalBytes) btn.textContent = 'Uploading ' + Math.round(snap.bytesTransferred / snap.totalBytes * 100) + '%';
+    });
+    await task;
+    var url = await ref.getDownloadURL();
+    var docId = _cmsPageEditorDocId(page);
+    if (!_pe2Draft[docId]) _pe2Draft[docId] = JSON.parse(JSON.stringify(_pe2Cache[docId] || {}));
+    if (!_pe2DirtyFields[docId]) _pe2DirtyFields[docId] = {};
+    var vals = {};
+    vals['res' + r + 'File'] = String(url);
+    vals['res' + r + 'FileName'] = String(origName);
+    vals['res' + r + 'FileAt'] = new Date().toISOString();
+    for (var k in vals) { _pe2Draft[docId][k] = vals[k]; _pe2DirtyFields[docId][k] = true; }
+    _pe2UpdatePublishBar();
+    _showToast('PDF uploaded. Click Publish to put it on the website.', '#16A34A');
+    try { auditLog('Uploaded anti-bullying PDF', 'res' + r + ' ' + origName); } catch (e) {}
+    if (_pe2Active === page) pe2RenderPage(page, _pe2Draft[docId]);
+  } catch (err) {
+    console.error('PE2 PDF upload error:', err);
+    if (btn) { btn.disabled = false; btn.textContent = btnText || 'Upload PDF'; }
+    _showToast('PDF upload failed: ' + (err.message || err), '#DC2626');
+  }
 };
 
 /* ══════════ EDITOR PANEL ══════════ */
