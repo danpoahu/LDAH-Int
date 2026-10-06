@@ -5623,7 +5623,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.30-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.31-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7654,6 +7654,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
             </span>
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildScreeningsReport()" title="Refresh">&#x21bb; Refresh</button>
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="_srExportReport()" title="Download what is shown as a CSV">&#x2913; Export CSV</button>
+            <button class="btn btn-primary" id="scrSendResultsBtn" style="font-size:.85rem;display:none;" onclick="_srOpenSendResults()" title="Email finished screening results to the families at one school">Send results to families</button>
           </div>
           <div id="scrBody"></div>
         </div>
@@ -66016,6 +66017,282 @@ window.cmsBuildMembershipReport = async function() {
     } catch(e){ msg.style.color='#dc2626'; msg.textContent='Error: '+_esc(e.message); }
   };
 
+  // ── Send results to families (v152.31-STAGE) ──
+  /* Bulk email of finished screening results for one school (location), and
+     optionally one classroom. The backend decides who is ready; this modal
+     shows its four groups and sends only the ticked "ready" rows.
+     Super Admin and Admin only. */
+  var _SR_BULK_URL = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendScreeningResultsBulk';
+  var _srSendState = { busy: false, preview: null, ticked: {} };
+  function _srCanSendResults(){
+    var r = window.currentUserData && window.currentUserData.role;
+    return r === 'superAdmin' || r === 'admin';
+  }
+  async function _srBulkCall(payload){
+    var user = firebase.auth().currentUser;
+    if (!user) throw new Error('You are signed out. Sign in again and retry.');
+    var tok = await user.getIdToken();
+    var resp = await fetch(_SR_BULK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+      body: JSON.stringify(payload)
+    });
+    var data = null;
+    try { data = await resp.json(); } catch (_) { data = null; }
+    if (!resp.ok) throw new Error((data && data.error) || ('Request failed (' + resp.status + ').'));
+    return data || {};
+  }
+  function _srKidName(c){
+    if (!c) return '';
+    if (typeof c === 'string') return c.trim();
+    return (((c.firstName || '') + ' ' + (c.lastName || '')).trim()) || String(c.name || '').trim();
+  }
+  function _srSentDate(v){
+    try {
+      if (!v) return '';
+      var d = null;
+      if (typeof v === 'string' || typeof v === 'number') d = new Date(v);
+      else if (v.toDate) d = v.toDate();
+      else if (v._seconds) d = new Date(v._seconds * 1000);
+      else if (v.seconds) d = new Date(v.seconds * 1000);
+      if (!d || isNaN(d.getTime())) return String(v);
+      return d.toLocaleDateString('en-US', { timeZone: 'Pacific/Honolulu' });
+    } catch (e) { return ''; }
+  }
+  function _srRowKey(r){ return String(r.contactId || '') + '|' + String(r.screeningId || ''); }
+  function _srEnsureSendModal(){
+    if (document.getElementById('srSendOverlay')) return;
+    var o = document.createElement('div');
+    o.className = 'overlay'; o.id = 'srSendOverlay';
+    o.innerHTML =
+      '<div class="modal" style="max-width:680px;">' +
+        '<div class="modal-header">' +
+          '<div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div>Send results to families</div></div>' +
+          '<div style="display:flex;align-items:center;gap:10px;"><button class="close" type="button" onclick="_srCloseSendResults()">&times;</button></div>' +
+        '</div>' +
+        '<div class="modal-body" style="display:block;padding:12px 18px 14px;">' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">' +
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:600;color:#334155;flex:1;min-width:180px;">Location' +
+              '<select id="srSendLoc" onchange="_srSendLocChanged()" style="padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:.88rem;"></select></label>' +
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:600;color:#334155;flex:1;min-width:160px;">Classroom' +
+              '<select id="srSendClass" onchange="_srSendClearPreview()" style="padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:.88rem;"></select></label>' +
+            '<button class="btn btn-ghost" type="button" id="srSendCheckBtn" onclick="_srSendCheck()">Check</button>' +
+          '</div>' +
+          '<div id="srSendBody" style="max-height:min(52vh,440px);overflow-y:auto;font-size:.88rem;line-height:1.5;"></div>' +
+          '<div id="srSendMsg" style="display:none;margin-top:10px;font-size:.86rem;padding:8px 10px;border-radius:8px;"></div>' +
+        '</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn btn-ghost" type="button" id="srSendCancelBtn" onclick="_srCloseSendResults()">Cancel</button>' +
+          '<button class="btn btn-primary" type="button" id="srSendGoBtn" onclick="_srSendGo()" disabled>Send to 0 families</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(o);
+  }
+  function _srSendMsg(text, kind){
+    var el = document.getElementById('srSendMsg'); if (!el) return;
+    if (!text) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    var c = kind === 'error' ? ['#FEF2F2', '#991B1B'] : kind === 'ok' ? ['#F0FDF4', '#166534'] : ['#F1F5F9', '#334155'];
+    el.style.background = c[0]; el.style.color = c[1];
+    el.innerHTML = text;
+    el.style.display = 'block';
+  }
+  function _srSendTickedRows(){
+    var p = _srSendState.preview; if (!p || !Array.isArray(p.ready)) return [];
+    return p.ready.filter(function(r){ return _srSendState.ticked[_srRowKey(r)]; });
+  }
+  function _srSendButtons(){
+    var st = _srSendState;
+    var n = _srSendTickedRows().length;
+    var go = document.getElementById('srSendGoBtn');
+    if (go) { go.textContent = 'Send to ' + n + ' ' + (n === 1 ? 'family' : 'families'); go.disabled = st.busy || n === 0; }
+    var chk = document.getElementById('srSendCheckBtn'); if (chk) chk.disabled = st.busy || !(document.getElementById('srSendLoc') || {}).value;
+    var cancel = document.getElementById('srSendCancelBtn'); if (cancel) { cancel.disabled = st.busy; cancel.textContent = st.preview ? 'Close' : 'Cancel'; }
+    ['srSendLoc', 'srSendClass'].forEach(function(id){ var el = document.getElementById(id); if (el) el.disabled = st.busy; });
+  }
+  /* Locations come from the rows the report already loaded; _srBuildRows has
+     applied _sandboxOK, so a sandbox school only shows for its viewers. */
+  function _srSendLocations(){
+    var seen = {};
+    (_srAllRows || []).forEach(function(r){ if (r.location) seen[r.location] = 1; });
+    return Object.keys(seen).sort(function(a, b){ return a.localeCompare(b); });
+  }
+  function _srSendClassrooms(loc){
+    var seen = {};
+    (_srAllRows || []).forEach(function(r){ if (r.location === loc && r.classroom) seen[r.classroom] = 1; });
+    return Object.keys(seen).sort(function(a, b){ return a.localeCompare(b, undefined, { numeric: true }); });
+  }
+  window._srSendClearPreview = function(){
+    _srSendState.preview = null; _srSendState.ticked = {};
+    var body = document.getElementById('srSendBody');
+    if (body) body.innerHTML = '<div style="padding:14px;color:var(--text-soft);text-align:center;">Pick a location, then press <b>Check</b> to see who is ready.</div>';
+    _srSendMsg('');
+    _srSendButtons();
+  };
+  window._srSendLocChanged = function(){
+    var loc = (document.getElementById('srSendLoc') || {}).value || '';
+    var cs = document.getElementById('srSendClass');
+    if (cs) {
+      cs.innerHTML = '<option value="">All classrooms</option>' + _srSendClassrooms(loc).map(function(c){ return '<option value="' + _esc(c) + '">' + _esc(c) + '</option>'; }).join('');
+    }
+    _srSendClearPreview();
+  };
+  window._srOpenSendResults = function(){
+    if (!_srCanSendResults()) { if (typeof _showToast === 'function') _showToast('Sending results is limited to Super Admin and Admin.', '#B45309'); return; }
+    _srEnsureSendModal();
+    _srSendState = { busy: false, preview: null, ticked: {} };
+    var locs = _srSendLocations();
+    var ls = document.getElementById('srSendLoc');
+    if (ls) {
+      ls.innerHTML = locs.length
+        ? '<option value="">Pick a location</option>' + locs.map(function(l){ return '<option value="' + _esc(l) + '">' + _esc(l) + '</option>'; }).join('')
+        : '<option value="">No locations on file</option>';
+      if (locs.length === 1) ls.value = locs[0];
+    }
+    _srSendLocChanged();
+    document.getElementById('srSendOverlay').classList.add('active');
+  };
+  window._srCloseSendResults = function(){
+    if (_srSendState.busy) return;
+    var o = document.getElementById('srSendOverlay'); if (o) o.classList.remove('active');
+  };
+  window._srSendToggle = function(key, on){
+    if (on) _srSendState.ticked[key] = true; else delete _srSendState.ticked[key];
+    _srSendButtons();
+  };
+  window._srSendToggleAll = function(on){
+    var p = _srSendState.preview; if (!p) return;
+    _srSendState.ticked = {};
+    if (on) (p.ready || []).forEach(function(r){ _srSendState.ticked[_srRowKey(r)] = true; });
+    document.querySelectorAll('#srSendBody input[data-srkey]').forEach(function(cb){ cb.checked = !!on; });
+    _srSendButtons();
+  };
+  function _srSendRenderPreview(){
+    var p = _srSendState.preview || {};
+    var body = document.getElementById('srSendBody'); if (!body) return;
+    var ready = Array.isArray(p.ready) ? p.ready : [];
+    var inc = Array.isArray(p.incomplete) ? p.incomplete : [];
+    var noE = Array.isArray(p.noEmail) ? p.noEmail : [];
+    var sent = Array.isArray(p.sent) ? p.sent : [];
+    var th = 'text-align:left;padding:5px 8px;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:1px solid #E2E8F0;';
+    var td = 'padding:5px 8px;border-bottom:1px solid #F1F5F9;vertical-align:top;';
+    function head(title, n, color, note){
+      return '<div style="margin:12px 0 4px;font-weight:700;color:' + color + ';font-size:.92rem;">' + title + ' (' + n + ')</div>' +
+        (note ? '<div style="font-size:.8rem;color:var(--text-soft);margin-bottom:4px;">' + note + '</div>' : '');
+    }
+    function none(){ return '<div style="font-size:.82rem;color:var(--text-soft);padding:2px 8px 4px;">None.</div>'; }
+    var h = '';
+    h += head('Ready to send', ready.length, '#15803D', 'Results are finished and there is an email on file. Untick anyone you want to hold back.');
+    if (ready.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="' + th + 'width:28px;"><input type="checkbox" checked onchange="_srSendToggleAll(this.checked)" title="Tick or untick all"></th>' +
+        '<th style="' + th + '">Child</th><th style="' + th + '">Parent</th><th style="' + th + '">Email</th><th style="' + th + '">Classroom</th></tr></thead><tbody>';
+      ready.forEach(function(r){
+        var k = _srRowKey(r);
+        h += '<tr><td style="' + td + '"><input type="checkbox" data-srkey="' + _esc(k) + '"' + (_srSendState.ticked[k] ? ' checked' : '') + ' onchange="_srSendToggle(this.getAttribute(\'data-srkey\'), this.checked)"></td>' +
+          '<td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.parentName || '—') + '</td>' +
+          '<td style="' + td + 'word-break:break-all;">' + _esc(r.email || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '—') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    h += head('Not finished yet', inc.length, '#B45309', 'These children are still missing a result, so nothing goes out yet.');
+    if (inc.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><tbody>';
+      inc.forEach(function(r){
+        var miss = (Array.isArray(r.missing) ? r.missing : []).map(function(m){ var t = String(m || ''); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''; }).filter(Boolean).join(' and ');
+        h += '<tr><td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '') + '</td>' +
+          '<td style="' + td + 'color:#B45309;">' + (miss ? 'Missing ' + _esc(miss) : 'Missing a result') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    h += head('No email on file', noE.length, '#B91C1C', 'Results are finished but the family has no email address. Add one on the contact card, then press Check again.');
+    if (noE.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><tbody>';
+      noE.forEach(function(r){
+        h += '<tr><td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + (r.contactId ? '<a href="#" onclick="event.preventDefault();openContactDetail(' + _esc(JSON.stringify(String(r.contactId))).replace(/"/g, '&quot;') + ')" style="color:#0E7490;">' + _esc(r.parentName || 'Open contact') + '</a>' : _esc(r.parentName || '—')) + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    h += head('Already sent', sent.length, '#475569', 'These families already have their results.');
+    if (sent.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><tbody>';
+      sent.forEach(function(r){
+        var d = _srSentDate(r.sentAt);
+        h += '<tr><td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.parentName || '') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '') + '</td>' +
+          '<td style="' + td + 'color:var(--text-soft);white-space:nowrap;">' + (d ? 'Sent ' + _esc(d) : 'Sent') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    body.innerHTML = h;
+  }
+  window._srSendCheck = async function(keepMsg){
+    var st = _srSendState;
+    var loc = (document.getElementById('srSendLoc') || {}).value || '';
+    var cls = (document.getElementById('srSendClass') || {}).value || '';
+    if (!loc) { _srSendMsg('Pick a location first.', 'error'); return; }
+    var body = document.getElementById('srSendBody');
+    st.busy = true; st.preview = null; st.ticked = {};
+    if (!keepMsg) _srSendMsg('');
+    _srSendButtons();
+    if (body) body.innerHTML = '<div style="padding:14px;color:var(--text-soft);text-align:center;">Checking&hellip;</div>';
+    var payload = { mode: 'preview', location: loc };
+    if (cls) payload.classroom = cls;
+    try {
+      var data = await _srBulkCall(payload);
+      st.preview = data;
+      (Array.isArray(data.ready) ? data.ready : []).forEach(function(r){ st.ticked[_srRowKey(r)] = true; });
+      _srSendRenderPreview();
+    } catch (e) {
+      if (body) body.innerHTML = '';
+      _srSendMsg('Could not check: ' + _esc((e && e.message) || String(e)), 'error');
+    } finally {
+      st.busy = false; _srSendButtons();
+    }
+  };
+  window._srSendGo = async function(){
+    var st = _srSendState;
+    var rows = _srSendTickedRows();
+    if (!rows.length || st.busy) return;
+    var loc = (document.getElementById('srSendLoc') || {}).value || '';
+    var cls = (document.getElementById('srSendClass') || {}).value || '';
+    var ids = rows.map(function(r){ return r.screeningId; }).filter(Boolean);
+    st.busy = true; _srSendButtons();
+    _srSendMsg('Sending results to ' + ids.length + ' ' + (ids.length === 1 ? 'family' : 'families') + '&hellip; please keep this window open.', 'info');
+    var payload = { mode: 'send', location: loc, screeningIds: ids };
+    if (cls) payload.classroom = cls;
+    var resMsg = '', kind = 'ok';
+    try {
+      var data = await _srBulkCall(payload);
+      var nSent = Number(data.sent) || 0;
+      var failed = Array.isArray(data.failed) ? data.failed : [];
+      var skipped = Array.isArray(data.skipped) ? data.skipped : [];
+      resMsg = '<b>Sent ' + nSent + '. Failed ' + failed.length + '.</b>' + (skipped.length ? ' Skipped ' + skipped.length + '.' : '');
+      if (failed.length) {
+        kind = 'error';
+        resMsg += '<ul style="margin:6px 0 0 18px;padding:0;">' + failed.map(function(f){
+          return '<li>' + _esc(_srKidName(f.child) || f.contactId || 'Unknown') + ': ' + _esc(f.error || 'unknown error') + '</li>';
+        }).join('') + '</ul>';
+      }
+      try {
+        if (typeof window.auditLog === 'function') window.auditLog('Sent screening results to families',
+          loc + (cls ? ' / ' + cls : '') + ' — sent ' + nSent + ', failed ' + failed.length + (skipped.length ? ', skipped ' + skipped.length : ''));
+      } catch (_a) {}
+    } catch (e) {
+      kind = 'error';
+      resMsg = 'Could not send: ' + _esc((e && e.message) || String(e));
+    } finally {
+      st.busy = false;
+    }
+    _srSendMsg(resMsg, kind);
+    await _srSendCheck(true);
+    _srSendMsg(resMsg, kind);
+  };
+
   // ── Screenings Report (2026-07-16) — opened from the Reports section ──
   var _srReportRows = [];
   /* The floating overlay that used to hold this report was removed in v150.16:
@@ -66062,6 +66339,7 @@ window.cmsBuildMembershipReport = async function() {
           parentName: c.displayName||((((c.firstName||'')+' '+(c.lastName||'')).trim())),
           email: c.email||'',
           school: String(s.school||''), grade: String(s.grade||''),
+          location: String(s.location||'').trim(), classroom: String(s.classroom||'').trim(),   /* for Send results to families (v152.31) */
           outcome: String(s.outcome||''),
           hearingRec: String(s.hearingRecommendation||''),
           /* Lions keeps a flat screeningDate; everything else has the date on
@@ -66096,6 +66374,8 @@ window.cmsBuildMembershipReport = async function() {
      Lions Club school screenings, which it could not show at all. */
   window.cmsBuildScreeningsReport = async function(){
     _cmsShowOnlyReport('screeningsInGrid');
+    var _srSendBtn = document.getElementById('scrSendResultsBtn');
+    if (_srSendBtn) _srSendBtn.style.display = _srCanSendResults() ? '' : 'none';
     if (!window._srReportFilter) window._srReportFilter = 'all';
     var body = document.getElementById('scrBody');
     if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading screenings&hellip;</div>';
