@@ -5623,7 +5623,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.40-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.41-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -60824,6 +60824,25 @@ function _pbRowAttendance(r) {
   return _pbAttendance(sm);
 }
 
+/* A "Dissemination" event is social/online reach, not a training (2026-10-06).
+   No screen sets an event type for it: pink-sheet imports carry
+   summary.activityType 'Dissemination', and staff-made ones are only marked by
+   a title starting "Dissemination". Its reach sits in the headcount. */
+function _pbIsDissemEvent(r) {
+  if (!r) return false;
+  if ((r.s || {}).activityType === 'Dissemination') return true;
+  return /^\s*dissemination\b/i.test(String(r.title || ''));
+}
+/* Section 4 reach for one row. A Dissemination event's headcount IS its reach;
+   if the Dissemination Reach box is also filled, take the LARGER of the two,
+   never the sum, because both can describe the same audience. */
+function _pbRowReach(r) {
+  var box = (r && r.s && typeof r.s.dissemReach === 'number') ? r.s.dissemReach : 0;
+  if (!_pbIsDissemEvent(r)) return box;
+  var head = _pbNum(_pbRowAttendance(r));
+  return Math.max(box, head || 0);
+}
+
 function _pbTodayISO() {
   try { return new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Honolulu' }); }
   catch (e) { return new Date().toISOString().slice(0, 10); }
@@ -62697,14 +62716,15 @@ function _pbBuildSections(modes, pdf) {
     });
     var reachTotal = 0, reachRows = [];
     D.sessions.forEach(function (r) {
-      if (typeof r.s.dissemReach !== 'number' || !r.s.dissemReach) return;
-      reachTotal += r.s.dissemReach;
-      reachRows.push({ date: r.date, what: r.title + (r.s.dissemReachSource ? ' — ' + r.s.dissemReachSource : ''), amount: _pbFmt(r.s.dissemReach) });
+      var rv = _pbRowReach(r);
+      if (!rv) return;
+      reachTotal += rv;
+      reachRows.push({ date: r.date, what: r.title + (r.s.dissemReachSource ? ' — ' + r.s.dissemReachSource : '') + (_pbIsDissemEvent(r) ? ' (social/online reach)' : ''), amount: _pbFmt(rv) });
     });
 
     var h = '<div class="pb-stats">' +
       _pbStat(_pbFmt(matTotal), 'Materials disseminated', 'Items handed out. What was packed and carried is not counted.') +
-      _pbStat(_pbFmt(reachTotal), 'Dissemination reach', 'Reported separately — never added to the total above') +
+      _pbStat(_pbFmt(reachTotal), 'Dissemination reach', 'Reported separately — never added to the total above. Includes social/online reach from Dissemination events.') +
       '</div>';
     /* Reach is kept OUT of the materials total on purpose. It can describe the
        very same handout: the July 2026 Parent Talk Cafe records the same 512
@@ -63038,7 +63058,7 @@ function _pcCompute() {
        attendees, and carry no tier -- the default made them Tier 2 and put
        27,000 "parents" into virtual training. They belong under V. (same flag
        the OSEP export uses) */
-    if ((r.s || {}).activityType === 'Dissemination') { R.dissem += _pbNum(_pbRowAttendance(r)); R.dissemN++; return; }
+    if (_pbIsDissemEvent(r)) { R.dissem += _pbNum(_pbRowAttendance(r)); R.dissemN++; return; }
     if (r.tier !== 'Tier 2' && r.tier !== 'Tier 3') return;
     var att = _pbRowAttendance(r);
     if (att == null) { R.notes.trainNoAtt++; push('trainNoAtt', { d: r.date, w: r.title }); return; }
