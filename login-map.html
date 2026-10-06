@@ -467,7 +467,12 @@ function refreshItems(regrow){
   if(regrow)growIn(g);
 }
 let growStart=0, growGroup=null;
-const STILL=/still/.test(location.search); if(STILL)document.documentElement.classList.add('still');
+/* Static picture (v152.38-STAGE): the sign-in background is drawn in its final
+   state once, with no requestAnimationFrame loop, no flowing arcs, no moving
+   glow dots and no fade-ins, so it costs nothing while a dashboard tab sits
+   open all day. It redraws once on resize. ?animate brings the old motion back. */
+const STATIC=!/animate/.test(location.search);
+const STILL=STATIC||/still/.test(location.search); if(STILL)document.documentElement.classList.add('still');
 function growIn(g){growGroup=g;growStart=STILL?-1e7:performance.now();}
 function easeOutBack(t){const c1=1.4,c3=c1+1;return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2);}
 
@@ -510,14 +515,18 @@ function frame(now){
   // arcs flow
   const showArcs=vb.w>150;
   gArcs.style.opacity=showArcs?1:0;
-  if(showArcs){for(const a of arcs){if(!a.len)a.len=a.base.getTotalLength();
+  if(showArcs&&STATIC){for(const a of arcs){a.flow.setAttribute('stroke-dashoffset',0);a.dot.style.opacity=0;}}
+  else if(showArcs){for(const a of arcs){if(!a.len)a.len=a.base.getTotalLength();
     a.flow.setAttribute('stroke-dashoffset',-(now/40)*a.px);
     const t=((now/4200)+a.phase)%1;const p=a.base.getPointAtLength(t*a.len);a.dot.setAttribute('cx',p.x);a.dot.setAttribute('cy',p.y);a.dot.style.opacity=Math.sin(t*Math.PI).toFixed(2);}}
   gDate.style.opacity=vb.w>150?1:0; gGrat.style.opacity=vb.w>120?1:.0; gGhost.style.opacity=vb.w>120?1:0;
   ilblHawaii.style.opacity=vb.w<200?1:0;
   scalebar(px);
-  requestAnimationFrame(frame);
+  if(!STATIC)requestAnimationFrame(frame);
 }
+/* Static mode: one draw per request, coalesced into a single frame. */
+let drawQueued=false;
+function drawOnce(){if(drawQueued)return;drawQueued=true;requestAnimationFrame(now=>{drawQueued=false;anim=null;frame(now);});}
 function scalebar(px){
   const unitsPerMile=S/69.0; const target=110*px/unitsPerMile; // miles for ~110px
   const nice=[1,2,5,10,20,25,50,100,200,250,500,1000,2000];let m=nice[0];for(const v of nice)if(v<=target)m=v;
@@ -545,7 +554,7 @@ function clock(tz){const d=new Date(Date.now()+tz*3600e3);const day=d.toLocaleDa
 /* ---------- navigation ---------- */
 function go(v,opts={}){
   view=v; hideTip();
-  animateTo(boxToVB(VIEWS[v].box),opts.dur||1400);
+  if(STATIC)setVB(boxToVB(VIEWS[v].box)); else animateTo(boxToVB(VIEWS[v].box),opts.dur||1400);
   refreshItems(true); renderCrumbs(); renderRail(); renderLegend(); renderInsight();
   for(const k in islandEls)islandEls[k].forEach(p=>p.classList.toggle('hl',k===v));
 }
@@ -660,7 +669,7 @@ function wireRail(){
 function pulse(list){list.forEach(it=>{it.el.classList.remove('pulse');void it.el.getBBox();it.el.classList.add('pulse');});}
 function pulseCity(c){pulse(groups[groupForView(view)].filter(it=>it.city===c&&it.kind==='c'));}
 function pulseHood(h){pulse(groups.detail.filter(it=>it.label===h));}
-setInterval(()=>rail.querySelectorAll('.clk').forEach(e=>e.textContent=clock(+e.dataset.tz)),30000);
+if(!STATIC)setInterval(()=>rail.querySelectorAll('.clk').forEach(e=>e.textContent=clock(+e.dataset.tz)),30000);
 
 /* ---------- controls ---------- */
 document.querySelectorAll('#layerSeg button').forEach(b=>b.onclick=()=>{layer=b.dataset.l;document.querySelectorAll('#layerSeg button').forEach(x=>x.classList.toggle('on',x===b));refreshItems(true);renderRail();renderLegend();renderInsight();});
@@ -691,9 +700,16 @@ buildItems();
  document.querySelectorAll('#layerSeg button').forEach(x=>x.classList.toggle('on',x.dataset.l===layer));document.querySelectorAll('#styleSeg button').forEach(x=>x.classList.toggle('on',x.dataset.s===style));}
 setVB(boxToVB(VIEWS.pacific.box));
 {const h=decodeURIComponent(location.hash.slice(1));go(VIEWS[h]?h:'pacific',{dur:10});}
-window.addEventListener('resize',()=>{setVB(boxToVB(VIEWS[view].box));renderLegend();});
-requestAnimationFrame(frame);
-setTimeout(()=>caption('Tap Hawaiʻi to zoom in · tap any bubble for its count',4200),900);
+window.addEventListener('resize',()=>{setVB(boxToVB(VIEWS[view].box));renderLegend();if(STATIC)drawOnce();});
+if(STATIC){
+  drawOnce();
+  /* Redraw once more when the web fonts land, since label placement measures text. */
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(drawOnce);
+  window.addEventListener('load',drawOnce);
+}else{
+  requestAnimationFrame(frame);
+  setTimeout(()=>caption('Tap Hawaiʻi to zoom in · tap any bubble for its count',4200),900);
+}
 })();
 </script>
 </body>
