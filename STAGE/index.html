@@ -5623,7 +5623,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.33-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.34-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8789,12 +8789,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
            style="cursor:pointer;border:2px dashed var(--primary-blue);border-radius:14px;padding:32px 16px;background:#F0FDFF;text-align:center;transition:background .15s,border-color .15s;">
         <div style="font-size:2rem;margin-bottom:6px;">&#128203;&#10024;</div>
         <div style="font-weight:700;color:var(--primary-blue);">Click to add screening forms <span style="font-weight:600;color:var(--text-soft);">&mdash; or drag &amp; drop</span></div>
-        <div style="font-size:.8rem;color:var(--text-soft);margin-top:4px;">JPG, PNG, WebP or PDF &middot; one form per page &middot; several at once is fine</div>
+        <div style="font-size:.8rem;color:var(--text-soft);margin-top:4px;">JPG, PNG, WebP or PDF &middot; one form per page &middot; several at once is fine &middot; a multi-page fax PDF is split into pages</div>
       </div>
       <input type="file" id="srFileInput" multiple accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="srFilesChosen(this)">
 
       <div id="srStatus" style="margin-top:12px;font-size:.9rem;min-height:20px;text-align:center;color:var(--text-soft);"></div>
       <div id="srCards" style="margin-top:16px;"></div>
+      <!-- Batch review: a multi-page fax PDF, one row per form page (v152.32) -->
+      <div id="srBatch" style="margin-top:16px;"></div>
 
       <h3 style="font-family:'Outfit',sans-serif;color:#B45309;margin:30px 0 10px;font-size:1.05rem;">Waiting on parent contact</h3>
       <p style="margin:0 0 12px;font-size:.85rem;color:var(--text-soft);max-width:760px;">
@@ -65145,27 +65147,42 @@ window.cmsBuildMembershipReport = async function() {
 
   /* Sequential, not parallel. A school batch is a dozen pages; firing them all
      at once would hit the function's instance cap and fail the tail of the
-     batch for no gain — reading is the slow part, not the queueing. */
+     batch for no gain — reading is the slow part, not the queueing.
+
+     A MULTI-PAGE PDF (a school's fax: cover sheet, data summary, then one form
+     per child) is split into single pages in the browser first, and the whole
+     drop goes to the Batch review grid instead of one card per file — see
+     _srBatchRead. Images and single-page PDFs keep the card flow. (v152.32) */
   async function _srProcessFiles(fileList) {
     /* Self-healing busy guard (2026-09-16). _srBusy was set before the loop and
        cleared after it, with no finally — so anything that threw in between left
        it stuck TRUE for the life of the page. Every later drop then returned at
        this line without ever calling the extractor, which looks exactly like the
        screen doing nothing at all. Two belts: the finally below, and this — a
-       batch still "running" after two minutes is dead, not busy. */
+       batch still "running" after two minutes is dead, not busy. (A batch read
+       refreshes _srBusyAt as each page comes back.) */
     if (_srBusy && (Date.now() - (_srBusyAt || 0)) < 120000) {
       _showToast('Still reading the last batch — one moment.', '#B45309');
       return;
     }
     if (_srBusy) console.warn('[screening] stale busy flag cleared after', Date.now() - (_srBusyAt || 0), 'ms');
     _srBusy = false;
+    if (_srB && _srB.saving) {
+      _showToast('The batch is still saving — one moment.', '#B45309');
+      return;
+    }
     var files = Array.prototype.slice.call(fileList);
     var rejected = [];
     files = files.filter(function (f) {
       // A drop bypasses the input's accept filter, so re-check here.
       var okType = SR_OK_TYPES.indexOf(f.type) !== -1 || /\.(jpe?g|png|webp|pdf)$/i.test(f.name || '');
       if (!okType) { rejected.push(f.name + ' (not an image or PDF)'); return false; }
-      if (f.size > SR_MAX_BYTES) { rejected.push(f.name + ' (over 6 MB)'); return false; }
+      /* A whole fax may be large; each page it splits into is held to 6 MB. */
+      var isPdf = _srIsPdf(f);
+      if (f.size > (isPdf ? SR_MAX_PDF_BYTES : SR_MAX_BYTES)) {
+        rejected.push(f.name + (isPdf ? ' (over 40 MB)' : ' (over 6 MB)'));
+        return false;
+      }
       return true;
     });
     if (rejected.length) {
@@ -65177,24 +65194,17 @@ window.cmsBuildMembershipReport = async function() {
     _srBusyAt = Date.now();
     var done = 0, failed = 0;
     try {
+    var ex = await _srExpandFiles(files);
+    if (ex.notes.length) _showToast('Skipped ' + ex.notes.length + ': ' + ex.notes.join(', '), '#B45309');
+    if (ex.split) { await _srBatchRead(ex.items); return; }
+    files = ex.items.map(function (it) { return it.file; });
     for (var i = 0; i < files.length; i++) {
       var f = files[i];
       _srSetStatus('<span style="color:var(--primary-blue);font-weight:700;">Reading page ' +
         (i + 1) + ' of ' + files.length + '&hellip;</span>');
       try {
-        var b64 = await new Promise(function (res, rej) {
-          var rd = new FileReader();
-          rd.onload = function () { res(String(rd.result).split(',')[1]); };
-          rd.onerror = rej;
-          rd.readAsDataURL(f);
-        });
-        var resp = await fetch(SR_FN_BASE + 'extractScreeningReferral', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileBase64: b64, mediaType: f.type || 'application/pdf' })
-        });
-        var j = await resp.json();
-        if (!j || !j.ok) { throw new Error((j && j.error) || 'Could not read that page.'); }
-        _srDrafts.push({ file: f, data: j.referral, saving: false });
+        var ref = await _srExtract(f);
+        _srDrafts.push({ file: f, data: ref, saving: false });
         done++;
       } catch (err) {
         failed++;
@@ -65211,9 +65221,36 @@ window.cmsBuildMembershipReport = async function() {
       }
     }
     } finally { _srBusy = false; }
+    if (!files.length) return;
     _srSetStatus(failed
       ? '<span style="color:#B45309;font-weight:700;">Read ' + done + ', could not read ' + failed + '. Check each card below &mdash; nothing has been saved yet.</span>'
       : '<span style="color:#186b45;font-weight:700;">Read ' + done + ' page' + (done === 1 ? '' : 's') + '. Please check each one &mdash; nothing has been saved yet.</span>');
+  }
+
+  /* One page through the extractor. Shared by the card flow and the batch
+     grid, so both send exactly the same request. */
+  function _srFileB64(f) {
+    return new Promise(function (res, rej) {
+      var rd = new FileReader();
+      rd.onload = function () { res(String(rd.result).split(',')[1]); };
+      rd.onerror = rej;
+      rd.readAsDataURL(f);
+    });
+  }
+  async function _srExtract(f) {
+    var b64 = await _srFileB64(f);
+    var resp = await fetch(SR_FN_BASE + 'extractScreeningReferral', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileBase64: b64, mediaType: f.type || 'application/pdf' })
+    });
+    var j = null;
+    try { j = await resp.json(); } catch (_) { j = null; }
+    if (!j || !j.ok) {
+      var e = new Error((j && j.error) || 'Could not read that page.');
+      e.status = resp.status;
+      throw e;
+    }
+    return j.referral;
   }
 
   function _srField(idx, key, label, value, uncertain, opts) {
@@ -65565,6 +65602,59 @@ window.cmsBuildMembershipReport = async function() {
     _srRenderDrafts();
   };
 
+  /* Shared by the card's Confirm & save and the Batch review grid (v152.32):
+     the one place a referral is checked, posted and its scan attached, so the
+     two screens cannot drift apart on what they send. */
+  function _srCheckPayload(p) {
+    if (!p.childName) return "A child's name is needed.";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.screeningDate)) return 'Screening date must be YYYY-MM-DD.';
+    return '';
+  }
+
+  /* Throws on a refused save; the server's JSON rides along on err.data (a
+     duplicate comes back as { alreadyRecorded: true, contactId }). */
+  async function _srSubmitOne(opts) {
+    var payload = opts.payload;
+    var idToken = await firebase.auth().currentUser.getIdToken();
+    var resp = await fetch(SR_FN_BASE + 'submitScreeningReferral', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idToken: idToken,
+        referral: payload,
+        /* Set when staff linked this page to a family on file, or when a
+           sibling page in this batch has already been saved. */
+        contactId: opts.contactId || _srFamFor(payload.childName).contactId || '',
+        suppressEmail: opts.suppressEmail === true
+      })
+    });
+    var j = null;
+    try { j = await resp.json(); } catch (_) { j = null; }
+    if (!resp.ok || !j || !j.ok) {
+      var e = new Error((j && j.error) || ('Save failed' + (resp.status ? ' (' + resp.status + ')' : '') + '.'));
+      e.data = j || {};
+      throw e;
+    }
+
+    /* Remember the family this page created, so the other page for the same
+       child in this batch links to it instead of creating a second one. */
+    _srFamLearn({
+      childName: payload.childName, contactId: j.contactId,
+      parentName: payload.parentName, parentEmail: payload.parentEmail,
+      parentPhone: payload.parentPhone,
+    });
+
+    /* Keep the scan. Reuses the screening-consent upload endpoints, so the
+       page lands beside the family's other screening paperwork on the contact
+       card rather than in a folder only this screen knows about. Best effort:
+       the referral is already recorded, and losing the scan must not undo it. */
+    try { await _srUploadScan(opts.file, j.contactId, idToken); }
+    catch (e2) {
+      console.warn('srConfirm: scan upload failed:', e2 && e2.message);
+      j._scanFailed = (e2 && e2.message) || 'upload failed';
+    }
+    return j;
+  }
+
   window.srConfirm = async function (i, opts) {
     opts = opts || {};
     var draft = _srDrafts[i];
@@ -65573,50 +65663,24 @@ window.cmsBuildMembershipReport = async function() {
     var msg = _srEl(opts.msgId || ('srMsg_' + i));
     var btn = _srEl(opts.btnId || ('srSave_' + i));
 
-    if (!payload.childName) { if (msg) { msg.style.color = '#B91C1C'; msg.textContent = "A child's name is needed."; } return false; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.screeningDate)) {
-      if (msg) { msg.style.color = '#B91C1C'; msg.textContent = 'Screening date must be YYYY-MM-DD.'; }
-      return false;
-    }
+    var why = _srCheckPayload(payload);
+    if (why) { if (msg) { msg.style.color = '#B91C1C'; msg.textContent = why; } return false; }
 
     draft.saving = true;
     if (btn) { btn.disabled = true; btn.textContent = 'Saving&hellip;'; }
-    if (msg) { msg.style.color = 'var(--text-soft)'; msg.textContent = 'Saving\u2026'; }
+    if (msg) { msg.style.color = 'var(--text-soft)'; msg.textContent = 'Saving…'; }
 
     try {
-      var idToken = await firebase.auth().currentUser.getIdToken();
-      var resp = await fetch(SR_FN_BASE + 'submitScreeningReferral', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          idToken: idToken,
-          referral: payload,
-          /* Set when staff linked this page to a family on file, or when a
-             sibling page in this batch has already been saved. */
-          contactId: draft.contactId || _srFamFor(payload.childName).contactId || '',
-          suppressEmail: !(_srEl('sr_' + i + '_sendEmail') || {}).checked
-        })
+      var j = await _srSubmitOne({
+        payload: payload,
+        file: draft.file,
+        contactId: draft.contactId || '',
+        suppressEmail: !(_srEl('sr_' + i + '_sendEmail') || {}).checked
       });
-      var j = await resp.json();
-      if (!resp.ok || !j || !j.ok) throw new Error((j && j.error) || 'Save failed.');
-
-      /* Keep the scan. Reuses the screening-consent upload endpoints, so the
-         page lands beside the family's other screening paperwork on the contact
-         card rather than in a folder only this screen knows about. Best effort:
-         the referral is already recorded, and losing the scan must not undo it. */
-      /* Remember the family this page created, so the other page for the same
-         child in this batch links to it instead of creating a second one. */
-      _srFamLearn({
-        childName: payload.childName, contactId: j.contactId,
-        parentName: payload.parentName, parentEmail: payload.parentEmail,
-        parentPhone: payload.parentPhone,
-      });
-
-      try { await _srUploadScan(draft.file, j.contactId, idToken); }
-      catch (e) { console.warn('srConfirm: scan upload failed:', e && e.message); }
 
       _showToast(
-        j.introEmailSent ? 'Saved \u2014 introduction email sent.'
-                         : 'Saved \u2014 no email sent (' + (j.introEmailSkipped || 'no address') + ').',
+        j.introEmailSent ? 'Saved — introduction email sent.'
+                         : 'Saved — no email sent (' + (j.introEmailSkipped || 'no address') + ').',
         j.introEmailSent ? '#186b45' : '#B45309');
 
       _srDrafts.splice(i, 1);
@@ -65654,6 +65718,661 @@ window.cmsBuildMembershipReport = async function() {
       })
     });
   }
+
+  /* ── Batch review — a school's multi-page fax (v152.32) ──────────────────
+     Schools fax ONE PDF: a cover sheet, a data summary, then one Lions form per
+     child. Treated as one document it read as one child. Here the PDF is split
+     into single pages in the browser (pdf-lib, loaded only when a PDF arrives),
+     each page goes through the same extractScreeningReferral call as a single
+     drop, three at a time (the function's own maxInstances), and the readings
+     land in one editable grid. Pages with no child on them — the cover, the
+     summary — are listed as skipped, never drawn as rows.
+
+     Saving goes through _srSubmitOne, the same call the card's Confirm & save
+     uses, one row at a time. Sequential on purpose: a second child of the same
+     family must find the contact the first one created (the server matches on
+     contactId, then email, then phone), and a hearing page must join its
+     child's vision page rather than open a family of its own. */
+  var SR_MAX_PDF_BYTES = 40 * 1024 * 1024;
+  var SR_PDFLIB_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
+  var SR_READ_CONCURRENCY = 3;
+  var _srB = null;   // the open batch: { rows, seq, srcs, srcCount, sendIntro, saving }
+
+  function _srIsPdf(f) { return !!f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '')); }
+  /* rsEscape goes through textContent, which leaves double quotes alone — not
+     safe inside value="…". */
+  function _srbAttr(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function _srLoadPdfLib() {
+    if (window.PDFLib && window.PDFLib.PDFDocument) return Promise.resolve(window.PDFLib);
+    if (window._srPdfLibPromise) return window._srPdfLibPromise;
+    window._srPdfLibPromise = new Promise(function (res, rej) {
+      var s = document.createElement('script');
+      s.src = SR_PDFLIB_SRC;
+      s.onload = function () {
+        if (window.PDFLib && window.PDFLib.PDFDocument) res(window.PDFLib);
+        else { window._srPdfLibPromise = null; rej(new Error('pdf-lib did not load')); }
+      };
+      s.onerror = function () { window._srPdfLibPromise = null; rej(new Error('pdf-lib failed to load')); };
+      document.head.appendChild(s);
+    });
+    return window._srPdfLibPromise;
+  }
+
+  /* Files → pages. An image or a one-page PDF passes through untouched; a PDF
+     of two or more pages becomes one single-page PDF per page, and marks the
+     drop as a batch. If pdf-lib cannot load, a PDF is sent whole, as before. */
+  async function _srExpandFiles(files) {
+    var out = { items: [], split: false, notes: [] };
+    var stamp = Date.now();
+    for (var fi = 0; fi < files.length; fi++) {
+      var f = files[fi];
+      var srcKey = stamp + '_' + fi;
+      var whole = { file: f, page: 1, pages: 1, srcKey: srcKey, srcName: f.name || 'scan' };
+      if (!_srIsPdf(f)) { out.items.push(whole); continue; }
+      var lib = null;
+      try { lib = await _srLoadPdfLib(); }
+      catch (e) { console.warn('[screening] pdf-lib unavailable, sending the PDF whole:', e && e.message); }
+      var src = null, n = 1;
+      if (lib) {
+        try {
+          src = await lib.PDFDocument.load(await f.arrayBuffer(), { ignoreEncryption: true });
+          n = src.getPageCount();
+        } catch (e) {
+          console.warn('[screening] could not open', f.name, 'to split it:', e && e.message);
+          src = null; n = 1;
+        }
+      }
+      if (!src || n <= 1) {
+        if (f.size > SR_MAX_BYTES) { out.notes.push(f.name + ' (over 6 MB)'); continue; }
+        out.items.push(whole);
+        continue;
+      }
+      out.split = true;
+      var base = String(f.name || 'scan').replace(/\.pdf$/i, '');
+      for (var k = 0; k < n; k++) {
+        _srSetStatus('<span style="color:var(--primary-blue);font-weight:700;">Splitting ' + rsEscape(f.name || 'the PDF') +
+          ' &mdash; page ' + (k + 1) + ' of ' + n + '&hellip;</span>');
+        var item = { file: null, page: k + 1, pages: n, srcKey: srcKey, srcName: f.name || 'scan' };
+        try {
+          var one = await lib.PDFDocument.create();
+          var copied = await one.copyPages(src, [k]);
+          one.addPage(copied[0]);
+          var bytes = await one.save();
+          item.file = new File([bytes], base + ' - page ' + (k + 1) + '.pdf', { type: 'application/pdf' });
+          if (item.file.size > SR_MAX_BYTES) { item.error = 'This page is over 6 MB once split, too large to read.'; item.final = true; }
+        } catch (e) {
+          item.error = 'Could not split this page out of the PDF: ' + ((e && e.message) || String(e));
+          item.final = true;
+        }
+        out.items.push(item);
+      }
+    }
+    return out;
+  }
+
+  function _srbEnsure() {
+    if (!_srB) _srB = { rows: [], seq: 0, srcs: {}, srcCount: 0, sendIntro: false, saving: false };
+    return _srB;
+  }
+  function _srbAddRow(it) {
+    var B = _srbEnsure();
+    if (!B.srcs[it.srcKey]) B.srcs[it.srcKey] = ++B.srcCount;
+    var row = {
+      id: ++B.seq, file: it.file, srcKey: it.srcKey, srcName: it.srcName, page: it.page, pages: it.pages,
+      url: '', state: it.error ? 'error' : 'queued', error: it.error || '', final: !!it.final,
+      data: null, fields: null, unc: {}, ticked: true, result: '', contactId: ''
+    };
+    try { if (it.file) row.url = URL.createObjectURL(it.file); } catch (_) {}
+    B.rows.push(row);
+    return row;
+  }
+  function _srbRow(id) {
+    if (!_srB) return null;
+    for (var i = 0; i < _srB.rows.length; i++) if (_srB.rows[i].id === id) return _srB.rows[i];
+    return null;
+  }
+  /* "p7" for a single fax; "F2 p7" once a drop holds more than one file. */
+  function _srbLabel(row) {
+    return (_srB && _srB.srcCount > 1 ? 'F' + _srB.srcs[row.srcKey] + ' ' : '') + 'p' + row.page;
+  }
+  function _srbInGrid(row) {
+    return row.state === 'ready' || row.state === 'saving' || row.state === 'saved' || row.state === 'failed';
+  }
+  function _srbGridRows() { return _srB ? _srB.rows.filter(_srbInGrid) : []; }
+
+  /* The reading → the row's editable fields. The extractor returns one
+     childName; the grid splits it at the last space and joins it back to save. */
+  var SR_UNC_MAP = {
+    childName: ['first', 'last'], childAge: ['age'], grade: ['grade'], schoolName: ['school'],
+    screeningDate: ['date'], parentName: ['parentName'], parentEmail: ['email'], parentPhone: ['phone'],
+    resultNotes: ['notes'], outcome: ['outcome'], hearingRecommendation: ['outcome'], formType: ['form']
+  };
+  var SR_FIELD_LABEL = {
+    form: 'form', first: 'first name', last: 'last name', age: 'age', grade: 'grade', school: 'school',
+    date: 'screening date', outcome: 'result', parentName: 'parent', phone: 'phone', email: 'email', notes: 'notes'
+  };
+  function _srbFill(row) {
+    var d = row.data || {};
+    var parts = String(d.childName || '').trim().split(/\s+/).filter(Boolean);
+    var last = parts.length > 1 ? parts.pop() : '';
+    row.fields = {
+      form: (d.formType === 'vision' || d.formType === 'hearing') ? d.formType : '',
+      first: parts.join(' '), last: last,
+      age: d.childAge || '', grade: d.grade || '', school: d.schoolName || '',
+      date: d.screeningDate || '', outcome: d.outcome || 'unclear',
+      parentName: d.parentName || '', phone: d.parentPhone || '', email: d.parentEmail || '',
+      notes: d.resultNotes || ''
+    };
+    row.unc = {};
+    (d.uncertainFields || []).forEach(function (k) {
+      (SR_UNC_MAP[k] || []).forEach(function (g) { row.unc[g] = true; });
+    });
+    /* Ticked by default — except a page that reads as a PASS, which the server
+       refuses anyway. */
+    row.ticked = d.isReferral !== false;
+  }
+
+  async function _srbReadRow(row) {
+    if (row.final || !row.file) return;
+    row.state = 'reading'; row.error = '';
+    var ref = null, err = null;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try { ref = await _srExtract(row.file); err = null; break; }
+      catch (e) {
+        err = e;
+        var st = e && e.status;
+        /* One retry for a busy or dropped call; a refusal is final. */
+        var transient = !st || st === 429 || st === 500 || st === 502 || st === 503 || st === 504;
+        if (!transient || attempt === 1) break;
+        await new Promise(function (r) { setTimeout(r, 3000); });
+      }
+    }
+    if (err) {
+      var m = (err && err.message) || 'Could not read that page.';
+      if (err.status === 422 || /does not look like/i.test(m)) {
+        row.state = 'skipped'; row.error = 'Not a Lions vision or hearing form';
+      } else {
+        row.state = 'error'; row.error = m;
+      }
+      return;
+    }
+    row.data = ref || {};
+    /* The extractor has to pick vision or hearing for every page, so a cover
+       sheet comes back as a "form" with nobody on it. No child = not a form. */
+    if (!String(row.data.childName || '').trim()) {
+      row.state = 'skipped'; row.error = 'No child named on this page (cover sheet, summary or blank page)';
+      return;
+    }
+    _srbFill(row);
+    row.state = 'ready';
+  }
+
+  async function _srBatchRead(items) {
+    _srbEnsure();
+    var rows = items.map(_srbAddRow);
+    _srbRender();
+    var queue = rows.filter(function (r) { return r.state === 'queued'; });
+    var total = queue.length, next = 0, finished = 0;
+    var prog = function () {
+      _srSetStatus('<span style="color:var(--primary-blue);font-weight:700;">Reading page ' + Math.max(1, Math.min(next, total)) +
+        ' of ' + total + '&hellip; <span style="font-weight:600;color:var(--text-soft);">(' + finished + ' done)</span></span>');
+    };
+    async function worker() {
+      while (next < queue.length) {
+        var row = queue[next++];
+        prog();
+        try { await _srbReadRow(row); }
+        catch (e) { row.state = 'error'; row.error = (e && e.message) || 'Could not read that page.'; }
+        finished++;
+        _srBusyAt = Date.now();
+        try { _srbPutRow(row); } catch (rerr) { console.error('[screening] batch row render failed:', rerr); }
+        prog();
+      }
+    }
+    var workers = [];
+    for (var w = 0; w < Math.min(SR_READ_CONCURRENCY, total); w++) workers.push(worker());
+    await Promise.all(workers);
+
+    var forms = rows.filter(function (r) { return r.state === 'ready'; }).length;
+    var skipped = rows.filter(function (r) { return r.state === 'skipped'; }).length;
+    var errs = rows.filter(function (r) { return r.state === 'error'; }).length;
+    _srSetStatus('<span style="color:' + (errs ? '#B45309' : '#186b45') + ';font-weight:700;">Read ' + rows.length +
+      ' page' + (rows.length === 1 ? '' : 's') + ': ' + forms + ' form' + (forms === 1 ? '' : 's') + ' in Batch review below' +
+      (skipped ? ', ' + skipped + ' skipped (not a form)' : '') +
+      (errs ? ', ' + errs + ' could not be read' : '') + '. Nothing has been saved yet.</span>');
+    _srbRefreshMeta();
+  }
+
+  /* ── Grid rendering ── */
+  function _srbInpStyle(w, amber) {
+    return 'width:' + w + 'px;padding:5px 6px;border:1px solid ' + (amber ? '#F59E0B' : '#cbd5e1') +
+      ';border-radius:6px;font-size:.82rem;background:' + (amber ? '#FFFBEB' : '#fff') + ';box-sizing:border-box;';
+  }
+  function _srbAmber(row, k) {
+    var empty = !String((row.fields || {})[k] || '').trim();
+    return !!row.unc[k] || ((k === 'phone' || k === 'email') && empty);
+  }
+  function _srbRowHtml(row) {
+    var f = row.fields || {}, d = row.data || {}, id = row.id;
+    var locked = row.state === 'saved' || row.state === 'saving';
+    var dis = locked ? ' disabled' : '';
+    var td = 'padding:4px 3px;vertical-align:top;';
+    var cell = function (k, w, ph) {
+      return '<td style="' + td + '"><input id="srb_' + id + '_' + k + '" value="' + _srbAttr(f[k]) + '"' +
+        (ph ? ' placeholder="' + _srbAttr(ph) + '"' : '') + dis +
+        ' oninput="srbEdit(' + id + ',\'' + k + '\',this)" style="' + _srbInpStyle(w, _srbAmber(row, k)) + '"></td>';
+    };
+    var sel = function (k, w, opts) {
+      return '<select id="srb_' + id + '_' + k + '"' + dis + ' onchange="srbEdit(' + id + ',\'' + k + '\',this)" style="' +
+        _srbInpStyle(w, _srbAmber(row, k)) + '">' +
+        opts.map(function (o) { return '<option value="' + o[0] + '"' + (f[k] === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+        '</select>';
+    };
+    var bg = row.state === 'saved' ? '#F0FDF4' : (row.state === 'failed' ? '#FEF2F2' : '#fff');
+    return '<tr id="srb_tr_' + id + '" data-seq="' + id + '" style="background:' + bg + ';border-top:1px solid #e2e8f0;">' +
+      '<td style="' + td + 'text-align:center;"><input type="checkbox" id="srb_' + id + '_tick"' + (row.ticked ? ' checked' : '') + dis +
+        ' onchange="srbTick(' + id + ',this.checked)" style="margin-top:7px;"></td>' +
+      '<td style="' + td + 'font-weight:700;color:#14305A;white-space:nowrap;padding-top:9px;" title="' + _srbAttr(row.srcName) + '">' + rsEscape(_srbLabel(row)) + '</td>' +
+      '<td style="' + td + '">' + sel('form', 84, (f.form ? [] : [['', 'Choose']]).concat([['vision', 'Vision'], ['hearing', 'Hearing']])) + '</td>' +
+      cell('first', 110) + cell('last', 110) + cell('age', 44) + cell('grade', 52) + cell('school', 140) +
+      cell('date', 98, 'YYYY-MM-DD') +
+      '<td style="' + td + '">' + sel('outcome', 92, [['refer', 'Refer'], ['pass', 'Passed'], ['unclear', 'Unclear']]) +
+        (d.hearingRecommendation ? '<div style="font-size:.7rem;color:var(--text-soft);margin-top:2px;">Rec ' + rsEscape(d.hearingRecommendation) + '</div>' : '') + '</td>' +
+      cell('parentName', 130) + cell('phone', 110) + cell('email', 170) + cell('notes', 180) +
+      '<td style="' + td + 'white-space:nowrap;padding-top:9px;">' +
+        (row.url ? '<a href="' + _srbAttr(row.url) + '" target="_blank" rel="noopener" style="font-size:.8rem;">View page</a>' : '') + '</td>' +
+      '<td id="srb_st_' + id + '" style="' + td + 'min-width:190px;font-size:.8rem;padding-top:8px;"></td>' +
+    '</tr>';
+  }
+
+  function _srbStatusHtml(row, famNote) {
+    var f = row.fields || {}, d = row.data || {};
+    var html = '';
+    if (row.state === 'saving') {
+      html = '<span style="color:var(--primary-blue);font-weight:700;">Saving&hellip;</span>';
+    } else if (row.state === 'saved') {
+      html = '<span style="color:#186b45;font-weight:700;">Saved</span>' +
+        (row.contactId ? ' &middot; <a href="#" onclick="srOpenContact(\'' + _attrJsArg(row.contactId) + '\');return false;">Open contact card</a>' : '') +
+        (row.result ? '<div style="color:#475569;margin-top:2px;">' + rsEscape(row.result) + '</div>' : '');
+    } else {
+      var issues = [];
+      if (!f.form) issues.push('choose vision or hearing');
+      if (!String((f.first || '') + (f.last || '')).trim()) issues.push("child's name");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f.date || '').trim())) issues.push('screening date YYYY-MM-DD');
+      if (f.outcome === 'pass') issues.push('reads as a PASS (the server refuses a pass)');
+      else if (f.outcome !== 'refer') issues.push('result unclear (only a refer is saved)');
+      if (d.confidence === 'low') issues.push('page was hard to read');
+      var unc = Object.keys(row.unc || {}).map(function (k) { return SR_FIELD_LABEL[k] || k; });
+      if (unc.length) issues.push('check ' + unc.join(', '));
+      if (row.state === 'failed') {
+        html = '<span style="color:#B91C1C;font-weight:700;">Failed</span> <span style="color:#B91C1C;">' + rsEscape(row.result || 'Save failed.') +
+          '</span><div style="color:#475569;margin-top:2px;">Correct the row and press Save again.</div>';
+      } else if (issues.length) {
+        html = '<span style="display:inline-block;background:#FEF3C7;color:#92400E;font-weight:700;padding:2px 8px;border-radius:999px;">Needs check</span>' +
+          '<div style="color:#92400E;margin-top:3px;">' + rsEscape(issues.join('; ')) + '</div>';
+      } else {
+        html = '<span style="display:inline-block;background:#DCFCE7;color:#186b45;font-weight:700;padding:2px 8px;border-radius:999px;">Ready</span>';
+      }
+    }
+    if (famNote) html += '<div style="color:#0E5F7A;font-weight:600;margin-top:3px;">' + rsEscape(famNote) + '</div>';
+    return html;
+  }
+
+  /* Same child (vision + hearing) or same family (email or phone) as an
+     earlier row. Notes only — each child still saves on its own row, and the
+     server files them under one family. */
+  function _srbFamilyNotes() {
+    var byChild = {}, byEmail = {}, byPhone = {}, notes = {};
+    _srbGridRows().forEach(function (row) {
+      var f = row.fields || {};
+      var ck = _srFamKey((f.first || '') + ' ' + (f.last || ''));
+      var em = String(f.email || '').trim().toLowerCase();
+      var ph = String(f.phone || '').replace(/\D/g, '');
+      var note = '';
+      if (ck && byChild[ck]) note = 'Same child as ' + _srbLabel(byChild[ck]);
+      else {
+        var fam = (em && byEmail[em]) || (ph.length >= 7 && byPhone[ph]) || null;
+        if (fam) note = 'Same family as ' + _srbLabel(fam);
+      }
+      if (ck && !byChild[ck]) byChild[ck] = row;
+      if (em && !byEmail[em]) byEmail[em] = row;
+      if (ph.length >= 7 && !byPhone[ph]) byPhone[ph] = row;
+      notes[row.id] = note;
+    });
+    return notes;
+  }
+
+  function _srbSaveable() {
+    return _srB ? _srB.rows.filter(function (r) { return r.ticked && (r.state === 'ready' || r.state === 'failed'); }) : [];
+  }
+
+  /* Status cells, family notes and the Save count — never the inputs, so a
+     keystroke does not lose the cursor. */
+  function _srbRefreshMeta() {
+    if (!_srB) return;
+    var notes = _srbFamilyNotes();
+    _srbGridRows().forEach(function (row) {
+      var c = _srEl('srb_st_' + row.id);
+      if (c) c.innerHTML = _srbStatusHtml(row, notes[row.id]);
+    });
+    var n = _srbSaveable().length;
+    var btn = _srEl('srbSaveBtn');
+    if (btn) {
+      btn.disabled = _srB.saving || !n;
+      btn.style.opacity = btn.disabled ? '.55' : '1';
+      btn.textContent = _srB.saving ? 'Saving…' : ('Save ' + n + ' ticked');
+    }
+    var grid = _srbGridRows();
+    var cnt = _srEl('srbCount');
+    if (cnt) {
+      var saved = grid.filter(function (r) { return r.state === 'saved'; }).length;
+      var reading = _srB.rows.filter(function (r) { return r.state === 'queued' || r.state === 'reading'; }).length;
+      cnt.textContent = grid.length + ' form' + (grid.length === 1 ? '' : 's') +
+        (saved ? ' · ' + saved + ' saved' : '') + (reading ? ' · ' + reading + ' still reading' : '');
+    }
+    var empty = _srEl('srbEmpty');
+    if (empty) empty.style.display = grid.length ? 'none' : '';
+  }
+
+  /* Put one row in place (or take it out) without redrawing the others. */
+  function _srbPutRow(row) {
+    var body = _srEl('srbBody');
+    if (!body) { _srbRender(); return; }
+    var existing = _srEl('srb_tr_' + row.id);
+    if (!_srbInGrid(row)) {
+      if (existing) existing.parentNode.removeChild(existing);
+    } else {
+      var tmp = document.createElement('tbody');
+      tmp.innerHTML = _srbRowHtml(row);
+      var tr = tmp.firstChild;
+      if (existing) body.replaceChild(tr, existing);
+      else {
+        var before = null;
+        for (var i = 0; i < body.children.length; i++) {
+          if (Number(body.children[i].getAttribute('data-seq')) > row.id) { before = body.children[i]; break; }
+        }
+        body.insertBefore(tr, before);
+      }
+    }
+    _srbRenderSide();
+    _srbRefreshMeta();
+  }
+
+  /* Read failures stay in view with a retry; skipped pages fold away. */
+  function _srbRenderSide() {
+    if (!_srB) return;
+    var errHost = _srEl('srbErrors'), skipHost = _srEl('srbSkipped');
+    var link = function (r) {
+      return r.url ? ' <a href="' + _srbAttr(r.url) + '" target="_blank" rel="noopener" style="font-size:.8rem;margin-left:6px;">View page</a>' : '';
+    };
+    if (errHost) {
+      var errs = _srB.rows.filter(function (r) { return r.state === 'error' || (r.state === 'reading' && r.retrying); });
+      errHost.innerHTML = errs.map(function (r) {
+        var busy = r.state === 'reading';
+        return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:7px 10px;margin-bottom:6px;font-size:.84rem;">' +
+          '<strong style="color:#B91C1C;">' + rsEscape(_srbLabel(r)) + '</strong>' +
+          '<span style="color:#475569;flex:1;min-width:200px;">' + (busy ? 'Reading again&hellip;' : rsEscape(r.error || 'Could not read that page.')) + '</span>' +
+          link(r) +
+          (busy || r.final ? '' : '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="srbRetry(' + r.id + ')">Read again</button>') +
+        '</div>';
+      }).join('');
+    }
+    if (skipHost) {
+      var wasOpen = !!(skipHost.querySelector('details') || {}).open;
+      var sk = _srB.rows.filter(function (r) { return r.state === 'skipped'; });
+      skipHost.innerHTML = !sk.length ? '' :
+        '<details' + (wasOpen ? ' open' : '') + ' style="margin-top:10px;font-size:.84rem;">' +
+          '<summary style="cursor:pointer;color:var(--text-soft);font-weight:600;">' + sk.length + ' page' + (sk.length === 1 ? '' : 's') +
+            ' not a form &mdash; skipped</summary>' +
+          sk.map(function (r) {
+            return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid #f1f5f9;padding:6px 2px;">' +
+              '<strong style="color:#475569;">' + rsEscape(_srbLabel(r)) + '</strong>' +
+              '<span style="color:var(--text-soft);flex:1;min-width:200px;">Not a form &mdash; skipped. ' + rsEscape(r.error || '') + '</span>' +
+              link(r) +
+              '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 10px;" onclick="srbForceRow(' + r.id + ')">It is a form &mdash; add to grid</button>' +
+            '</div>';
+          }).join('') +
+        '</details>';
+    }
+  }
+
+  function _srbRender() {
+    var host = _srEl('srBatch');
+    if (!host) return;
+    if (!_srB || !_srB.rows.length) { host.innerHTML = ''; return; }
+    var th = 'padding:6px 3px;text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-soft);white-space:nowrap;';
+    var heads = ['Page', 'Form', 'First name', 'Last name', 'Age', 'Grade', 'School', 'Screened', 'Result',
+      'Parent / guardian', 'Phone', 'Email', 'Notes', 'Scan', 'Status'];
+    host.innerHTML =
+      '<div style="background:#fff;border:1px solid #cbd5e1;border-radius:12px;padding:14px 16px;box-shadow:var(--shadow-soft);">' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">' +
+          '<h3 style="font-family:\'Outfit\',sans-serif;color:#0E5F7A;margin:0;font-size:1.05rem;">Batch review</h3>' +
+          '<span id="srbCount" style="font-size:.8rem;color:var(--text-soft);flex:1;"></span>' +
+          '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 12px;" onclick="srbClearDone()">Clear saved and skipped</button>' +
+          '<button class="btn btn-ghost" style="font-size:.78rem;padding:5px 12px;" onclick="srbClear(this)">Clear batch</button>' +
+        '</div>' +
+        '<p style="margin:0 0 10px;font-size:.84rem;color:var(--text-soft);max-width:860px;">One row per form page. Check the amber cells against the scan, untick anything that should not be saved, then save. Nothing is saved until you press Save.</p>' +
+        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#F8FAFC;border:1px solid #e2e8f0;border-radius:8px;padding:9px 12px;margin-bottom:10px;">' +
+          '<label style="display:flex;align-items:center;gap:7px;font-size:.86rem;color:#334155;cursor:pointer;font-weight:600;">' +
+            '<input type="checkbox" id="srbIntro"' + (_srB.sendIntro ? ' checked' : '') + ' onchange="srbIntro(this)"> Send intro email to families</label>' +
+          '<span style="font-size:.78rem;color:var(--text-soft);flex:1;min-width:220px;">Sends the LDAH introduction letter, once per family, to families with an email whose vision consent is on file. Hearing-only families are never emailed.</span>' +
+          '<button id="srbSaveBtn" class="btn" onclick="srbSaveTicked()" style="font-size:.85rem;padding:8px 18px;background:#0891B2;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;">Save 0 ticked</button>' +
+          '<span id="srbProgress" style="font-size:.84rem;color:var(--text-soft);"></span>' +
+        '</div>' +
+        '<div id="srbErrors"></div>' +
+        '<div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;">' +
+          '<table style="border-collapse:collapse;min-width:1700px;width:100%;">' +
+            '<thead><tr style="background:#F8FAFC;">' +
+              '<th style="' + th + 'text-align:center;"><input type="checkbox" title="Tick or untick every row" onchange="srbTickAll(this)" checked></th>' +
+              heads.map(function (h) { return '<th style="' + th + '">' + h + '</th>'; }).join('') +
+            '</tr></thead>' +
+            '<tbody id="srbBody">' + _srbGridRows().map(_srbRowHtml).join('') + '</tbody>' +
+          '</table>' +
+          '<div id="srbEmpty" style="padding:14px;font-size:.85rem;color:var(--text-soft);text-align:center;">Forms appear here as each page is read.</div>' +
+        '</div>' +
+        '<div id="srbSkipped"></div>' +
+      '</div>';
+    _srbRenderSide();
+    _srbRefreshMeta();
+  }
+
+  /* ── Grid actions ── */
+  window.srbEdit = function (id, k, el) {
+    var row = _srbRow(id);
+    if (!row || !row.fields || row.state === 'saved' || row.state === 'saving') return;
+    row.fields[k] = String(el.value || '');
+    delete row.unc[k];   // a person has looked at it now
+    if (k === 'first' || k === 'last') { delete row.unc.first; delete row.unc.last; }
+    var amber = _srbAmber(row, k);
+    el.style.borderColor = amber ? '#F59E0B' : '#cbd5e1';
+    el.style.background = amber ? '#FFFBEB' : '#fff';
+    _srbRefreshMeta();
+  };
+  window.srbTick = function (id, on) {
+    var row = _srbRow(id);
+    if (row) row.ticked = !!on;
+    _srbRefreshMeta();
+  };
+  window.srbTickAll = function (el) {
+    _srbGridRows().forEach(function (row) {
+      if (row.state !== 'ready' && row.state !== 'failed') return;
+      row.ticked = !!el.checked;
+      var cb = _srEl('srb_' + row.id + '_tick');
+      if (cb) cb.checked = row.ticked;
+    });
+    _srbRefreshMeta();
+  };
+  window.srbIntro = function (el) { if (_srB) _srB.sendIntro = !!el.checked; };
+
+  window.srbRetry = async function (id) {
+    var row = _srbRow(id);
+    if (!row || row.state === 'reading' || (_srB && _srB.saving)) return;
+    row.retrying = true;
+    row.state = 'reading';
+    _srbRenderSide();
+    try { await _srbReadRow(row); }
+    catch (e) { row.state = 'error'; row.error = (e && e.message) || 'Could not read that page.'; }
+    row.retrying = false;
+    _srbPutRow(row);
+  };
+  /* A page the reader thought was not a form. Whatever it did read is kept;
+     a page it refused outright arrives blank, to be typed from the scan. */
+  window.srbForceRow = function (id) {
+    var row = _srbRow(id);
+    if (!row || row.state !== 'skipped') return;
+    row.data = row.data || {};
+    _srbFill(row);
+    row.ticked = true;
+    row.state = 'ready';
+    _srbPutRow(row);
+  };
+
+  function _srbSkipWhy(code) {
+    return ({
+      'consent-does-not-name-ldah': 'hearing consent does not name LDAH',
+      'no-email-address': 'no email address',
+      'suppressed-by-staff': 'intro email not ticked',
+      'already-introduced': 'family already introduced',
+      'send-failed': 'the send failed'
+    })[code] || code;
+  }
+
+  /* The row → the same referral payload the card builds in _srReadCard. The
+     fields not in the grid (room, teacher, consent, hearing recommendation)
+     come from the reading untouched. A hearing page with no parent typed
+     borrows its child's vision row, as the card does. */
+  function _srbPayload(row) {
+    var f = row.fields || {}, d = row.data || {};
+    var t = function (v) { return String(v == null ? '' : v).trim(); };
+    var childName = (t(f.first) + ' ' + t(f.last)).trim();
+    var sib = null;
+    var ck = _srFamKey(childName);
+    if (ck) {
+      _srbGridRows().forEach(function (r) {
+        if (sib || r === row) return;
+        var rf = r.fields || {};
+        if (_srFamKey(t(rf.first) + ' ' + t(rf.last)) !== ck) return;
+        if (t(rf.parentName) || t(rf.email) || t(rf.phone)) sib = rf;
+      });
+    }
+    var sf = sib || {};
+    return {
+      formType: f.form,
+      childName: childName,
+      screeningDate: t(f.date),
+      schoolName: t(f.school),
+      grade: t(f.grade),
+      room: t(d.room),
+      teacherName: t(d.teacherName),
+      parentName: t(f.parentName) || t(sf.parentName),
+      parentEmail: t(f.email) || t(sf.email),
+      parentPhone: t(f.phone) || t(sf.phone),
+      hearingRecommendation: d.hearingRecommendation || null,
+      resultNotes: t(f.notes),
+      consentSigned: d.consentSigned === true,
+      consentDate: d.consentDate || '',
+      outcome: f.outcome
+    };
+  }
+
+  window.srbSaveTicked = async function () {
+    var B = _srB;
+    if (!B || B.saving) return;
+    var prog = _srEl('srbProgress');
+    var say = function (txt, color) { if (prog) { prog.style.color = color || 'var(--text-soft)'; prog.textContent = txt; } };
+    if (_srBusy) { say('Still reading pages — save once reading has finished.', '#B45309'); return; }
+    var list = _srbSaveable();
+    if (!list.length) { say('Nothing ticked to save.', '#B45309'); return; }
+
+    /* Each child's vision page before their hearing page (vision carries the
+       parent and the consent), otherwise page order. */
+    var groupAt = {};
+    list.forEach(function (r) {
+      var k = _srFamKey((r.fields.first || '') + ' ' + (r.fields.last || '')) || ('_' + r.id);
+      if (!(k in groupAt)) groupAt[k] = r.id;
+      r._grp = groupAt[k];
+    });
+    list.sort(function (a, b) {
+      return (a._grp - b._grp) ||
+        ((a.fields.form === 'vision' ? 0 : 1) - (b.fields.form === 'vision' ? 0 : 1)) ||
+        (a.id - b.id);
+    });
+
+    B.saving = true;
+    _srbRefreshMeta();
+    var ok = 0, bad = 0;
+    try {
+      for (var n = 0; n < list.length; n++) {
+        var row = list[n];
+        say('Saving ' + (n + 1) + ' of ' + list.length + '…', 'var(--primary-blue)');
+        var payload = _srbPayload(row);
+        var why = !payload.formType ? 'Choose vision or hearing.' : _srCheckPayload(payload);
+        if (why) { row.state = 'failed'; row.result = why; bad++; _srbPutRow(row); continue; }
+        row.state = 'saving'; row.result = '';
+        _srbPutRow(row);
+        try {
+          var j = await _srSubmitOne({
+            payload: payload, file: row.file, contactId: row.contactId || '',
+            suppressEmail: !B.sendIntro
+          });
+          row.state = 'saved'; row.ticked = false; row.contactId = j.contactId || '';
+          row.result = (j.introEmailSent ? 'Intro email sent.' : 'No email (' + _srbSkipWhy(j.introEmailSkipped || 'no-email-address') + ').') +
+            (j.caseReused ? ' Added to the family’s open case.' : '') +
+            (j.needsParentContact ? ' Waiting on parent contact.' : '') +
+            (j._scanFailed ? ' Scan not attached: ' + j._scanFailed : '');
+          ok++;
+        } catch (e) {
+          var dd = (e && e.data) || {};
+          if (dd.alreadyRecorded) {
+            row.state = 'saved'; row.ticked = false; row.contactId = dd.contactId || '';
+            row.result = 'Already on file — nothing added.';
+            ok++;
+          } else {
+            row.state = 'failed'; row.result = (e && e.message) || 'Save failed.';
+            bad++;
+          }
+        }
+        _srbPutRow(row);
+      }
+    } finally {
+      B.saving = false;
+    }
+    say('Saved ' + ok + ' of ' + list.length + (bad ? '. ' + bad + ' failed — correct the red rows and press Save again.' : '.'),
+      bad ? '#B91C1C' : '#186b45');
+    _srbRefreshMeta();
+    _srLoadPending();
+  };
+
+  function _srbDropRow(r) { try { if (r.url) URL.revokeObjectURL(r.url); } catch (_) {} }
+  window.srbClearDone = function () {
+    if (!_srB || _srB.saving) return;
+    _srB.rows = _srB.rows.filter(function (r) {
+      var gone = r.state === 'saved' || r.state === 'skipped';
+      if (gone) _srbDropRow(r);
+      return !gone;
+    });
+    if (!_srB.rows.length) _srB = null;
+    _srbRender();
+  };
+  /* Two presses, in the page: the second within four seconds clears. */
+  window.srbClear = function (btn) {
+    if (!_srB || _srB.saving || _srBusy) return;
+    var unsaved = _srB.rows.some(function (r) { return r.state === 'ready' || r.state === 'failed'; });
+    if (unsaved && btn && btn.getAttribute('data-arm') !== '1') {
+      btn.setAttribute('data-arm', '1');
+      btn.textContent = 'Press again to clear unsaved rows';
+      setTimeout(function () { if (btn) { btn.removeAttribute('data-arm'); btn.textContent = 'Clear batch'; } }, 4000);
+      return;
+    }
+    _srB.rows.forEach(_srbDropRow);
+    _srB = null;
+    _srbRender();
+    _srSetStatus('');
+  };
 
   /* ── Waiting on parent contact ───────────────────────────────────────────
      DERIVED, not a stored flag: an open Lions case whose family has neither an
@@ -65720,6 +66439,7 @@ window.cmsBuildMembershipReport = async function() {
   window.srLoadQueue = function () {
     if (window._partnerAdminRefused && window._partnerAdminRefused('Screening Referrals')) return;   // v152.9
     _srRenderDrafts();
+    _srbRender();
     _srLoadPending();
     var st = _srEl('srGeneratedAt');
     if (st) st.textContent = 'Checked ' + new Date().toLocaleString();
