@@ -5628,7 +5628,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.48</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.49</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11518,6 +11518,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
         <span id="ctDetailTitle">Contact Detail</span>
         <span id="ctDetailFeedbackPill" style="display:none;background:#16A34A;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:10px;cursor:pointer;user-select:none;" onclick="ctOpenFeedback()" title="View this contact's feedback responses">0 Feedback</span>
         <span id="ctDetailCgPill" style="display:none;background:#7C3AED;color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;" title="This contact has an open Case Advocacy">Case Advocacy</span>
+        <span id="ctDetailScForms" style="display:none;margin-left:8px;gap:6px;align-items:center;"></span>
         <span id="ctDetailMemberPill" style="display:none;background:linear-gradient(135deg,#B45309,#F59E0B);color:#fff;font-size:.78rem;font-weight:700;border-radius:999px;padding:4px 12px;margin-left:8px;user-select:none;box-shadow:0 2px 6px rgba(180,83,9,.3);" title="LDAH member">Member</span>
         <button id="ctDetailMarkPaidBtn" type="button" style="display:none;background:#16A34A;color:#fff;font-size:.72rem;font-weight:700;border:none;border-radius:999px;padding:5px 12px;margin-left:8px;cursor:pointer;" title="Mark this membership as paid (clears pending)">Mark as Paid</button>
         <button id="ctDetailCaseSummaryBtn" type="button" style="display:none;background:#7C3AED;color:#fff;font-size:.72rem;font-weight:700;border:none;border-radius:999px;padding:5px 12px;margin-left:8px;cursor:pointer;" title="AI case summary of this family's uploaded documents">Case Summary</button>
@@ -21161,6 +21162,22 @@ var _photoPendingByIsland = {};
     }
   };
 
+  /* View-form buttons for a contact's scanned screening pages (v152.49), used
+     by the contact card header, the case side panel and the Case Management
+     report. One button per page, numbered when there are several. */
+  window._scFormBtns = function(contactId, docs, look) {
+    var list = [];
+    (Array.isArray(docs) ? docs : []).forEach(function(d, k) { if (d && d.storagePath) list.push(k); });
+    if (!contactId || !list.length) return '';
+    var st = look === 'hdr'
+      ? 'background:#0891B2;color:#fff;font-size:.72rem;font-weight:700;border:none;border-radius:999px;padding:5px 12px;cursor:pointer;'
+      : 'background:#0891B2;color:#fff;font-size:.74rem;font-weight:600;border:none;border-radius:6px;padding:5px 11px;cursor:pointer;margin:0 6px 4px 0;';
+    return list.map(function(k, n) {
+      return '<button type="button" style="' + st + '" title="Open the scanned screening form" onclick="event.stopPropagation();ctScViewConsent(' + _jsArg(contactId) + ',' + k + ')">'
+        + (list.length > 1 ? 'Screening form ' + (n + 1) : 'View screening form') + '</button>';
+    }).join('');
+  };
+
   window.ctScViewConsent = async function(contactId, idx) {
     var msg = document.getElementById('ctScUploadMsg_' + contactId);
     try {
@@ -21253,6 +21270,8 @@ window.openContactDetail = async function(contactId) {
       // below when this contact has an open Case Advocacy interaction.
       var cgPillReset = document.getElementById('ctDetailCgPill');
       if (cgPillReset) cgPillReset.style.display = 'none';
+      var scFormsReset = document.getElementById('ctDetailScForms');
+      if (scFormsReset) { scFormsReset.style.display = 'none'; scFormsReset.innerHTML = ''; }
       // Membership header pill (gold) — shown synchronously from the contact's
       // own isMember/membershipLevel fields (set by onMembershipCreated CF).
       var memPill = document.getElementById('ctDetailMemberPill');
@@ -21490,6 +21509,9 @@ window.openContactDetail = async function(contactId) {
       // only thing inside it. (2026-08-05)
       var _scWrapId = 'ctScreeningWrap_' + contactId;
       var _scDocs = Array.isArray(c.screeningConsentDocs) ? c.screeningConsentDocs : [];
+      // Screening form buttons in the card header too, one click from opening (v152.49).
+      var _scHdr = document.getElementById('ctDetailScForms');
+      if (_scHdr && window._scFormBtns) { var _scH = window._scFormBtns(contactId, _scDocs, 'hdr'); _scHdr.innerHTML = _scH; _scHdr.style.display = _scH ? 'inline-flex' : 'none'; }
       var _scBits = [];
       if (_screenings.length) _scBits.push(_screenings.length + (_screenings.length === 1 ? ' screening' : ' screenings'));
       if (_scDocs.length) _scBits.push(_scDocs.length + (_scDocs.length === 1 ? ' consent form' : ' consent forms'));
@@ -25971,11 +25993,19 @@ window.openContactDetail = async function(contactId) {
     /* v151.83: an OPEN case-advocacy record always shows the family's readiness,
        exactly as if the bar had been clicked (Daniel 10-01: "when the card is
        selected just show it like i clicked the graph"). */
-    var _arCaseOpen = !!(d.contactId && window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(d) && String(d.status || '') !== 'Closed');
+    var _arCaseOpen = !!(d.contactId && window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(d) && String(d.status || '') !== 'Closed' && d.serviceLevel !== 'management');   // no readiness rating on case management (v152.49)
     var _arCid = ((window._ixArWanted === docId || _arCaseOpen) && d.contactId) ? d.contactId : '';
     window._ixArWanted = null;
     var _arHost = _arCid ? '<div id="ixArHost"><div style="font-size:.8rem;color:var(--text-soft);padding:6px 0;">Loading readiness&hellip;</div></div>' : '';
-    body.innerHTML = _lwBack + _memBtns + _dupBtns + _cgPrepBtns + infoCard + contactSection + _arHost + detailSection;
+    // Screening form buttons for a screening referral case or task (v152.49), filled after the contact read.
+    var _scFormCid = (d.contactId && ((d.screeningReferrals || []).length || d.source === 'lions-screening' || d.caseAdvocacySource === 'lions-screening' || d.workflowStep === 'fixFamilyEmail')) ? d.contactId : '';
+    var _scFormHost = _scFormCid ? '<div id="ixScFormHost" style="margin:0 0 10px;"></div>' : '';
+    body.innerHTML = _lwBack + _memBtns + _dupBtns + _cgPrepBtns + _scFormHost + infoCard + contactSection + _arHost + detailSection;
+    if (_scFormCid) db.collection('contacts').doc(_scFormCid).get().then(function(cs) {
+      var host = document.getElementById('ixScFormHost'); if (!host) return;
+      var h = window._scFormBtns ? window._scFormBtns(_scFormCid, ((cs.exists && cs.data()) || {}).screeningConsentDocs, 'panel') : '';
+      host.innerHTML = h || '<span style="font-size:.78rem;color:var(--text-soft);">No scanned screening form on file.</span>';
+    }).catch(function() {});
     if (_arCid && window._ixArFill) window._ixArFill(_arCid);
     // The edit panel is built as a string, so its chips can only be drawn
     // once it is actually in the DOM.
@@ -64627,7 +64657,7 @@ window.cmrRender = function () {
       '<td>' + (r.child ? '<div style="font-weight:600;">' + rsEscape(r.child) + '</div>' : '<span class="cmr-sub">&mdash;</span>') +
         (r.grade ? '<div class="cmr-sub">Grade ' + rsEscape(r.grade) + '</div>' : '') + '</td>' +
       '<td style="white-space:nowrap;">' + (r.school ? rsEscape(r.school) : '<span class="cmr-sub">&mdash;</span>') + '</td>' +
-      '<td style="white-space:nowrap;">' + scr + '</td>' +
+      '<td style="white-space:nowrap;">' + scr + ((r.forms || []).length ? '<div style="margin-top:4px;">' + r.forms.map(function (fm, n) { return '<button type="button" class="cmr-mini" style="background:#0891B2;margin-right:4px;" onclick="event.stopPropagation();ctScViewConsent(' + _jsArg(r.contactId) + ',' + fm.idx + ')">View form' + (r.forms.length > 1 ? ' ' + (n + 1) : '') + '</button>'; }).join('') + '</div>' : '') + '</td>' +
       '<td>' + (r.staff ? rsEscape(r.staff) : _carPill('Needs staff', '#FEF3C7', '#92400E')) + '</td>' +
       '<td style="white-space:nowrap;">' + dueCell + '</td>' +
       '<td style="white-space:nowrap;">' + firstCell + '</td>' +
