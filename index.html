@@ -5628,7 +5628,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.55</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.56</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -64476,15 +64476,37 @@ async function _cmrIxByContact(ids) {
   return out;
 }
 
-window.cmsBuildCaseManagementReport = async function () {
+/* Live updates (v152.56): while the report is on screen, any change to a case
+   file (Noe assigning from here or My Day, someone else closing one) rebuilds
+   it quietly -- no loading screen, filters kept, open rows stay open. The
+   listener stops itself once the panel is hidden. */
+var _cmrLiveUnsub = null, _cmrLiveTimer = null;
+function _cmrPanelVisible() { var el = document.getElementById('caseMgmtReportInGrid'); return !!(el && el.offsetParent); }
+function _cmrStartLive() {
+  if (_cmrLiveUnsub) return;
+  var first = true;
+  _cmrLiveUnsub = db.collection('interactions').where('workflowStep', '==', 'caseAdvocacy').onSnapshot(function () {
+    if (first) { first = false; return; }
+    if (!_cmrPanelVisible()) { _cmrLiveUnsub(); _cmrLiveUnsub = null; return; }
+    clearTimeout(_cmrLiveTimer);
+    _cmrLiveTimer = setTimeout(function () { window.cmsBuildCaseManagementReport({ quiet: true }); }, 1200);
+  }, function (e) { console.warn('case management live:', e && e.message); _cmrLiveUnsub = null; });
+}
+
+window.cmsBuildCaseManagementReport = async function (opts) {
+  opts = opts || {};
   if (typeof isPartnerUser === 'function' && isPartnerUser()) {
     if (typeof _showToast === 'function') _showToast('The Case Management report is for LDAH staff.', '#B45309');
     return;
   }
-  _cmsShowOnlyReport('caseMgmtReportInGrid');
+  if (opts.quiet && !_cmrPanelVisible()) return;
+  if (!opts.quiet) _cmsShowOnlyReport('caseMgmtReportInGrid');
   var body = document.getElementById('cmrBody'), main = document.getElementById('cmrMain');
-  if (main) main.style.display = 'none';
-  if (body) {
+  // Rows the reader has expanded, by case, so a live refresh keeps them open.
+  var _openCases = [];
+  (_cmrRows || []).forEach(function (r) { var el = document.getElementById('cmrDet' + r.i); if (el && el.style.display !== 'none') _openCases.push(r.caseId); });
+  if (main && !opts.quiet) main.style.display = 'none';
+  if (body && !opts.quiet) {
     body.style.display = '';
     body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading case management&hellip;</div>';
   }
@@ -64500,8 +64522,10 @@ window.cmsBuildCaseManagementReport = async function () {
     if (body) body.style.display = 'none';
     if (main) main.style.display = '';
     cmrRender();
+    _cmrRows.forEach(function (r) { if (_openCases.indexOf(r.caseId) !== -1 && typeof cmrToggle === 'function') cmrToggle(r.i); });
     var st = document.getElementById('cmrGeneratedAt');
-    if (st) st.textContent = 'Generated ' + new Date().toLocaleString();
+    if (st) st.textContent = (opts.quiet ? 'Updated live ' : 'Generated ') + new Date().toLocaleString();
+    _cmrStartLive();
   } catch (e) {
     if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load case management: ' + rsEscape((e && e.message) || String(e)) + '</div>';
     console.warn('cmsBuildCaseManagementReport:', e && e.message);
@@ -64604,7 +64628,7 @@ window.cmrOpenCase = function (id) {
 window.cmrAssignStaff = async function (caseId, el) {
   var uid = el && el.value; if (!uid || typeof window.myDayAssignCaseMgmt !== 'function') return;
   await window.myDayAssignCaseMgmt(caseId, uid, el.options[el.selectedIndex].text, el);
-  if (typeof window.cmsBuildCaseManagementReport === 'function') window.cmsBuildCaseManagementReport();
+  if (typeof window.cmsBuildCaseManagementReport === 'function') window.cmsBuildCaseManagementReport({ quiet: true });
 };
 
 window.cmrOpenContact = function (id) {
