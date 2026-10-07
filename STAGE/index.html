@@ -5628,7 +5628,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.53-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.54-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -13583,7 +13583,21 @@ var _photoPendingByIsland = {};
   }
 
   const VALID_ROLES = ['superAdmin','admin','appAdmin','webAdmin','dailyUser','dataUser','superPartner','partner'];
-  const ROLE_LABELS = { superAdmin:'Super Admin', admin:'Admin', appAdmin:'App Admin', webAdmin:'Web Admin', dailyUser:'Daily User', dataUser:'Data User', superPartner:'Super Partner', partner:'Partner' };
+  const ROLE_LABELS = { superAdmin:'Super Admin', admin:'Admin', appAdmin:'App Admin', webAdmin:'Web Admin', dailyUser:'Daily User', dataUser:'Data User', superPartner:'Super Partner', partner:'Partner', revoked:'Revoked' };
+  /* 'revoked' (v152.54) is deliberately NOT in VALID_ROLES, so the gate never lets it
+     in. Picking it in Existing Users locks the person out without archiving: the
+     onUserRoleRevoked Cloud Function disables their login and signs them out
+     everywhere; any other role turns the login back on. */
+  function showRevoked() {
+    var _show = function() {
+      showAccessDenied();
+      var _m = document.querySelector('#accessDenied .access-denied-msg'); if (_m) _m.textContent = 'Access revoked';
+      var _p = _m && _m.nextElementSibling; if (_p) _p.textContent = 'Your access to this system has been revoked. Please contact your supervisor.';
+    };
+    _show();
+    // Sign out, then put the message back over whatever the signed-out screen draws.
+    try { firebase.auth().signOut().then(function() { setTimeout(_show, 300); }); } catch (e) {}
+  }
   let currentUserData = null;
   let _userRolesUnsubscribe = null; // real-time listener on current user's userRoles doc
   // Expose on window for cross-script access (chat system etc.)
@@ -13722,6 +13736,7 @@ var _photoPendingByIsland = {};
         /* Fail closed on a role this build does not know (v151.9). An unknown
            role used to pass as unscoped staff -- Home showed every Hawaiʻi
            record -- so a typo, or a new role reaching an older build, leaked. */
+        if (roleDoc.exists && roleDoc.data().role === 'revoked') { showRevoked(); return; }
         if (roleDoc.exists && VALID_ROLES.indexOf(roleDoc.data().role) !== -1) {
           currentUserData = {
             uid: user.uid,
@@ -13742,6 +13757,7 @@ var _photoPendingByIsland = {};
             var d = snap.data();
             var changed = false;
             if (d.displayName && d.displayName !== currentUserData.displayName) { currentUserData.displayName = d.displayName; changed = true; }
+            if (d.role === 'revoked') { currentUserData = null; showRevoked(); return; }   // locked out live (v152.54)
             if (d.role && d.role !== currentUserData.role) {
               if (VALID_ROLES.indexOf(d.role) === -1) { currentUserData = null; showAccessDenied(); return; }   // fail closed (v151.9)
               currentUserData.role = d.role; changed = true;
@@ -16332,7 +16348,7 @@ var _photoPendingByIsland = {};
             + archivedBadge + '</td>'
         + '<td>' + _wEsc(r.email) + '</td>'
         + '<td>' + (r.isArchived ? '<span style="color:#94a3b8;font-size:.8rem;">— None —</span>' : '<select class="ur-role-select" data-uid="' + r.uid + '">'
-        + VALID_ROLES.map(function(rl) { return '<option value="'+rl+'" '+(rl===r.role?'selected':'')+'>'+(ROLE_LABELS[rl]||rl)+'</option>'; }).join('')
+        + VALID_ROLES.concat(['revoked']).map(function(rl) { return '<option value="'+rl+'" '+(rl===r.role?'selected':'')+'>'+(ROLE_LABELS[rl]||rl)+'</option>'; }).join('')
         + '</select>') + '</td>'
         + '<td>' + (r.isArchived ? '<span style="color:#94a3b8;font-size:.8rem;">—</span>' : '<select class="ur-loc-select" data-uid="' + r.uid + '">'
         + '<option value="">— None —</option>'
@@ -16406,6 +16422,9 @@ var _photoPendingByIsland = {};
         var uid = btn.getAttribute('data-uid');
         var roleSelect = tbody.querySelector('.ur-role-select[data-uid="'+uid+'"]');
         var locSelect = tbody.querySelector('.ur-loc-select[data-uid="'+uid+'"]');
+        var _wasRole = ((_urCachedRows.find(function(rw) { return rw.uid === uid; }) || {}).role) || '';
+        if (roleSelect.value === 'revoked' && _wasRole !== 'revoked' &&
+            !confirm('Revoke access? They are signed out everywhere and cannot log in until you give them a role again. Nothing is archived.')) return;
         try {
           var updates = { role: roleSelect.value };
           if (locSelect) updates.location = locSelect.value;
