@@ -45,13 +45,19 @@ function pickVoice(){const vs=speechSynthesis.getVoices();if(!vs.length)return n
  const pref=[v=>v.name==='Google US English',v=>/Ava/.test(v.name)&&/(Premium|Enhanced)/.test(v.name),v=>/Microsoft (Aria|Jenny|Ava).*Natural/.test(v.name),v=>/Samantha/.test(v.name)&&/(Premium|Enhanced)/.test(v.name),v=>/^Ava/.test(v.name),v=>/Karen/.test(v.name),v=>/Samantha/.test(v.name),v=>v.lang==='en-US',v=>/^en/.test(v.lang)];
  for(const f of pref){const m=vs.find(f);if(m)return m}return null}
 if('speechSynthesis' in window){voiceObj=pickVoice();speechSynthesis.onvoiceschanged=()=>{voiceObj=pickVoice()}}
+/* iPad/iPhone Safari only lets speech start from inside a tap. The first line is
+   spoken 60ms after a timer, so it was silent there. On the first tap anywhere,
+   speak a silent blank inside that tap to unlock the voice for the whole deck. */
+let voiceUnlocked=false;function unlockVoice(){if(voiceUnlocked||!('speechSynthesis' in window))return;voiceUnlocked=true;
+ try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}catch(e){}if(!voiceObj)voiceObj=pickVoice()}
+['touchend','pointerup','click','keydown'].forEach(ev=>addEventListener(ev,unlockVoice,{capture:true,passive:true}));
 const fillName=t=>t.replace(/\{name\}/g,name||'there');
 function speak(text,token){return new Promise(res=>{const t=fillName(text);const c=$('cap');c.textContent=t;c.classList.add('has');
  const words=t.split(/\s+/).length;const t0=Date.now();const guard=setTimeout(done,words*520+4000);
  function done(){clearTimeout(guard);const min=words*280,e=Date.now()-t0;if(e<min)setTimeout(res,min-e);else res()}
  if(!voiceOn){clearTimeout(guard);setTimeout(res,words*330+900);return}
  const u=new SpeechSynthesisUtterance(t);if(voiceObj){u.voice=voiceObj;u.lang=voiceObj.lang}else u.lang='en-US';
- u.rate=(voiceObj&&/Google/.test(voiceObj.name))?0.98:1.0;u.onend=done;u.onerror=done;speechSynthesis.cancel();setTimeout(()=>{if(token===run)speechSynthesis.speak(u);else done()},60)})}
+ u.rate=(voiceObj&&/Google/.test(voiceObj.name))?0.98:1.0;u.onend=done;u.onerror=done;speechSynthesis.cancel();setTimeout(()=>{if(token===run){if(speechSynthesis.paused)speechSynthesis.resume();speechSynthesis.speak(u)}else done()},60)})}
 const host=$('scenes');
 SC.forEach((s,i)=>{const d=document.createElement('section');d.className='scene '+(s.cls||'');d.dataset.i=i;host.appendChild(d);s.el=d});
 function render(i){const s=SC[i];s.el.innerHTML=s.html()+(s.cls?'':`<div class="pgno">${i+1} / ${SC.length}</div>`);
