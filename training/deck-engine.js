@@ -52,7 +52,7 @@ let voiceUnlocked=false,voicePrimed=false;function unlockVoice(){if(voiceUnlocke
  try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}catch(e){}if(!voiceObj)voiceObj=pickVoice()}
 ['touchend','pointerup','click','keydown'].forEach(ev=>addEventListener(ev,unlockVoice,{capture:true,passive:true}));
 const fillName=t=>t.replace(/\{name\}/g,name||'there');
-function speak(text,token){return new Promise(res=>{const t=fillName(text);const c=$('cap');c.textContent=t;c.classList.add('has');
+function speak(text,token){return new Promise(res=>{const t0s=fillName(text),t=t0s.replace(/\[([^\]|]+)\|([^\]]+)\]/g,'$2');const c=$('cap');c.textContent=t0s.replace(/\[([^\]|]+)\|([^\]]+)\]/g,'$1');c.classList.add('has');
  const words=t.split(/\s+/).length;const t0=Date.now();const guard=setTimeout(done,words*520+4000);
  function done(){clearTimeout(guard);const min=words*280,e=Date.now()-t0;if(e<min)setTimeout(res,min-e);else res()}
  if(!voiceOn){clearTimeout(guard);setTimeout(res,words*330+900);return}
