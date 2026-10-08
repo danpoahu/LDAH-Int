@@ -1,0 +1,546 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The ASQ Management Report — Training</title>
+<link rel="stylesheet" href="deck-base.css">
+<!-- Same Firebase build as the dashboard, so the deck shares its sign-in and records progress. -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+/* Every class here starts with aq- so nothing collides with deck-base.css.
+   Colours are the live report's own: head #9D174D, accent #DB2777, bg #FDF2F8,
+   border #FBCFE8, line #FCE7F3 (index.html #asqReportInGrid, v152.58). */
+/* ---------- the dashboard window ---------- */
+.aq-win{position:absolute;left:58px;top:118px;width:712px;height:570px;background:#F4F6F9;border:1px solid #D5DEE8;border-radius:12px;overflow:hidden;box-shadow:0 14px 36px rgba(15,23,42,.16);z-index:4;font-family:"Nunito Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:#1E293B;font-size:12px}
+.aq-win.wide{width:1172px;height:440px}
+.aq-vp{position:absolute;inset:0;overflow:hidden}
+.aq-in{position:relative;padding:12px 14px 24px}
+.aq-card{background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(15,40,70,.08);margin-bottom:10px}
+/* header row */
+.aq-hdr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.aq-back{font-size:11px;font-weight:700;color:#475569;border:1px solid #CBD5E1;border-radius:6px;padding:4px 8px;background:#fff;white-space:nowrap}
+.aq-hdr h3{margin:0;flex:1;font-size:19px;color:#9D174D;font-weight:800;white-space:nowrap}
+.aq-lbl{font-size:11px;color:#64748B;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.aq-cb{width:13px;height:13px;border:1.5px solid #9D174D;border-radius:3px;background:#9D174D;position:relative;display:inline-block;flex:none}
+.aq-cb::after{content:"";position:absolute;left:3px;top:0;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.aq-cb.off{background:#fff;border-color:#94A3B8}.aq-cb.off::after{display:none}
+.aq-sel{font-size:11px;border:1px solid #CBD5E1;border-radius:6px;padding:4px 22px 4px 7px;background:#fff;position:relative;white-space:nowrap;color:#1E293B;display:inline-block;transition:background .4s}
+.aq-sel::after{content:"▾";position:absolute;right:6px;top:3px;color:#64748B}
+.aq-sel.flash{background:#FCE7F3}
+.aq-solid{font-size:11px;font-weight:700;color:#fff;background:#9D174D;border-radius:6px;padding:5px 11px;white-space:nowrap}
+.aq-ghost{font-size:11px;font-weight:700;color:#334155;border:1px solid #CBD5E1;background:#fff;border-radius:6px;padding:4px 9px;white-space:nowrap}
+.aq-split{font-size:11.5px;color:#9D174D;white-space:nowrap;margin-right:8px}
+.aq-gen{font-size:10.5px;color:#64748B;white-space:nowrap;transition:color .4s}
+.aq-gen.live{color:#DB2777;font-weight:700}
+/* filters */
+.aq-filt{padding:10px 12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:end}
+.aq-filt label{display:flex;flex-direction:column;gap:3px;font-size:10px;color:#64748B;font-weight:700}
+.aq-filt .aq-sel{display:block;font-size:11.5px;font-weight:400;padding:5px 22px 5px 8px}
+.aq-filt .aq-sel::after{top:5px}
+.aq-dd{position:absolute;background:#fff;border:1px solid #CBD5E1;border-radius:6px;box-shadow:0 12px 26px rgba(15,23,42,.2);z-index:30;font-size:12px;padding:3px 0;min-width:170px;font-family:"Nunito Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.aq-dd div{padding:5px 10px;transition:background .2s;white-space:nowrap}
+.aq-dd div.hi{background:#DB2777;color:#fff}
+/* KPI tiles */
+.aq-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-bottom:10px}
+.aq-kpi{background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(15,40,70,.08);padding:9px 12px;border-left:4px solid #9D174D}
+.aq-kpi .n{font-size:22px;font-weight:800;color:#9D174D;line-height:1.1}
+.aq-kpi .l{font-size:10.5px;color:#64748B;margin-top:1px}
+.aq-kpi.alert{border-left-color:#B45309}.aq-kpi.alert .n{color:#B45309}
+.aq-kpi.good{border-left-color:#16A34A}.aq-kpi.good .n{color:#16A34A}
+/* strip */
+.aq-strip{padding:10px 12px}
+.aq-sech{font-size:10px;font-weight:800;color:#9D174D;text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px}
+.aq-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px}
+.aq-sc{border:1px solid #FCE7F3;border-radius:10px;padding:8px 10px;background:#FFF8FB;transition:border-color .3s,background .3s}
+.aq-sc.on{border-color:#DB2777;background:#FDF2F8;box-shadow:0 0 0 2px #FBCFE8}
+.aq-sc .snm{font-weight:700;font-size:12px}
+.aq-sc .big{font-size:18px;font-weight:800;color:#9D174D;line-height:1.2;margin-top:2px}
+.aq-sc .big small{font-size:10px;font-weight:600;color:#64748B}
+.aq-sc .ct{font-size:10px;color:#64748B;margin-top:2px}
+.aq-bar{height:6px;border-radius:999px;background:#E2E8F0;margin-top:6px;overflow:hidden;display:flex}
+.aq-bar span{display:block;height:100%}
+.aq-key{font-size:10px;color:#64748B;margin-top:7px}
+/* table */
+.aq-t{width:100%;border-collapse:collapse;font-size:11.5px}
+.aq-t th{text-align:left;padding:7px 9px;color:#9D174D;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;background:#FDF2F8;transition:background .3s}
+.aq-t th.on{background:#FCE7F3}
+.aq-t th .ar{opacity:.35}
+.aq-t td{padding:7px 9px;vertical-align:top}
+.aq-t tr.r{border-bottom:1px solid #FCE7F3;transition:background .5s}
+.aq-t tr.r.closed{opacity:.6}
+.aq-t tr.r.flash{background:#FCE7F3}
+.aq-t .nw{white-space:nowrap}
+.aq-cf{display:flex;align-items:baseline;gap:6px}
+.aq-cf .b{font-weight:700}
+.aq-exp{color:#9D174D;font-size:12px;display:inline-block;width:12px}
+.aq-sub{font-size:10px;color:#64748B}
+.aq-par{border-bottom:1px dotted #DB2777}
+.aq-pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:9.5px;font-weight:700;white-space:nowrap}
+.p-todo{background:#FEF3C7;color:#92400E}.p-ent{background:#DCFCE7;color:#166534}.p-nn{background:#F1F5F9;color:#475569}
+.p-over{background:#FEE2E2;color:#991B1B}.p-pv{background:#E0F2FE;color:#075985}.p-li{background:#EDE9FE;color:#5B21B6}
+.aq-act{margin-top:4px;display:flex;gap:5px;align-items:center}
+.aq-psel{font-size:10px;padding:2px 17px 2px 5px;border:1px solid #FBCFE8;border-radius:5px;background:#fff;position:relative;white-space:nowrap}
+.aq-psel::after{content:"▾";position:absolute;right:4px;top:1px;color:#9D174D}
+.aq-mini{font-size:10px;padding:3px 8px;color:#fff;border-radius:5px;font-weight:700;display:inline-block;white-space:nowrap;background:#16A34A}
+.aq-mini.bl{background:#0891B2}.aq-mini.pk{background:#9D174D}
+.aq-link{font-size:10px;color:#64748B;text-decoration:underline;white-space:nowrap}
+/* detail row */
+.aq-det td{background:#FFFAFC;padding:2px 12px 12px 28px;border-bottom:1px solid #FCE7F3}
+.aq-dg{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.aq-det h6{margin:7px 0 3px;font-size:9.5px;color:#9D174D;text-transform:uppercase;letter-spacing:.04em}
+.aq-kv{font-size:11px;line-height:1.65}
+.aq-kv b{font-weight:700}
+.aq-ta{min-height:44px;border:1px solid #FBCFE8;border-radius:7px;background:#fff;padding:5px 7px;font-size:11px;color:#1E293B}
+.aq-ta.ph{color:#94A3B8}
+.aq-ta.typing::after{content:"|";color:#9D174D;animation:blink .6s steps(1) infinite}
+.aq-hn{padding:5px 0;border-bottom:1px dashed #F7DCEA}
+.aq-hn .m{font-size:9.5px;color:#9D174D;font-weight:700}
+.aq-hn div+div{font-size:11px}
+/* toast */
+.aq-toast{position:absolute;z-index:40;background:#16A34A;color:#fff;font-weight:700;font-size:15px;padding:10px 18px;border-radius:10px;box-shadow:0 12px 26px rgba(15,23,42,.25);font-family:"Nunito Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;white-space:nowrap}
+/* reports grid */
+.aq-side{position:absolute;left:0;top:0;bottom:0;width:150px;background:#fff;border-right:1px solid #E2E8F0;padding:14px 10px}
+.aq-side div{font-size:12.5px;padding:6px 9px;border-radius:6px;color:#334155;margin-bottom:2px}
+.aq-side div.act{background:#E0F2FE;color:#0E6E8C;font-weight:700}
+.aq-grid{position:absolute;left:150px;right:0;top:0;bottom:0;padding:16px}
+.aq-grid h4{margin:0;font-size:19px;color:#0B3A53}
+.aq-grid p{margin:2px 0 12px;font-size:11.5px;color:#64748B}
+.aq-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.aq-tile{background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(15,40,70,.08);padding:11px 12px;border:2px solid #E2E8F0}
+.aq-tile b{display:block;font-size:13px;margin-bottom:3px}
+.aq-tile span{font-size:10.5px;color:#64748B;line-height:1.35;display:block}
+.aq-tile svg{width:22px;height:22px;margin-bottom:5px;display:block}
+.aq-role{display:inline-block;font-size:10.5px;font-weight:800;color:#9D174D;background:#FDF2F8;border:1px solid #FBCFE8;border-radius:999px;padding:3px 10px;margin-bottom:10px}
+/* ASQ Online (outside our system) */
+.aq-ao{position:absolute;background:#fff;border:1px solid #94A3B8;border-radius:10px;box-shadow:0 22px 46px rgba(15,23,42,.32);overflow:hidden;z-index:20;font-family:"Nunito Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:#1E293B}
+.aq-aot{background:#E2E8F0;padding:7px 10px;display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:#334155}
+.aq-aot i{width:10px;height:10px;border-radius:50%;background:#94A3B8;display:inline-block}
+.aq-aot span{margin-left:8px;background:#fff;border-radius:6px;padding:2px 10px}
+.aq-aob{padding:12px 16px}
+.aq-aob h5{margin:0 0 8px;font-size:15px;color:#1E3A8A}
+.aq-fr{display:grid;grid-template-columns:120px 1fr;gap:6px;align-items:center;margin-bottom:6px;font-size:11.5px}
+.aq-fr div{border:1px solid #CBD5E1;border-radius:5px;padding:4px 7px;min-height:24px;background:#F8FAFC}
+.aq-fr div.typing::after{content:"|";color:#1E3A8A;animation:blink .6s steps(1) infinite}
+.aq-aobtn{display:inline-block;background:#1E3A8A;color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 14px;margin-top:4px}
+/* caption card under a wide window, and side notes */
+.aq-cap2{position:absolute;left:58px;top:574px;width:1172px;min-height:96px;background:#fff;border-left:6px solid #DB2777;border-radius:12px;padding:12px 20px;font-size:19px;line-height:1.4;box-shadow:0 8px 22px rgba(15,23,42,.1);opacity:0}
+.aq-note2{position:absolute;background:#FDF2F8;border-left:6px solid #DB2777;border-radius:12px;padding:11px 16px;font-size:17px;line-height:1.4;color:#0F172A;opacity:0}
+.aq-note2.am{background:#FEF3C7;border-left-color:#F59E0B}
+.aq-note2.gr{background:#ECFDF5;border-left-color:#16A34A}
+/* overview */
+.aq-ov{position:absolute;top:140px;width:330px;height:190px;background:#fff;border-radius:16px;box-shadow:0 10px 26px rgba(15,23,42,.12);padding:16px 18px;border-top:7px solid #0891B2;opacity:0}
+.aq-ov h4{margin:0 0 6px;font-size:21px;color:#0B3A53}
+.aq-ov p{margin:0;font-size:16px;line-height:1.4;color:#334155}
+.aq-ov.pk{border-top-color:#9D174D}.aq-ov.pk h4{color:#9D174D}
+.aq-ov.nv{border-top-color:#1E3A8A}.aq-ov.nv h4{color:#1E3A8A}
+.aq-arw{position:absolute;top:215px;font-size:40px;color:#DB2777;font-weight:800;opacity:0}
+.aq-chip{display:inline-block;font-size:13px;font-weight:800;border-radius:999px;padding:3px 11px;margin:8px 6px 0 0}
+/* age ruler */
+.aq-rul{position:absolute;left:58px;top:130px;width:712px;height:200px;background:#fff;border-radius:14px;box-shadow:0 8px 22px rgba(15,23,42,.1);padding:16px 22px}
+.aq-rul h4{margin:0 0 4px;font-size:17px;color:#9D174D}
+.aq-track{position:absolute;left:30px;right:30px;top:96px;height:20px;border-radius:999px;background:#FEE2E2;overflow:hidden}
+.aq-track i{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#FBCFE8,#DB2777);transition:width 1.6s cubic-bezier(.45,.05,.25,1)}
+.aq-tk{position:absolute;top:122px;font-size:12px;color:#475569;transform:translateX(-50%);white-space:nowrap;text-align:center}
+.aq-tk b{display:block;font-size:13px;color:#9D174D}
+.aq-cut{position:absolute;top:86px;width:3px;height:40px;background:#9D174D;border-radius:2px}
+.aq-dot{position:absolute;top:92px;width:28px;height:28px;border-radius:50%;border:3px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.25);transform:translateX(-50%);opacity:0}
+.aq-dl{position:absolute;top:68px;font-size:12px;font-weight:800;transform:translateX(-50%);white-space:nowrap;opacity:0}
+/* cover art */
+.aq-cvw{position:absolute;left:790px;top:118px;width:420px;background:#fff;border-radius:14px;box-shadow:0 24px 50px rgba(0,0,0,.35);padding:14px 16px;color:#1E293B;transform:rotate(3deg);animation:bob 6s ease-in-out infinite;z-index:3;font-size:12px}
+.aq-cvs{position:absolute;left:850px;top:430px;width:330px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,.3);padding:12px 14px;color:#1E293B;transform:rotate(-4deg);animation:bob 5s 1s ease-in-out infinite;z-index:4;font-size:12px}
+/* ---------- quiz (qz- prefix: no clash with deck-base.css or this deck) ---------- */
+.scene.quiz{background:linear-gradient(135deg,#FFF1F8,#E0F7FA)}
+.qz-wrap{position:absolute;left:0;top:0;right:0;bottom:0}
+.qz-intro{position:absolute;left:120px;top:190px;width:1040px;text-align:center;font-size:30px;font-weight:800;color:#0B3A53;line-height:1.35;animation:rise .5s both}
+.qz-intro small{display:block;font-size:20px;color:#475569;font-weight:700;margin-top:14px}
+.qz-card{position:absolute;left:120px;top:138px;width:1040px;background:#fff;border-radius:20px;box-shadow:0 18px 40px rgba(15,23,42,.14);padding:22px 30px;animation:rise .5s both}
+.qz-n{font-size:14px;font-weight:900;color:var(--pink);letter-spacing:.08em;text-transform:uppercase}
+.qz-q{font-size:27px;font-weight:800;line-height:1.25;margin:6px 0 16px}
+.qz-o{display:flex;align-items:center;gap:14px;width:100%;text-align:left;font:inherit;font-size:21px;font-weight:700;background:#F8FAFC;border:3px solid #E2E8F0;border-radius:14px;padding:11px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .2s,background .2s;color:var(--ink)}
+.qz-o:hover:not([disabled]){border-color:#0891B2;background:#F0F9FF}
+.qz-o[disabled]{cursor:default}
+.qz-o .qz-L{width:38px;height:38px;border-radius:50%;background:#0E7490;color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-weight:900}
+.qz-o.qz-no{border-color:#DC2626;background:#FEF2F2;animation:qzshake .4s}.qz-o.qz-no .qz-L{background:#DC2626}
+.qz-o.qz-yes{border-color:#16A34A;background:#F0FDF4}.qz-o.qz-yes .qz-L{background:#16A34A}
+.qz-fb{min-height:30px;font-size:19px;font-weight:700;margin-top:4px}.qz-fb.good{color:#15803D}.qz-fb.bad{color:#B91C1C}
+.qz-stars{position:absolute;right:60px;top:46px;display:flex;gap:8px}
+.qz-stars i{width:36px;height:36px;background:#E2E8F0;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);transition:background .3s}
+.qz-stars i.on{background:#F59E0B;animation:popn .6s}
+@keyframes qzshake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+</style></head><body>
+<div id="view"><div id="stage"><div id="nbar"><i></i></div>
+<div id="scenes"></div>
+<div id="spot"></div>
+<svg id="cursor" viewBox="0 0 28 32"><path d="M3 2 L3 26 L9.5 19.5 L14 29 L18.5 27 L14 17.5 L23 17.5 Z" fill="#fff" stroke="#0F172A" stroke-width="2" stroke-linejoin="round"/></svg>
+</div></div>
+<div id="cap" aria-live="polite"></div>
+<div id="bar">
+ <button id="prev">Back</button><button id="play">Start</button><button id="next">Next</button>
+ <div id="dots"></div>
+ <button id="capbtn" aria-pressed="false">Captions</button><button id="voice" aria-pressed="true">Voice on</button>
+</div>
+<script>
+const DECK_ID='asq-management';
+
+/* Every screen below is drawn in HTML/CSS from the live dashboard's ASQ Management
+   report (index.html v152.58/59, #asqReportInGrid and cmsBuildAsqReport, 2026-10-07).
+   Every child, family, staff name and figure is made up; the repo is public. */
+
+/* ---- small helpers ---- */
+const tap=async(s,ms=850)=>{const e=typeof s==='string'?q(s):s;await move(e,ms);await click(e);return e};
+function all(s){return[...document.querySelectorAll('.scene.on '+s)]}
+const show=(e,ms=500)=>anim(e,[{opacity:0,transform:'translateY(16px)'},{opacity:1,transform:'none'}],ms,'ease-out').then(()=>{e.style.opacity=1});
+const PTS=(items,top=140)=>`<div class="abs" style="left:790px;top:${top}px;width:440px"><ul class="pts">${items.map(t=>`<li>${t}</li>`).join('')}</ul></div>`;
+async function scrollTo(target,ms=800){const inr=q('.aq-in');const vp=inr.parentElement;const max=Math.max(0,inr.scrollHeight-vp.clientHeight);
+ let y=target==='bottom'?max:target&&target.nodeType?(target.getBoundingClientRect().top-inr.getBoundingClientRect().top)/scale-10:(target||0);y=Math.max(0,Math.min(y,max));
+ const from=+inr.dataset.y||0;await anim(inr,[{transform:`translateY(${-from}px)`},{transform:`translateY(${-y}px)`}],ms,'ease-in-out');inr.dataset.y=y}
+async function cap(h){const c=q('.aq-cap2');c.innerHTML=h;await anim(c,[{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'none'}],350,'ease-out');c.style.opacity=1}
+function toast(t,x=640,y=520){const e=add(`<div class="aq-toast" style="left:${x}px;top:${y}px;transform:translateX(-50%)">${t}</div>`,stage);setTimeout(()=>e.remove(),D(2600));return e}
+async function dropdown(anchor,items,pick){const p=pos(anchor);const dd=add(`<div class="aq-dd" style="left:${p.x}px;top:${p.y+p.h+2}px">${items.map(t=>`<div>${t}</div>`).join('')}</div>`);
+ await pop(dd);await wait(650);if(pick!=null){const r=dd.children[pick];await move(r,550);r.classList.add('hi');await click(r);await wait(150)}dd.remove()}
+const only=keys=>all('.aq-t tr.r').forEach(tr=>{const k=[...tr.classList].find(c=>c.startsWith('k-row-')).slice(6);tr.style.display=!keys||keys.includes(k)?'':'none'});
+const flash=e=>{e.classList.add('flash');setTimeout(()=>e.classList.remove('flash'),D(1300))};
+
+/* ---- the children (all invented). Status: todo | entered | nn ---- */
+const KIDS={
+ ana:{k:'ana',child:'Ana Nakamura',room:'Room 1',fam:'Leah Nakamura',email:'leah.nakamura@example.com',phone:'(808) 555-0142',age:'3y 9m',bd:'Dec 30',grade:'Pre-K',school:'Pali View Preschool',src:'pv',date:'Sep 22',form:true,status:'todo'},
+ kaimana:{k:'kaimana',child:'Kaimana Silva',room:'Room 14',fam:'Mele Silva',email:'mele.silva@example.com',phone:'(808) 555-0177',age:'7y 4m',bd:'May 21',grade:'2',over:true,school:'Makani Elementary',src:'li',date:'Sep 29',form:false,status:'todo'},
+ keola:{k:'keola',child:'Keola Nakamura',room:'Room 3',fam:'Leah Nakamura',email:'leah.nakamura@example.com',phone:'(808) 555-0142',age:'4y 7m',bd:'Feb 18',grade:'Pre-K',school:'Pali View Preschool',src:'pv',date:'Sep 22',form:true,status:'todo'},
+ noa:{k:'noa',child:'Noa Kahale',room:'Room 3',fam:'Hana Kahale',email:'hana.kahale@example.com',phone:'(808) 555-0119',age:'5y 1m',bd:'Aug 9',grade:'K',school:'Pali View Preschool',src:'pv',date:'Sep 22',form:true,status:'entered',type:'ASQ-3',ent:'Sep 30',by:'Kai Akana'},
+ iolana:{k:'iolana',child:'Iolana Park',room:'Room 9',fam:'Grace Park',email:'grace.park@example.com',phone:'(808) 555-0163',age:'6y 1m',bd:'Aug 30',grade:'1',over:true,school:'Makani Elementary',src:'li',date:'Sep 29',form:false,status:'nn'},
+ malu:{k:'malu',child:'Malu Fong',room:'Room 5',fam:'Leah Fong',email:'',phone:'(808) 555-0108',age:'4y 2m',bd:'Jul 30',grade:'Pre-K',school:'Pali View Preschool',src:'pv',date:'Sep 23',form:true,status:'todo'}};
+let S={};const fresh=()=>{S=JSON.parse(JSON.stringify(KIDS))};fresh();
+const ORDER=['ana','kaimana','keola','noa','iolana'];
+const NOWT='10/7/2026, 9:38:04 AM';
+
+/* ---- one table row + its detail row, the way asqRender() draws them ---- */
+const COLS={child:'Child',family:'Family',age:'Age / grade',school:'School',scr:'Screening',status:'ASQ status',ent:'Entered',by:'Entered by'};
+const SORTABLE={child:1,family:1,school:1,scr:1,status:1,ent:1};
+const ALLC=['child','family','age','school','scr','status','ent','by'];
+function pill(r){if(r.status==='entered')return`<span class="aq-pill p-ent">Entered${r.type?' · '+r.type:''}</span>`;if(r.status==='nn')return'<span class="aq-pill p-nn">Not needed</span>';return'<span class="aq-pill p-todo">Not entered yet</span>'}
+function acts(r){return r.status==='todo'?`<div class="aq-act"><span class="aq-psel k-psel-${r.k}">${r.type||'ASQ-3'}</span><span class="aq-mini k-mark-${r.k}">Mark entered</span><span class="aq-link k-nn-${r.k}">Not needed</span></div>`:`<div class="aq-act"><span class="aq-link k-undo-${r.k}">Undo</span></div>`}
+const CELL={
+ child:r=>`<td><div class="aq-cf"><span class="aq-exp k-exp-${r.k}">${r.open?'▾':'▸'}</span><div><div class="b">${r.child}</div><div class="aq-sub">${r.room}</div></div></div></td>`,
+ family:r=>`<td><span class="aq-par k-par-${r.k}">${r.fam}</span><div class="aq-sub k-em-${r.k}">${r.email||'No email'}</div></td>`,
+ age:r=>`<td class="nw k-age-${r.k}"><div>${r.age}</div><div class="aq-sub">${/^\d+$/.test(r.grade)?'Grade '+r.grade:r.grade}</div>${r.over?'<div style="margin-top:3px"><span class="aq-pill p-over">Over ASQ age</span></div>':''}</td>`,
+ school:r=>`<td>${r.school}</td>`,
+ scr:r=>`<td class="nw k-scr-${r.k}"><span class="aq-pill ${r.src==='pv'?'p-pv">Pali View':'p-li">Lions vision'}</span> <span class="aq-sub">${r.date}</span>${r.form?`<div style="margin-top:4px"><span class="aq-mini bl k-form-${r.k}">View form</span></div>`:''}</td>`,
+ status:r=>`<td class="nw k-st-${r.k}">${pill(r)}${acts(r)}</td>`,
+ ent:r=>`<td class="nw k-ent-${r.k}">${r.ent||'<span class="aq-sub">—</span>'}</td>`,
+ by:r=>`<td class="k-by-${r.k}">${r.by||'<span class="aq-sub">—</span>'}</td>`};
+const HIST=r=>(r.hist||[]).length?r.hist.map(h=>`<div class="aq-hn"><div class="m">${h[0]} · ${h[1]}</div><div>${h[2]}</div></div>`).join(''):'<div class="aq-sub">Nothing recorded yet.</div>';
+const DET=(r,n)=>`<tr class="aq-det k-det-${r.k}" style="${r.open?'':'display:none'}"><td colspan="${n}"><div class="aq-dg">
+ <div><h6>Child</h6><div class="aq-kv k-dchild"><b>${r.child}</b><br><b>Birthdate</b> ${r.bd} (${r.age})<br><b>Grade</b> ${r.grade} · ${r.room}<br><b>Screening</b> ${r.src==='pv'?'Pali View':'Lions vision'} · ${r.date}</div>
+ <h6>Family</h6><div class="aq-kv k-dfam"><b>${r.fam}</b><br><b>Phone</b> ${r.phone}<br><b>Email</b> ${r.email||'<span class="aq-pill p-todo">Not on file</span>'}</div>
+ ${r.form?`<h6>Screening form</h6><div class="aq-kv k-dform"><span class="aq-mini bl">View form</span></div>`:''}</div>
+ <div><h6>Note</h6><div class="aq-ta ${r.note?'':'ph'} k-note">${r.note||'Anything to remember about this child’s ASQ'}</div>
+ <div style="margin-top:5px"><span class="aq-mini pk k-save">Save note</span></div>
+ <h6>History, newest first</h6><div class="k-hist">${HIST(r)}</div></div></div></td></tr>`;
+const ROW=(r,cols)=>`<tr class="r k-row-${r.k}${r.status==='nn'?' closed':''}">${cols.map(c=>CELL[c](r)).join('')}</tr>`+DET(r,cols.length);
+const TABLE=(keys,cols=ALLC)=>`<div class="aq-card" style="overflow:hidden"><table class="aq-t"><thead><tr>${cols.map(c=>`<th class="k-th-${c}${c==='status'?' on':''}">${COLS[c]}${SORTABLE[c]?(c==='status'?' ▲':' <span class="ar">⇅</span>'):''}</th>`).join('')}</tr></thead><tbody>${keys.map(k=>ROW(S[k],cols)).join('')}</tbody></table></div>`;
+function redraw(k,cols=ALLC){const tr=q('.k-row-'+k),d=q('.k-det-'+k);const t=document.createElement('tbody');t.innerHTML=ROW(S[k],cols);const [nr,nd]=t.children;tr.replaceWith(nr);d.replaceWith(nd);return nr}
+async function mark(k,status,o={}){const r=S[k],cols=o.cols||ALLC,who=o.who||'Kai Akana';
+ if(status==='entered'){r.status='entered';r.type=o.type||'ASQ-3';r.ent='Oct 7';r.by=who;(r.hist=r.hist||[]).unshift([NOWT,who,'Entered in ASQ Online ('+r.type+')'])}
+ else if(status==='nn'){r.status='nn';r.ent='';r.by='';(r.hist=r.hist||[]).unshift([NOWT,who,'Marked not needed'])}
+ else{r.status='todo';r.type='';r.ent='';r.by='';(r.hist=r.hist||[]).unshift([NOWT,who,'Undone (back to not entered)'])}
+ const tr=redraw(k,cols);flash(tr);return tr}
+
+/* ---- header, filters, KPI tiles, strip ---- */
+const NUM={all:{n:76,f:71,todo:38,ent:31,need:69,pct:'45%',week:12,over:9,nn:7},
+ li:{n:23,f:22,todo:13,ent:4,need:17,pct:'24%',week:3,over:8,nn:6},
+ pv:{n:53,f:49,todo:25,ent:27,need:52,pct:'52%',week:9,over:1,nn:1},
+ kai:{n:19,f:18,todo:0,ent:19,need:19,pct:'100%',week:7,over:0,nn:0}};
+const HDR=(o={})=>`<div class="aq-hdr"><span class="aq-back k-back">← Back to Reports</span><h3>ASQ Management Report</h3>
+ <span class="aq-lbl k-inc"><span class="aq-cb${o.inc===false?' off':''}"></span> Include entered</span>
+ <span class="aq-lbl k-sort">Sort: <span class="aq-sel k-sortsel">By column (click a heading)</span></span>
+ <span class="aq-solid k-csv">Export CSV</span><span class="aq-ghost k-print">Print</span>
+ <span class="aq-split k-split"><b>${(o.N||NUM.all).n}</b> children · <b>${(o.N||NUM.all).f}</b> families</span><span class="aq-gen k-gen">Generated 10/7/2026, 9:05:12 AM</span></div>`;
+const FILT=(o={})=>`<div class="aq-card aq-filt k-filt">
+ <label>Screened from<span class="aq-sel k-from">mm/dd/yyyy</span></label><label>Screened to<span class="aq-sel k-to">mm/dd/yyyy</span></label>
+ <label>Screening<span class="aq-sel k-src">${o.src||'All'}</span></label><label>School<span class="aq-sel k-school">${o.school||'All schools'}</span></label>
+ <label>Entered by<span class="aq-sel k-by">${o.by||'Anyone'}</span></label><label>ASQ status<span class="aq-sel k-status">${o.status||'All'}</span></label></div>`;
+const KPI=(N)=>`<div class="aq-kpis k-kpis">
+ <div class="aq-kpi k-kp0"><div class="n">${N.n}</div><div class="l">children</div></div>
+ <div class="aq-kpi ${N.todo?'alert':'good'} k-kp1"><div class="n">${N.todo}</div><div class="l">not entered yet</div></div>
+ <div class="aq-kpi k-kp2"><div class="n">${N.ent}</div><div class="l">entered in ASQ Online</div></div>
+ <div class="aq-kpi ${parseInt(N.pct)>=80?'good':''} k-kp3"><div class="n">${N.pct}</div><div class="l">done (${N.ent} of ${N.need})</div></div>
+ <div class="aq-kpi k-kp4"><div class="n">${N.week}</div><div class="l">entered in the last 7 days</div></div>
+ <div class="aq-kpi ${N.over?'alert':''} k-kp5"><div class="n">${N.over}</div><div class="l">over ASQ age, to review</div></div>
+ <div class="aq-kpi k-kp6"><div class="n">${N.nn}</div><div class="l">not needed</div></div></div>`;
+const SCARD=(cls,label,big,unit,e,t,n,on)=>{const tot=e+t+n||1;return`<div class="aq-sc ${cls}${on?' on':''}"><div class="snm">${label}</div><div class="big">${big} <small>${unit}</small></div><div class="ct">${e} entered · ${t} not yet${n?' · '+n+' not needed':''}</div>
+ <div class="aq-bar"><span style="width:${e/tot*100}%;background:#16A34A"></span><span style="width:${t/tot*100}%;background:#F59E0B"></span><span style="width:${n/tot*100}%;background:#94A3B8"></span></div></div>`};
+const STRIP=(on='')=>`<div class="aq-card aq-strip k-strip"><div class="aq-sech">Entered by · by screening</div><div class="aq-cards">
+ ${SCARD('k-sc-pv','Pali View',53,'children',27,25,1,on==='pv')}${SCARD('k-sc-li','Lions vision',23,'children',4,13,6,on==='li')}
+ ${SCARD('k-sc-kai','Kai Akana',19,'entered',19,0,0,on==='kai')}${SCARD('k-sc-pua','Pua Kealoha',12,'entered',12,0,0,on==='pua')}</div>
+ <div class="aq-key">Click a card to filter the table. Bar: <b style="color:#16A34A">entered</b> / <b style="color:#F59E0B">not entered yet</b> / <b style="color:#94A3B8">not needed</b>.</div></div>`;
+const WIN=(body,o={})=>`<div class="aq-win${o.wide?' wide':''}"${o.style?` style="${o.style}"`:''}><div class="aq-vp"><div class="aq-in" data-y="0">${body}</div></div></div>`;
+const REPORT=(o={})=>HDR(o)+FILT(o)+KPI(o.N||NUM.all)+STRIP(o.on)+TABLE(o.keys||ORDER,o.cols||['child','family','status','by']);
+async function setNums(N){const k=q('.k-kpis');const t=document.createElement('div');t.innerHTML=KPI(N);k.replaceWith(t.firstChild);q('.k-split').innerHTML=`<b>${N.n}</b> children · <b>${N.f}</b> families`;
+ const nk=q('.k-kpis');await anim(nk,[{opacity:.2},{opacity:1}],400,'ease-out')}
+
+/* ---- the Reports page ---- */
+const IC={adv:'<svg viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="2"><path d="M12 3v18M5 7h14M7 7l-3 7h6zM17 7l-3 7h6z"/></svg>',
+ cm:'<svg viewBox="0 0 24 24" fill="none" stroke="#4338CA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></svg>',
+ asq:'<svg viewBox="0 0 24 24" fill="none" stroke="#9D174D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+ scr:'<svg viewBox="0 0 24 24" fill="none" stroke="#0891B2" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/></svg>',
+ ev:'<svg viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>'};
+const TILE=(c,ic,t,d,cls='')=>`<div class="aq-tile ${cls}" style="border-color:${c}">${ic}<b>${t}</b><span>${d}</span></div>`;
+const ASQTILE=()=>TILE('#9D174D',IC.asq,'ASQ Management','Every child from the Pali View and Lions screenings — one row per child, entered in ASQ Online or not yet, who entered it and when.','k-tile');
+const TILES=()=>TILE('#7C3AED',IC.adv,'Case Advocacy','Every family in case advocacy — advocate, start date, consent, welcome letter and membership. Admin only.')+
+ TILE('#4338CA',IC.cm,'Case Management','Every family in case management after a screening referral — staff, school, first contact and last contact. Admin only.')+ASQTILE()+
+ TILE('#0891B2',IC.scr,'Screenings','Who signed up, add Vision and Hearing results per child, and track consent and results status.')+
+ TILE('#E2E8F0',IC.ev,'Event Attendance','Every event, its signups and who came.')+TILE('#E2E8F0',IC.ev,'Participation','Who took part, by person.');
+const REPORTS=()=>`<div class="aq-win"><div class="aq-side"><div>Home</div><div>My Day</div><div>Contacts</div><div>Events</div><div class="act">Reports</div><div>Training Videos</div></div>
+ <div class="aq-grid"><h4>Reports</h4><p>Generate and export organizational reports.</p><div class="k-role"></div><div class="aq-tiles k-tiles">${TILES()}</div></div></div>`;
+
+/* ---- ASQ Online: a separate website with its own sign-in, outside our system ---- */
+const AO=(x,y,w=560)=>`<div class="aq-ao" style="left:${x}px;top:${y}px;width:${w}px"><div class="aq-aot"><i></i><i></i><i></i><span>ASQ Online · its own sign-in</span></div>
+ <div class="aq-aob"><h5>Add a child</h5>${[['Child first name','f1'],['Child last name','f2'],['Date of birth','f3'],['Parent / caregiver','f4'],['Parent email','f5']].map(([l,c])=>`<div class="aq-fr"><span>${l}</span><div class="k-${c}"></div></div>`).join('')}
+ <span class="aq-aobtn k-aosave">Save</span></div></div>`;
+
+/* ---- quiz: the standard ask()/QUIZ pair. Classes carry a qz- prefix.
+   Each answer is reported to ldahTrack.quiz(sec,i,correct); the tracker scores the first answer to each. ---- */
+window.QUIZ_TOTAL=3;
+function ask(Q,i,sec){const w=q('.qz-wrap');
+ w.innerHTML=`<div class="qz-card"><div class="qz-n">Question ${i+1} of 3</div><div class="qz-q">${Q.q}</div>${Q.o.map((o,j)=>`<button class="qz-o" data-j="${j}"><span class="qz-L">${'ABC'[j]}</span><span>${o}</span></button>`).join('')}<div class="qz-fb"></div></div>`;
+ const card=w.firstChild,fb=card.querySelector('.qz-fb'),btns=[...card.querySelectorAll('.qz-o')];
+ const finish=()=>{btns.forEach(b=>b.disabled=true);btns[Q.a].classList.add('qz-yes');const st=document.querySelectorAll('.scene.on .qz-stars i')[i];if(st)st.classList.add('on');fb.className='qz-fb good';fb.textContent='Yes! '+Q.y};
+ if(FAST){finish();return Promise.resolve()}
+ return new Promise(res=>{btns.forEach((b,j)=>b.onclick=async()=>{
+  if(b.disabled)return;
+  if(window.ldahTrack)ldahTrack.quiz(sec,i,j===Q.a);
+  if(j===Q.a){finish();const p=pos(b);confetti(p.x+60,p.y+20,70);await speak('Yes! '+Q.y,run);await wait(700);res()}
+  else{b.disabled=true;b.classList.add('qz-no');fb.className='qz-fb bad';fb.textContent='Not quite. '+Q.n+' Try again.';speak('Not quite. '+Q.n+' Try again.',run)}})})}
+const QUIZ=(sec,qs)=>({cls:'quiz',html:()=>HEAD('Quick check','Your turn!')+`<div class="qz-stars">${qs.map(()=>'<i></i>').join('')}</div><div class="qz-wrap"><div class="qz-intro">Three quick questions.<small>Your first answer to each one counts. Click the answer you think is right.</small></div></div>`,
+ steps:[{say:'Quick check. Three quick questions. Your first answer to each one counts.'},
+  ...qs.map((Q,i)=>({say:`Question ${i+1}. ${Q.q}`,act:()=>ask(Q,i,sec)}))]});
+
+const LOGO='<div class="ldah-logo" style="position:absolute;left:70px;top:22px;background:#fff;border-radius:14px;padding:6px 10px;box-shadow:0 4px 14px rgba(0,0,0,.18);animation:rise .6s both"><img src="../logo_blue.png" alt="LDAH" style="height:80px;display:block"></div>';
+
+const SC=[
+// ================= COVER =================
+{cls:'cover',html:()=>`${LOGO}<div class="brand">Leadership in Disabilities &amp; Achievement of Hawaiʻi · Reports</div><div class="hello">Aloha <span class="nm"></span></div>
+ <h1>The ASQ Management Report</h1><p class="sub" style="top:390px">One row per screened child. Find who still needs entering in ASQ Online, mark them done, and watch the whole list move. About eight minutes.</p>
+ <div class="aq-cvw"><div class="aq-kpis" style="grid-template-columns:repeat(3,1fr);margin:0 0 10px">
+  <div class="aq-kpi"><div class="n">76</div><div class="l">children</div></div><div class="aq-kpi alert"><div class="n">38</div><div class="l">not entered yet</div></div><div class="aq-kpi"><div class="n">45%</div><div class="l">done (31 of 69)</div></div></div>
+  <table class="aq-t"><tbody><tr class="r"><td><b>Keola Nakamura</b><div class="aq-sub">Room 3</div></td><td>${pill({status:'todo'})}${acts({k:'cv',status:'todo'})}</td></tr>
+  <tr class="r"><td><b>Noa Kahale</b><div class="aq-sub">Room 3</div></td><td>${pill({status:'entered',type:'ASQ-3'})}${acts({k:'cv2',status:'entered'})}</td></tr></tbody></table></div>
+ <div class="aq-cvs">${SCARD('','Pali View',53,'children',27,25,1,false)}</div>
+ <div class="spark" style="left:1200px;top:90px">${SPARK}</div><div class="spark" style="left:760px;top:560px;animation-delay:1s">${SPARK}</div>
+ <div class="gate" style="top:480px"><button class="btn" data-go="start">Start training</button><button class="btn ghost" data-go="skip">Skip for now</button><label><input type="checkbox" id="voiceChk" checked> Read it out loud to me</label></div>${WAVES}`,
+ steps:[{say:'Aloha {name}! This training shows the ASQ Management report. It is the list of every screened child who needs entering in ASQ Online, and it shows who has entered whom. It is for the ASQ lead and for data entry staff. You can pause, go back, or watch again any time.'}]},
+
+// ================= WHAT IT IS FOR =================
+{html:()=>HEAD('The big picture','What this report is for')+`
+ <div class="aq-ov" style="left:58px"><h4>1. The screening</h4><p>Children are screened at <b>Pali View</b>, or in a <b>Lions vision</b> screening batch.</p><span class="aq-chip k-c1" style="background:#E0F2FE;color:#075985">Pali View · 53</span><span class="aq-chip k-c2" style="background:#EDE9FE;color:#5B21B6">Lions vision · 23 so far</span></div>
+ <div class="aq-arw" style="left:400px">→</div>
+ <div class="aq-ov pk" style="left:479px"><h4>2. This report</h4><p>Every screened child, one row each, with whether they are in ASQ Online yet, who entered them, and when.</p></div>
+ <div class="aq-arw" style="left:821px">→</div>
+ <div class="aq-ov nv" style="left:900px"><h4>3. ASQ Online</h4><p>The questionnaire website. It has <b>its own sign-in</b> and sits <b>outside our system</b>.</p></div>
+ <div class="aq-win wide k-mini" style="top:362px;height:168px;opacity:0"><div class="aq-in">${TABLE(['ana','keola'],['child','family','age','school','scr','status'])}</div></div>
+ <div class="aq-note2 k-n1" style="left:58px;top:556px;width:1172px">Leah Nakamura has <b>two</b> children screened, so she has <b>two rows</b>. Each child is entered in ASQ Online on its own.</div>`,
+ steps:[{say:'Here is the big picture. Children are screened, either at the Pali View screening, or in a Lions vision screening batch.',act:async()=>{await show(all('.aq-ov')[0])}},
+ {say:'Every one of those children lands in this report. Fifty three from Pali View, and twenty three from the Lions batches so far. When a new Lions batch is saved, its children appear here on their own. Nobody has to add them.',act:async()=>{const a=all('.aq-arw')[0];await show(a,300);await show(all('.aq-ov')[1]);spot(all('.aq-ov')[0],4)}},
+ {say:'The job is to enter each child in ASQ Online. That is the questionnaire website. It has its own sign-in, and it sits outside our system. This report is how we keep track of who is done.',act:async()=>{spot(null);await show(all('.aq-arw')[1],300);const c=all('.aq-ov')[2];await show(c);spot(c,4)}},
+ {say:'One important rule. The report has one row per child, not per family. A family with two children screened has two rows, and each child is entered on its own.',act:async()=>{spot(null);const m=q('.k-mini');await show(m);await show(q('.k-n1'));spot(m,4)}}]},
+
+// ================= OPEN IT =================
+{html:()=>HEAD('Step 1','Open the report')+REPORTS()+PTS([
+ 'Main menu → <b>Reports</b>.',
+ 'The <b>ASQ Management</b> card: pink border, checklist icon, right after <b>Case Advocacy</b> and <b>Case Management</b>.',
+ 'A <b>Daily User</b> sees Reports with <b>only this card</b>.',
+ 'Click it. The report reads the screenings and opens.']),
+ steps:[{say:'In the dashboard, open the main menu and go to Reports.',li:0,act:async()=>{spot(q('.aq-side .act'),4)}},
+ {say:'Look for the ASQ Management card. It has a pink border and a checklist icon, and it sits right after Case Advocacy and Case Management.',li:1,act:async()=>{spot(q('.k-tile'),5)}},
+ {say:'If you are signed in as a Daily User, Reports shows this one card and nothing else. That is on purpose. It is the only report data entry staff need.',li:2,act:async()=>{spot(null);const g=q('.k-tiles');await anim(g,[{opacity:1},{opacity:0}],300,'ease-out');g.innerHTML=ASQTILE();q('.k-role').innerHTML='<span class="aq-role">Signed in as a Daily User</span>';await anim(g,[{opacity:0},{opacity:1}],400,'ease-out');spot(q('.k-tile'),5)}},
+ {say:'Click the card. It says Loading A S Q for a moment while it reads the screenings, then the report opens.',li:3,act:async()=>{spot(null);await tap('.k-tile',900);hideCursor();
+  const w=q('.aq-win');w.outerHTML=WIN(HDR()+FILT()+'<div class="aq-card" style="padding:24px;text-align:center;color:#64748B">Loading ASQ…</div>');await wait(1300);
+  const i=q('.aq-in');i.innerHTML=REPORT();await anim(i,[{opacity:0},{opacity:1}],400,'ease-out');spot(q('.aq-hdr h3'),5)}}]},
+
+// ================= THE HEADER =================
+{html:()=>HEAD('Step 2','The header row')+WIN(REPORT())+PTS([
+ '<b>← Back to Reports</b> takes you back to the cards.',
+ '<b>Include entered</b> is on. Untick it to see <b>only who is left</b>.',
+ '<b>Sort</b>: by column, screened oldest first, or school then child.',
+ '<b>Export CSV</b> and <b>Print</b>.',
+ 'The count, and when the page was <b>generated</b> or <b>updated live</b>.']),
+ steps:[{say:'Across the top is the header row. Back to Reports takes you back to the cards.',li:0,act:async()=>{spot(q('.k-back'),5)}},
+ {say:'Include entered is ticked when the report opens, so you see everyone. Untick it, and the table shows only the children who are left to do. The tiles and the count stay the same.',li:1,act:async()=>{spot(q('.k-inc'),5);await wait(500);await tap('.k-inc .aq-cb',700);q('.k-inc .aq-cb').classList.add('off');hideCursor();
+  await scrollTo(q('.aq-t'),700);const nr=q('.k-row-noa'),ir=q('.k-row-iolana');await Promise.all([anim(nr,[{opacity:1},{opacity:0}],400,'ease-out'),anim(ir,[{opacity:1},{opacity:0}],400,'ease-out')]);nr.style.display='none';ir.style.display='none';spot(q('.aq-t'),3);await wait(900);spot(null);await scrollTo(0,600)}},
+ {say:'Sort has three choices. By column, where you click any heading in the table. Screened, oldest first. Or school, then child.',li:2,act:async()=>{const s=q('.k-sortsel');spot(q('.k-sort'),5);await tap(s,700);await dropdown(s,['By column (click a heading)','Screened (oldest first)','School, then child'],null);hideCursor()}},
+ {say:'Export CSV downloads the list for a spreadsheet, and Print prints it.',li:3,act:async()=>{const a=pos(q('.k-csv')),b=pos(q('.k-print'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},6)}},
+ {say:'Next to them is the count, children and families, and the time the page was generated. When someone else marks a child, it changes to Updated live, with the time.',li:4,act:async()=>{const a=pos(q('.k-split')),b=pos(q('.k-gen'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},6);await wait(1500);const g=q('.k-gen');g.textContent='Updated live 10/7/2026, 9:21:40 AM';g.classList.add('live')}}]},
+
+// ================= FILTERS =================
+{html:()=>HEAD('Step 3','The filters')+WIN(REPORT())+PTS([
+ '<b>Screened from</b> and <b>to</b>: the screening dates.',
+ '<b>Screening</b>: Pali View or Lions vision.',
+ '<b>School</b> and <b>Entered by</b>.',
+ '<b>ASQ status</b>: not entered yet, entered, not needed, or over ASQ age.']),
+ steps:[{say:'Under the header are the filters. Screened from and Screened to narrow the list to children screened between two dates.',li:0,act:async()=>{const a=pos(q('.k-from')),b=pos(q('.k-to'));spot({x:a.x,y:a.y-14,w:b.x+b.w-a.x,h:a.h+14},6)}},
+ {say:'Screening picks one screening. Choose Lions vision, and the count, the tiles and the table show only the Lions children.',li:1,act:async()=>{const s=q('.k-src');spot(s,5);await tap(s,700);await dropdown(s,['All','Pali View','Lions vision'],2);hideCursor();s.textContent='Lions vision';flash(s);await setNums(NUM.li);only(['kaimana','iolana']);q('.k-sc-li').classList.add('on');spot(q('.k-kpis'),4)}},
+ {say:'School shows one school at a time. Entered by shows the children one person entered.',li:2,act:async()=>{spot(null);const a=pos(q('.k-school')),b=pos(q('.k-by'));spot({x:a.x,y:a.y-14,w:b.x+b.w-a.x,h:a.h+14},6)}},
+ {say:'And ASQ status. Not entered yet, Entered in ASQ Online, Not needed, or Over ASQ age. To clear a filter, set it back to All, or Anyone.',li:3,act:async()=>{const s=q('.k-status');spot(s,5);await tap(s,700);await dropdown(s,['All','Not entered yet','Entered in ASQ Online','Not needed','Over ASQ age'],null);
+  const sr=q('.k-src');await tap(sr,700);await dropdown(sr,['All','Pali View','Lions vision'],0);hideCursor();sr.textContent='All';q('.k-sc-li').classList.remove('on');await setNums(NUM.all);only(null);spot(null)}}]},
+
+// ================= KPI TILES =================
+{html:()=>HEAD('Step 4','The tiles: where things stand')+WIN(REPORT())+PTS([
+ '<b>Children</b>, and how many are <b>not entered yet</b>.',
+ '<b>Entered in ASQ Online</b>, and <b>done %</b>.',
+ '<b>Entered in the last 7 days</b>.',
+ '<b>Over ASQ age, to review</b>, and <b>not needed</b>.']),
+ init:()=>{const i=q('.aq-in');i.style.transform='translateY(-150px)';i.dataset.y=150},
+ steps:[{say:'The tiles tell you where things stand. Children is everyone matching your filters. Not entered yet is the work still to do. It shows amber while there is any left.',li:0,act:async()=>{const a=pos(q('.k-kp0')),b=pos(q('.k-kp1'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'Entered in ASQ Online is the children done. Done percent is entered, out of the children who need it. Children marked not needed are left out of that sum. Here, thirty one of sixty nine.',li:1,act:async()=>{const a=pos(q('.k-kp2')),b=pos(q('.k-kp3'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'Entered in the last seven days shows how fast the list is moving.',li:2,act:async()=>{spot(q('.k-kp4'),5)}},
+ {say:'Over ASQ age, to review, counts children still on the list who are past the age ASQ covers. And Not needed counts the children marked as not needing ASQ.',li:3,act:async()=>{const a=pos(q('.k-kp5')),b=pos(q('.k-kp6'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}}]},
+
+// ================= THE STRIP =================
+{html:()=>HEAD('Step 5','Entered by · by screening')+WIN(REPORT())+PTS([
+ 'One card for <b>Pali View</b>, one for <b>Lions vision</b>.',
+ 'Bar: <b style="color:#16A34A">entered</b>, <b style="color:#D97706">not yet</b>, <b style="color:#64748B">not needed</b>.',
+ 'One card <b>per person</b> who has entered children.',
+ '<b>Click a card</b> to filter the table. <b>Click again</b> to clear.']),
+ init:()=>{const i=q('.aq-in');i.style.transform='translateY(-150px)';i.dataset.y=150},
+ steps:[{say:'Below the tiles is the strip, Entered by, by screening. There is a card for Pali View and a card for Lions vision. Each shows how many children, then how many are entered, not yet, and not needed.',li:0,act:async()=>{const a=pos(q('.k-sc-pv')),b=pos(q('.k-sc-li'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'The bar shows the same thing at a glance. Green is entered, amber is not entered yet, and grey is not needed.',li:1,act:async()=>{spot(q('.k-sc-pv .aq-bar'),6)}},
+ {say:'Then there is a card for each person who has entered children, with how many they entered.',li:2,act:async()=>{const a=pos(q('.k-sc-kai')),b=pos(q('.k-sc-pua'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'Click a card to filter the table to it. Click Pali View, and the Screening filter changes to Pali View. Click it again to clear it. Clicking a person sets the Entered by filter the same way.',li:3,act:async()=>{spot(null);const c=q('.k-sc-pv');await tap(c,800);c.classList.add('on');await setNums(NUM.pv);only(['ana','keola','noa']);await scrollTo(0,600);const s=q('.k-src');s.textContent='Pali View';flash(s);spot(s,5);await wait(1200);spot(null);
+  await scrollTo(150,600);await tap('.k-sc-pv',700);q('.k-sc-pv').classList.remove('on');await setNums(NUM.all);only(null);q('.k-src').textContent='All';
+  await tap('.k-sc-kai',800);q('.k-sc-kai').classList.add('on');await setNums(NUM.kai);only(['noa']);hideCursor();spot(q('.k-kpis'),4)}}]},
+
+// ================= THE TABLE =================
+{html:()=>HEAD('Step 6','The table, column by column')+WIN(TABLE(ORDER),{wide:true})+'<div class="aq-cap2"></div>',
+ steps:[{say:'Now the table. Child shows the child’s name, with the classroom underneath.',act:async()=>{spot(q('.k-th-child'),3);await cap('<b>Child</b>: the child’s name, and the <b>classroom</b> underneath.')}},
+ {say:'Family is the parent’s name. It is a link. Click it, and the family card opens. Anyone who can see the report can do this. The email is underneath, or the words No email.',act:async()=>{spot(q('.k-par-keola'),5);await cap('<b>Family</b>: click the name to open the <b>family card</b>. Email underneath, or <b>No email</b>.')}},
+ {say:'Age and grade. The age is worked out from the birthdate, like four years seven months. Then the grade. A red Over ASQ age pill shows when the child is past the age ASQ covers.',act:async()=>{spot(q('.k-age-kaimana'),5);await cap('<b>Age / grade</b>: age from the birthdate, the grade, and a red <b>Over ASQ age</b> pill when it applies.')}},
+ {say:'School, then Screening. A blue Pali View pill or a purple Lions vision pill, with the screening date. When a scanned screening form is on file, there is a View form button.',act:async()=>{spot(q('.k-scr-keola'),5);await cap('<b>Screening</b>: <b>Pali View</b> or <b>Lions vision</b>, the date, and <b>View form</b> when a scanned form is on file.')}},
+ {say:'ASQ status is where the work happens. We will look at it next. Then Entered, the date, and Entered by, the person who marked it.',act:async()=>{const a=pos(q('.k-th-status')),b=pos(q('.k-th-by'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:q('.aq-t').getBoundingClientRect().height/scale},3);await cap('<b>ASQ status</b>, then <b>Entered</b> (the date) and <b>Entered by</b> (who marked it).')}},
+ {say:'To sort, click a heading. Click it again to flip the order. The report opens sorted by ASQ status, so the children not entered yet come first.',act:async()=>{spot(null);const th=q('.k-th-status');await tap(th,800);hideCursor();spot(th,4);await cap('Click a <b>heading</b> to sort. Click again to flip it. It opens on <b>ASQ status</b>: not entered yet first.')}}]},
+
+// ================= MARK ENTERED =================
+{html:()=>HEAD('Step 7','Mark entered, Not needed, Undo')+WIN(TABLE(ORDER),{wide:true})+'<div class="aq-cap2"></div>',
+ steps:[{say:'When a child is not done, the ASQ status cell shows an amber Not entered yet pill. Under it is a picker, a green Mark entered button, and a Not needed link.',act:async()=>{spot(q('.k-st-keola'),5);await cap('Not done: amber <b>Not entered yet</b>, then the <b>picker</b>, <b>Mark entered</b>, and <b>Not needed</b>.')}},
+ {say:'The picker says which questionnaire you entered. A S Q three, A S Q S E two, or both.',act:async()=>{const p=q('.k-psel-keola');await tap(p,800);await dropdown(p,['ASQ-3','ASQ:SE-2','ASQ-3 + ASQ:SE-2'],0);hideCursor();spot(p,5);await cap('Pick <b>ASQ-3</b>, <b>ASQ:SE-2</b>, or <b>ASQ-3 + ASQ:SE-2</b>.')}},
+ {say:'Then press Mark entered. The pill turns green, Entered, A S Q three. The date and your name fill in. The report records who marked it, and when.',act:async()=>{spot(null);await tap('.k-mark-keola',800);hideCursor();await mark('keola','entered');const p=pos(q('.aq-win'));toast('Keola Nakamura: Entered in ASQ Online (ASQ-3)',640,p.y+p.h-56);
+  const a=pos(q('.k-st-keola')),b=pos(q('.k-by-keola'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5);await cap('Green <b>Entered · ASQ-3</b>. <b>Entered</b> and <b>Entered by</b> fill in. The report records who and when.')}},
+ {say:'Not needed is for a child who should not go into ASQ Online. The pill turns grey, and the row fades.',act:async()=>{spot(q('.k-row-iolana'),3);await cap('<b>Not needed</b>: a grey pill, and the row fades.')}},
+ {say:'Pressed it on the wrong child? Press Undo. The child goes straight back on the list as Not entered yet.',act:async()=>{spot(null);await tap('.k-undo-keola',800);hideCursor();await mark('keola','todo');spot(q('.k-st-keola'),5);await cap('<b>Undo</b> puts the child back on the list as <b>Not entered yet</b>.')}}]},
+
+// ================= DETAILS =================
+{prep:()=>{S.keola.hist=[['10/7/2026, 9:38:04 AM','Kai Akana','Undone (back to not entered)'],['10/7/2026, 9:37:51 AM','Kai Akana','Entered in ASQ Online (ASQ-3)']]},
+ html:()=>HEAD('Step 8','The expand arrow: details, notes, history')+WIN(TABLE(['keola','noa']),{wide:true})+'<div class="aq-cap2"></div>',
+ steps:[{say:'Click the small arrow next to a child’s name, and the row opens to show details.',act:async()=>{spot(q('.k-exp-keola'),6);await wait(400);await tap('.k-exp-keola',800);hideCursor();S.keola.open=true;q('.k-exp-keola').textContent='▾';const d=q('.k-det-keola');d.style.display='';await anim(d,[{opacity:0},{opacity:1}],400,'ease-out');spot(null);await cap('Click <b>▸</b> next to the child to open the details.')}},
+ {say:'On the left is the child. Birthdate and age, grade, classroom, and the screening with its date.',act:async()=>{spot(q('.k-dchild'),5);await cap('<b>Child</b>: birthdate and age, grade, classroom, screening and date.')}},
+ {say:'Then the family. Phone and email. If either is missing, it says Not on file, in amber. And the screening form button, when a scanned form is on file.',act:async()=>{const a=pos(q('.k-dfam')),b=pos(q('.k-dform'));spot({x:a.x,y:a.y,w:Math.max(a.w,b.w),h:b.y+b.h-a.y},5);await cap('<b>Family</b>: phone and email, or amber <b>Not on file</b>. Then <b>View form</b>.')}},
+ {say:'On the right is a note box. Type anything worth remembering about this child’s ASQ, and press Save note.',act:async()=>{const n=q('.k-note');spot(n,5);await tap(n,700);hideCursor();n.classList.remove('ph');n.textContent='';n.classList.add('typing');for(const c of 'Parent asked for a call after 3 pm.'){n.textContent+=c;await wait(30)}n.classList.remove('typing');
+  await tap('.k-save',700);hideCursor();S.keola.hist.unshift([NOWT.replace(':38:04',':40:12'),'Kai Akana','Note: Parent asked for a call after 3 pm.']);q('.k-hist').innerHTML=HIST(S.keola);toast('Note saved.',640,500);spot(q('.k-save'),5);await cap('Type a <b>note</b>, then <b>Save note</b>.')}},
+ {say:'Under it is the history, newest first. Every mark, every undo and every note, with who did it and when. Nothing is lost.',act:async()=>{spot(q('.k-hist'),5);await cap('<b>History, newest first</b>: every mark, undo and note, with who and when.')}}]},
+
+// ================= UPDATES LIVE =================
+{html:()=>{const mini=(who,side)=>`<div class="abs" style="left:${side?660:58}px;top:122px;font-size:16px;font-weight:800;color:#9D174D">${who}’s screen</div>`+
+  WIN(`<div class="aq-hdr"><h3 style="font-size:16px">ASQ Management Report</h3><span class="aq-gen k${side}-gen">Generated 10/7/2026, 9:05:12 AM</span></div>${TABLE(['ana','keola','kaimana'],['child','status','by']).replace(/\bk-/g,'k'+side+'-')}`,{style:`left:${side?660:58}px;top:150px;width:570px;height:250px`});
+  return HEAD('Step 9','It updates live')+mini('Kai Akana',0)+mini('Pua Kealoha',1)+'<div class="aq-cap2" style="top:430px"></div>'},
+ steps:[{say:'The report updates live. Here are two people with the report open at the same time.',act:async()=>{await cap('Two people, the <b>same report</b>, open at the <b>same time</b>.')}},
+ {say:'Kai marks Keola as entered, on the left.',act:async()=>{await tap('.k0-mark-keola',900);hideCursor();S.keola.status='entered';S.keola.type='ASQ-3';S.keola.by='Kai Akana';
+  const re=(side)=>{const tr=q(`.k${side}-row-keola`);const t=document.createElement('tbody');t.innerHTML=ROW(S.keola,['child','status','by']).replace(/\bk-/g,'k'+side+'-');tr.replaceWith(t.children[0]);const n=q(`.k${side}-row-keola`);flash(n);return n};
+  re(0);spot(q('.k0-row-keola'),4);await wait(1000);spot(null);re(1);const g=q('.k1-gen');g.textContent='Updated live 10/7/2026, 9:38:05 AM';g.classList.add('live');spot(q('.k1-row-keola'),4)}},
+ {say:'About a second later, Pua’s report changes on its own. The status turns green, and the header says Updated live. Pua does not need to reload.',act:async()=>{const a=pos(q('.k1-row-keola')),b=pos(q('.k1-gen'));spot({x:a.x,y:b.y,w:a.w,h:a.y+a.h-b.y},5);await cap('About <b>a second</b> later, the other screen updates on its own: <b>Updated live</b>.')}},
+ {say:'So two people can work through the list at once, without doubling up. Before you start a child, glance at the status. If it has just turned green, someone else has it.',act:async()=>{spot(null);await cap('Two people can work the list <b>at once</b> without <b>doubling up</b>.')}},
+ {say:'One thing does wait. Children from a new screening appear the next time the report is opened. So if a new Lions batch was just saved, go back to Reports and open it again.',act:async()=>{await cap('<b>New screening children</b> appear the next time the report is <b>opened</b>.')}}]},
+
+// ================= DAILY WORKFLOW =================
+{html:()=>HEAD('Step 10','The daily routine for data entry')+WIN(HDR()+FILT()+TABLE(ORDER,['child','family','status','by']))+PTS([
+ '<b>Find</b> the next child marked <b>Not entered yet</b>.',
+ '<b>Open</b> the arrow or the family card for what you need.',
+ '<b>Enter</b> the child and family in <b>ASQ Online</b>.',
+ '<b>Back here</b>: pick the questionnaire, press <b>Mark entered</b>.',
+ 'Wrong child? Press <b>Undo</b>.']),
+ steps:[{say:'Here is the daily routine for data entry. First, find the next child marked Not entered yet. Untick Include entered so only the children left are showing, or pick your school in the School filter.',li:0,act:async()=>{await tap('.k-inc .aq-cb',800);q('.k-inc .aq-cb').classList.add('off');['noa','iolana'].forEach(k=>q('.k-row-'+k).style.display='none');
+  const s=q('.k-school');await tap(s,700);await dropdown(s,['All schools','Makani Elementary','Pali View Preschool'],2);hideCursor();s.textContent='Pali View Preschool';flash(s);q('.k-row-kaimana').style.display='none';spot(q('.aq-t'),3)}},
+ {say:'Second, open the arrow next to the child, or click the family name for the family card. Get what you need. The child’s name and birthdate, and the parent’s name and email.',li:1,act:async()=>{spot(null);await tap('.k-exp-keola',800);hideCursor();q('.k-exp-keola').textContent='▾';q('.k-det-keola').style.display='';await scrollTo(q('.aq-t'),600);spot(q('.k-det-keola'),3)}},
+ {say:'Third, go to ASQ Online. It is a separate website with its own sign-in, outside our system. Enter the child and the family there.',li:2,act:async()=>{spot(null);const w=add(AO(120,190,580));await pop(w);
+  for(const [c,t] of [['f1','Keola'],['f2','Nakamura'],['f3','02/18/2022'],['f4','Leah Nakamura'],['f5','leah.nakamura@example.com']]){const f=q('.k-'+c);f.classList.add('typing');for(const ch of t){f.textContent+=ch;await wait(18)}f.classList.remove('typing')}
+  await tap('.k-aosave',600);hideCursor();spot(w,4)}},
+ {say:'Fourth, come back to the report. Pick the questionnaire you entered, and press Mark entered. The child leaves your to-do list.',li:3,act:async()=>{spot(null);const w=q('.aq-ao');await anim(w,[{opacity:1},{opacity:0}],300,'ease-out');w.remove();q('.k-det-keola').style.display='none';q('.k-exp-keola').textContent='▸';
+  const p=q('.k-psel-keola');await tap(p,700);await dropdown(p,['ASQ-3','ASQ:SE-2','ASQ-3 + ASQ:SE-2'],0);await tap('.k-mark-keola',700);hideCursor();const tr=await mark('keola','entered',{cols:['child','family','status','by']});spot(tr,3);await wait(1200);
+  await anim(tr,[{opacity:1},{opacity:0}],400,'ease-out');tr.style.display='none';spot(q('.aq-t'),3)}},
+ {say:'And fifth. If you marked the wrong child, press Undo. Then mark the right one. The history keeps a record of both.',li:4,act:async()=>{spot(null);const tr=q('.k-row-keola');tr.style.display='';tr.style.opacity=1;await tap('.k-undo-keola',800);hideCursor();await mark('keola','todo',{cols:['child','family','status','by']});spot(q('.k-row-keola'),3)}}]},
+
+// ================= OVER ASQ AGE =================
+{html:()=>HEAD('Step 11','Over ASQ age')+`<div class="aq-rul"><h4>ASQ-3 covers children up to 66 months (5½ years)</h4><div style="font-size:13px;color:#475569">Older than that, or in grade 1 or above: <b style="color:#991B1B">Over ASQ age</b>.</div>
+ <div class="aq-track"><i class="k-fill"></i></div><div class="aq-cut" style="left:${30+652*66/96}px"></div>
+ ${[[0,'0'],[24,'2 years'],[48,'4 years'],[66,'<b>66 months</b>'],[96,'8 years']].map(([m,t])=>`<div class="aq-tk" style="left:${30+652*m/96}px">${t}</div>`).join('')}
+ <div class="aq-dot k-d1" style="left:${30+652*55/96}px;background:#DB2777"></div><div class="aq-dl k-l1" style="left:${30+652*55/96}px;color:#9D174D">Keola, 4y 7m</div>
+ <div class="aq-dot k-d2" style="left:${30+652*88/96}px;background:#991B1B"></div><div class="aq-dl k-l2" style="left:${30+652*88/96}px;color:#991B1B">Kaimana, 7y 4m</div></div>
+ `+WIN(TABLE(['kaimana'],['child','age','status']),{style:'top:352px;height:150px'})+'<div class="aq-note2 k-ovn" style="left:58px;top:524px;width:712px">Note on Kaimana: <b>Grade 2, past ASQ age.</b> Not sure about a child? Leave it for the <b>ASQ lead</b>.</div>'+PTS([
+ 'ASQ-3 covers up to <b>66 months</b>, 5½ years.',
+ 'Older, or in <b>grade 1 or above</b>: a red <b>Over ASQ age</b> pill.',
+ 'Most <b>Lions</b> children are school age.',
+ 'Mark them <b>Not needed</b>, with a note if useful.',
+ 'In doubt? The <b>ASQ lead</b> decides.']),
+ steps:[{say:'Now, children who are over ASQ age. The A S Q three covers children up to sixty six months. That is five and a half years.',li:0,act:async()=>{q('.k-fill').style.width=(652*66/96)+'px';await wait(1700)}},
+ {say:'A child older than that, or in grade one or above, gets a red Over ASQ age pill. Keola, at four years seven months, is inside. Kaimana, at seven years four months, in grade two, is over.',li:1,act:async()=>{for(const n of [1,2]){await anim(q('.k-d'+n),[{opacity:0,transform:'translateX(-50%) scale(.3)'},{opacity:1,transform:'translateX(-50%) scale(1)'}],450);await anim(q('.k-l'+n),[{opacity:0},{opacity:1}],300,'ease-out');await wait(500)}spot(q('.k-age-kaimana'),5)}},
+ {say:'Most Lions vision children are school age, so expect to see this pill a lot on Lions rows.',li:2,act:async()=>{spot(q('.k-age-kaimana'),5)}},
+ {say:'Mark them Not needed. Open the arrow, add a short note on why if it helps, like grade two, past A S Q age, and save it.',li:3,act:async()=>{spot(null);await tap('.k-nn-kaimana',800);hideCursor();await mark('kaimana','nn',{cols:['child','age','status']});spot(q('.k-st-kaimana'),5);await show(q('.k-ovn'))}},
+ {say:'And if you are not sure about a child, leave it, and ask the A S Q lead. The A S Q lead decides when in doubt.',li:4,act:async()=>{spot(null)}}]},
+
+// ================= NO EMAIL =================
+{prep:()=>{S.malu.open=true},html:()=>HEAD('Step 12','When the family has no email')+WIN(TABLE(['malu'],['child','family','status']),{style:'height:330px'})+'<div class="aq-note2 am k-emn" style="left:58px;top:470px;width:712px">Click <b>Leah Fong</b> to open the family card. Staff who can edit contacts add the email there. The report shows it the next time it opens.</div>'+PTS([
+ 'ASQ Online family access needs a <b>parent email</b>.',
+ 'Family shows <b>No email</b>? <b>Don’t guess.</b>',
+ 'Leave a <b>note</b> on the child and tell the <b>ASQ lead</b>.',
+ 'Staff who can edit contacts update the <b>family card</b>.']),
+ steps:[{say:'ASQ Online family access needs a parent email address. Without one, the family cannot get to the questionnaire.',li:0,act:async()=>{spot(q('.k-em-malu'),5)}},
+ {say:'If the family column says No email, and the details say Not on file, do not guess an address, and do not make one up.',li:1,act:async()=>{spot(q('.k-dfam'),5)}},
+ {say:'Instead, leave a note on the child, and tell the A S Q lead. Leave the child as Not entered yet.',li:2,act:async()=>{const n=q('.k-note');spot(n,5);await tap(n,700);hideCursor();n.classList.remove('ph');n.textContent='';n.classList.add('typing');for(const c of 'No parent email on file. Told the ASQ lead.'){n.textContent+=c;await wait(28)}n.classList.remove('typing');
+  await tap('.k-save',700);hideCursor();S.malu.hist=[[NOWT,'Kai Akana','Note: No parent email on file. Told the ASQ lead.']];q('.k-hist').innerHTML=HIST(S.malu);spot(q('.k-hist'),5)}},
+ {say:'Staff who can edit contacts then add the email on the family card. Click the family name to open it. The next time the report opens, the email shows here.',li:3,act:async()=>{spot(null);await tap('.k-par-malu',800);hideCursor();spot(q('.k-par-malu'),6);await show(q('.k-emn'))}}]},
+
+// ================= THE ASQ LEAD =================
+{html:()=>HEAD('Step 13','For the ASQ lead')+WIN(REPORT())+PTS([
+ 'Watch the <b>tiles</b> and the <b>strip</b>.',
+ 'Split the work with the <b>Screening</b> or <b>School</b> filter.',
+ 'Check <b>entered in the last 7 days</b>.',
+ '<b>Entered by</b> shows each person’s progress.',
+ '<b>Export CSV</b> for a progress list.',
+ 'Review the <b>Over ASQ age</b> children.',
+ 'Questionnaire <b>results</b> live in <b>ASQ Online</b>.'],128),
+ steps:[{say:'Now for the A S Q lead. Your view of the whole job is the tiles and the strip. How many are left, and how the done percent is moving.',li:0,act:async()=>{const a=pos(q('.k-kpis')),b=pos(q('.k-strip'));spot({x:a.x,y:a.y,w:a.w,h:Math.min(b.y+b.h,686)-a.y},4)}},
+ {say:'Split the work using the filters. For example, one person takes Pali View, using the Screening filter, and another takes a school using the School filter.',li:1,act:async()=>{const a=pos(q('.k-src')),b=pos(q('.k-school'));spot({x:a.x,y:a.y-14,w:b.x+b.w-a.x,h:a.h+14},6)}},
+ {say:'Check entered in the last seven days, to see that the list keeps moving.',li:2,act:async()=>{spot(q('.k-kp4'),5)}},
+ {say:'The person cards in the strip, and the Entered by filter, show each person’s progress.',li:3,act:async()=>{const a=pos(q('.k-sc-kai')),b=pos(q('.k-sc-pua'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'Export CSV gives you a progress list for a spreadsheet. Every child, the status, the questionnaire, who entered it, and the notes. It follows the filters you have set.',li:4,act:async()=>{spot(q('.k-csv'),5)}},
+ {say:'Review the Over ASQ age children. Set ASQ status to Over ASQ age, and decide which ones are not needed.',li:5,act:async()=>{const s=q('.k-status');await tap(s,700);await dropdown(s,['All','Not entered yet','Entered in ASQ Online','Not needed','Over ASQ age'],4);hideCursor();s.textContent='Over ASQ age';flash(s);only(['kaimana','iolana']);spot(s,5)}},
+ {say:'And when questionnaires come back from families, the results live in ASQ Online today. This report tracks who has been entered, not the scores.',li:6,act:async()=>{spot(null)}}]},
+
+/* ---------- QUIZ ---------- */
+QUIZ('ASQ Management',[
+ {q:'A family has two children who were both screened at Pali View. How many rows do they have in the report?',o:['Two rows, one for each child','One row, for the family','One row for each screening date'],a:0,y:'One row per child. Each child is entered in ASQ Online on its own.',n:'The report counts children, not families.'},
+ {q:'A Lions child in grade 2 shows a red Over ASQ age pill. What do you do?',o:['Enter the child in ASQ Online anyway','Leave it, and the row disappears on its own','Mark the child Not needed, with a note if useful'],a:2,y:'Mark them Not needed, add a note if it helps, and the ASQ lead decides when in doubt.',n:'ASQ-3 stops at 66 months. Over-age children are marked one way.'},
+ {q:'The Family column says No email. What do you do?',o:['Type a likely email address into ASQ Online','Leave a note on the child and tell the ASQ lead','Press Mark entered so the child leaves the list'],a:1,y:'Never guess. Leave a note and tell the ASQ lead. Staff who can edit contacts update the family card.',n:'Never guess an address, and never mark a child entered when they are not.'}]),
+
+// ================= RECAP =================
+{html:()=>HEAD('Recap','Your ASQ checklist')+`<div class="cl" style="top:126px">${[
+ '<b>Reports → ASQ Management</b>. One row per <b>child</b>.',
+ 'Untick <b>Include entered</b>, or filter by your <b>school</b>, to see who is left.',
+ 'Open the <b>▸ arrow</b> or the <b>family card</b> for the details.',
+ 'Enter the child and family in <b>ASQ Online</b>, its own sign-in.',
+ 'Pick the questionnaire, press <b>Mark entered</b>. Wrong child? <b>Undo</b>.',
+ '<b>Over ASQ age</b>: mark <b>Not needed</b>. In doubt, the ASQ lead decides.',
+ '<b>No email</b>: never guess. Note it and tell the <b>ASQ lead</b>.'].map(t=>`<div class="ci"><div class="bx"><svg viewBox="0 0 24 24"><path d="M5 12 L10 17 L19 7"/></svg></div><div>${t}</div></div>`).join('')}</div>`,
+ steps:[{say:'Let’s recap.',act:async()=>{for(const c of all('.ci')){c.classList.add('on');await wait(160)}}},
+ ...['Open Reports, then ASQ Management. There is one row per child.','Untick Include entered, or filter by your school, to see who is left.','Open the arrow, or the family card, for the details you need.','Enter the child and family in ASQ Online, with its own sign-in.','Pick the questionnaire and press Mark entered. Wrong child? Press Undo.','Over ASQ age children are marked Not needed. When in doubt, the A S Q lead decides.','No email? Never guess. Leave a note and tell the A S Q lead.']
+  .map((s,i)=>({say:s,act:async()=>{const c=all('.ci')[i];c.classList.add('done');spot(c,4)}}))]},
+
+// ================= MAHALO =================
+{cls:'cover',html:()=>`${LOGO}<div class="brand">The ASQ Management Report</div><div class="hello">All done</div><h1>Mahalo<span class="nmc"></span>!</h1><p class="sub">Find who is left, enter them in ASQ Online, mark them entered, and the whole team sees it live. Come back and watch it again any time.</p>
+ <div class="gate" style="top:460px"><button class="btn ghost" data-go="again">Watch again</button><button class="btn" data-go="close">Close</button></div>${WAVES}`,
+ steps:[{say:'Mahalo {name}! You have seen how to find who is left, mark them entered, and keep the list honest. Come back and watch it again any time.',act:async()=>{await wait(400);confetti(640,300,160)}}]}
+];
+/* S (the sample children) is rebuilt BEFORE each scene's html() runs: the engine renders,
+   then calls init, so a reset in init would come too late for the table markup. */
+SC.forEach(sc=>{const h=sc.html;sc.html=()=>{fresh();if(sc.prep)sc.prep();return h()}});
+</script>
+<script src="deck-engine.js"></script>
+<script src="deck-tracker.js"></script></body></html>

@@ -1,0 +1,535 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Case Management Report — Training</title>
+<link rel="stylesheet" href="deck-base.css">
+<!-- Same Firebase build as the dashboard, so the deck shares its sign-in and records progress. -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+/* Every class here starts with cm- (report), md- (My Day) or qz- (quiz), so nothing collides with deck-base.css.
+   Indigo theme as the live panel (#caseMgmtReportInGrid): head #4338CA, accent #6366F1, bg #EEF2FF, border #C7D2FE, line #E0E7FF. */
+:root{--cmh:#4338CA;--cma:#6366F1;--cmb:#EEF2FF;--cmbr:#C7D2FE;--cml:#E0E7FF;--cmr:#F8F9FF}
+/* ---------- the dashboard window ---------- */
+.cm-win{position:absolute;left:58px;top:118px;width:712px;height:570px;background:#F4F6F9;border:1px solid #D5DEE8;border-radius:12px;overflow:hidden;box-shadow:0 14px 36px rgba(15,23,42,.16);z-index:4;color:#1E293B;font-size:12px}
+.cm-win.wide{width:1170px;height:330px}
+.cm-in{position:relative;padding:12px 14px}
+.cm-card{background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(15,40,70,.08);padding:10px 12px;margin-bottom:9px}
+.cm-hdr{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cm-back{font-size:11px;font-weight:700;color:#475569;border:1px solid #CBD5E1;border-radius:6px;padding:4px 8px;background:#fff;white-space:nowrap}
+.cm-hdr h3{margin:0;flex:1;font-size:19px;color:var(--cmh);font-weight:800;white-space:nowrap}
+.cm-lab{font-size:10.5px;color:#64748B;display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+.cm-chk{width:12px;height:12px;border:1.5px solid #94A3B8;border-radius:3px;background:#fff;display:inline-block;position:relative}
+.cm-chk.on{background:var(--cmh);border-color:var(--cmh)}
+.cm-chk.on::after{content:"";position:absolute;left:3px;top:0;width:3px;height:7px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.cm-sel{display:inline-block;font-size:10.5px;border:1px solid #CBD5E1;border-radius:5px;padding:3px 20px 3px 7px;background:#fff;position:relative;white-space:nowrap;color:#0F172A}
+.cm-sel::after{content:"▾";position:absolute;right:6px;color:#475569}
+.cm-solid{font-size:10.5px;font-weight:700;color:#fff;background:var(--cmh);border-radius:5px;padding:4px 10px;white-space:nowrap}
+.cm-ghost{font-size:10.5px;font-weight:700;color:#475569;border:1px solid #CBD5E1;border-radius:5px;padding:3px 9px;background:#fff;white-space:nowrap}
+.cm-split{font-size:11px;color:var(--cmh);white-space:nowrap}
+.cm-gen{font-size:10px;color:#64748B;white-space:nowrap;transition:background .4s;border-radius:4px;padding:1px 3px}
+.cm-gen.flash{background:#FEF3C7}
+/* filters */
+.cm-fil{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 10px}
+.cm-fil label{display:flex;flex-direction:column;gap:3px;font-size:10px;color:#64748B;font-weight:600}
+.cm-fil .cm-sel,.cm-fil .cm-inp{display:block;font-size:11px;padding:5px 20px 5px 8px}
+.cm-inp{border:1px solid #CBD5E1;border-radius:5px;background:#fff;color:#94A3B8;white-space:nowrap}
+/* KPIs */
+.cm-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:9px}
+.cm-kpi{background:#fff;border-radius:9px;box-shadow:0 1px 6px rgba(15,40,70,.08);padding:8px 10px;border-left:4px solid var(--cmh)}
+.cm-kpi .n{font-size:22px;font-weight:800;color:var(--cmh);line-height:1.1}
+.cm-kpi .l{font-size:10.5px;color:#64748B;margin-top:1px;line-height:1.25}
+.cm-kpi.alert{border-left-color:#B45309}.cm-kpi.alert .n{color:#B45309}
+.cm-kpi.good{border-left-color:#16A34A}.cm-kpi.good .n{color:#16A34A}
+.cm-sech{font-size:10.5px;font-weight:800;color:var(--cmh);text-transform:uppercase;letter-spacing:.4px;margin:0 0 7px}
+/* caseload strip */
+.cm-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cm-st{border:1px solid var(--cml);border-radius:10px;padding:7px 10px;background:var(--cmr);transition:border-color .3s,background .3s}
+.cm-st.on{border-color:var(--cma);background:var(--cmb);box-shadow:0 0 0 2px rgba(99,102,241,.25)}
+.cm-st .sn{font-weight:700;font-size:12px}
+.cm-st .cnt{font-size:17px;font-weight:800;color:var(--cmh);line-height:1.2;margin-top:2px}
+.cm-st .cnt span{font-size:10px;font-weight:600;color:#64748B}
+.cm-st .ct{font-size:10px;color:#64748B;margin-top:2px;line-height:1.45;min-height:15px}
+.cm-bar{height:5px;border-radius:999px;background:#E2E8F0;margin-top:5px;overflow:hidden;display:flex}
+.cm-bar span{display:block;height:100%;transition:width .5s}
+.cm-hint{font-size:10px;color:#64748B;margin-top:7px}
+/* needs attention: two columns with a thin divider, as .cmr-attn-rows */
+.cm-g{margin-bottom:9px}.cm-g:last-child{margin-bottom:0}
+.cm-g h5{margin:0 0 4px;font-size:11.5px;display:flex;align-items:center;gap:7px}
+.cm-rows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:22px;background:linear-gradient(#C7D2FE,#C7D2FE) center/1px 100% no-repeat}
+.cm-ar{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--cml);font-size:11px;transition:opacity .4s}
+.cm-ar .who{flex:1;min-width:0}
+.cm-ar .who small{display:block;color:#64748B;font-size:9.5px;line-height:1.3}
+.cm-win.wide .cm-t td,.cm-win.wide .cm-t th{padding-left:5px;padding-right:5px}
+.k-tight .cm-hint{display:none}.k-tight .md-task{padding:7px 10px}.k-tight .md-task .md-btn{margin-top:4px}
+.cm-par{color:inherit;border-bottom:1px dotted var(--cma)}
+.cm-sub{font-size:10px;color:#64748B}
+.cm-mini{font-size:9.5px;padding:3px 8px;color:#fff;border-radius:5px;font-weight:700;white-space:nowrap}
+.cm-asg{font-size:9.5px;padding:3px 18px 3px 6px;border-color:var(--cmbr)}
+.cm-pill{display:inline-block;border-radius:999px;padding:1px 7px;font-size:9.5px;font-weight:700;white-space:nowrap;vertical-align:baseline}
+/* dropdown list drawn over a select */
+.cm-drop{position:absolute;z-index:26;background:#fff;border:1px solid #94A3B8;border-radius:6px;box-shadow:0 10px 26px rgba(15,23,42,.25);padding:3px 0;font-size:12px;min-width:150px}
+.cm-drop div{padding:4px 12px;white-space:nowrap;color:#0F172A}
+.cm-drop div.hi{background:#2563EB;color:#fff}
+.cm-drop div.mut{color:#64748B}
+/* table */
+.cm-t{border-collapse:collapse;font-size:11px;width:100%}
+.cm-t th{text-align:left;padding:6px 7px;color:var(--cmh);font-size:9.5px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;background:var(--cmb)}
+.cm-t th.on{background:var(--cml)}
+.cm-t th i{font-style:normal;opacity:.35}
+.cm-t td{padding:6px 7px;vertical-align:top}
+.cm-t tr.r{border-bottom:1px solid var(--cml)}
+.cm-t .exp{color:var(--cmh);font-size:10px;margin-right:5px}
+.cm-det{background:#FAFBFF}
+.cm-det td{padding:2px 12px 10px 26px;border-bottom:1px solid var(--cml)}
+.cm-dg{display:grid;grid-template-columns:1.35fr 1fr;gap:14px}
+.cm-det h6{margin:6px 0 3px;font-size:9.5px;color:var(--cmh);text-transform:uppercase;letter-spacing:.4px}
+.cm-kv{font-size:10.5px;line-height:1.65}
+.cm-note{padding:5px 0;border-bottom:1px dashed #E3E7F8}
+.cm-note .m{font-size:9.5px;color:var(--cmh);font-weight:700}
+.cm-note .t{font-size:10px;color:#64748B;margin-top:1px;line-height:1.45}
+.cm-call{position:absolute;left:58px;top:466px;width:1170px;min-height:120px;background:#fff;border:2px solid var(--cmbr);border-left:8px solid var(--cmh);border-radius:14px;padding:16px 22px;font-size:20px;line-height:1.45;color:#0F172A;box-shadow:0 10px 26px rgba(67,56,202,.12)}
+.cm-call b{color:var(--cmh)}
+.cm-call .k{font-size:13px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--pink);margin-bottom:4px}
+/* reports grid */
+.cm-side{position:absolute;left:0;top:0;bottom:0;width:132px;background:#fff;border-right:1px solid #E2E8F0;padding:14px 10px;font-size:12px}
+.cm-side div{padding:6px 9px;border-radius:6px;color:#334155;margin-bottom:2px}
+.cm-side div.act{background:#E0F2FE;color:#0E6E8C;font-weight:700}
+.cm-rg{position:absolute;left:132px;right:0;top:0;bottom:0;padding:14px 16px}
+.cm-rg h4{margin:0;font-size:19px;color:#0B3A53}
+.cm-rg p{margin:2px 0 10px;font-size:11px;color:#64748B}
+.cm-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cm-tile{background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(15,40,70,.08);padding:11px 13px;border:2px solid transparent;min-height:104px}
+.cm-tile b{display:block;font-size:12.5px;margin-top:4px}
+.cm-tile span{display:block;font-size:10px;color:#64748B;margin-top:3px;line-height:1.4}
+.cm-tile .ic{width:22px;height:22px;border-radius:6px}
+/* ---------- My Day ---------- */
+.md-band{border-radius:10px;background:linear-gradient(90deg,#16395A,#1F6E8C);color:#fff;padding:12px 16px;margin-bottom:10px}
+.md-band b{font-size:18px}.md-band p{margin:2px 0 0;font-size:11px;opacity:.85}
+.md-h{font-size:13px;font-weight:800;color:#0F172A;margin:4px 0 7px;display:flex;align-items:center;gap:7px}
+.md-h .md-cnt{background:#E2E8F0;color:#334155;border-radius:999px;padding:1px 8px;font-size:11px}
+.md-task{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid #E2E8F0;border-left:4px solid var(--cmh);border-radius:10px;padding:10px 12px;margin-bottom:7px;box-shadow:0 1px 4px rgba(15,40,70,.06);transition:opacity .4s}
+.md-task.red{border-left-color:#DC2626}
+.md-task .ck{width:18px;height:18px;border-radius:50%;border:2px solid #94A3B8;flex:none;margin-top:1px;position:relative;transition:all .3s}
+.md-task .ck.on{background:#16A34A;border-color:#16A34A}
+.md-task .ck.on::after{content:"";position:absolute;left:5px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.md-task .meta{flex:1;min-width:0}
+.md-task .ttl{font-size:13px;font-weight:800;color:#0F172A}
+.md-task .sub{font-size:10.5px;color:#64748B;margin-top:2px}
+.md-task .tags{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.md-btn{display:inline-block;font-size:10.5px;font-weight:700;color:#fff;border-radius:6px;padding:5px 11px;margin-top:7px;margin-right:5px;white-space:nowrap}
+.md-task.done .ttl{text-decoration:line-through;color:#94A3B8}
+.md-case{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid rgba(67,56,202,.2);border-left:4px solid var(--cmh);border-radius:10px;padding:10px 12px;margin-bottom:7px}
+.md-case .ttl{font-size:13px;font-weight:800}
+.md-case .sub{font-size:10.5px;color:#64748B;margin-top:2px}
+.md-case .who{margin-left:auto;font-size:11px;font-weight:700;color:#3730A3;background:#E0E7FF;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.md-case .note{font-size:9.5px;color:#9A3412;margin-top:4px}
+.cm-tag{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#3730A3;background:#E0E7FF;border:1px solid #C7D2FE;border-radius:20px;padding:1px 7px;margin-left:6px;vertical-align:middle}
+.md-ghost{opacity:.45;filter:grayscale(.6)}
+.md-x{position:absolute;z-index:12;border:4px solid #DC2626;color:#DC2626;font-weight:900;font-size:22px;padding:4px 14px;border-radius:10px;transform:rotate(-10deg);background:rgba(255,255,255,.85)}
+/* ---------- flow diagram (scene 2) ---------- */
+.fl-box{position:absolute;background:#fff;border-radius:14px;padding:13px 16px;box-shadow:0 8px 22px rgba(15,23,42,.1);border:2px solid #E2E8F0;font-size:14px;line-height:1.4}
+.fl-box b{display:block;font-size:17px;margin-bottom:3px}
+.fl-box.lion{border-color:#0891B2}.fl-box.lion b{color:#0E7490}
+.fl-box.mg{border-color:var(--cmh);background:var(--cmb)}.fl-box.mg b{color:var(--cmh)}
+.fl-box.adv{border-color:#7C3AED;background:#F5F3FF}.fl-box.adv b{color:#6D28D9}
+.fl-arr{position:absolute;font-size:30px;font-weight:900;color:#94A3B8;line-height:1}
+/* ---------- referral slips (scene 4) ---------- */
+.sl{position:absolute;width:260px;background:#fff;border:1px solid #CBD5E1;border-radius:8px;padding:10px 12px;box-shadow:0 8px 20px rgba(15,23,42,.14);font-size:12px;z-index:6}
+.sl .h{font-size:10px;font-weight:800;letter-spacing:.08em;color:#64748B;text-transform:uppercase}
+.sl b{display:block;font-size:14px;margin:3px 0}
+/* ---------- timeline (first contact due) ---------- */
+.tm{position:absolute;left:58px;width:712px;background:#fff;border-radius:14px;box-shadow:0 8px 22px rgba(15,23,42,.08);padding:12px 18px;border:1px solid #E2E8F0}
+.tm h4{margin:0;font-size:15px;color:var(--cmh)}
+.tm .ln{position:relative;height:74px;margin-top:6px}
+.tm .bar{position:absolute;left:30px;right:30px;top:30px;height:8px;border-radius:4px;background:#E2E8F0;overflow:hidden}
+.tm .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cma),var(--cmh));transition:width 1.4s cubic-bezier(.45,.05,.25,1)}
+.tm .pt{position:absolute;top:22px;width:150px;margin-left:-75px;text-align:center;font-size:11.5px;color:#475569;opacity:0;transform:translateY(8px);transition:all .45s}
+.tm .pt.on{opacity:1;transform:none}
+.tm .pt::before{content:"";display:block;width:16px;height:16px;border-radius:50%;margin:0 auto 6px;background:#fff;border:4px solid var(--cmh)}
+.tm .pt.due::before{border-color:var(--pink)}
+.tm .pt b{display:block;font-size:14px;color:#0F172A}
+.tm .lab{position:absolute;top:2px;left:0;right:0;text-align:center;font-weight:800;color:var(--cmh);font-size:13px;opacity:0;transition:opacity .4s}
+.tm .lab.on{opacity:1}
+.ex{display:flex;gap:10px;align-items:center;font-size:13px;margin-top:6px;opacity:0;transition:opacity .4s}.ex.on{opacity:1}
+/* cover art */
+.cv-a{position:absolute;left:800px;top:96px;width:400px;background:#fff;border-radius:14px;box-shadow:0 24px 50px rgba(0,0,0,.35);padding:12px 14px;color:#1E293B;transform:rotate(3deg);animation:bob 6s ease-in-out infinite;z-index:3}
+.cv-b{position:absolute;left:850px;top:420px;width:340px;background:#fff;border-radius:12px;box-shadow:0 20px 40px rgba(0,0,0,.3);padding:12px 14px;color:#1E293B;transform:rotate(-4deg);animation:bob 5s 1s ease-in-out infinite;z-index:4}
+.cv-a .cm-kpis{grid-template-columns:repeat(2,1fr);margin:0}
+/* ---------- quiz (qz- prefix: no clash with deck-base.css or this deck) ---------- */
+.scene.quiz{background:linear-gradient(135deg,#FFF1F8,#E0F7FA)}
+.qz-wrap{position:absolute;left:0;top:0;right:0;bottom:0}
+.qz-intro{position:absolute;left:120px;top:190px;width:1040px;text-align:center;font-size:30px;font-weight:800;color:#0B3A53;line-height:1.35;animation:rise .5s both}
+.qz-intro small{display:block;font-size:20px;color:#475569;font-weight:700;margin-top:14px}
+.qz-card{position:absolute;left:120px;top:138px;width:1040px;background:#fff;border-radius:20px;box-shadow:0 18px 40px rgba(15,23,42,.14);padding:22px 30px;animation:rise .5s both}
+.qz-n{font-size:14px;font-weight:900;color:var(--pink);letter-spacing:.08em;text-transform:uppercase}
+.qz-q{font-size:27px;font-weight:800;line-height:1.25;margin:6px 0 16px}
+.qz-o{display:flex;align-items:center;gap:14px;width:100%;text-align:left;font:inherit;font-size:21px;font-weight:700;background:#F8FAFC;border:3px solid #E2E8F0;border-radius:14px;padding:11px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .2s,background .2s;color:var(--ink)}
+.qz-o:hover:not([disabled]){border-color:#0891B2;background:#F0F9FF}
+.qz-o[disabled]{cursor:default}
+.qz-o .qz-L{width:38px;height:38px;border-radius:50%;background:#0E7490;color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-weight:900}
+.qz-o.qz-no{border-color:#DC2626;background:#FEF2F2;animation:qzshake .4s}.qz-o.qz-no .qz-L{background:#DC2626}
+.qz-o.qz-yes{border-color:#16A34A;background:#F0FDF4}.qz-o.qz-yes .qz-L{background:#16A34A}
+.qz-fb{min-height:30px;font-size:19px;font-weight:700;margin-top:4px}.qz-fb.good{color:#15803D}.qz-fb.bad{color:#B91C1C}
+.qz-stars{position:absolute;right:60px;top:46px;display:flex;gap:8px}
+.qz-stars i{width:36px;height:36px;background:#E2E8F0;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);transition:background .3s}
+.qz-stars i.on{background:#F59E0B;animation:popn .6s}
+@keyframes qzshake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+</style>
+</head><body>
+<div id="view"><div id="stage"><div id="nbar"><i></i></div>
+<div id="scenes"></div>
+<div id="spot"></div>
+<svg id="cursor" viewBox="0 0 28 32"><path d="M3 2 L3 26 L9.5 19.5 L14 29 L18.5 27 L14 17.5 L23 17.5 Z" fill="#fff" stroke="#0F172A" stroke-width="2" stroke-linejoin="round"/></svg>
+</div></div>
+<div id="cap" aria-live="polite"></div>
+<div id="bar">
+ <button id="prev">Back</button><button id="play">Start</button><button id="next">Next</button>
+ <div id="dots"></div>
+ <button id="capbtn" aria-pressed="false">Captions</button><button id="voice" aria-pressed="true">Voice on</button>
+</div>
+<script>
+const DECK_ID='case-management-report';
+
+/* ================= helpers ================= */
+const all=s=>[...document.querySelectorAll('.scene.on '+s)];
+const tap=async(s,ms=850)=>{const e=typeof s==='string'?q(s):s;await move(e,ms);await click(e);return e};
+const PTS=(items,top=140)=>`<div class="abs" style="left:790px;top:${top}px;width:440px"><ul class="pts">${items.map(t=>`<li>${t}</li>`).join('')}</ul></div>`;
+const P=(t,bg,fg)=>`<span class="cm-pill" style="background:${bg};color:${fg}">${t}</span>`;
+const AMB=['#FEF3C7','#92400E'],RED=['#FEE2E2','#991B1B'],GRN=['#DCFCE7','#166534'],GRY=['#F1F5F9','#475569'],ORG=['#FFEDD5','#9A3412'],BLU=['#DBEAFE','#1E40AF'];
+const PA=(t,c)=>P(t,c[0],c[1]);
+const VIS=d=>PA('VISION',['#E0E7FF','#3730A3'])+` <span class="cm-sub">${d}</span>`;
+const HEA=d=>PA('HEARING',['#CCFBF1','#115E59'])+` <span class="cm-sub">${d}</span>`;
+const LOGO=`<div style="position:absolute;left:70px;top:22px;background:#fff;border-radius:14px;padding:6px 10px;box-shadow:0 4px 14px rgba(0,0,0,.18);animation:rise .6s both"><img src="../logo_blue.png" alt="LDAH" style="height:80px;display:block"></div>`;
+const STAFF5=['Kai Akana','Malia Santos','Leah Fong','Ben Ito','Rae Kim'];
+/* A dropdown list drawn under a select. Returns the list; pick(i) highlights a row. */
+function drop(anchor,items,cls){const p=pos(anchor);const d=add(`<div class="cm-drop ${cls||''}" style="left:${p.x}px;top:${p.y+p.h+2}px">${items.map((t,i)=>`<div class="${i===0?'mut':''}">${t}</div>`).join('')}</div>`);return d}
+async function pickFrom(d,i,ms=700){const it=d.children[i];await move(it,ms,.4,.6);d.querySelectorAll('div').forEach(x=>x.classList.remove('hi'));it.classList.add('hi');await click(it);await wait(250);d.remove()}
+
+/* ================= report pieces ================= */
+const HDR=()=>`<div class="cm-hdr"><span class="cm-back k-back">← Back to Reports</span><h3>Case Management Report</h3>
+ <span class="cm-lab k-closed"><span class="cm-chk"></span>Include closed</span><span class="cm-lab k-sort">Sort: <span class="cm-sel">By column (click a heading)</span></span></div>
+ <div class="cm-hdr" style="margin-bottom:9px"><span class="cm-solid k-csv">Export CSV</span><span class="cm-ghost k-print">Print</span>
+ <span class="cm-split k-split"><b>24</b> families · <b>27</b> screening referrals</span><span class="cm-gen k-gen">Generated 10/7/2026, 8:02:15 AM</span></div>`;
+const FIL=()=>`<div class="cm-card cm-fil k-fil"><label class="k-f1">Screened from<span class="cm-inp">mm/dd/yyyy</span></label><label class="k-f2">Screened to<span class="cm-inp">mm/dd/yyyy</span></label><label class="k-f3">Staff<span class="cm-sel">All staff</span></label>
+ <label class="k-f4">School<span class="cm-sel">All schools</span></label><label class="k-f5">Screening type<span class="cm-sel">All</span></label><label class="k-f6">First contact<span class="cm-sel k-fcs">All</span></label></div>`;
+const KPI=[['22','open cases',''],['6','open, no staff assigned','alert'],['3','first contact overdue','alert'],['4','first contact due in 7 days',''],['69%','contacted on time (9 of 13)','alert'],['2','family email to fix','alert'],['1','follow-up date passed','alert'],['2','closed in this period','']];
+const KPIS=(list)=>`<div class="cm-kpis">${(list||KPI).map((k,i)=>`<div class="cm-kpi ${k[2]} k-kpi${i}"><div class="n">${k[0]}</div><div class="l">${k[1]}</div></div>`).join('')}</div>`;
+/* name, open, contacted, not yet due, overdue, follow-up passed */
+const STAFF=()=>[['Kai Akana',4,3,1,0,0],['Malia Santos',5,2,3,0,0],['Leah Fong',3,1,1,1,0],['Ben Ito',2,1,0,1,1],['Rae Kim',2,1,1,0,0],['Needs staff',6,0,5,1,0]];
+const slug=n=>n.toLowerCase().replace(/[^a-z]+/g,'-');
+const SCARD=(s,on)=>{const t=s[1]||1;return `<div class="cm-st k-st-${slug(s[0])}${on?' on':''}"><div class="sn">${s[0]==='Needs staff'?PA('Needs staff',AMB):s[0]}</div>
+ <div class="cnt">${s[1]} <span>open</span></div><div class="ct">${s[2]} contacted · ${s[3]} not yet due${s[4]?` · <b style="color:#DC2626">${s[4]} overdue</b>`:''}${s[5]?`<br><b style="color:#B45309">${s[5]} follow-up passed</b>`:''}</div>
+ <div class="cm-bar"><span style="width:${s[2]/t*100}%;background:#16A34A"></span><span style="width:${s[3]/t*100}%;background:#F59E0B"></span><span style="width:${s[4]/t*100}%;background:#DC2626"></span></div></div>`};
+const STRIP=(data,on)=>`<div class="cm-card k-strip"><div class="cm-sech">Caseload by staff · open cases</div><div class="cm-strip">${data.map(s=>SCARD(s,s[0]===on)).join('')}</div>
+ <div class="cm-hint">Click a name to filter the table. Bar: <b style="color:#16A34A">contacted</b> / <b style="color:#B45309">due, not yet</b> / <b style="color:#DC2626">overdue</b>.</div></div>`;
+/* Needs attention */
+const NOSTAFF=[['Mara Delgado','Sofia Delgado','Waiʻalae Elementary · vision Sep 30 · 12 days left to call'],['Kawika Pahia','Nalu Pahia','Waiʻalae Elementary · vision Sep 30 · 12 days left to call'],['Jenna Morales','Eli Morales','Waiʻalae Elementary · vision Sep 30 · 12 days left to call'],['Tevita Fifita','Sione Fifita','Liholiho Elementary · vision Sep 24 · 8 days left to call'],['Amy Chun','Lucas Chun','Pālolo Elementary · hearing Sep 29 · 13 days left to call'],['Rina Sato','Kenji Sato','Liholiho Elementary · vision Sep 15 · 1 day past the contact due date']];
+const OVERDUE=[['Lisa Ortega','Mateo Ortega','Pālolo Elementary · vision Sep 14 · 2 days past the contact due date'],['Kim Watanabe','Haruto Watanabe','Liholiho Elementary · hearing Sep 12 · 4 days past the contact due date']];
+const EMAILFIX=[['Mara Delgado','Sofia Delgado','Waiʻalae Elementary · vision Sep 30 · Bounced (mara.delgado@gmial.com)'],['Kawika Pahia','Nalu Pahia','Waiʻalae Elementary · vision Sep 30 · Not a valid address (kpahia@)']];
+const NOREACH=[['Jenna Morales','Eli Morales','Waiʻalae Elementary · vision Sep 30 · 12 days left to call']];
+const AROW=(r,btn)=>`<div class="cm-ar" data-p="${slug(r[0])}"><div class="who"><b><span class="cm-par">${r[0]}</span></b> <span class="cm-sub">for ${r[1]}</span><small>${r[2]}</small></div>${btn?`<span class="cm-mini" style="background:${btn[1]}">${btn[0]}</span>`:'<span class="cm-sel cm-asg">Assign to…</span>'}</div>`;
+const GROUP=(id,title,c,rows,btn)=>`<div class="cm-g k-g-${id}"><h5><span class="k-gn-${id}">${PA(rows.length,c)}</span> ${title}</h5><div class="cm-rows">${rows.map(r=>AROW(r,btn)).join('')}</div></div>`;
+const ATTN=(groups)=>`<div class="cm-card k-attn"><div class="cm-sech">Needs attention</div>${groups.map(g=>({
+ ns:()=>GROUP('ns','No staff assigned',AMB,NOSTAFF,null),
+ od:()=>GROUP('od','First contact overdue',RED,OVERDUE,['Call','#16A34A']),
+ ef:()=>GROUP('ef','Family email to fix',RED,EMAILFIX,['Fix email','#2563EB']),
+ nr:()=>GROUP('nr','No phone or email on file',AMB,NOREACH,['Add contact details','#0891B2'])})[g]()).join('')}</div>`;
+/* Table */
+const TH=[['Family',1],['Child'],['School'],['Screening',1],['Staff',1],['First contact due',1,'on'],['First contact'],['Last contact',1],['Open',1],['Next follow-up']];
+const THEAD=()=>`<tr>${TH.map((c,i)=>`<th class="k-th${i}${c[2]?' on':''}">${c[0]}${c[1]?(c[2]?' ▲':' <i>⇅</i>'):''}</th>`).join('')}</tr>`;
+const ROWS=[
+ {p:'Hana Kealoha',f:'',e:'hana.k@example.com · Oahu · 3 notes',c:'Keoni Kealoha',g:'2',s:'Pālolo Elementary',scr:VIS('Sep 14'),forms:1,st:'Kai Akana',due:'Oct 5',first:'Sep 30 '+PA('ON TIME',GRN),last:'Oct 2 <span class="cm-sub">5d ago</span>',open:'<b>23</b> days',fu:'Oct 16'},
+ {p:'Pua Nakamura',f:'',e:'pua.n@example.com · Oahu · 2 notes',c:'Ikaika Nakamura',g:'3',s:'Liholiho Elementary',scr:VIS('Sep 22')+'<div style="height:3px"></div>'+HEA('Oct 2'),forms:2,st:'Malia Santos',due:PA('Oct 13 · 6 days left',AMB),first:PA('Not yet',GRY),last:'<span class="cm-sub">—</span>',open:'<b>15</b> days',fu:PA('None set',AMB)},
+ {p:'Lisa Ortega',f:'',e:'lortega@example.com · Oahu · 1 note',c:'Mateo Ortega',g:'1',s:'Pālolo Elementary',scr:VIS('Sep 14'),forms:1,st:'Leah Fong',due:PA('Oct 5 · 2 days overdue',RED),first:PA('Not yet',GRY),last:'<span class="cm-sub">—</span>',open:'<b>23</b> days',fu:PA('None set',AMB)},
+ {p:'Grace Lum',f:'',e:'glum@example.com · Oahu · 4 notes',c:'Ava Lum',g:'4',s:'Liholiho Elementary',scr:HEA('Sep 8'),forms:1,st:'Ben Ito',due:'Sep 29',first:'Oct 1 '+PA('2d LATE',ORG),last:'Oct 1 <span class="cm-sub">6d ago</span>',open:'<b>29</b> days',fu:PA('Oct 6 · overdue',RED)},
+ {p:'Mara Delgado',f:' '+PA('Email to fix',RED),e:'mara.delgado@gmial.com · Oahu · 0 notes',c:'Sofia Delgado',g:'K',s:'Waiʻalae Elementary',scr:VIS('Sep 30'),forms:1,st:'',due:'Oct 19',first:PA('Not yet',GRY),last:'<span class="cm-sub">—</span>',open:'<b>7</b> days',fu:PA('None set',AMB)}];
+const FORMBTN=n=>`<div style="margin-top:4px">${Array.from({length:n},(_,i)=>`<span class="cm-mini k-vf" style="background:#0891B2;margin-right:4px">View form${n>1?' '+(i+1):''}</span>`).join('')}</div>`;
+const TROW=(r,i)=>`<tr class="r k-r${i}"><td class="k-c0"><div style="display:flex;gap:5px;align-items:baseline"><span class="exp k-exp${i}">▸</span><div><div style="font-weight:700;white-space:nowrap"><span class="cm-par">${r.p}</span>${r.f}</div><div class="cm-sub" style="white-space:nowrap">${r.e}</div></div></div></td>
+ <td class="k-c1"><div style="font-weight:600;white-space:nowrap">${r.c}</div><div class="cm-sub">Grade ${r.g}</div></td><td class="k-c2" style="white-space:nowrap">${r.s}</td>
+ <td class="k-c3" style="white-space:nowrap">${r.scr}${FORMBTN(r.forms)}</td><td class="k-c4" style="white-space:nowrap">${r.st||PA('Needs staff',AMB)}</td>
+ <td class="k-c5" style="white-space:nowrap">${r.due}</td><td class="k-c6" style="white-space:nowrap">${r.first}</td><td class="k-c7" style="white-space:nowrap">${r.last}</td>
+ <td class="k-c8" style="white-space:nowrap">${r.open}</td><td class="k-c9" style="white-space:nowrap">${r.fu}</td></tr>`;
+const TABLE=(rows,extra)=>`<div class="cm-card k-table" style="padding:0;overflow:hidden"><table class="cm-t"><thead>${THEAD()}</thead><tbody>${rows.map((r,i)=>TROW(r,i)+(extra&&extra[i]?extra[i]:'')).join('')}</tbody></table></div>`;
+const DETAIL=()=>`<tr class="cm-det k-det"><td colspan="10"><div class="cm-dg" style="width:640px">
+ <div><h6>Referrals on this case</h6><div class="cm-kv"><b>Vision</b> · Ikaika Nakamura · Liholiho Elementary · screened Sep 22 · contact due Oct 13<br><b>Hearing</b> · Ikaika Nakamura · Liholiho Elementary · screened Oct 2 · contact due Oct 23</div>
+ <h6>Screening form</h6><div class="cm-kv k-dforms"><span class="cm-mini" style="background:#0891B2;margin-right:6px">View form 1</span><span class="cm-mini" style="background:#0891B2">View form 2</span></div>
+ <h6>Family</h6><div class="cm-kv k-dfam"><b>Phone</b> (808) 555-0187<br><b>Email</b> pua.n@example.com</div>
+ <h6>Tasks</h6><div class="cm-kv k-dtask"><b>First-contact call</b> ${PA('Open · Malia Santos',BLU)}</div></div>
+ <div class="k-dnotes"><h6>Notes, newest first</h6><div class="cm-note"><div class="m">Oct 2 · Case file · Note</div><div class="t">Hearing referral for Ikaika added to this case.</div></div>
+ <div class="cm-note"><div class="m">Sep 23 · Case file · Note</div><div class="t">Case opened from the Lions vision screening referral.</div></div></div></div></td></tr>`;
+/* Reports grid */
+const TILES=[['Case Advocacy','Every family in case advocacy: advocate, start date, consent, welcome letter and membership.','#7C3AED'],['Case Management','Every family in case management after a screening referral: staff, school, first contact against the 21-day date, last contact and what needs attention.','#4338CA'],['ASQ Management','Every child screened, and whether they are entered in ASQ Online.','#9D174D'],['Event Attendance','Every event, its signups and who came.',''],['Participation','Who took part, by person.',''],['PTI Report','The reporting-period board document.','']];
+const CLIP='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4338CA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></svg>';
+const REPORTS=()=>`<div class="cm-win"><div class="cm-side"><div>Home</div><div>My Day</div><div>Contacts</div><div>Events</div><div class="act k-nav">Reports</div><div>Admin</div></div>
+ <div class="cm-rg"><h4>Reports</h4><p>Generate and export organizational reports.</p><div class="cm-tiles">${TILES.map((t,i)=>`<div class="cm-tile k-tile${i}" style="${t[2]?`border-color:${t[2]}`:''}">${i===1?CLIP:`<div class="ic" style="background:${t[2]||'#CBD5E1'};opacity:.25"></div>`}<b>${t[0]}</b><span>${t[1]}</span></div>`).join('')}</div></div></div>`;
+/* My Day */
+const MDBAND=(n)=>`<div class="md-band"><b>My Day</b><p>Wednesday, October 7 · ${n}</p></div>`;
+const ASSIGNTASK=(n)=>`<div class="md-task k-task"><span class="ck k-tck"></span><div class="meta"><div class="ttl">Assign <span class="k-tn">${n}</span> case management cases</div><div class="sub">New Lions screening batch · Waiʻalae Elementary and others · Due today</div>
+ <span class="md-btn k-open" style="background:#4338CA">Open Case Management report →</span></div><div class="tags">${PA('Due today',AMB)}</div></div>`;
+
+/* ---- quiz: the standard ask()/QUIZ pair from super-partner-workflow.html. Classes carry a qz- prefix.
+   Each answer is reported to ldahTrack.quiz(sec,i,correct); the tracker scores the first answer to each. ---- */
+window.QUIZ_TOTAL=3;
+function ask(Q,i,sec){const w=q('.qz-wrap');
+ w.innerHTML=`<div class="qz-card"><div class="qz-n">Question ${i+1} of 3</div><div class="qz-q">${Q.q}</div>${Q.o.map((o,j)=>`<button class="qz-o" data-j="${j}"><span class="qz-L">${'ABC'[j]}</span><span>${o}</span></button>`).join('')}<div class="qz-fb"></div></div>`;
+ const card=w.firstChild,fb=card.querySelector('.qz-fb'),btns=[...card.querySelectorAll('.qz-o')];
+ const finish=()=>{btns.forEach(b=>b.disabled=true);btns[Q.a].classList.add('qz-yes');const st=document.querySelectorAll('.scene.on .qz-stars i')[i];if(st)st.classList.add('on');fb.className='qz-fb good';fb.textContent='Yes! '+Q.y};
+ if(FAST){finish();return Promise.resolve()}
+ return new Promise(res=>{btns.forEach((b,j)=>b.onclick=async()=>{
+  if(b.disabled)return;
+  if(window.ldahTrack)ldahTrack.quiz(sec,i,j===Q.a);
+  if(j===Q.a){finish();const p=pos(b);confetti(p.x+60,p.y+20,70);await speak('Yes! '+Q.y,run);await wait(700);res()}
+  else{b.disabled=true;b.classList.add('qz-no');fb.className='qz-fb bad';fb.textContent='Not quite. '+Q.n+' Try again.';speak('Not quite. '+Q.n+' Try again.',run)}})})}
+const QUIZ=(sec,qs)=>({cls:'quiz',html:()=>HEAD('Quick check','Your turn!')+`<div class="qz-stars">${qs.map(()=>'<i></i>').join('')}</div><div class="qz-wrap"><div class="qz-intro">Three quick questions.<small>Your first answer to each one counts. Click the answer you think is right.</small></div></div>`,
+ steps:[{say:'Quick check. Three quick questions. Your first answer to each one counts.'},
+  ...qs.map((Q,i)=>({say:`Question ${i+1}. ${Q.q}`,act:()=>ask(Q,i,sec)}))]});
+
+/* scene-local state for the assigning scene */
+let ST=STAFF(),NLEFT=6;
+function setCard(name){const s=ST.find(x=>x[0]===name);const e=q('.k-st-'+slug(name));if(e)e.outerHTML=SCARD(s,false)}
+async function assignRow(rowSlug,staffIdx){
+ const row=q(`.k-g-ns .cm-ar[data-p="${rowSlug}"]`);const sel=row.querySelector('.cm-asg');
+ await tap(sel,800);const d=drop(sel,['Assign to…',...STAFF5]);await wait(350);await pickFrom(d,staffIdx+1,700);
+ sel.textContent=STAFF5[staffIdx];sel.style.background='#EEF2FF';await wait(500);
+ /* the live listener re-reads, the row leaves the group, counts move */
+ const g=q('.k-gen');g.textContent='Updated live 10/7/2026, 8:14:'+(20+NLEFT)+' AM';g.classList.add('flash');setTimeout(()=>g.classList.remove('flash'),1400);
+ await anim(row,[{opacity:1},{opacity:0}],400,'ease-out');row.remove();
+ NLEFT--;const n=q('.k-gn-ns');if(n)n.innerHTML=PA(NLEFT,AMB);
+ const nm=STAFF5[staffIdx];const s=ST.find(x=>x[0]===nm),ns=ST.find(x=>x[0]==='Needs staff');s[1]++;s[3]++;ns[1]--;ns[3]--;setCard(nm);setCard('Needs staff');
+ const t=q('.k-tn');if(t)t.textContent=NLEFT}
+
+const SC=[
+// ================= 1 COVER =================
+{cls:'cover',html:()=>`${LOGO}<div class="brand">Leadership in Disabilities &amp; Achievement of Hawaiʻi · Reports</div><div class="hello">Aloha <span class="nm"></span></div>
+ <h1>The Case Management Report</h1><p class="sub" style="top:350px">Every family in case management after a screening referral, in one place. Assign every case, watch first contact, and keep the caseload even. About nine minutes.</p>
+ <div class="cv-a">${KPIS(KPI.slice(0,4))}</div>
+ <div class="cv-b"><div class="cm-sech">Needs attention</div><h5 style="margin:0 0 4px;font-size:12px;display:flex;gap:7px;align-items:center">${PA(6,AMB)} No staff assigned</h5>
+  <div style="font-size:11px;padding:4px 0;border-bottom:1px dashed #E0E7FF"><b>Mara Delgado</b> <span class="cm-sub">for Sofia Delgado</span> <span class="cm-sel" style="float:right">Assign to…</span></div>
+  <div style="font-size:11px;padding:4px 0"><b>Tevita Fifita</b> <span class="cm-sub">for Sione Fifita</span> <span class="cm-sel" style="float:right">Assign to…</span></div></div>
+ <div class="spark" style="left:1200px;top:70px">${SPARK}</div><div class="spark" style="left:770px;top:560px;animation-delay:1s">${SPARK}</div>
+ <div class="gate" style="top:470px"><button class="btn" data-go="start">Start training</button><button class="btn ghost" data-go="skip">Skip for now</button><label><input type="checkbox" id="voiceChk" checked> Read it out loud to me</label></div>${WAVES}`,
+ steps:[{say:'Aloha {name}! This training walks you through the Case Management report. It is where you see every family in case management, assign each case to staff, and make sure every family gets its first call on time. You can pause, go back, or watch again any time.'}]},
+
+// ================= 2 WHAT IT IS =================
+{html:()=>HEAD('The basics','What case management is')+`
+ <div class="fl-box lion k-fl1" style="left:58px;top:132px;width:330px"><b>Lions screening referral</b>A child’s vision or hearing screening comes back with a referral.</div>
+ <div class="fl-arr" style="left:208px;top:230px">↓</div>
+ <div class="fl-box mg k-fl2" style="left:58px;top:270px;width:330px"><b>Case management</b>The family gets guidance and check-ins. <u>No release is signed.</u><div style="margin-top:6px;font-size:12px;color:#3730A3">Listed on the Case Management report.</div></div>
+ <div class="fl-arr k-fl3a" style="left:400px;top:300px;opacity:0">→</div>
+ <div class="fl-box adv k-fl3" style="left:445px;top:270px;width:320px;opacity:0"><b>Moves up to case advocacy</b>The case leaves this report and shows on the <b style="display:inline;font-size:14px">Case Advocacy</b> report.</div>
+ <div class="k-fl4" style="position:absolute;left:58px;top:450px;width:712px;opacity:0"><div class="md-h" style="font-size:12px">My Day · My open cases</div>
+  <div class="md-case" style="font-size:12px"><div><div class="ttl">Hana Kealoha<span class="cm-tag">Case management</span></div><div class="sub">Pālolo Elementary · first contact due Oct 5</div></div><span class="who">Kai Akana</span></div>
+  <div class="md-case" style="border-left-color:#7C3AED;border-color:rgba(124,58,237,.2)"><div><div class="ttl">Advocacy family example</div><div class="sub">Case advocacy · release signed</div></div><span class="who" style="color:#6D28D9;background:#F3E8FF">Advocate</span></div></div>`
+ +PTS(['A Lions screening referral starts a <b>case management</b> case for the family.','Guidance and check-ins. <b>No release is signed.</b>','If the family moves up to <b>case advocacy</b>, the case leaves this report and shows on the Case Advocacy report.','In My Day, case management is <b style="color:#4338CA">indigo</b>, with a <b>Case management</b> label.']),
+ steps:[
+ {say:'First, what case management is. After a Lions vision screening comes back with a referral, the family is opened as a case management case.',li:0,act:async()=>{spot(q('.k-fl1'),6)}},
+ {say:'In case management, the family gets guidance and check-ins from staff. No release is signed. That is what makes it different from case advocacy.',li:1,act:async()=>{spot(q('.k-fl2'),6)}},
+ {say:'If a family moves up to case advocacy, its case leaves this report, and from then on it shows on the Case Advocacy report instead.',li:2,act:async()=>{spot(null);const a=q('.k-fl3a'),b=q('.k-fl3');a.style.opacity=1;await anim(b,[{opacity:0,transform:'translateX(-20px)'},{opacity:1,transform:'none'}],500,'ease-out');spot(b,6)}},
+ {say:'In My Day, case management cases are drawn in indigo, with a Case management label, so they read apart from advocacy’s purple.',li:3,act:async()=>{spot(null);const m=q('.k-fl4');await anim(m,[{opacity:0},{opacity:1}],500,'ease-out');spot(m.querySelector('.md-case'),5)}}]},
+
+// ================= 3 WHERE =================
+{html:()=>HEAD('Step 1','Where to find it')+REPORTS()+PTS(['Main, then <b>Reports</b>.','The <b style="color:#4338CA">Case Management</b> card is indigo, right after <b>Case Advocacy</b>.','Admin and Super Admin see it.']),
+ steps:[
+ {say:'To open the report, go to the Main side, then Reports.',li:0,act:async()=>{await tap('.k-nav',900);hideCursor();spot(q('.k-nav'),4)}},
+ {say:'The Case Management card is the indigo one, parked right after Case Advocacy. Click it.',li:1,act:async()=>{spot(null);await tap('.k-tile1',900);spot(q('.k-tile1'),5)}},
+ {say:'Admins and Super Admins see this card. As the person who assigns every case, this is your home base for case management.',li:2,act:async()=>{hideCursor()}}]},
+
+// ================= 4 ONE ROW PER FAMILY =================
+{html:()=>HEAD('How it counts','One row per family, not per referral')+`
+ <div class="sl k-sl1" style="left:70px;top:140px"><div class="h">Lions referral · Sep 22</div><b>Vision</b>Ikaika Nakamura · Grade 3<br><span class="cm-sub">Liholiho Elementary</span></div>
+ <div class="sl k-sl2" style="left:420px;top:140px"><div class="h">Lions referral · Oct 2</div><b>Hearing</b>Ikaika Nakamura · Grade 3<br><span class="cm-sub">Liholiho Elementary</span></div>
+ <div class="cm-card k-onerow" style="position:absolute;left:58px;top:330px;width:712px;padding:0;overflow:hidden"><table class="cm-t"><thead><tr><th>Family</th><th>Child</th><th>Screening</th><th>Staff</th></tr></thead><tbody>
+  <tr class="r"><td><b>Pua Nakamura</b><div class="cm-sub">pua.n@example.com · Oahu · 2 notes</div></td><td><b>Ikaika Nakamura</b><div class="cm-sub">Grade 3</div></td><td class="k-scr" style="white-space:nowrap"><span class="k-v1" style="opacity:0">${VIS('Sep 22')}</span><div style="height:3px"></div><span class="k-v2" style="opacity:0">${HEA('Oct 2')}</span></td><td>Malia Santos</td></tr></tbody></table></div>
+ <div class="abs k-sp" style="left:58px;top:470px;width:712px;font-size:18px;opacity:0"><div class="cm-card" style="font-size:16px;padding:14px 18px"><span class="cm-split" style="font-size:18px"><b>24</b> families · <b>27</b> screening referrals</span><div class="cm-sub" style="font-size:12px;margin-top:4px">At the top of the report: both numbers, side by side.</div></div></div>`
+ +PTS(['One row per <b>family</b>, not per referral.','A second referral, for another child or hearing after vision, joins the <b>same case</b>.','So one family can show <b>two screenings</b> in one row.','The top of the report counts both: families and referrals.']),
+ steps:[
+ {say:'The report shows one row per family, not one row per referral.',li:0,act:async()=>{spot(q('.k-onerow'),5)}},
+ {say:'When a family gets a second referral, for another child, or a hearing screening after a vision one, it is added to the same case file.',li:1,act:async()=>{spot(null);const s1=q('.k-sl1'),s2=q('.k-sl2'),t=pos(q('.k-scr'));
+  await Promise.all([anim(s1,[{transform:'none',opacity:1},{transform:`translate(${t.x-70}px,${t.y-140}px) scale(.3)`,opacity:0}],1100,'ease-in'),anim(q('.k-v1'),[{opacity:0},{opacity:1}],400,'ease-out',900)]);
+  await Promise.all([anim(s2,[{transform:'none',opacity:1},{transform:`translate(${t.x-420}px,${t.y-125}px) scale(.3)`,opacity:0}],1100,'ease-in'),anim(q('.k-v2'),[{opacity:0},{opacity:1}],400,'ease-out',900)])}},
+ {say:'So one family can show two screenings in one row. Here, Pua Nakamura has a vision and a hearing referral for Ikaika, on one case.',li:2,act:async()=>{spot(q('.k-scr'),6)}},
+ {say:'The top of the report counts both. Here, twenty four families, with twenty seven screening referrals between them.',li:3,act:async()=>{spot(null);const s=q('.k-sp');await anim(s,[{opacity:0},{opacity:1}],400,'ease-out');spot(s.firstChild,4)}}]},
+
+// ================= 5 HEADER + FILTERS =================
+{html:()=>HEAD('Step 2','The top of the report')+`<div class="cm-win"><div class="cm-in">${HDR()}${FIL()}${KPIS()}</div></div>`
+ +PTS(['<b>Include closed</b> adds families whose case is closed.','<b>Sort</b>: by column, first contact due soonest first, or open oldest first.','<b>Export CSV</b> and <b>Print</b>.','<b>Generated</b> when you open it. <b>Updated live</b> after any change.','Filters: dates screened, staff, school, screening type, first contact.']),
+ steps:[
+ {say:'Across the top. Back to Reports takes you back. Include closed adds the families whose case is already closed. Without it, you only see open cases.',li:0,act:async()=>{await tap('.k-closed .cm-chk',900);q('.k-closed .cm-chk').classList.add('on');hideCursor();spot(q('.k-closed'),5);await wait(900);q('.k-closed .cm-chk').classList.remove('on')}},
+ {say:'Sort has three choices. By column, where you click any heading in the table. First contact due, soonest first. Or open, oldest first.',li:1,act:async()=>{spot(null);const s=q('.k-sort .cm-sel');await tap(s,800);const d=drop(s,['By column (click a heading)','First contact due (soonest first)','Open (oldest first)']);d.firstChild.classList.remove('mut');d.firstChild.classList.add('hi');hideCursor();spot(d,4);await wait(2600);d.remove();spot(null)}},
+ {say:'Export CSV downloads every family that matches your filters, open and closed. Print gives you a paper copy.',li:2,act:async()=>{const a=pos(q('.k-csv')),b=pos(q('.k-print'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'Next to them, the count of families and referrals, and the time. It says Generated when you open the report, and Updated live after anything changes.',li:3,act:async()=>{const a=pos(q('.k-split')),b=pos(q('.k-gen'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'The filters narrow everything: the tiles, the caseload, and the table. Screened from and to, staff, school, and vision or hearing. First contact picks overdue and not made, due in the next seven days, made on time, or made late.',li:4,act:async()=>{spot(q('.k-fil'),4);const s=q('.k-fcs');await tap(s,900);const d=drop(s,['All','Overdue, not made','Due in the next 7 days','Made on time','Made late']);d.firstChild.classList.remove('mut');await wait(300);await pickFrom(d,1,700);s.textContent='Overdue, not made';hideCursor();spot(s,4);await wait(1200);s.textContent='All';spot(q('.k-fil'),4)}}]},
+
+// ================= 6 KPI TILES =================
+{html:()=>HEAD('Step 3','The tiles: your numbers at a glance')+`<div class="cm-win"><div class="cm-in">${HDR()}${KPIS()}
+ <div class="cm-card k-ontime-note" style="font-size:12px;line-height:1.5;opacity:0"><b>Contacted on time</b> counts only families whose due date has passed, or who were already reached. Families still inside their 21 days and not yet called are not counted against anyone.</div>
+ ${STRIP(STAFF())}</div></div>`
+ +PTS(['<b>Open cases</b>, and how many have <b>no staff</b> yet.','First contact <b>overdue</b>, and <b>due in 7 days</b>.','<b>Contacted on time</b>: a percent, and x of y.','<b>Family email to fix</b>, <b>follow-up date passed</b>, <b>closed in this period</b>.','Amber means something needs you.']),
+ steps:[
+ {say:'The tiles give you the numbers at a glance. Open cases. And open, no staff assigned. That second one is your to-do list for assigning.',li:0,act:async()=>{const a=pos(q('.k-kpi0')),b=pos(q('.k-kpi1'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},4)}},
+ {say:'First contact overdue: families past their due date with no contact yet. And first contact due in the next seven days: the ones to call soon.',li:1,act:async()=>{const a=pos(q('.k-kpi2')),b=pos(q('.k-kpi3'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},4)}},
+ {say:'Contacted on time shows a percent, and the count behind it. It only counts families whose due date has passed, or who were already reached. Families still inside their twenty one days are not counted against anyone.',li:2,act:async()=>{spot(q('.k-kpi4'),4);const n=q('.k-ontime-note');await anim(n,[{opacity:0},{opacity:1}],400,'ease-out')}},
+ {say:'Then family email to fix, follow-up date passed, and closed in this period.',li:3,act:async()=>{const a=pos(q('.k-kpi5')),b=pos(q('.k-kpi7'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},4)}},
+ {say:'A tile turns amber when it needs you. Contacted on time turns green at eighty percent or better.',li:4,act:async()=>{spot(null);for(const i of [1,2,4,5,6]){const k=q('.k-kpi'+i);anim(k,[{transform:'scale(1)'},{transform:'scale(1.08)'},{transform:'scale(1)'}],500,'ease-out');await wait(160)}}}]},
+
+// ================= 7 CASELOAD STRIP =================
+{html:()=>HEAD('Step 4','Caseload by staff')+`<div class="cm-win"><div class="cm-in">${STRIP(STAFF())}
+ <div class="cm-card k-mini" style="padding:0;overflow:hidden"><table class="cm-t"><thead><tr><th>Family</th><th>Staff</th><th>First contact due</th><th>First contact</th></tr></thead><tbody class="k-mb">
+ <tr class="r"><td><b>Hana Kealoha</b></td><td>Kai Akana</td><td>Oct 5</td><td>Sep 30 ${PA('ON TIME',GRN)}</td></tr>
+ <tr class="r"><td><b>Pua Nakamura</b></td><td>Malia Santos</td><td>${PA('Oct 13 · 6 days left',AMB)}</td><td>${PA('Not yet',GRY)}</td></tr>
+ <tr class="r lf"><td><b>Lisa Ortega</b></td><td>Leah Fong</td><td>${PA('Oct 5 · 2 days overdue',RED)}</td><td>${PA('Not yet',GRY)}</td></tr>
+ <tr class="r"><td><b>Grace Lum</b></td><td>Ben Ito</td><td>Sep 29</td><td>Oct 1 ${PA('2d LATE',ORG)}</td></tr>
+ <tr class="r lf"><td><b>Keala Brown</b></td><td>Leah Fong</td><td>Oct 8</td><td>Oct 2 ${PA('ON TIME',GRN)}</td></tr>
+ <tr class="r"><td><b>Mara Delgado</b></td><td>${PA('Needs staff',AMB)}</td><td>Oct 19</td><td>${PA('Not yet',GRY)}</td></tr>
+ <tr class="r lf"><td><b>Sam Reyes</b></td><td>Leah Fong</td><td>Oct 16</td><td>${PA('Not yet',GRY)}</td></tr></tbody></table></div></div></div>`
+ +PTS(['One card per staff member: <b>open</b> cases, then contacted, not yet due, overdue, follow-up passed.','The bar: <b style="color:#16A34A">green</b> contacted, <b style="color:#B45309">amber</b> due not yet, <b style="color:#DC2626">red</b> overdue.','<b>Needs staff</b> is every case nobody has yet.','Click a card to filter the table. Click again to clear.','Use it to <b>spread cases evenly</b>.']),
+ steps:[
+ {say:'Below the tiles is Caseload by staff. One card for each of the five case staff, showing how many open cases they carry, then how many are contacted, not yet due, or overdue, and any follow-ups that have passed.',li:0,act:async()=>{spot(q('.k-st-malia-santos'),4)}},
+ {say:'The bar under each name shows the same thing in color. Green is contacted. Amber is due, not yet. Red is overdue.',li:1,act:async()=>{spot(q('.k-st-leah-fong .cm-bar'),6)}},
+ {say:'The last card, Needs staff, counts every open case nobody has been given yet.',li:2,act:async()=>{spot(q('.k-st-needs-staff'),4)}},
+ {say:'Click a card to filter the table to that person. Here, Leah Fong. Click it again to clear the filter.',li:3,act:async()=>{spot(null);const c=q('.k-st-leah-fong');await tap(c,900);c.classList.add('on');all('.k-mb tr').forEach(r=>{if(!r.classList.contains('lf'))r.style.display='none'});hideCursor();spot(q('.k-mini'),4);await wait(2600);spot(null);await tap(c,600);c.classList.remove('on');all('.k-mb tr').forEach(r=>r.style.display='');hideCursor()}},
+ {say:'Before you assign, glance at these cards. Give new cases to whoever has the fewest open, so the caseload stays even.',li:4,act:async()=>{const a=pos(q('.k-st-kai-akana')),b=pos(q('.k-st-needs-staff'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:b.y+b.h-a.y},5)}}]},
+
+// ================= 8 NEEDS ATTENTION =================
+{html:()=>HEAD('Step 5','Needs attention')+`<div class="cm-win"><div class="cm-in">${ATTN(['ns','od','ef','nr'])}</div></div>`
+ +PTS(['Two columns, with a thin line between them. Each group has a <b>count</b>.','<b>No staff assigned</b>: pick a name in <b>Assign to…</b>','<b>First contact overdue</b>: <b>Call</b> opens the family card.','<b>Family email to fix</b>: <b>Fix email</b> opens the fix task.','<b>No phone or email on file</b>: <b>Add contact details</b>.','Each row: parent (opens the family card), child, school, screening, days left or days past due.'],128),
+ steps:[
+ {say:'Needs attention is the two column area. The rows run in two columns, with a thin line down the middle. Each group has a count.',li:0,act:async()=>{spot(q('.k-attn'),3)}},
+ {say:'No staff assigned. Every row has an Assign to dropdown with the five case staff. Picking a name assigns the case, right there.',li:1,act:async()=>{spot(q('.k-g-ns'),4)}},
+ {say:'First contact overdue. The Call button opens the family card, so you or the staff member can call and log it.',li:2,act:async()=>{spot(q('.k-g-od'),4)}},
+ {say:'Family email to fix. The Fix email button opens the task to correct it.',li:3,act:async()=>{spot(q('.k-g-ef'),4)}},
+ {say:'No phone or email on file. Add contact details opens the family card.',li:4,act:async()=>{spot(q('.k-g-nr'),4)}},
+ {say:'Every row shows the parent’s name, which opens the family card, who it is for, the school, the screening type and date, and how many days are left to call, or how many days past the due date it is.',li:5,act:async()=>{spot(q('.k-g-od .cm-ar'),5)}}]},
+
+// ================= 9 MOVING FORWARD: ONE TASK =================
+{html:()=>HEAD('Moving forward','One task for a whole batch')+`<div class="cm-win"><div class="cm-in">${MDBAND('1 task due today')}
+ <div class="md-h">Tasks <span class="md-cnt k-cnt">6</span></div>
+ <div class="k-old" style="position:relative">${NOSTAFF.slice(0,4).map(r=>`<div class="md-task md-ghost"><span class="ck"></span><div class="meta"><div class="ttl">Assign case management: ${r[0]}</div><div class="sub">${r[2].split(' · ').slice(0,2).join(' · ')}</div></div></div>`).join('')}
+ <div class="cm-sub" style="text-align:center">… and 2 more, one per family</div></div>
+ <div class="k-new" style="display:none">${ASSIGNTASK(6)}</div></div></div>`
+ +PTS(['A new batch of screenings is saved.','Before: one task per family. <b>Not anymore.</b>','You get <b>ONE</b> task in My Day: <b>Assign N case management cases</b>.','Its button, <b>Open Case Management report</b>, takes you straight there.']),
+ steps:[
+ {say:'Now, the most important change, moving forward. When a new batch of screenings is saved, every family in it needs a staff member.',li:0,act:async()=>{spot(q('.k-old'),4)}},
+ {say:'Before, that meant one task in My Day for every family. Not anymore.',li:1,act:async()=>{spot(null);const o=q('.k-old');const x=add('<div class="md-x" style="left:250px;top:300px">One per family: gone</div>');await pop(x);await wait(700);await anim(o,[{opacity:1},{opacity:0}],500,'ease-out');o.style.display='none';x.remove()}},
+ {say:'Now you get one task: Assign six case management cases. One task for the whole batch.',li:2,act:async()=>{const n=q('.k-new');n.style.display='';q('.k-cnt').textContent='1';await anim(n,[{opacity:0,transform:'translateY(20px)'},{opacity:1,transform:'none'}],500);spot(q('.k-task'),5)}},
+ {say:'Its button, Open Case Management report, takes you straight to the report, where you do all the assigning.',li:3,act:async()=>{spot(null);await tap('.k-open',900);spot(q('.k-open'),5);await wait(600);hideCursor()}}]},
+
+// ================= 10 MOVING FORWARD: ASSIGN =================
+{html:()=>HEAD('Moving forward','Assign from the report')+`<div class="cm-win k-tight"><div class="cm-in" style="padding-top:8px">
+ <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span class="cm-split"><b>24</b> families · <b>27</b> screening referrals</span><span class="cm-gen k-gen">Generated 10/7/2026, 8:14:02 AM</span></div>
+ <div class="k-tmini" style="margin-bottom:7px">${ASSIGNTASK(6)}</div>${STRIP(ST)}${ATTN(['ns'])}</div></div>`
+ +PTS(['Check the <b>caseload strip</b>: who has the fewest?','In <b>No staff assigned</b>, pick a name in <b>Assign to…</b>','The report <b>updates live</b> in about a second. Your filters and open rows stay.','The task’s count goes down. At zero, it <b>closes itself</b>.','Unassigned cases no longer clutter <b>My open cases</b>.'],128),
+ init:()=>{ST=STAFF();NLEFT=6;const e=q('.k-strip');if(e)e.outerHTML=STRIP(ST)},
+ steps:[
+ {say:'Do all your assigning here, in the No staff assigned group of Needs attention. Start by checking the caseload strip. Ben Ito and Rae Kim have the fewest open cases.',li:0,act:async()=>{const a=pos(q('.k-st-ben-ito')),b=pos(q('.k-st-rae-kim'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'Open the Assign to dropdown on a family, and pick a name. Mara Delgado goes to Rae Kim. The case is assigned right there.',li:1,act:async()=>{spot(null);await assignRow('mara-delgado',4);hideCursor();spot(q('.k-st-rae-kim'),4)}},
+ {say:'The report updates live, within about a second. The family leaves the list, the counts move, and your filters and open rows stay as they were.',li:2,act:async()=>{spot(null);await assignRow('kawika-pahia',3);hideCursor();spot(q('.k-gen'),4)}},
+ {say:'Watch the task. Its count goes down as you assign. Six, five, now four. When every case has staff, it closes itself.',li:3,act:async()=>{spot(q('.k-tmini'),3);await wait(600);
+  for(const [r,s] of [['jenna-morales',0],['tevita-fifita',2],['amy-chun',1],['rina-sato',4]]){const row=q(`.k-g-ns .cm-ar[data-p="${r}"]`);if(!row)continue;NLEFT--;const nm=STAFF5[s];const x=ST.find(z=>z[0]===nm),ns=ST.find(z=>z[0]==='Needs staff'),k=r==='rina-sato'?4:3;x[1]++;x[k]++;ns[1]--;ns[k]--;
+   await anim(row,[{opacity:1},{opacity:0}],250,'ease-out');row.remove();setCard(nm);setCard('Needs staff');q('.k-tn').textContent=NLEFT;q('.k-gn-ns').innerHTML=PA(NLEFT,AMB);await wait(260)}
+  const g=q('.k-g-ns');if(g)g.outerHTML='<div class="cm-sub" style="padding:6px 0">Nothing needs attention.</div>';
+  q('.k-task').classList.add('done');q('.k-tck').classList.add('on');q('.k-tn').textContent='0';await wait(400);spot(q('.k-tmini'),3)}},
+ {say:'And because unassigned cases now wait here, they no longer clutter your My open cases list.',li:4,act:async()=>{spot(null)}}]},
+
+// ================= 11 AFTER ASSIGNING =================
+{html:()=>HEAD('After you assign','The case belongs to that staff member')+`<div class="cm-win"><div class="cm-in">
+ <div class="md-band" style="background:linear-gradient(90deg,#312E81,#4338CA)"><b>Rae Kim’s My Day</b><p>Viewing as Rae Kim</p></div>
+ <div class="md-h">My open cases <span class="md-cnt">3</span></div>
+ <div class="md-case k-newcase"><div style="flex:1"><div class="ttl">Mara Delgado<span class="cm-tag">Case management</span></div><div class="sub">Waiʻalae Elementary · Sofia Delgado · <b class="k-due" style="color:#0F172A">first contact due Oct 19</b></div>
+  <span class="md-btn k-vsf" style="background:#0891B2">View screening form</span><div class="note">Do not close until case management is DONE</div></div><span class="who">Rae Kim</span></div>
+ <div class="md-case"><div style="flex:1"><div class="ttl">Daria Kapule<span class="cm-tag">Case management</span></div><div class="sub">Pālolo Elementary · first contact made Oct 2</div></div><span class="who">Rae Kim</span></div>
+ <div class="cm-card k-rrow" style="margin-top:12px;padding:0;overflow:hidden"><table class="cm-t"><thead><tr><th>Family</th><th>Staff</th><th>First contact due</th><th>Tasks</th></tr></thead><tbody>
+ <tr class="r"><td><b>Mara Delgado</b></td><td class="k-rst">Rae Kim</td><td class="k-rdue">Oct 19</td><td class="k-rtask">First-contact call ${PA('Open · Rae Kim',BLU)}</td></tr></tbody></table></div></div></div>`
+ +PTS(['The case now <b>belongs to that staff member</b>.','It shows in their <b>My open cases</b>, indigo, with <b>View screening form</b>.','The <b>first contact due</b> date stays the same.','Their first-contact call task is raised when staff is assigned.']),
+ steps:[
+ {say:'Once you assign a case, it belongs to that staff member.',li:0,act:async()=>{spot(q('.k-rst'),5)}},
+ {say:'It shows up in their My open cases, in indigo, with the Case management label and a View screening form button.',li:1,act:async()=>{spot(q('.k-newcase'),4)}},
+ {say:'The first contact due date stays exactly the same. Assigning late does not give anyone extra days, so assign early.',li:2,act:async()=>{const a=pos(q('.k-due'));spot(a,5);await wait(1500);spot(q('.k-rdue'),5)}},
+ {say:'The first-contact call task is raised when staff is assigned, and you can see it on the report under Tasks.',li:3,act:async()=>{spot(q('.k-rtask'),5)}}]},
+
+// ================= 12 THE TABLE =================
+{html:()=>HEAD('Step 6','The table, column by column')+`<div class="cm-win wide"><div class="cm-in">${TABLE(ROWS)}</div></div>
+ <div class="cm-call k-call"><div class="k">The table</div>One row per family. Open cases first. Click any heading with arrows to sort by it.</div>`,
+ steps:[
+ {say:'Below Needs attention is the table. Each column, left to right. Family: the parent’s name opens the family card. Flags show Email to fix, or No phone or email. Under the name: email, island, and how many notes.',act:async()=>{spot(q('.k-th0'),3);setCall('Family','The parent’s name opens the family card. Flags: <b>Email to fix</b>, <b>No phone or email</b>. Under it: email · island · number of notes.');const a=pos(q('.k-r0 .k-c0')),b=pos(q('.k-r4 .k-c0'));spot({x:a.x,y:a.y,w:a.w,h:b.y+b.h-a.y},3)}},
+ {say:'Child, with grade, and school.',act:async()=>{setCall('Child and School','The child’s name and grade, and the school.');col(1,2)}},
+ {say:'Screening: a vision or hearing pill with the date. A family with two referrals shows two. View form opens the scanned screening form.',act:async()=>{setCall('Screening','<b style="color:#3730A3">VISION</b> or <b style="color:#115E59">HEARING</b> with the date. <b>View form</b> opens the scanned screening form.');col(3,3)}},
+ {say:'Staff: the person on the case, or an amber Needs staff.',act:async()=>{setCall('Staff','Who has the case, or amber <b>Needs staff</b>.');col(4,4)}},
+ {say:'First contact due. Red counts the days overdue. Amber counts the days left, when it is due within a week.',act:async()=>{setCall('First contact due','Red: <b>N days overdue</b>. Amber: <b>N days left</b>, within the next 7 days.');col(5,5)}},
+ {say:'First contact: the date, with a green On time, or an orange pill saying how many days late. Or Not yet.',act:async()=>{setCall('First contact','The date, with green <b>ON TIME</b> or orange <b>Nd LATE</b>. Or <b>Not yet</b>.');col(6,6)}},
+ {say:'Last contact, with how long ago. Open, in days, or Closed with the date. And Next follow-up: red when it has passed, amber None set when there isn’t one.',act:async()=>{setCall('Last contact · Open · Next follow-up','Last contact and <b>Nd ago</b>. Open: <b>N days</b>, or <b>Closed</b> with the date. Next follow-up: red when passed, amber <b>None set</b>.');col(7,9)}},
+ {say:'To sort, click a heading with arrows. Click it again to flip the order.',act:async()=>{spot(null);setCall('Sorting','Click a heading with arrows to sort. Click again to flip it.');const h=q('.k-th8');await tap(h,800);h.innerHTML='Open ▼';h.classList.add('on');const f=q('.k-th5');f.classList.remove('on');f.innerHTML='First contact due <i>⇅</i>';hideCursor();spot(h,3)}}]},
+
+// ================= 13 EXPAND A ROW =================
+{html:()=>HEAD('Step 7','Open a row for the details')+`<div class="cm-win"><div class="cm-in">${TABLE(ROWS.slice(0,2),[null,'<tr class="k-detslot"></tr>'])}</div></div>`
+ +PTS(['The arrow <b>▸</b> by the family name opens the details.','<b>Referrals on this case</b>, and a <b>View form</b> button for each.','The family’s <b>phone</b> and <b>email</b>.','<b>Tasks</b>: the first-contact call, and any email to fix.','<b>Notes</b>, newest first.']),
+ steps:[
+ {say:'Every row has a small arrow beside the family name. Click it to open the details.',li:0,act:async()=>{const e=q('.k-exp1');await tap(e,900);e.textContent='▾';const s=q('.k-detslot');s.outerHTML=DETAIL();hideCursor();await anim(q('.k-det'),[{opacity:0},{opacity:1}],400,'ease-out');spot(q('.k-det'),2)}},
+ {say:'Referrals on this case lists every screening on the family’s case, with its date and contact due date. Below it, a View form button for each scanned form.',li:1,act:async()=>{const a=pos(q('.k-det h6')),b=pos(q('.k-dforms'));spot({x:a.x,y:a.y,w:380,h:b.y+b.h-a.y},4)}},
+ {say:'Then the family’s phone and email. If one is missing, it says Not on file.',li:2,act:async()=>{spot(q('.k-dfam'),4)}},
+ {say:'Tasks shows the first-contact call, open or done and who has it, and a Fix family email task if there is one.',li:3,act:async()=>{spot(q('.k-dtask'),4)}},
+ {say:'And on the right, every note on the family, newest first.',li:4,act:async()=>{spot(q('.k-dnotes'),4)}}]},
+
+// ================= 14 FIRST CONTACT DUE =================
+{html:()=>HEAD('The deadline','First contact due')+`
+ <div class="tm k-tm1" style="top:128px"><h4>Normally: 21 days from the screening date</h4><div class="ln"><div class="lab">21 days</div><div class="bar"><i></i></div>
+  <div class="pt" style="left:30px"><b>Sep 14</b>Screened</div><div class="pt due" style="left:calc(100% - 30px)"><b>Oct 5</b>First contact due</div></div></div>
+ <div class="tm k-tm2" style="top:268px"><h4>The Waiʻalae batch: 14 days from receipt</h4><div class="ln"><div class="lab">14 days</div><div class="bar"><i></i></div>
+  <div class="pt" style="left:30px"><b>Mon Oct 5</b>Batch received</div><div class="pt due" style="left:calc(100% - 30px)"><b>Oct 19</b>First contact due</div></div></div>
+ <div class="tm k-tm3" style="top:408px;padding:14px 18px"><h4>First contact</h4><div style="font-size:13.5px;color:#334155;margin-top:4px">The earliest call, email or visit logged with the family after the screening.</div>
+  <div class="ex k-ex1"><b style="width:220px">Due Oct 5, called Sep 30</b> Sep 30 ${PA('ON TIME',GRN)}</div>
+  <div class="ex k-ex2"><b style="width:220px">Due Sep 29, called Oct 1</b> Oct 1 ${PA('2d LATE',ORG)}</div></div>`
+ +PTS(['First contact is <b>normally due 21 days</b> from the screening date.','The <b>Waiʻalae batch</b> received Monday 5 October is due <b>14 days from receipt: 19 October</b>.','<b>First contact</b> = the earliest call, email or visit logged after the screening.','<b>On time</b> when it is on or before the due date.']),
+ steps:[
+ {say:'How the first contact date is set. Normally, it is twenty one days from the screening date.',li:0,act:async()=>{const t=q('.k-tm1');spot(t,4);t.querySelectorAll('.pt')[0].classList.add('on');t.querySelector('.bar i').style.width='100%';await wait(1400);t.querySelector('.lab').classList.add('on');t.querySelectorAll('.pt')[1].classList.add('on')}},
+ {say:'One exception. The Waiʻalae batch, received on Monday the fifth of October, is set to fourteen days from receipt. That makes it due on the nineteenth of October.',li:1,act:async()=>{const t=q('.k-tm2');spot(t,4);t.querySelectorAll('.pt')[0].classList.add('on');t.querySelector('.bar i').style.width='100%';await wait(1400);t.querySelector('.lab').classList.add('on');t.querySelectorAll('.pt')[1].classList.add('on')}},
+ {say:'First contact is the earliest call, email or visit staff logged with the family after the screening.',li:2,act:async()=>{spot(q('.k-tm3'),4)}},
+ {say:'It is on time when it is on or before the due date. After that, the report shows how many days late it was.',li:3,act:async()=>{q('.k-ex1').classList.add('on');await wait(900);q('.k-ex2').classList.add('on')}}]},
+
+// ================= 15 EMAIL FIX + SCREENING FORM =================
+{html:()=>HEAD('Step 8','Email to fix, and the screening form')+`<div class="cm-win"><div class="cm-in">${MDBAND('Admin task due today')}
+ <div class="md-task red k-fix"><span class="ck"></span><div class="meta"><div class="ttl">Fix family email: Mara Delgado</div><div class="sub">Intro email bounced · Due today</div>
+  <div class="sub" style="color:#991B1B;margin-top:5px">Email on file: <b>mara.delgado@gmial.com</b> · Bounced</div>
+  <span class="md-btn" style="background:#16A34A">Call (808) 555-0142</span><span class="md-btn k-fixvsf" style="background:#0891B2">View screening form</span><span class="md-btn" style="background:#2563EB">Open family →</span></div><div class="tags">${PA('Due today',AMB)}</div></div>
+ <div class="cm-card k-flag" style="padding:0;overflow:hidden;margin-top:10px"><table class="cm-t"><thead><tr><th>Family</th><th>Screening</th><th>Staff</th></tr></thead><tbody>
+ <tr class="r"><td><b>Mara Delgado</b> <span class="k-fpill">${PA('Email to fix',RED)}</span><div class="cm-sub">mara.delgado@gmial.com · Oahu</div></td><td>${VIS('Sep 30')}<div style="margin-top:4px"><span class="cm-mini k-rvf" style="background:#0891B2">View form</span></div></td><td>Rae Kim</td></tr></tbody></table></div>
+ <div class="cm-card k-places" style="opacity:0;font-size:12.5px;line-height:1.7"><b style="color:#0891B2">View screening form</b> is on: the report row · the family card · the case · the task cards</div></div></div>`
+ +PTS(['If a family’s intro email <b>bounces</b> or is <b>malformed</b>, an admin gets a <b>due-today</b> task.','Call the family, using the number from the fax, and <b>correct the email</b>.','Until it is fixed, the family shows <b>Email to fix</b> on the report.','<b>View screening form</b> opens the scanned form: from the report row, the family card, the case and the task cards.']),
+ steps:[
+ {say:'Sometimes a family’s intro email bounces, or the address is malformed. When that happens, an admin gets a task, due today.',li:0,act:async()=>{spot(q('.k-fix'),4)}},
+ {say:'Call the family, using the number from the fax, and correct the email on their card.',li:1,act:async()=>{spot(q('.k-fix .md-btn'),4)}},
+ {say:'Until it is fixed, the family shows a red Email to fix flag on the report, and is listed in Needs attention.',li:2,act:async()=>{spot(q('.k-fpill'),5)}},
+ {say:'And the scanned screening form is always one click away. View screening form is on the report row, the family card, the case, and the task cards.',li:3,act:async()=>{spot(q('.k-rvf'),5);await wait(1200);spot(q('.k-fixvsf'),5);await wait(1200);spot(null);await anim(q('.k-places'),[{opacity:0},{opacity:1}],400,'ease-out');spot(q('.k-places'),4)}}]},
+
+/* ---------- QUIZ ---------- */
+QUIZ('Case Management Report',[
+ {q:'A new batch of nine Lions screenings is saved. What shows up in your My Day?',o:['Nine tasks, one for each family','One task: Assign 9 case management cases','Nothing. You check the report each morning'],a:1,y:'One task for the whole batch, with a button that opens the report.',n:'Moving forward, a batch no longer makes one task per family.'},
+ {q:'Where do you assign the new cases to staff?',o:['In the report’s Needs attention area, No staff assigned, with Assign to…','Export CSV and send the list to the staff','Tick the My Day task as done'],a:0,y:'Pick a name in Assign to… and the case is assigned right there. The task counts down by itself.',n:'The assigning happens on the report itself, one dropdown per family.'},
+ {q:'A family was screened on September 14. It is not part of the Waiʻalae batch. When is first contact due?',o:['September 28, 14 days later','October 19','October 5, 21 days from the screening date'],a:2,y:'Normally 21 days from the screening date. Only the Waiʻalae batch uses 14 days from receipt.',n:'The usual rule counts 21 days from the screening date.'}]),
+
+// ================= RECAP =================
+{html:()=>HEAD('Recap','Your case management checklist')+`<div class="cl" style="top:122px">${[
+ '<b>Reports → Case Management</b> (indigo, after Case Advocacy). One row per <b>family</b>.',
+ 'A new batch = <b>ONE</b> My Day task. Its button opens the report.',
+ 'Check the <b>caseload strip</b>, then assign in <b>Needs attention → No staff assigned</b>.',
+ 'The task counts down and <b>closes itself</b> when every case has staff.',
+ 'First contact: <b>21 days</b> from screening (Waiʻalae batch: <b>Oct 19</b>). Assigning does not move it.',
+ 'Clear <b>overdue</b> calls, <b>emails to fix</b> and <b>missing contact details</b>.',
+ 'Open a row with <b>▸</b> for referrals, forms, tasks and notes.'].map(t=>`<div class="ci"><div class="bx"><svg viewBox="0 0 24 24"><path d="M5 12 L10 17 L19 7"/></svg></div><div>${t}</div></div>`).join('')}</div>`,
+ steps:[{say:'Let’s recap.',act:async()=>{for(const c of all('.ci')){c.classList.add('on');await wait(160)}}},
+ ...['Open Reports, then the indigo Case Management card. One row per family.','A new batch of screenings gives you one task in My Day. Its button opens the report.','Check the caseload strip, then assign each family from Needs attention, No staff assigned.','The task counts down, and closes itself when every case has staff.','First contact is due twenty one days from the screening. The Waiʻalae batch is due the nineteenth of October. Assigning does not move the date.','Keep an eye on overdue calls, emails to fix, and missing contact details.','Open any row with the arrow for its referrals, forms, tasks and notes.']
+  .map((s,i)=>({say:s,act:async()=>{const c=all('.ci')[i];c.classList.add('done');spot(c,4)}}))]},
+
+// ================= MAHALO =================
+{cls:'cover',html:()=>`${LOGO}<div class="brand">The Case Management Report</div><div class="hello">All done</div><h1>Mahalo<span class="nmc"></span>!</h1><p class="sub">One task per batch, assign from Needs attention, keep the caseload even, and every family gets its first call on time. Come back and watch it again any time.</p>
+ <div class="gate" style="top:460px"><button class="btn ghost" data-go="again">Watch again</button><button class="btn" data-go="close">Close</button></div>${WAVES}`,
+ steps:[{say:'Mahalo {name}! You have seen the whole report: the tiles, the caseload, Needs attention, the table, and the new way of assigning a batch from one task. Come back and watch it again any time.',act:async()=>{await wait(400);confetti(640,300,160)}}]}
+];
+
+/* table-scene helpers (used inside steps, after the engine has loaded) */
+function setCall(k,t){const c=q('.k-call');if(c)c.innerHTML=`<div class="k">${k}</div>${t}`}
+function col(a,b){const h1=pos(q('.k-th'+a)),h2=pos(q('.k-th'+b)),l=pos(q('.k-r4 .k-c'+b));spot({x:h1.x,y:h1.y,w:h2.x+h2.w-h1.x,h:l.y+l.h-h1.y},3)}
+</script>
+<script src="deck-engine.js"></script>
+<script src="deck-tracker.js"></script></body></html>
