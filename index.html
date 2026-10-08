@@ -5628,7 +5628,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.61</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.62</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6063,6 +6063,81 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                override FIRST, which is what turns the dash into a number. The
                presenter comments are left exactly as they are — they are the
                record of what the presenter said, not a duplicate of the figure. */
+            /* Archive duplicate (10-08). The nightly flagDuplicateEvents job raises a
+               task on the LATER copy of a one-off entered twice. Archiving alone does
+               nothing for a one-off -- every past one-off is already archived and the
+               reports still count it -- so this stamps duplicateOf, which the Event
+               Report, PTI board and Participation report skip. It refuses until every
+               attendance figure on the copy reads 0, so nothing is hidden by accident. */
+            window._dupEventNonZero = async function(coll, eventId, v){
+              var z=function(x){ return x===undefined||x===null||x===''||Number(x)===0; };
+              var bad=[];
+              var parts=[['the event',v.summary||{}]];
+              Object.keys(v.sessionSummaries||{}).forEach(function(k){ parts.push(['session '+k,v.sessionSummaries[k]||{}]); });
+              var label={attTotal:'Total',newParent:'New parents',parentReturning:'Returning parents',youthWD:'Youth with a disability',profOther:'Professionals / other',militaryActive:'Military'};
+              parts.forEach(function(pr){
+                var S=pr[1], where=parts.length>1?' ('+pr[0]+')':'';
+                if(!z(S.attendanceTotalResolved)||!z(S.totalAttended)) bad.push('Total'+where);
+                var ov=S.attendanceOverrides||{};
+                Object.keys(ov).forEach(function(k){ if(!z(ov[k])) bad.push((label[k]||k)+where); });
+                [['newParentCount','New parents'],['attendanceParentReturning','Returning parents'],['attendanceYouthWithDisability','Youth with a disability'],
+                 ['attendanceProfessionalOther','Professionals / other'],['attendanceMilitaryActiveDuty','Military']].forEach(function(f){ if(!z(S[f[0]])) bad.push(f[1]+where); });
+                ['ageOverrides','ethnicityOverrides','disabilityOverrides'].forEach(function(f){
+                  if(Object.values(S[f]||{}).some(function(x){ return !z(x); })) bad.push(f.replace('Overrides','')+' figures'+where);
+                });
+                if((S.manualAttendees||[]).length) bad.push((S.manualAttendees.length)+' walk-in(s)'+where);
+              });
+              var su=await db.collection(coll).doc(eventId).collection('signups').get();
+              var att=0;
+              su.forEach(function(x){ var s=x.data()||{}; if(s.archived===true||s.status==='cancelled')return;
+                if(s.attendanceStatus==='attended'||Object.values(s.sessionAttendance||{}).some(function(a){ return a&&a.status==='attended'; })) att++; });
+              if(att) bad.push(att+' sign-up(s) marked attended');
+              return bad.filter(function(b,i,a){ return a.indexOf(b)===i; });
+            };
+            window.myDayArchiveDuplicate = async function(id, btn){
+              var d=(window._myDayDocs||{})[id];
+              if(!d||!d.workflowEventId){ _showToast('Task data missing — refresh and retry.','#DC2626'); return; }
+              var coll=d.workflowEventCollection||'events';
+              try{
+                var ref=db.collection(coll).doc(d.workflowEventId);
+                var snap=await ref.get();
+                if(!snap.exists){ alert('That event no longer exists. You can close this task.'); return; }
+                var v=snap.data()||{};
+                if(v.duplicateOf){ alert('This copy is already archived as a duplicate. You can close this task.'); return; }
+                var bad=await window._dupEventNonZero(coll,d.workflowEventId,v);
+                if(bad.length){
+                  alert('Not yet. These still read more than 0 on the copy:\n\n  '+bad.join('\n  ')+
+                    '\n\nPress Open Event Summary, set them to 0 (and the Total box to 0), Save, then try again.');
+                  return;
+                }
+                if(!confirm('Archive "'+(v.title||'this event')+'" ('+(v.eventDate||'')+') as a duplicate?\n\nIt leaves every report. The first entry stays as it is.'))return;
+                if(btn){btn.disabled=true;btn.textContent='Archiving…';}
+                var who=(window.currentUserData&&window.currentUserData.displayName)||'Unknown';
+                var uid=(window.auth&&window.auth.currentUser&&window.auth.currentUser.uid)||'';
+                await ref.update({
+                  duplicateOf: d.dupKeeperEventId||'',
+                  archived: true,
+                  duplicateArchivedBy: who, duplicateArchivedByUid: uid,
+                  duplicateArchivedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                  updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                var now=new Date();
+                var stamp=now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' '+now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+                var tref=db.collection('interactions').doc(id);
+                var tsnap=await tref.get();
+                var prev=(tsnap.exists&&(tsnap.data().notes||''))||'';
+                await tref.update({ status:'Closed',
+                  notes:prev+'\n---\n['+who+' — '+stamp+']\nArchived the copy as a duplicate. It no longer counts in the reports.',
+                  updatedAt:firebase.firestore.FieldValue.serverTimestamp() });
+                if(typeof auditLog==='function') auditLog('Archived duplicate event','"'+(v.title||'')+'" '+(v.eventDate||'')+' (event '+d.workflowEventId+', kept '+(d.dupKeeperEventId||'?')+')');
+                if(typeof _showToast==='function') _showToast('Duplicate archived. Task closed.','#0F766E');
+                if(window.loadMyDay) window.loadMyDay();
+              }catch(e){
+                console.warn('myDayArchiveDuplicate:',e&&e.message);
+                if(btn){btn.disabled=false;btn.textContent='Archive duplicate';}
+                alert('Could not archive it — '+((e&&e.message)||e));
+              }
+            };
             window.myDayFixAttendance = async function(id, btn){
               var d=(window._myDayDocs||{})[id];
               if(!d||!d.workflowEventId)return;
@@ -6911,6 +6986,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoVerify(\''+d._id+'\')">Review / Revert &rarr;</button>';
                         else if(d.workflowStep==='photoReleaseStall')
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#b91c1c;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayPhotoStall(\''+d._id+'\')">Resolve Stalled Release &rarr;</button>';
+                        else if(d.workflowEventId&&d.workflowStep==='duplicateEvent')
+                          /* A one-off entered twice (10-08). Zero the copy in its
+                             Event Summary, then Archive duplicate -- which refuses
+                             until every figure on the copy reads 0. */
+                          actionBtn='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;">'
+                            +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0891b2;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();myDayOpenSummary(\''+d._id+'\')">Open Event Summary &rarr;</button>'
+                            +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#B45309;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();myDayArchiveDuplicate(\''+d._id+'\',this)">Archive duplicate</button>'
+                            +'</div>';
                         else if(d.workflowStep==='contactDuplicate'&&d.dupKeeperId&&d.dupLoserId)
                           // Deep link, NOT Merge/Keep-separate buttons. The decision
                           // needs the two records side by side, which only the task
@@ -54247,6 +54330,8 @@ window.cmsBuildStaffActivityReport = async function() {
     var allEvents = [];
     evSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'events', ...d.data() }); });
     if (recSnap) recSnap.forEach(function(d) { allEvents.push({ _id: d.id, _coll: 'recurringEvents', ...d.data() }); });
+    // A one-off archived as a duplicate (duplicateOf, 10-08) never counts.
+    allEvents = allEvents.filter(function(e) { return !e.duplicateOf; });
 
     // Lazy-load split (perf): 'initial' (default) skips One-Off events so we
     // don't fetch a signups sub-collection for the ~130 one-off cards on every
@@ -56559,6 +56644,7 @@ async function _prLoadAll() {
      exclusion can be shown and reversed. */
   evSnap.forEach(function(d) {
     var v = d.data() || {}; allIds[d.id] = 1;
+    if (v.duplicateOf) return;   // archived duplicate (10-08): never counted
     sources.push({ id: d.id, v: v, coll: 'events', basis: 'event', archived: v.archived === true });
   });
   recSnap.forEach(function(d) {
@@ -61625,7 +61711,7 @@ async function _pbLoadAll() {
   var _evRec = await Promise.all([db.collection('events').get(), db.collection('recurringEvents').get()]);
   var evSnap = _evRec[0], recSnap = _evRec[1];
   var sources = [];
-  evSnap.forEach(function (d) { sources.push({ id: d.id, v: d.data() || {}, coll: 'events' }); });
+  evSnap.forEach(function (d) { if ((d.data() || {}).duplicateOf) return; sources.push({ id: d.id, v: d.data() || {}, coll: 'events' }); });  // duplicateOf = archived duplicate (10-08)
   recSnap.forEach(function (d) { sources.push({ id: d.id, v: d.data() || {}, coll: 'recurringEvents' }); });
 
   /* Speed (v151.72): every event's signups used to be read one at a time
