@@ -48,7 +48,7 @@ if('speechSynthesis' in window){voiceObj=pickVoice();speechSynthesis.onvoicescha
 /* iPad/iPhone Safari only lets speech start from inside a tap. The first line is
    spoken 60ms after a timer, so it was silent there. On the first tap anywhere,
    speak a silent blank inside that tap to unlock the voice for the whole deck. */
-let voiceUnlocked=false;function unlockVoice(){if(voiceUnlocked||!('speechSynthesis' in window))return;voiceUnlocked=true;
+let voiceUnlocked=false,voicePrimed=false;function unlockVoice(){if(voiceUnlocked||!('speechSynthesis' in window))return;voiceUnlocked=true;
  try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}catch(e){}if(!voiceObj)voiceObj=pickVoice()}
 ['touchend','pointerup','click','keydown'].forEach(ev=>addEventListener(ev,unlockVoice,{capture:true,passive:true}));
 const fillName=t=>t.replace(/\{name\}/g,name||'there');
@@ -57,7 +57,10 @@ function speak(text,token){return new Promise(res=>{const t=fillName(text);const
  function done(){clearTimeout(guard);const min=words*280,e=Date.now()-t0;if(e<min)setTimeout(res,min-e);else res()}
  if(!voiceOn){clearTimeout(guard);setTimeout(res,words*330+900);return}
  const u=new SpeechSynthesisUtterance(t);if(voiceObj){u.voice=voiceObj;u.lang=voiceObj.lang}else u.lang='en-US';
- u.rate=(voiceObj&&/Google/.test(voiceObj.name))?0.98:1.0;u.onend=done;u.onerror=done;speechSynthesis.cancel();setTimeout(()=>{if(token===run){if(speechSynthesis.paused)speechSynthesis.resume();speechSynthesis.speak(u)}else done()},60)})}
+ u.rate=(voiceObj&&/Google/.test(voiceObj.name))?0.98:1.0;u.onend=done;u.onerror=done;if(!voicePrimed){voicePrimed=true;try{speechSynthesis.speak(u)}catch(e){done()}return}
+ speechSynthesis.cancel();setTimeout(()=>{if(token===run){if(speechSynthesis.paused)speechSynthesis.resume();speechSynthesis.speak(u)}else done()},60)})}
+/* The very first line is spoken straight away, with no cancel() and no timer, so on
+   iPad it is still inside the Play tap (begin -> playLoop -> speak run synchronously). */
 const host=$('scenes');
 SC.forEach((s,i)=>{const d=document.createElement('section');d.className='scene '+(s.cls||'');d.dataset.i=i;host.appendChild(d);s.el=d});
 function render(i){const s=SC[i];s.el.innerHTML=s.html()+(s.cls?'':`<div class="pgno">${i+1} / ${SC.length}</div>`);
@@ -83,7 +86,9 @@ $('voice').onclick=()=>{voiceOn=!voiceOn&&('speechSynthesis' in window);$('voice
 $('capbtn').onclick=()=>{const on=$('capbtn').getAttribute('aria-pressed')!=='true';$('capbtn').setAttribute('aria-pressed',on);document.body.classList.toggle('caps',on||!voiceOn)};
 addEventListener('keydown',e=>{if(!started){if(e.key==='Enter')begin();return}if(e.key==='ArrowRight')$('next').click();else if(e.key==='ArrowLeft')$('prev').click();else if(e.key===' '){e.preventDefault();$('play').click()}});
 function setName(n){name=(n||'').trim().split(/\s+/)[0]||'';document.querySelectorAll('.nm').forEach(e=>e.textContent=name);document.querySelectorAll('.nmc').forEach(e=>e.textContent=name?', '+name:'')}
-function begin(){if(started)return;const vc=$('voiceChk');if(vc)voiceOn=vc.checked&&('speechSynthesis' in window);$('voice').textContent=voiceOn?'Voice on':'Voice off';document.body.classList.toggle('caps',!voiceOn);
+function goFull(){if(inFrame||!(navigator.maxTouchPoints>1))return;const d=document.documentElement,f=d.requestFullscreen||d.webkitRequestFullscreen;
+ if(f&&!(document.fullscreenElement||document.webkitFullscreenElement)){try{const r=f.call(d);if(r&&r.catch)r.catch(()=>{})}catch(e){}}}
+function begin(){if(started)return;goFull();const vc=$('voiceChk');if(vc)voiceOn=vc.checked&&('speechSynthesis' in window);$('voice').textContent=voiceOn?'Voice on':'Voice off';document.body.classList.toggle('caps',!voiceOn);
  if(voiceOn&&!voiceObj)voiceObj=pickVoice();started=true;playing=true;setPlay();post('started',{name});const g=SC[0].el.querySelector('.gate');if(g)g.style.visibility='hidden';$('next').disabled=false;dots();idx=0;const t=++run;playLoop(t)}
 function wire(root){root.querySelectorAll('[data-go=start]').forEach(b=>b.onclick=begin);
  root.querySelectorAll('[data-go=skip]').forEach(b=>{if(!inFrame)b.style.display='none';b.onclick=()=>{stop();post('skip',{name})}});
