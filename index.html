@@ -5628,7 +5628,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.66</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v152.67</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8646,6 +8646,7 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
           <button class="section-refresh-btn" onclick="loadSiteAnalytics(true)">Refresh</button>
           <div class="wa-period-toggle" role="group" aria-label="Time period">
             <button id="waRange30d" class="wa-period-btn active" onclick="setWAPeriod('30d')">Current Month</button>
+            <button id="waRangePrev" class="wa-period-btn" onclick="setWAPeriod('prev')">Prior Month</button>
             <button id="waRangeYTD" class="wa-period-btn" onclick="setWAPeriod('ytd')">Year to Date</button>
           </div>
         </div>
@@ -28858,22 +28859,40 @@ window.openContactDetail = async function(contactId) {
   let siteAnalyticsData = [];           // current view (30d or YTD slice)
   let siteAnalyticsCacheYTD = null;     // full YTD, populated on first YTD click
   let siteAnalyticsCache30d = null;     // 30d slice, populated on first 30d fetch
+  let siteAnalyticsCachePrev = null;    // prior calendar month (10-08)
   let _waFlyerTitles = null;            // event id -> title, for the Flyer Popups panel (built once)
-  let waActivePeriod = '30d';           // '30d' | 'ytd'
+  let waActivePeriod = '30d';           // '30d' (current month) | 'prev' (prior month) | 'ytd'
 
   function _waPeriodStart(period) {
     var now = new Date();
     if (period === 'ytd') {
       return now.getFullYear() + '-01-01';
     }
+    if (period === 'prev') {
+      var pm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return pm.getFullYear() + '-' + String(pm.getMonth() + 1).padStart(2, '0') + '-01';
+    }
     // '30d' is the CURRENT MONTH since 10-08 (Daniel): the 1st of this month to
     // today. The id is kept so the cache and the buttons need no other change.
     return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
   }
 
+  // Exclusive end key, or null for "up to today". Prior Month ends on the 1st of this month.
+  function _waPeriodEnd(period) {
+    if (period !== 'prev') return null;
+    var now = new Date();
+    return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
+  }
+  function _waPeriodName(period) {
+    if (period === 'ytd') return 'Year to Date';
+    var now = new Date();
+    var m = period === 'prev' ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : now;
+    return (period === 'prev' ? 'Prior Month' : 'Current Month') + ' (' + m.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + ')';
+  }
+
   function _waSliceForPeriod(allDocs, period) {
-    var start = _waPeriodStart(period);
-    return allDocs.filter(function(d) { return d.date && d.date >= start; });
+    var start = _waPeriodStart(period), end = _waPeriodEnd(period);
+    return allDocs.filter(function(d) { return d.date && d.date >= start && (!end || d.date < end); });
   }
 
   async function loadSiteAnalytics(forceRefetch) {
@@ -28898,12 +28917,22 @@ window.openContactDetail = async function(contactId) {
             return;
           }
         }
+        if (waActivePeriod === 'prev') {
+          if (siteAnalyticsCachePrev) { siteAnalyticsData = siteAnalyticsCachePrev; updateWADashboard(); return; }
+          // YTD covers the prior month except in January (it was last year).
+          if (siteAnalyticsCacheYTD && _waPeriodStart('prev') >= _waPeriodStart('ytd')) {
+            siteAnalyticsData = siteAnalyticsCachePrev = _waSliceForPeriod(siteAnalyticsCacheYTD, 'prev');
+            updateWADashboard();
+            return;
+          }
+        }
       }
 
       var startKey = _waPeriodStart(waActivePeriod);
-      var snapshot = await db.collection('siteAnalytics')
-        .where('date', '>=', startKey)
-        .get();
+      var endKey = _waPeriodEnd(waActivePeriod);
+      var _waQ = db.collection('siteAnalytics').where('date', '>=', startKey);
+      if (endKey) _waQ = _waQ.where('date', '<', endKey);
+      var snapshot = await _waQ.get();
       var docs = snapshot.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
 
       siteAnalyticsData = docs;
@@ -28917,6 +28946,8 @@ window.openContactDetail = async function(contactId) {
       if (waActivePeriod === 'ytd') {
         siteAnalyticsCacheYTD = docs;
         siteAnalyticsCache30d = _waSliceForPeriod(docs, '30d');
+      } else if (waActivePeriod === 'prev') {
+        siteAnalyticsCachePrev = docs;
       } else {
         siteAnalyticsCache30d = docs;
       }
@@ -28928,15 +28959,17 @@ window.openContactDetail = async function(contactId) {
   }
 
   window.setWAPeriod = function(period) {
-    if (period !== '30d' && period !== 'ytd') return;
+    if (period !== '30d' && period !== 'prev' && period !== 'ytd') return;
     if (waActivePeriod === period) return;
     waActivePeriod = period;
     var b30 = document.getElementById('waRange30d');
     var bYTD = document.getElementById('waRangeYTD');
     if (b30) b30.classList.toggle('active', period === '30d');
     if (bYTD) bYTD.classList.toggle('active', period === 'ytd');
+    var bPrev = document.getElementById('waRangePrev');
+    if (bPrev) bPrev.classList.toggle('active', period === 'prev');
     var lbl = document.getElementById('waPeriodLabel');
-    if (lbl) lbl.textContent = period === 'ytd' ? '(Year to Date)' : '(Current Month)';
+    if (lbl) lbl.textContent = '(' + _waPeriodName(period) + ')';
     loadSiteAnalytics(false);
   };
 
@@ -29109,6 +29142,8 @@ window.openContactDetail = async function(contactId) {
     var start = new Date(startKey + 'T00:00:00');
     var today = new Date();
     var end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    var _endKey = _waPeriodEnd(waActivePeriod);   // Prior Month stops at its last day
+    if (_endKey) { end = new Date(_endKey + 'T00:00:00'); end.setDate(end.getDate() - 1); }
     if (end < start) end = start;
 
     var days = [];
@@ -29306,7 +29341,7 @@ window.openContactDetail = async function(contactId) {
 
     rows.push(['LDAH WEBSITE/APP ANALYTICS REPORT']);
     rows.push(['Generated', new Date().toLocaleDateString()]);
-    rows.push(['Period', waActivePeriod === 'ytd' ? 'Year to Date' : 'Current Month (' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + ')']);
+    rows.push(['Period', _waPeriodName(waActivePeriod)]);
     rows.push([]);
 
     rows.push(['=== KEY METRICS ===']);
@@ -29400,7 +29435,7 @@ window.openContactDetail = async function(contactId) {
     setColor(textLight);
     doc.text('Generated: ' + new Date().toLocaleDateString() + ' at ' + new Date().toLocaleTimeString(), margin, y);
     y += 4;
-    doc.text('Period: ' + (waActivePeriod === 'ytd' ? 'Year to Date' : 'Current Month (' + new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + ')'), margin, y);
+    doc.text('Period: ' + _waPeriodName(waActivePeriod), margin, y);
     y += 12;
 
     var totals = getSiteAnalyticsTotals();
