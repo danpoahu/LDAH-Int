@@ -6036,7 +6036,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.11-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.12-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -69511,14 +69511,44 @@ window.cmsBuildMembershipReport = async function() {
   function _srcLookupExisting(row) {
     var em = String(row.fields.email || '').trim().toLowerCase();
     if (!SRC_EMAIL_RE.test(em)) { row.existing = null; _srcRefreshMeta(); return; }
-    if (Object.prototype.hasOwnProperty.call(_srcEmailCache, em)) { row.existing = _srcEmailCache[em]; _srcRefreshMeta(); return; }
+    if (Object.prototype.hasOwnProperty.call(_srcEmailCache, em)) { row.existing = _srcEmailCache[em]; _srcDupUntick(row); _srcRefreshMeta(); return; }
     db.collection('contacts').where('email', '==', em).limit(1).get().then(function (snap) {
       var hit = null;
-      snap.forEach(function (d) { var x = d.data() || {}; hit = { id: d.id, displayName: x.displayName || ((x.firstName || '') + ' ' + (x.lastName || '')).trim() || x.email || d.id }; });
+      snap.forEach(function (d) {
+        var x = d.data() || {};
+        hit = { id: d.id, displayName: x.displayName || ((x.firstName || '') + ' ' + (x.lastName || '')).trim() || x.email || d.id,
+          scr: (Array.isArray(x.screenings) ? x.screenings : []).map(function (sc) {
+            var ch = (sc && sc.child) || {};
+            return { location: sc.location || (sc.scheduled && sc.scheduled.location) || '', classroom: sc.classroom || '',
+              dates: (sc.scheduled && sc.scheduled.dates) || [], first: ch.firstName || ch.first || '', last: ch.lastName || ch.last || '' };
+          }) };
+      });
       _srcEmailCache[em] = hit;
-      if (String(row.fields.email || '').trim().toLowerCase() === em) row.existing = hit;
+      if (String(row.fields.email || '').trim().toLowerCase() === em) { row.existing = hit; _srcDupUntick(row); }
       _srcRefreshMeta();
     }).catch(function (e) { console.warn('[school consent] email lookup failed:', e && e.message); });
+  }
+
+  /* This child already has a screening at this school on the matched card
+     (Pali View late forms, 2026-10-14: a second save would double her up). */
+  function _srcAlreadyScreened(r) {
+    var ex = r.existing; if (!ex || !ex.scr || !ex.scr.length) return null;
+    var school = _srcNorm(r.meta && r.meta.school), fi = _srcNorm(r.fields.first), la = _srcNorm(r.fields.last);
+    if (!school || !fi) return null;
+    for (var i = 0; i < ex.scr.length; i++) {
+      var sc = ex.scr[i];
+      if (_srcNorm(sc.location) === school && _srcNorm(sc.first) === fi && (!la || !sc.last || _srcNorm(sc.last) === la)) return sc;
+    }
+    return null;
+  }
+  function _srcDupUntick(r) {
+    if (r.dupChecked || r.state === 'saved' || r.state === 'saving' || !_srcAlreadyScreened(r)) return;
+    r.dupChecked = true; r.ticked = false;
+    var cb = _srEl('src_' + r.id + '_tick'); if (cb) cb.checked = false;
+  }
+  function _srcFmtMd(d) {
+    var m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(d || ''));
+    return m ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m[1] - 1] + ' ' + (+m[2]) : String(d || '');
   }
 
   function _srcRow(id) {
@@ -69711,6 +69741,12 @@ window.cmsBuildMembershipReport = async function() {
       }
     }
     if (r.existing && r.state !== 'saved') html += '<div style="color:#0E5F7A;font-weight:600;margin-top:3px;">Adds to existing card: ' + rsEscape(r.existing.displayName) + '</div>';
+    var dup = r.state !== 'saved' ? _srcAlreadyScreened(r) : null;
+    if (dup) {
+      html += '<div style="color:#B91C1C;font-weight:700;margin-top:3px;">Already screened here: ' +
+        rsEscape([dup.classroom, (dup.dates || []).map(_srcFmtMd).join('-')].filter(Boolean).join(', ')) +
+        '. Saving adds a second screening.</div>';
+    }
     return html;
   }
   function _srcSaveable() {
