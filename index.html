@@ -6003,7 +6003,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.8</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.9</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -69119,12 +69119,37 @@ window.cmsBuildMembershipReport = async function() {
     return true;
   }
 
+  /* Every child already screened, by school + name and school + first name +
+     birthdate, so a repeat is caught even when the email was misread or the
+     card has none (Pali View Shima Enaga re-send, 2026-10-14). Re-read on
+     every drop and after every save. */
+  var _srcScreenedIdx = null;
+  async function _srcLoadScreened() {
+    var snap = await db.collection('contacts').where('hasScreenings', '==', true).get();
+    var idx = {};
+    snap.forEach(function (d) {
+      var x = d.data() || {};
+      var who = x.displayName || ((x.firstName || '') + ' ' + (x.lastName || '')).trim() || x.email || d.id;
+      (x.screenings || []).forEach(function (sc) {
+        var ch = (sc && sc.child) || {}, sch = _srcNorm(sc && (sc.location || (sc.scheduled && sc.scheduled.location)));
+        var fi = _srcNorm(ch.firstName || ch.first), la = _srcNorm(ch.lastName || ch.last), dob = String(ch.birthdate || '');
+        if (!sch || !fi) return;
+        var hit = { contactId: d.id, displayName: who, classroom: sc.classroom || '', dates: (sc.scheduled && sc.scheduled.dates) || [] };
+        if (la) idx[sch + '|' + fi + '|' + la] = hit;
+        if (dob) idx[sch + '|' + fi + '|dob' + dob] = hit;
+      });
+    });
+    _srcScreenedIdx = idx;
+    if (_srcB) { _srcB.rows.forEach(function (r) { r.dupChecked = false; }); _srcRefreshMeta(); }
+    return snap;
+  }
+
   /* School names already used on screening records, for the datalist. */
   window.srcLoadLocations = async function () {
     if (_srcLocsLoaded) return;
     _srcLocsLoaded = true;
     try {
-      var snap = await db.collection('contacts').where('hasScreenings', '==', true).get();
+      var snap = await _srcLoadScreened();
       var seen = {};
       snap.forEach(function (d) {
         ((d.data() || {}).screenings || []).forEach(function (s) {
@@ -69179,6 +69204,7 @@ window.cmsBuildMembershipReport = async function() {
 
   async function _srcProcessFiles(fileList) {
     if (_srcMetaBlocked()) return;
+    _srcLoadScreened().catch(function (e) { console.warn('[school consent] could not load screened children:', e && e.message); });
     var B = _srcEnsure();
     if (B.busy && (Date.now() - (B.busyAt || 0)) < 180000) { _showToast('Still reading the last PDF — one moment.', '#B45309'); return; }
     if (B.saving) { _showToast('Still saving — one moment.', '#B45309'); return; }
@@ -69519,9 +69545,13 @@ window.cmsBuildMembershipReport = async function() {
   /* This child already has a screening at this school on the matched card
      (Pali View late forms, 2026-10-14: a second save would double her up). */
   function _srcAlreadyScreened(r) {
-    var ex = r.existing; if (!ex || !ex.scr || !ex.scr.length) return null;
     var school = _srcNorm(r.meta && r.meta.school), fi = _srcNorm(r.fields.first), la = _srcNorm(r.fields.last);
     if (!school || !fi) return null;
+    if (_srcScreenedIdx) {
+      var hit = (la && _srcScreenedIdx[school + '|' + fi + '|' + la]) || (r.fields.dob && _srcScreenedIdx[school + '|' + fi + '|dob' + String(r.fields.dob).trim()]);
+      if (hit) return hit;
+    }
+    var ex = r.existing; if (!ex || !ex.scr || !ex.scr.length) return null;
     for (var i = 0; i < ex.scr.length; i++) {
       var sc = ex.scr[i];
       if (_srcNorm(sc.location) === school && _srcNorm(sc.first) === fi && (!la || !sc.last || _srcNorm(sc.last) === la)) return sc;
@@ -69529,7 +69559,7 @@ window.cmsBuildMembershipReport = async function() {
     return null;
   }
   function _srcDupUntick(r) {
-    if (r.dupChecked || r.state === 'saved' || r.state === 'saving' || !_srcAlreadyScreened(r)) return;
+    if (r.dupChecked || r.contactWritten || r.state === 'saved' || r.state === 'saving' || !_srcAlreadyScreened(r)) return;
     r.dupChecked = true; r.ticked = false;
     var cb = _srEl('src_' + r.id + '_tick'); if (cb) cb.checked = false;
   }
@@ -69728,10 +69758,11 @@ window.cmsBuildMembershipReport = async function() {
       }
     }
     if (r.existing && r.state !== 'saved') html += '<div style="color:#0E5F7A;font-weight:600;margin-top:3px;">Adds to existing card: ' + rsEscape(r.existing.displayName) + '</div>';
-    var dup = r.state !== 'saved' ? _srcAlreadyScreened(r) : null;
+    var dup = (r.state !== 'saved' && !r.contactWritten) ? _srcAlreadyScreened(r) : null;
     if (dup) {
       html += '<div style="color:#B91C1C;font-weight:700;margin-top:3px;">Already screened here: ' +
         rsEscape([dup.classroom, (dup.dates || []).map(_srcFmtMd).join('-')].filter(Boolean).join(', ')) +
+        (dup.displayName && (!r.existing || r.existing.id !== dup.contactId) ? ', on ' + rsEscape(dup.displayName) + '&rsquo;s card' : '') +
         '. Saving adds a second screening.</div>';
     }
     return html;
@@ -69743,6 +69774,7 @@ window.cmsBuildMembershipReport = async function() {
   function _srcRefreshMeta() {
     if (!_srcB) return;
     _srcB.rows.forEach(function (r) {
+      _srcDupUntick(r);
       var s = _srEl('src_st_' + r.id); if (s) s.innerHTML = _srcStatusHtml(r);
       var c = _srEl('src_ck_' + r.id); if (c && !c.querySelector('details[open]')) c.innerHTML = _srcChecksHtml(r);
     });
@@ -70028,6 +70060,7 @@ window.cmsBuildMembershipReport = async function() {
     }
     _srcB.saving = false;
     _srcRender();
+    _srcLoadScreened().catch(function () {});
     var msg = 'Saved ' + kids + ' child' + (kids === 1 ? '' : 'ren') + ' in ' + okFam + ' famil' + (okFam === 1 ? 'y' : 'ies') +
       (failFam ? '; ' + failFam + ' famil' + (failFam === 1 ? 'y' : 'ies') + ' need another try (see the rows in red)' : '') + '. No email was sent.';
     var pg = _srEl('srcProgress');
