@@ -5536,7 +5536,7 @@ html[data-ldah-theme="moana"] .wa-analytics-box, html[data-ldah-theme="moana"] .
 .sr-drop-card .sr-card-hint{ font-size:.76rem; color:var(--text-soft); margin-top:6px; }
 .src-meta{ display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; margin:6px 0 10px; }
 .src-meta label{ display:block; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-soft); margin:0 0 2px; font-weight:700; }
-.src-meta input{ width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #cbd5e1; border-radius:7px; font-size:.86rem; background:#fff; color:#1E293B; }
+.src-meta input, .src-meta textarea{ width:100%; font-family:inherit; resize:vertical; box-sizing:border-box; padding:6px 8px; border:1px solid #cbd5e1; border-radius:7px; font-size:.86rem; background:#fff; color:#1E293B; }
 @media (max-width:420px){ .src-meta{ grid-template-columns:1fr; } }
 #srcDropInner{ cursor:pointer; border:1.5px dashed var(--primary-blue); border-radius:10px; padding:12px 10px; text-align:center; background:rgba(255,255,255,.6); }
 html[data-ldah-theme="moana"] .ix-counter, html[data-ldah-theme="moana"] .ec-footnote, html[data-ldah-theme="moana"] .main tr[style*="background:var(--sand-light)"]{ background:linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,.28)) !important; border-color:rgba(255,255,255,.7); box-shadow:inset 0 1px 0 rgba(255,255,255,.85), 0 3px 10px rgba(3,60,100,.10); }
@@ -6036,7 +6036,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.10-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.11-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9715,6 +9715,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
             <div><label for="srcDate1">Screening date</label><input id="srcDate1" type="date"></div>
             <div><label for="srcDate2">Second day</label><input id="srcDate2" type="date"></div>
             <div style="grid-column:1/-1;"><label for="srcTime">Time</label><input id="srcTime" value="8:30am-11:30am" autocomplete="off"></div>
+            <div style="grid-column:1/-1;"><label for="srcRoster">Class list</label><textarea id="srcRoster" rows="2" oninput="srcRosterChanged()" placeholder="Paste the school's class list for this room. Each child's name is checked against it."></textarea></div>
           </div>
           <div id="srcDropInner" onclick="srcPick()">
             <div style="font-weight:700;color:var(--primary-blue);font-size:.9rem;">Click to add the classroom PDF <span style="font-weight:600;color:var(--text-soft);">&mdash; or drag &amp; drop</span></div>
@@ -69474,7 +69475,8 @@ window.cmsBuildMembershipReport = async function() {
         row.flags.push("Child's name differs: consent " + ((c.first || '') + ' ' + (c.last || '')).trim() + ', release ' + (rel.childName || ((rel.childFirst || '') + ' ' + (rel.childLast || ''))).trim());
       }
     }
-    row.ticked = !!g.front && row.signed && row.acks > 0;
+    /* A row with a spelling doubt starts unticked, so a person looks before Save. */
+    row.ticked = !!g.front && row.signed && row.acks > 0 && !_srcIssues(row).length;
     return row;
   }
 
@@ -69629,14 +69631,62 @@ window.cmsBuildMembershipReport = async function() {
     }
     return h;
   }
+  /* Spelling checks for misreads the reader cannot see itself (Room 9 test,
+     2026-10-14: Fukui for Foust, Lex as the parent's first name, hawaii.edy). */
+  var SRC_DOMAINS = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'live.com', 'me.com', 'msn.com',
+    'hawaii.edu', 'hawaii.rr.com', 'hawaiiantel.net', 'k12.hi.us', 'hawaii.gov', 'comcast.net', 'att.net', 'ymail.com', 'protonmail.com'];
+  var SRC_TLDS = ['com', 'net', 'org', 'edu', 'gov', 'us', 'mil', 'io', 'co', 'me', 'info', 'biz', 'ca', 'jp', 'uk', 'au', 'ph', 'kr', 'cn', 'nz'];
+  function _srcEditDist(a, b) {
+    var m = a.length, n = b.length, d = [], i, j;
+    for (i = 0; i <= m; i++) { d[i] = [i]; }
+    for (j = 1; j <= n; j++) d[0][j] = j;
+    for (i = 1; i <= m; i++) for (j = 1; j <= n; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    return d[m][n];
+  }
+  function _srcEmailDomainIssue(em) {
+    var dom = String(em || '').toLowerCase().split('@')[1] || '';
+    if (!dom || SRC_DOMAINS.indexOf(dom) !== -1) return '';
+    var near = SRC_DOMAINS.filter(function (x) { return _srcEditDist(dom, x) <= 2; })[0];
+    if (near) return 'email ending "@' + dom + '" looks like a misread of "@' + near + '"';
+    var tld = dom.split('.').pop();
+    if (SRC_TLDS.indexOf(tld) === -1) return 'email ending ".' + tld + '" is unusual';
+    return '';
+  }
+  /* The pasted class list, as name-word sets. Any layout works: "Foust, Harper",
+     "Harper Foust", or spreadsheet columns with numbers. */
+  function _srcRoster() {
+    return _srcVal('srcRoster').split(/\n+/).map(function (ln) {
+      var words = ln.split(/[\s,\t]+/).map(_srcNorm).filter(function (w) { return w && !/^\d+$/.test(w); });
+      return { line: ln.replace(/\s+/g, ' ').trim(), words: words };
+    }).filter(function (x) { return x.words.length; });
+  }
+  function _srcRosterIssue(f) {
+    var ros = _srcRoster(); if (!ros.length) return '';
+    var fi = _srcNorm(f.first), la = _srcNorm(f.last);
+    if (!fi && !la) return '';
+    var has = function (x, w) { return w && x.words.indexOf(w) !== -1; };
+    if (ros.some(function (x) { return has(x, fi) && has(x, la); })) return '';
+    var byFirst = ros.filter(function (x) { return has(x, fi); });
+    if (byFirst.length) return 'class list has "' + byFirst.map(function (x) { return x.line; }).join('" / "') + '", the form was read as ' + (f.first + ' ' + f.last).trim();
+    var byLast = ros.filter(function (x) { return has(x, la); });
+    if (byLast.length) return 'class list has "' + byLast.map(function (x) { return x.line; }).join('" / "') + '", the form was read as ' + (f.first + ' ' + f.last).trim();
+    return 'child is not on the class list';
+  }
+  window.srcRosterChanged = function () { _srcRefreshMeta(); };
+
   function _srcIssues(r) {
     var f = r.fields, out = [];
     if (!String(f.first || '').trim() || !String(f.last || '').trim()) out.push("child's first and last name");
+    var rIss = _srcRosterIssue(f); if (rIss) out.push(rIss);
+    if (_srcNorm(f.parentFirst) && _srcNorm(f.parentFirst) === _srcNorm(f.first)) out.push("parent's first name is the same as the child's");
     if (f.dob && !/^\d{4}-\d{2}-\d{2}$/.test(String(f.dob).trim())) out.push('birthdate as YYYY-MM-DD');
     if (!String((f.parentFirst || '') + (f.parentLast || '')).trim()) out.push("parent's name");
     var em = String(f.email || '').trim();
     if (!em) out.push('no email');
     else if (!SRC_EMAIL_RE.test(em)) out.push('email does not look right');
+    else { var dIss = _srcEmailDomainIssue(em); if (dIss) out.push(dIss); }
     return out;
   }
   function _srcStatusHtml(r) {
