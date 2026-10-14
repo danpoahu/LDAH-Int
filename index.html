@@ -5989,7 +5989,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.5</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.6</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6667,6 +6667,22 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                 alert('Could not send it: ' + e.message);
                 if(btn){ btn.disabled = false; btn.textContent = old; }
               }
+            };
+            /* School consent request button (2026-10-13). The Cloud Function reads
+               the recipient and child from the task itself, sends the system
+               email (logged in emailLog, cc the sender) and writes the note. */
+            window.myDaySchoolConsentSend = async function(interactionId, btn){
+              var d=(window._myDayDocs||{})[interactionId]||{}; var r=d.schoolConsentRequest||{};
+              if(!confirm('Email '+(r.toName||'the school')+' ('+(r.toEmail||'')+') asking for '+(r.childName||'the child')+'\u2019s signed consent page?\n\nThey get a link to upload it. No login is needed. You are copied on the email.')) return;
+              if(btn){ btn.disabled=true; btn.textContent='Sending\u2026'; }
+              try{
+                var tok=await firebase.auth().currentUser.getIdToken();
+                var resp=await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendSchoolConsentRequest',{
+                  method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ taskId: interactionId, idToken: tok })});
+                var j=await resp.json();
+                if(!resp.ok) throw new Error(j.error||'send failed');
+                if(typeof _showToast==='function') _showToast('Request emailed to '+(j.sentTo||'the school')+'.', '#15803D');
+              }catch(e){ alert('Could not send the request: '+e.message); if(btn){ btn.disabled=false; btn.textContent='Try again'; } }
             };
             window.myDayMembershipRemind = async function(memberId, interactionId){
               if(!confirm('Send the "you are one step away" reminder?\n\nOnly do this if you have checked PayPal and there is NO payment.\n\nThey get a link back to their own checkout with their details already filled in. Nothing is charged.')) return;
@@ -7428,6 +7444,18 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                           +(d.contactId?'<button class="btn" style="'+_ffB+'background:#0891B2;" onclick="event.stopPropagation();scOpenFormsFor(this,'+_jsArg(d.contactId)+')">View screening form</button>':'')
                           +(d.contactId?'<button class="btn" style="'+_ffB+'background:#2563EB;" onclick="event.stopPropagation();myDayOpenContact('+_jsArg(d._id)+')">Open family &rarr;</button>':'')
                           +'</div>';
+                      }
+                      /* School consent request (2026-10-13): a school sent a class's paper
+                         consents and one child's page came back unsigned. One button
+                         emails the school contact a no-login upload link
+                         (sendSchoolConsentRequest); the upload notes this task and gives
+                         Dan a to-do to add the child, and he closes this when done. */
+                      if(r.bucket!=='done'&&d.workflowStep==='schoolConsentRequest'&&d.schoolConsentRequest&&!actionBtn){
+                        var _scr=d.schoolConsentRequest, _scSent=!!d.schoolConsentRequestSentAt, _scGot=!!d.schoolConsentReceivedAt;
+                        actionBtn='<div class="sub" style="margin-top:6px;color:'+(_scGot?'#15803D':'#92400E')+';">'
+                          +(_scGot?'The school has uploaded the signed page. Dan is adding '+esc(_scr.childName)+' to the system.'
+                            :(_scSent?'Request sent to <b>'+esc(_scr.toEmail)+'</b>. Waiting for the upload.':'Goes to <b>'+esc(_scr.toName||'')+'</b> &lt;'+esc(_scr.toEmail)+'&gt; with a link to upload the signed page.'))+'</div>'
+                          +(_scGot?'':'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:'+(_scSent?'#64748B':'#1a3c6e')+';color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDaySchoolConsentSend('+_jsArg(d._id)+',this)">'+(_scSent?'Send the request again':'Email '+esc((_scr.toName||'the school').split(' ')[0])+' for the signed page')+'</button>');
                       }
                       /* One task for the coordinator instead of one card per family
                          (v152.57): opens the Case Management report, where she assigns
