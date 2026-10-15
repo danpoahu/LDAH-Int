@@ -6044,7 +6044,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.26-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.27-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -64691,26 +64691,59 @@ function _pcHomeCards(day, evs, recs) {
   });
   return info + Math.min(2, up);
 }
+/* Every page counts (Daniel 2026-10-14): each page view, plus every piece
+   of material on screen for that view. Events page = event flyers in their
+   date window; Resources page = resource cards that existed that day. Pages
+   with only photos count once per view. Days in the range before website
+   records began are ESTIMATED: each missing day = the average day of the first
+   60 recorded days (the earliest, lowest-traffic baseline), shown separately. */
+function _pcEventCards(day, evs, recs) {
+  var n = 0, pub = function (x) { return x.isOneOff !== true && !(typeof x.partnerIsland === 'string' && x.partnerIsland.trim()); };
+  evs.forEach(function (x) { if (x.imageUrl && pub(x) && x.startDate && x.moveToPastDate && x.startDate <= day && day < x.moveToPastDate) n++; });
+  recs.forEach(function (x) { if (x.imageUrl && pub(x) && x.active !== false) n++; });
+  return n;
+}
+function _pcResDay(r) {
+  var c = r.createdAt || r.dateAdded || r.lastUpdateAt;
+  if (!c) return '2000-01-01';
+  if (c.toDate) return _pbISO(c.toDate());
+  return String(c).slice(0, 10);
+}
+function _pcWebDay(x, day, evs, recs, resDays) {
+  var e = x.events || {}, p = x.pageviews || {};
+  var o = { pages: Number(x.totalPageviews) || 0, homeViews: Number(p.home) || 0 };
+  o.home = o.homeViews * _pcHomeCards(day, evs, recs);
+  o.events = (Number(p.events) || 0) * _pcEventCards(day, evs, recs);
+  o.resources = (Number(p.resources) || 0) * resDays.filter(function (d) { return d <= day; }).length;
+  o.popup = _pcWebTot(e, 'flyer_seen'); o.opened = _pcWebTot(e, 'flyer_click'); o.pdf = _pcWebTot(e, 'document_view');
+  o.total = o.pages + o.home + o.events + o.resources + o.popup + o.opened + o.pdf;
+  return o;
+}
 function _pcWebLoad() {
   var key = _pbState.from + '_' + _pbState.to;
   if (_pcWebKey === key) return Promise.resolve(false);
   _pcWebKey = key; _pcWeb = null;
   return Promise.all([
-    db.collection('siteAnalytics').where('date', '>=', _pbState.from).where('date', '<=', _pbState.to).get(),
-    db.collection('events').get(), db.collection('recurringEvents').get()
+    db.collection('siteAnalytics').get(),
+    db.collection('events').get(), db.collection('recurringEvents').get(), db.collection('resources').get()
   ]).then(function (r) {
     if (_pcWebKey !== key) return false;
     var evs = r[1].docs.map(function (d) { return d.data() || {}; }), recs = r[2].docs.map(function (d) { return d.data() || {}; });
-    var W = { pv: 0, home: 0, homeViews: 0, popup: 0, opened: 0, pdf: 0, days: 0, first: '' };
-    r[0].forEach(function (d) {
-      var x = d.data() || {}, e = x.events || {}, day = x.date || d.id;
-      W.days++; if (!W.first || day < W.first) W.first = day;
-      W.pv += Number(x.totalPageviews) || 0;
-      var hv = Number((x.pageviews || {}).home) || 0;
-      W.homeViews += hv; W.home += hv * _pcHomeCards(day, evs, recs);
-      W.popup += _pcWebTot(e, 'flyer_seen'); W.opened += _pcWebTot(e, 'flyer_click'); W.pdf += _pcWebTot(e, 'document_view');
-    });
-    W.total = W.home + W.popup + W.opened + W.pdf;
+    var resDays = r[3].docs.map(function (d) { return d.data() || {}; }).filter(function (x) { return x.active !== false; }).map(_pcResDay);
+    var byDay = {};
+    r[0].forEach(function (d) { var x = d.data() || {}, day = x.date || d.id; if (/^\d{4}-\d{2}-\d{2}$/.test(day)) byDay[day] = _pcWebDay(x, day, evs, recs, resDays); });
+    var days = Object.keys(byDay).sort(), first = days[0] || '';
+    var base = days.slice(0, 60), baseAvg = base.length ? Math.round(base.reduce(function (a, d) { return a + byDay[d].total; }, 0) / base.length) : 0;
+    var W = { pages: 0, homeViews: 0, home: 0, events: 0, resources: 0, popup: 0, opened: 0, pdf: 0, counted: 0, days: 0, estDays: 0, est: 0, baseAvg: baseAvg, first: first };
+    for (var t = new Date(_pbState.from + 'T12:00:00Z'), end = new Date(_pbState.to + 'T12:00:00Z'); t <= end; t.setUTCDate(t.getUTCDate() + 1)) {
+      var day = t.toISOString().slice(0, 10), o = byDay[day];
+      if (o) {
+        W.days++;
+        ['pages', 'homeViews', 'home', 'events', 'resources', 'popup', 'opened', 'pdf'].forEach(function (k) { W[k] += o[k]; });
+        W.counted += o.total;
+      } else if (!first || day < first) { W.estDays++; W.est += baseAvg; }
+    }
+    W.pv = W.pages; W.total = W.counted + W.est;
     _pcWeb = W;
     return true;
   }).catch(function (e) { console.warn('online dissemination:', e && e.message); _pcWebKey = ''; return false; });
@@ -64720,9 +64753,11 @@ function _pcWebCells() {
   return {
     pv: W ? _pcN(W.pv) : '<span style="color:var(--text-soft);">Loading&hellip;</span>',
     dis: W ? _pcN(W.total) : '<span style="color:var(--text-soft);">Loading&hellip;</span>',
-    note: W ? (W.days ? _pbFmt(W.home) + ' flyers on the website home page (' + _pbFmt(W.homeViews) + ' home visits &times; the flyers showing that day, worked out from each flyer&rsquo;s dates) &middot; ' +
-               _pbFmt(W.popup) + ' flyer pop-ups shown &middot; ' + _pbFmt(W.opened) + ' flyers opened full size &middot; ' + _pbFmt(W.pdf) + ' PDFs opened on Resources.' +
-               (W.first > _pbState.from ? ' Website records start ' + _pbEsc(_pbDayLabel(W.first)) + '.' : '') : 'No website records in this date range.') : ''
+    note: W ? ((W.days ? 'Counted from website and app records (' + _pbFmt(W.counted) + '): ' + _pbFmt(W.pages) + ' page views (each page counts once) &middot; ' +
+               _pbFmt(W.resources) + ' resource cards on the Resources page &middot; ' + _pbFmt(W.home) + ' flyers on the home page &middot; ' + _pbFmt(W.events) + ' flyers on the Events page &middot; ' +
+               _pbFmt(W.popup) + ' flyer pop-ups &middot; ' + _pbFmt(W.opened) + ' flyers opened &middot; ' + _pbFmt(W.pdf) + ' PDFs opened. Each page view counts the materials on screen that day, worked out from each flyer&rsquo;s and resource&rsquo;s dates.' : '') +
+               (W.estDays ? ' <b>Estimated ' + _pbFmt(W.est) + '</b> for ' + W.estDays + ' day' + (W.estDays === 1 ? '' : 's') + ' before website records began (' + _pbEsc(_pbDayLabel(W.first)) + '): ' + _pbFmt(W.baseAvg) + ' a day, the average of the first 60 recorded days.' : '') ||
+               'No website records in this date range.') : ''
   };
 }
 
@@ -64851,7 +64886,7 @@ function _pcHtml() {
        '<tr><td>Exhibits, poster sessions, resource fairs &mdash; materials disseminated<div style="font-size:.7rem;color:var(--text-soft);">handed out at Tier 4 outreach events</div></td><td class="num">' + _pcN(R.outMaterials) + '</td><td>' + _pcTag('auto') + '</td></tr>' +
        '<tr><td>Exhibits, poster sessions, resource fairs &mdash; events attended<div style="font-size:.7rem;color:var(--text-soft);">Tier 4 outreach events</div></td><td class="num">' + _pcN(R.outEvents) + '</td><td>' + _pcTag('auto') + '</td></tr>' +
        '<tr><td>Website &mdash; number of page views<div style="font-size:.7rem;color:var(--text-soft);">website and app, from Web/App Analytics</div></td><td class="num" id="pcWebPv">' + WC.pv + '</td><td>' + _pcTag('auto') + '</td></tr>' +
-       '<tr><td>Flyers and PDFs viewed online &mdash; digital materials disseminated<div id="pcWebNote" style="font-size:.7rem;color:var(--text-soft);">' + WC.note + '</div></td><td class="num" id="pcWebDis">' + WC.dis + '</td><td>' + _pcTag('auto') + '</td></tr>' +
+       '<tr><td>Website and app &mdash; materials disseminated online<div id="pcWebNote" style="font-size:.7rem;color:var(--text-soft);">' + WC.note + '</div></td><td class="num" id="pcWebDis">' + WC.dis + '</td><td>' + _pcTag('auto') + '</td></tr>' +
        '<tr><td>Media events &mdash; number held</td><td class="num">' + _pcIn('out.media') + '</td><td>' + _pcTag('type') + '</td></tr>' +
        '</tbody></table></div></div>';
 
@@ -64930,7 +64965,7 @@ function _pcRows() {
   rows.push(['V', 'Newsletters disseminated', m('out.newsletters'), 'Typed'], ['V', 'Social media reach', m('out.social'), 'Typed'],
             ['V', 'Exhibits/fairs - materials disseminated', R.outMaterials, 'Auto'], ['V', 'Exhibits/fairs - events attended', R.outEvents, 'Auto'],
             ['V', 'Website page views (website and app)', _pcWeb ? _pcWeb.pv : '', 'Auto'],
-            ['V', 'Flyers and PDFs viewed online (digital dissemination)', _pcWeb ? _pcWeb.total : '', 'Auto'],
+            ['V', 'Website and app - materials disseminated online', _pcWeb ? _pcWeb.total : '', _pcWeb && _pcWeb.estDays ? 'Auto + estimated' : 'Auto'],
             ['V', 'Media events held', m('out.media'), 'Typed']);
   return rows;
 }
