@@ -6044,7 +6044,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.27-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.28-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -64716,6 +64716,9 @@ function _pcWebDay(x, day, evs, recs, resDays) {
   o.events = (Number(p.events) || 0) * _pcEventCards(day, evs, recs);
   o.resources = (Number(p.resources) || 0) * resDays.filter(function (d) { return d <= day; }).length;
   o.popup = _pcWebTot(e, 'flyer_seen'); o.opened = _pcWebTot(e, 'flyer_click'); o.pdf = _pcWebTot(e, 'document_view');
+  /* Aloha Packet (2026-10-14): the app's Welcome button download + views of
+     ldahawaii.org/Packet/. Already inside pdf and pages; shown on its own line. */
+  o.packet = (Number((e.document_view && typeof e.document_view === 'object' ? e.document_view : {}).aloha_packet_pdf) || 0) + (Number(p.aloha_packet) || 0);
   o.total = o.pages + o.home + o.events + o.resources + o.popup + o.opened + o.pdf;
   return o;
 }
@@ -64725,7 +64728,10 @@ function _pcWebLoad() {
   _pcWebKey = key; _pcWeb = null;
   return Promise.all([
     db.collection('siteAnalytics').get(),
-    db.collection('events').get(), db.collection('recurringEvents').get(), db.collection('resources').get()
+    db.collection('events').get(), db.collection('recurringEvents').get(), db.collection('resources').get(),
+    /* Flyers sent in announcement emails, per HST day, kept by the
+       tallyEmailFlyerDissemination Cloud Function (back-filled from the email log). */
+    db.collection('settings').doc('disseminationDaily').get().catch(function () { return null; })
   ]).then(function (r) {
     if (_pcWebKey !== key) return false;
     var evs = r[1].docs.map(function (d) { return d.data() || {}; }), recs = r[2].docs.map(function (d) { return d.data() || {}; });
@@ -64734,15 +64740,24 @@ function _pcWebLoad() {
     r[0].forEach(function (d) { var x = d.data() || {}, day = x.date || d.id; if (/^\d{4}-\d{2}-\d{2}$/.test(day)) byDay[day] = _pcWebDay(x, day, evs, recs, resDays); });
     var days = Object.keys(byDay).sort(), first = days[0] || '';
     var base = days.slice(0, 60), baseAvg = base.length ? Math.round(base.reduce(function (a, d) { return a + byDay[d].total; }, 0) / base.length) : 0;
-    var W = { pages: 0, homeViews: 0, home: 0, events: 0, resources: 0, popup: 0, opened: 0, pdf: 0, counted: 0, days: 0, estDays: 0, est: 0, baseAvg: baseAvg, first: first };
+    var DD = (r[4] && r[4].exists && r[4].data()) || {}, EF = DD.emailFlyers || {}, EM = DD.emails || {};
+    var eDays = Object.keys(EF).sort(), eFirst = eDays[0] || '';
+    /* Emails go out on some days only, so the baseline is the first 60 CALENDAR days of the log. */
+    var eEnd = eFirst ? new Date(new Date(eFirst + 'T12:00:00Z').getTime() + 59 * 86400000).toISOString().slice(0, 10) : '';
+    var eBaseAvg = eFirst ? Math.round(eDays.filter(function (d) { return d <= eEnd; }).reduce(function (a, d) { return a + (Number(EF[d]) || 0); }, 0) / 60) : 0;
+    var W = { pages: 0, homeViews: 0, home: 0, events: 0, resources: 0, popup: 0, opened: 0, pdf: 0, packet: 0, counted: 0, days: 0, estDays: 0, est: 0, baseAvg: baseAvg, first: first,
+              emails: 0, emailFlyers: 0, eFirst: eFirst, eEstDays: 0, eEst: 0, eBaseAvg: eBaseAvg };
     for (var t = new Date(_pbState.from + 'T12:00:00Z'), end = new Date(_pbState.to + 'T12:00:00Z'); t <= end; t.setUTCDate(t.getUTCDate() + 1)) {
       var day = t.toISOString().slice(0, 10), o = byDay[day];
+      if (eFirst && day >= eFirst) { W.emails += Number(EM[day]) || 0; W.emailFlyers += Number(EF[day]) || 0; }
+      else if (eFirst && day < eFirst) { W.eEstDays++; W.eEst += eBaseAvg; }
       if (o) {
         W.days++;
-        ['pages', 'homeViews', 'home', 'events', 'resources', 'popup', 'opened', 'pdf'].forEach(function (k) { W[k] += o[k]; });
+        ['pages', 'homeViews', 'home', 'events', 'resources', 'popup', 'opened', 'pdf', 'packet'].forEach(function (k) { W[k] += o[k]; });
         W.counted += o.total;
       } else if (!first || day < first) { W.estDays++; W.est += baseAvg; }
     }
+    W.counted += W.emailFlyers; W.est += W.eEst;
     W.pv = W.pages; W.total = W.counted + W.est;
     _pcWeb = W;
     return true;
@@ -64755,8 +64770,13 @@ function _pcWebCells() {
     dis: W ? _pcN(W.total) : '<span style="color:var(--text-soft);">Loading&hellip;</span>',
     note: W ? ((W.days ? 'Counted from website and app records (' + _pbFmt(W.counted) + '): ' + _pbFmt(W.pages) + ' page views (each page counts once) &middot; ' +
                _pbFmt(W.resources) + ' resource cards on the Resources page &middot; ' + _pbFmt(W.home) + ' flyers on the home page &middot; ' + _pbFmt(W.events) + ' flyers on the Events page &middot; ' +
-               _pbFmt(W.popup) + ' flyer pop-ups &middot; ' + _pbFmt(W.opened) + ' flyers opened &middot; ' + _pbFmt(W.pdf) + ' PDFs opened. Each page view counts the materials on screen that day, worked out from each flyer&rsquo;s and resource&rsquo;s dates.' : '') +
-               (W.estDays ? ' <b>Estimated ' + _pbFmt(W.est) + '</b> for ' + W.estDays + ' day' + (W.estDays === 1 ? '' : 's') + ' before website records began (' + _pbEsc(_pbDayLabel(W.first)) + '): ' + _pbFmt(W.baseAvg) + ' a day, the average of the first 60 recorded days.' : '') ||
+               _pbFmt(W.popup) + ' flyer pop-ups &middot; ' + _pbFmt(W.opened) + ' flyers opened &middot; ' + _pbFmt(W.pdf) + ' PDFs opened &middot; ' +
+               _pbFmt(W.emailFlyers) + ' flyers in ' + _pbFmt(W.emails) + ' announcement emails' + (W.packet ? ' (Aloha Packet: ' + _pbFmt(W.packet) + ' downloads and views, inside the figures above)' : ' &middot; Aloha Packet downloads are counted from Oct 14, 2026') +
+               '. Each page view counts the materials on screen that day, worked out from each flyer&rsquo;s and resource&rsquo;s dates.' : '') +
+               (W.est ? ' <b>Estimated ' + _pbFmt(W.est) + '</b>' +
+                 (W.estDays ? ': ' + W.estDays + ' day' + (W.estDays === 1 ? '' : 's') + ' before website records began (' + _pbEsc(_pbDayLabel(W.first)) + ') at ' + _pbFmt(W.baseAvg) + ' a day' : '') +
+                 (W.eEstDays ? (W.estDays ? '; ' : ': ') + W.eEstDays + ' days before the email log began (' + _pbEsc(_pbDayLabel(W.eFirst)) + ') at ' + _pbFmt(W.eBaseAvg) + ' emailed flyers a day' : '') +
+                 ', each the average of the first 60 recorded days.' : '') ||
                'No website records in this date range.') : ''
   };
 }
