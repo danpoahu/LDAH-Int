@@ -6044,7 +6044,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.24-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.25-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7474,6 +7474,19 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                             +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();cmsViewSignups(' + _jsArg(d.cgEventId||'') + ',true,\'Connect-Gen\')">Today&rsquo;s Connect-Gen &rarr;</button>'
                             +(d.summarySignupId?'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();cmsCgSummaryOpen(' + _jsArg(d.summaryCollection||'recurringEvents') + ',' + _jsArg(d.summaryEventId||'') + ',' + _jsArg(d.summarySignupId) + ')">AI Summary &rarr;</button>':'')
                             +'</div>';
+                      }
+                      // Meeting type (2026-10-14): one big button per IV.A kind. One click
+                      // records it on the meeting itself and closes the task.
+                      if(r.bucket!=='done'&&d.workflowStep==='meetingType'&&d.meetingTypeId&&!actionBtn&&window._IX_MEETING_TYPES){
+                        var _mtB=function(v,l,bg){return '<button class="btn" style="font-size:.84rem;padding:11px 12px;background:'+bg+';color:#fff;border:none;border-radius:9px;cursor:pointer;font-weight:700;line-height:1.25;text-align:center;" onclick="event.stopPropagation();myDaySetMeetingType('+_jsArg(d._id)+','+_jsArg(d.meetingTypeId)+','+_jsArg(v)+',this)">'+l+'</button>';};
+                        actionBtn='<div style="margin-top:8px;" onclick="event.stopPropagation();">'
+                          +'<div style="font-size:.78rem;font-weight:700;color:#334155;margin-bottom:6px;">What kind of meeting was it? One click saves it and closes this task.</div>'
+                          +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:7px;">'
+                          +window._IX_MEETING_TYPES.map(function(m){return _mtB(m[0],m[1],'#0F766E');}).join('')
+                          +_mtB('none','Not one of these','#64748B')
+                          +'</div>'
+                          +'<button class="btn btn-ghost" style="font-size:.72rem;padding:4px 9px;margin-top:6px;" onclick="event.stopPropagation();viewInteraction('+_jsArg(d.meetingTypeId)+')">Open the meeting &rarr;</button>'
+                          +'</div>';
                       }
                       // Rate a school meeting (v151.81): one click records the outcome on
                       // the meeting itself and closes the task. Daniel: "always use deep
@@ -51073,6 +51086,33 @@ window.addEventListener('focus', function() {
   if (_wn.openTasks > 0 && Date.now() - _wn.lastSweep > 60000) _wnSweepTasks();
 });
 
+/* My Day "Pick the meeting type" (2026-10-14). Writes meetingType on the
+   meeting (the same field the New Interaction buttons and the detail card set),
+   then closes the task. 'none' = not one of the 9 IV.A kinds. */
+window.myDaySetMeetingType = async function(taskId, meetingId, type, el) {
+  var label = type === 'none' ? 'Not one of these' : (window._ixMeetingTypeLabel ? window._ixMeetingTypeLabel(type) : '');
+  if (!meetingId || !label) return;
+  if (el && el.disabled) return;
+  if (el) el.disabled = true;
+  try {
+    var mref = db.collection('interactions').doc(meetingId), ms = await mref.get();
+    if (!ms.exists) { if (typeof _showToast === 'function') _showToast('That meeting record could not be found.', '#B45309'); if (el) el.disabled = false; return; }
+    var md = ms.data() || {};
+    await mref.update({ meetingType: type, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (window.auditLog) window.auditLog('Recorded meeting type', (md.contactName || meetingId) + ': ' + label + ' (from My Day task)');
+    var tref = db.collection('interactions').doc(taskId), ts = await tref.get();
+    var prev = ts.exists ? String((ts.data() || {}).notes || '') : '';
+    await tref.update({ status: 'Closed', notes: prev + '\n---\n[' + new Date().toLocaleString('en-US') + '] Meeting type: ' + label + '.',
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (typeof window._clearAssignmentNotifs === 'function') await window._clearAssignmentNotifs(taskId);
+    if (typeof _showToast === 'function') _showToast('Saved: ' + label + '. Task closed.', '#16A34A');
+  } catch (e) {
+    if (el) el.disabled = false;
+    console.warn('meeting type:', e && e.message);
+    if (typeof _showToast === 'function') _showToast('Could not save the meeting type: ' + (e && e.message), '#DC2626');
+  }
+};
+
 /* My Day "Rate the school meeting" (v151.81). Writes the same two fields, with the
    same audit line, as the meeting's own detail card (saveInteractionDetail), then
    closes the task. Tick "Parent led it" before clicking an outcome. */
@@ -64716,7 +64756,7 @@ function _pcHtml() {
   h += '</tbody></table></div>' + _pcNote('Each &ldquo;Out of office meeting&rdquo; now asks what kind of meeting it was, and the Logged column counts those answers. ' +
        (mtUnsorted ? '<b>' + _pbFmt(mtUnsorted) + '</b> of the <b>' + _pbFmt(R.meetings.length) + '</b> meetings in the period have no meeting type yet. Open each one in Interactions and pick its Meeting type, or type the figures in.' : 'Every meeting in the period has a meeting type.')) +
        (R.meetings.length ? '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:.8rem;font-weight:700;color:#0F766E;">Show the ' + R.meetings.length + ' meetings</summary><div class="pb-scroll"><table class="pb-tbl"><tbody>' +
-         R.meetings.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (m) { var tl = window._ixMeetingTypeLabel ? window._ixMeetingTypeLabel((m.raw || {}).meetingType) : ''; return '<tr><td class="nw">' + _pbEsc(_pbDayLabel(m.date)) + '</td><td>' + _pbEsc(m.contactName || '') + '</td><td>' + _pbEsc(m.summary || '') + '</td><td class="nw">' + (tl ? _pbEsc(tl) : '<span style="color:#B45309;font-weight:700;">No type yet</span>') + '</td></tr>'; }).join('') +
+         R.meetings.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (m) { var tl = (m.raw || {}).meetingType === 'none' ? 'Not one of these' : (window._ixMeetingTypeLabel ? window._ixMeetingTypeLabel((m.raw || {}).meetingType) : ''); return '<tr><td class="nw">' + _pbEsc(_pbDayLabel(m.date)) + '</td><td>' + _pbEsc(m.contactName || '') + '</td><td>' + _pbEsc(m.summary || '') + '</td><td class="nw">' + (tl ? _pbEsc(tl) : '<span style="color:#B45309;font-weight:700;">No type yet</span>') + '</td></tr>'; }).join('') +
          '</tbody></table></div></details>' : '') + '</div>';
 
   /* IV.B */
