@@ -6044,7 +6044,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.28-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.29-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -62908,13 +62908,15 @@ function _pbRenderControls() {
       (_pbPipOnly() ? '' :
       '<div><label class="pb-lbl">Report</label><div class="pb-seg">' +
         '<button type="button" onclick="pbSetView(\'board\')" title="The quarterly PTI Board Report."' + (!_cpir ? ' style="background:#0F766E;color:#fff;"' : '') + '>Board Report</button>' +
-        '<button type="button" onclick="pbSetView(\'cpir\')" title="The yearly federal Parent Center Data Collection (CPIR Part 1 and the Part 2 contact lists), laid out like the worksheet. Hawaii PTI only."' + (_cpir ? ' style="background:#0F766E;color:#fff;"' : '') + '>Parent Center Data Collection</button>' +
+        '<button type="button" onclick="pbSetView(\'cpir\')" title="The yearly federal Parent Center Data Collection (CPIR Part 1 and the Part 2 contact lists), laid out like the worksheet. LDAH is the Hawaii PTI figure; PIP and Both are also available."' + (_cpir ? ' style="background:#0F766E;color:#fff;"' : '') + '>Parent Center Data Collection</button>' +
       '</div></div>') +
-      (_cpir ? '<div><label class="pb-lbl">Showing</label><div class="pb-seg"><button type="button" disabled title="A federal PTI figure never contains Pacific partner records, so they are left out here whatever the Board Report switch says." style="background:#0891B2;color:#fff;cursor:default;">Hawaii PTI only</button></div></div>' : '') +
       /* Scope first: it decides what every figure below MEANS, so it is read
          before the dates. Same colours as the Event Attendance toggle —
          LDAH teal, PIP purple — with a neutral slate for Both. */
-      (_cpir ? '' : '<div><label class="pb-lbl">Showing</label>' +
+      /* Parent Center Data Collection uses the same switch (Daniel 2026-10-14):
+         LDAH is the Hawaii PTI figure; PIP and Both are for the partners' own
+         reporting and say so on the page. */
+      ('<div><label class="pb-lbl">Showing</label>' +
         (_pbPipOnly()
           ? '<div class="pb-seg"><button type="button" disabled title="Pacific partner (PIP) records only, all six islands." style="background:#7C3AED;color:#fff;cursor:default;">PIP only</button></div></div>'
           :
@@ -62927,7 +62929,7 @@ function _pbRenderControls() {
             (_pbState.scope === 'both' ? ' style="background:#475569;color:#fff;"' : '') + '>Both</button>' +
         '</div></div>')) +
       /* Partner filter (v151.70): PIP view only. All partners, or one island. */
-      ((!_cpir && (_pbPipOnly() || _pbState.scope === 'pip'))
+      ((_pbPipOnly() || _pbState.scope === 'pip')
         ? '<div><label class="pb-lbl">Partner</label><div class="pb-seg" style="flex-wrap:wrap;">' +
             ['', ].concat(window.PARTNER_ISLANDS_LIST || []).map(function (p) {
               var on = (_pbState.partner || '') === p;
@@ -64334,7 +64336,13 @@ var _pcManualMeta = null;    /* who saved them, and when */
 var _pcManualDoc = '';       /* the settings doc they belong to */
 var _pcLast = null;          /* last computed figures, for the CSV / lists */
 
-function _pcDocId() { return 'cpir_' + _pbState.from + '_' + _pbState.to; }
+function _pcDocId() {
+  /* LDAH keeps the original id; PIP / Both (and one partner island) get their own,
+     so a partner's typed figures never land on the Hawaii PTI figures. */
+  var sc = _pbPipOnly() ? 'pip' : _pbState.scope, pp = _pbPartner();
+  var tag = sc === 'pip' ? '_pip' + (pp ? '_' + String(pp).replace(/[^A-Za-z0-9]+/g, '') : '') : sc === 'both' ? '_both' : '';
+  return 'cpir' + tag + '_' + _pbState.from + '_' + _pbState.to;
+}
 
 /* Program year: 1 Oct - 30 Sep, the year CPIR is collecting in. From July on
    that is the year ending this 30 September; before July, last year's. */
@@ -64440,7 +64448,7 @@ function _pcEthRace(raw) {
 function _pcCompute() {
   var C = _pbCache, from = _pbState.from, to = _pbState.to;
   var inR = function (d) { return !!d && d >= from && d <= to; };
-  var hi = function (r) { return !(r && r.pip); };            /* Hawaii PTI only, always */
+  var hi = _pbKeep;   /* follows the LDAH / PIP / Both switch (and partner island); LDAH = Hawaii PTI only (2026-10-14) */
   var byId = {}; C.contacts.forEach(function (c) { byId[c.id] = c; });
   var sessions = C.sessions.filter(function (r) { return hi(r) && inR(r.date) && !r.isFlyer; });
   var ixs = C.interactions.filter(function (x) { return hi(x) && inR(x.date); });
@@ -64521,7 +64529,7 @@ function _pcCompute() {
   Object.keys(trainServed).forEach(function (id) { served[id] = 1; });
   R.undup = { pu: 0, pt: 0, youth: 0 }; R.notes.undupUnreachable = 0;
   Object.keys(served).forEach(function (id) {
-    var ct = byId[id]; if (!ct || ct.pip) return;
+    var ct = byId[id]; if (!ct || !hi(ct)) return;
     var a = _pcAudience(ct.raw).aud;
     if (a === 'prof') return;
     if (!_pcReachable(ct.raw)) { R.notes.undupUnreachable++; return; }
@@ -64536,7 +64544,7 @@ function _pcCompute() {
   trainPeople.forEach(function (p) { if (p.s.contactId && p.r.date >= six) recent[p.s.contactId] = 1; });
   R.p2 = { FC: [], FT: [], Y: [], since: six };
   Object.keys(recent).forEach(function (id) {
-    var ct = byId[id]; if (!ct || ct.pip || !_pcReachable(ct.raw)) return;
+    var ct = byId[id]; if (!ct || !hi(ct) || !_pcReachable(ct.raw)) return;
     var a = _pcAudience(ct.raw).aud, list = a === 'pu' ? 'FC' : a === 'pt' ? 'FT' : (a === 'youth' || a === 'stud') ? 'Y' : '';
     if (!list) return;
     var x = ct.raw || {};
@@ -64567,7 +64575,7 @@ function _pcCompute() {
     R.hisp[er.hisp][c]++; R.race[er.race][c]++;
   };
   Object.keys(iaServed).forEach(function (id) {
-    var ct = byId[id]; if (!ct || ct.pip) return;
+    var ct = byId[id]; if (!ct || !hi(ct)) return;
     var x = ct.raw || {};
     _pcKids(x).forEach(function (k) {
       addChild('i', _pbChildAgeRange(k), Array.isArray(k.disabilityCategories) ? k.disabilityCategories : [], k.ethnicity || x.ethnicity || '');
@@ -64627,8 +64635,8 @@ function _pcCompute() {
     R.outMaterials += _pbMaterials(r.s || {}, 'materialsDisseminated').total;
     push('out', { d: r.date, w: r.title, n: _pbMaterials(r.s || {}, 'materialsDisseminated').total });
   });
-  R.pipLeftOut = C.sessions.filter(function (r) { return r.pip && inR(r.date); }).length +
-                 C.interactions.filter(function (x) { return x.pip && inR(x.date); }).length;
+  R.pipLeftOut = C.sessions.filter(function (r) { return !hi(r) && inR(r.date); }).length +
+                 C.interactions.filter(function (x) { return !hi(x) && inR(x.date); }).length;
   _pcLast = R;
   return R;
 }
@@ -64765,6 +64773,9 @@ function _pcWebLoad() {
 }
 function _pcWebCells() {
   var W = _pcWeb;
+  if ((_pbPipOnly() ? 'pip' : _pbState.scope) === 'pip')
+    return { pv: '<span style="color:var(--text-soft);">&mdash;</span>', dis: '<span style="color:var(--text-soft);">&mdash;</span>',
+             note: 'LDAH&rsquo;s own website, app and email. Counted under LDAH and Both, not for the Pacific partners.' };
   return {
     pv: W ? _pcN(W.pv) : '<span style="color:var(--text-soft);">Loading&hellip;</span>',
     dis: W ? _pcN(W.total) : '<span style="color:var(--text-soft);">Loading&hellip;</span>',
@@ -64787,8 +64798,12 @@ function _pcHtml() {
   var h = '';
   h += '<div class="pb-card"><div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">' +
        '<div style="flex:1;min-width:280px;"><div class="pb-head-title" style="font-size:1.15rem;font-weight:800;color:#0F766E;">Parent Center Data Collection &mdash; Part 1</div>' +
-       '<div style="font-size:.84rem;color:var(--text-soft);line-height:1.45;">' + _pbEsc(_pbRangeLabel()) + ' &middot; <b>Hawaii PTI only</b>: ' + _pbFmt(R.pipLeftOut) +
-       ' Pacific partner records in this period are left out automatically. Transition age is <b>' + _PC_TA + ' and over</b>. Section numbers match the CPIR worksheet, so each box can be copied into the online form.</div>' +
+       '<div style="font-size:.84rem;color:var(--text-soft);line-height:1.45;">' + _pbEsc(_pbRangeLabel()) + ' &middot; ' + (function () {
+         var sc = _pbPipOnly() ? 'pip' : _pbState.scope, pp = _pbPartner();
+         if (sc === 'pip') return '<b style="color:#7C3AED;">Pacific partner (PIP) records only' + (pp ? ': ' + _pbEsc(pp) : '') + '</b>. Not a Hawaii PTI figure; ' + _pbFmt(R.pipLeftOut) + ' other records in this period are left out.';
+         if (sc === 'both') return '<b style="color:#475569;">LDAH and Pacific partner records combined</b>. Not a Hawaii PTI figure.';
+         return '<b>Hawaii PTI only</b>: ' + _pbFmt(R.pipLeftOut) + ' Pacific partner records in this period are left out automatically.';
+       })() + ' Transition age is <b>' + _PC_TA + ' and over</b>. Section numbers match the CPIR worksheet, so each box can be copied into the online form.</div>' +
        '<div style="margin-top:6px;font-size:.8rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' + _pcTag('auto') + ' counted ' + _pcTag('part') + ' counted, split approximately ' + _pcTag('type') + ' typed once and saved ' + _pcTag('newf') + ' needs a new question on a form</div></div>' +
        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
          '<button class="btn" style="font-size:.8rem;padding:6px 12px;background:#6D28D9;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;" onclick="pcSaveManual()" title="Saves every purple box for this date range, so anyone opening the report sees the same figures.">Save typed figures</button>' +
@@ -64984,8 +64999,8 @@ function _pcRows() {
   [['local', 'Local/community-level systems meetings'], ['state', 'State-level systems meetings'], ['national', 'National/federal-level systems meetings'], ['youth', 'Of those, related to youth/young adults']].forEach(function (x) { rows.push(['IV.B', x[1], m('sys.' + x[0]), 'Typed']); });
   rows.push(['V', 'Newsletters disseminated', m('out.newsletters'), 'Typed'], ['V', 'Social media reach', m('out.social'), 'Typed'],
             ['V', 'Exhibits/fairs - materials disseminated', R.outMaterials, 'Auto'], ['V', 'Exhibits/fairs - events attended', R.outEvents, 'Auto'],
-            ['V', 'Website page views (website and app)', _pcWeb ? _pcWeb.pv : '', 'Auto'],
-            ['V', 'Website and app - materials disseminated online', _pcWeb ? _pcWeb.total : '', _pcWeb && _pcWeb.estDays ? 'Auto + estimated' : 'Auto'],
+            ['V', 'Website page views (website and app)', _pcWeb && _pbState.scope !== 'pip' ? _pcWeb.pv : '', 'Auto'],
+            ['V', 'Website and app - materials disseminated online', _pcWeb && _pbState.scope !== 'pip' ? _pcWeb.total : '', _pcWeb && _pcWeb.estDays ? 'Auto + estimated' : 'Auto'],
             ['V', 'Media events held', m('out.media'), 'Typed']);
   return rows;
 }
@@ -64995,7 +65010,7 @@ function _pcDownload(name, text, type) {
   document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 function _pcCsv(rows) { return rows.map(function (r) { return r.map(function (c) { c = String(c == null ? '' : c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(','); }).join('\n'); }
-window.pcExportCsv = function () { _pcDownload('LDAH_ParentCenterDataCollection_' + _pbState.from + '_to_' + _pbState.to + '.csv', _pcCsv(_pcRows())); };
+window.pcExportCsv = function () { _pcDownload(({ ldah: 'LDAH', pip: 'PIP', both: 'LDAH+PIP' })[_pbPipOnly() ? 'pip' : _pbState.scope] + (_pbPartner() ? '-' + String(_pbPartner()).replace(/[^A-Za-z0-9]+/g, '') : '') + '_ParentCenterDataCollection_' + _pbState.from + '_to_' + _pbState.to + '.csv', _pcCsv(_pcRows())); };
 
 window.pcExportLists = function () {
   if (typeof XLSX === 'undefined') { if (typeof _showToast === 'function') _showToast('The Excel library did not load. Reload the page and try again.', '#DC2626'); return; }
