@@ -5463,6 +5463,14 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 .ix-meeting-fields .ixm-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;font-size:.86rem}
 .ix-meeting-fields .ixm-row label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-weight:600;color:var(--text-dark);font-size:.86rem}
 .ix-meeting-fields .ixm-h{font-size:.8rem;font-weight:700;color:var(--text-soft);margin-bottom:4px}
+/* Meeting type buttons (2026-10-14): the 9 kinds the Parent Center Data Collection report counts in IV.A. */
+.ixmt-grid{display:flex;flex-wrap:wrap;gap:6px}
+.ixmt-grid label{cursor:pointer}
+.ixmt-grid input{position:absolute;opacity:0;pointer-events:none}
+.ixmt-grid span{display:inline-block;padding:6px 11px;border:1.5px solid #CBD5E1;border-radius:999px;font-size:.8rem;font-weight:600;color:var(--text-dark);background:#fff;line-height:1.2}
+.ixmt-grid label:hover span{border-color:#0F766E}
+.ixmt-grid input:checked+span{background:#0F766E;border-color:#0F766E;color:#fff}
+.ixmt-grid input:focus-visible+span{outline:2px solid #0891B2;outline-offset:2px}
 #overlay .ix-meeting-fields input[type="radio"],#overlay .ix-meeting-fields input[type="checkbox"],
 .ix-meeting-fields input[type="radio"],.ix-meeting-fields input[type="checkbox"]{padding:0;margin:0;border:none;box-shadow:none;width:auto;accent-color:#6D28D9}
 @media (max-width:760px){.ar-bd{grid-template-columns:1fr}}
@@ -6036,7 +6044,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.22-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.23-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11838,6 +11846,12 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
           <div style="font-size:.78rem;color:var(--text-soft);margin-bottom:6px;">How many of each item did you give or send during this interaction?</div>
           <div id="intMaterialsList"></div>
         </div>
+
+        <!-- Meeting type (2026-10-14). Shown for every interaction on the "Out of
+             office meeting" channel; the buttons are filled in by
+             _ixMeetingTypeHtml. Feeds IV.A of the Parent Center Data Collection
+             report. Not required, so it can never block a save. -->
+        <div id="intMeetingTypeFields" class="field ix-meeting-fields" style="display:none;grid-column: span 2;"></div>
 
         <!-- School meeting outcome (v150.40-STAGE). Shown only for an advocacy
              interaction logged on the "Out of office meeting" channel. Read by
@@ -20153,6 +20167,38 @@ var _photoPendingByIsland = {};
   window._intMeetingRefresh = function() {
     var box = document.getElementById('intMeetingFields');
     if (box) box.style.display = window._intMeetingIsOn() ? '' : 'none';
+    var tb = document.getElementById('intMeetingTypeFields');
+    if (tb) {
+      if (!tb.innerHTML) tb.innerHTML = window._ixMeetingTypeHtml('int', '');
+      tb.style.display = ((document.getElementById('intChannel') || {}).value || '') === window._IX_MEETING_CHANNEL ? '' : 'none';
+    }
+  };
+  /* Meeting type (2026-10-14): the kind of meeting, for every "Out of office
+     meeting" (advocacy or not). Keys match the IV.A rows of the Parent Center
+     Data Collection report, which counts them. */
+  window._IX_MEETING_TYPES = [
+    ['iep', 'IFSP / IEP / 504 meeting'], ['tiep', 'Transition IEP meeting'], ['fiep', 'Facilitated IEP meeting'],
+    ['dp', 'Due process hearing'], ['mdr', 'Manifestation determination hearing'], ['med', 'Mediation'],
+    ['res', 'Resolution session'], ['susp', 'Suspension / expulsion hearing'], ['slep', 'Student-led IEP meeting']
+  ];
+  window._ixMeetingTypeLabel = function(k) {
+    var m = window._IX_MEETING_TYPES.filter(function(x) { return x[0] === k; })[0];
+    return m ? m[1] : '';
+  };
+  window._ixMeetingTypeHtml = function(prefix, cur) {
+    cur = window._ixMeetingTypeLabel(cur) ? cur : '';
+    return '<div id="' + prefix + 'MeetingTypeBox" data-current="' + cur + '">' +
+      '<div class="ixm-h">What kind of meeting?</div><div class="ixmt-grid">' +
+      window._IX_MEETING_TYPES.map(function(m) {
+        return '<label><input type="radio" name="' + prefix + 'MeetingType" value="' + m[0] + '"' + (cur === m[0] ? ' checked' : '') + '><span>' + m[1] + '</span></label>';
+      }).join('') + '</div></div>';
+  };
+  // { type, was } from a block, or null when it is absent.
+  window._ixMeetingTypeRead = function(prefix) {
+    var box = document.getElementById(prefix + 'MeetingTypeBox');
+    if (!box) return null;
+    var r = box.querySelector('input[name="' + prefix + 'MeetingType"]:checked');
+    return { type: r ? r.value : '', was: box.getAttribute('data-current') || '' };
   };
   /* The same two fields on an EXISTING interaction: prefix 'edit' is the
      one-time edit mode, 'ix' the everyday detail card (saveInteractionDetail).
@@ -24604,6 +24650,11 @@ window.openContactDetail = async function(contactId) {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
+    // Meeting type (2026-10-14) — any "Out of office meeting".
+    if (channel === window._IX_MEETING_CHANNEL && window._ixMeetingTypeRead) {
+      var _mty = window._ixMeetingTypeRead('int');
+      if (_mty && _mty.type) data.meetingType = _mty.type;
+    }
     // School meeting outcome (v150.40-STAGE) — only when the block is showing.
     if (window._intMeetingIsOn && window._intMeetingIsOn()) {
       var _mo = document.querySelector('input[name="intMeetingOutcome"]:checked');
@@ -25859,7 +25910,7 @@ window.openContactDetail = async function(contactId) {
     var matList = document.getElementById('intMaterialsList');
     if (matList) { matList.innerHTML = ''; matList.removeAttribute('data-rendered'); }
     // School meeting outcome (v150.40-STAGE); visibility follows _intRefreshCaFlag below.
-    document.querySelectorAll('input[name="intMeetingOutcome"]').forEach(function(r) { r.checked = false; });
+    document.querySelectorAll('input[name="intMeetingOutcome"], input[name="intMeetingType"]').forEach(function(r) { r.checked = false; });
     var _mpl = document.getElementById('intMeetingParentLed');
     if (_mpl) _mpl.checked = false;
     // Box and pill are both cleared above; recompute the ring so it is off.
@@ -26777,6 +26828,15 @@ window.openContactDetail = async function(contactId) {
                 '</div></div>'
               : '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val">' + rsEscape(d.followUpDate || '—') + '</div></div>') +
             caseAdvocacyFieldHtml +
+            // Meeting type (2026-10-14): set or change it on any "Out of office
+            // meeting", so older ones can be sorted for the IV.A report.
+            (d.channel === window._IX_MEETING_CHANNEL
+              ? '<div class="ct-info-field" style="grid-column:span 2;"><label>Meeting type</label><div class="val">' +
+                  (canChangeStatus
+                    ? window._ixMeetingTypeHtml('ix', d.meetingType || '')
+                    : rsEscape(window._ixMeetingTypeLabel(d.meetingType) || 'Not recorded')) +
+                '</div></div>'
+              : '') +
             // School meeting outcome (v150.40-STAGE). Editable here because the
             // outcome is usually known only after the meeting was logged.
             ((d.channel === window._IX_MEETING_CHANNEL && window._isCaseAdvocacyIx && window._isCaseAdvocacyIx(d))
@@ -27748,8 +27808,10 @@ window.openContactDetail = async function(contactId) {
     // School meeting outcome (v150.40-STAGE).
     var mtg          = window._ixMeetingRead ? window._ixMeetingRead('ix') : null;
     var mtgDirty     = !!mtg && (mtg.outcome !== mtg.wasOutcome || mtg.led !== mtg.wasLed);
+    var mty          = window._ixMeetingTypeRead ? window._ixMeetingTypeRead('ix') : null;
+    var mtyDirty     = !!mty && !!mty.type && mty.type !== mty.was;
 
-    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty && !svcDirty && !mtgDirty) {
+    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty && !svcDirty && !mtgDirty && !mtyDirty) {
       if (msg) { msg.className = ''; msg.textContent = 'No changes.'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
       return;
@@ -27852,6 +27914,12 @@ window.openContactDetail = async function(contactId) {
         await db.collection('interactions').doc(_ixViewDocId).update(_upd);
         svcInput.setAttribute('data-current', newSvcDate);
         if (window.auditLog) window.auditLog('Changed interaction date', _was + ' \u2192 ' + newSvcDate);
+      }
+
+      if (mtyDirty) {
+        await db.collection('interactions').doc(_ixViewDocId).update({ meetingType: mty.type, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        document.getElementById('ixMeetingTypeBox').setAttribute('data-current', mty.type);
+        if (window.auditLog) window.auditLog('Recorded meeting type', (data.contactName || _ixViewDocId) + ': ' + window._ixMeetingTypeLabel(mty.type));
       }
 
       if (mtgDirty) {
@@ -64504,6 +64572,8 @@ function _pcCompute() {
 
   /* ── IV.A School meetings: every "Out of office meeting" in the period ── */
   R.meetings = ixs.filter(function (ix) { return String((ix.raw || {}).channel || '').trim().toLowerCase() === 'out of office meeting'; });
+  R.mtgCount = {};
+  R.meetings.forEach(function (ix) { var k = (ix.raw || {}).meetingType; if (k) R.mtgCount[k] = (R.mtgCount[k] || 0) + 1; });
   /* ── V Outreach: Tier 4 sessions (booths, fairs, exhibits) ── */
   R.outEvents = 0; R.outMaterials = 0;
   sessions.forEach(function (r) {
@@ -64635,11 +64705,18 @@ function _pcHtml() {
   /* IV.A */
   var mt = [['iep', 'IFSP / IEP / 504 meetings'], ['tiep', 'Transition IEP meetings'], ['fiep', 'Facilitated IEP meetings'], ['dp', 'Due process hearings'], ['mdr', 'Manifestation determination hearings'],
             ['med', 'Mediations'], ['res', 'Resolution sessions'], ['susp', 'Suspension / expulsion hearings'], ['slep', 'Student-led IEP meetings supported']];
-  h += '<div class="pb-card"><h3 class="pb-h">IV.A &nbsp;Meetings attended to support parents <span class="pb-count">' + _pbFmt(R.meetings.length) + ' school meetings logged</span></h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Meeting</th><th class="num">Number</th><th></th></tr></thead><tbody>';
-  mt.forEach(function (m) { h += '<tr><td>' + m[1] + '</td><td class="num">' + _pcIn('mtg.' + m[0]) + '</td><td>' + _pcTag('newf') + '</td></tr>'; });
-  h += '</tbody></table></div>' + _pcNote('<b>' + _pbFmt(R.meetings.length) + '</b> interactions in the period are logged on the &ldquo;Out of office meeting&rdquo; channel, but they do not say what kind of meeting it was. Sort them into the rows above for now; a Meeting type question beside &ldquo;How did it go?&rdquo; will fill this table itself.') +
+  h += '<div class="pb-card"><h3 class="pb-h">IV.A &nbsp;Meetings attended to support parents <span class="pb-count">' + _pbFmt(R.meetings.length) + ' school meetings logged</span></h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Meeting</th><th class="num">Logged</th><th class="num">Typed in</th><th class="num">Total</th></tr></thead><tbody>';
+  /* Logged = meetings whose Meeting type is set (2026-10-14); Typed in = any
+     the records do not show. The figure reported is the two added together. */
+  var mtUnsorted = R.meetings.filter(function (x) { return !R.mtgCount[(x.raw || {}).meetingType]; }).length;
+  mt.forEach(function (m) {
+    var tv = Number(_pcManual['mtg.' + m[0]]) || 0, lv = R.mtgCount[m[0]] || 0;
+    h += '<tr><td>' + m[1] + '</td><td class="num">' + _pcN(lv) + '</td><td class="num">' + _pcIn('mtg.' + m[0]) + '</td><td class="num">' + _pcN(lv + tv) + '</td></tr>';
+  });
+  h += '</tbody></table></div>' + _pcNote('Each &ldquo;Out of office meeting&rdquo; now asks what kind of meeting it was, and the Logged column counts those answers. ' +
+       (mtUnsorted ? '<b>' + _pbFmt(mtUnsorted) + '</b> of the <b>' + _pbFmt(R.meetings.length) + '</b> meetings in the period have no meeting type yet: open one below and pick its type, or type the figure in.' : 'Every meeting in the period has a meeting type.')) +
        (R.meetings.length ? '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:.8rem;font-weight:700;color:#0F766E;">Show the ' + R.meetings.length + ' meetings</summary><div class="pb-scroll"><table class="pb-tbl"><tbody>' +
-         R.meetings.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (m) { return '<tr><td class="nw">' + _pbEsc(_pbDayLabel(m.date)) + '</td><td>' + _pbEsc(m.contactName || '') + '</td><td>' + _pbEsc(m.summary || '') + '</td></tr>'; }).join('') +
+         R.meetings.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (m) { var tl = window._ixMeetingTypeLabel ? window._ixMeetingTypeLabel((m.raw || {}).meetingType) : ''; return '<tr><td class="nw">' + _pbEsc(_pbDayLabel(m.date)) + '</td><td>' + _pbEsc(m.contactName || '') + '</td><td>' + _pbEsc(m.summary || '') + '</td><td class="nw">' + (tl ? _pbEsc(tl) : '<span style="color:#B45309;font-weight:700;">No type yet</span>') + '</td></tr>'; }).join('') +
          '</tbody></table></div></details>' : '') + '</div>';
 
   /* IV.B */
@@ -64728,7 +64805,7 @@ function _pcRows() {
   [['yes', 'Hispanic or Latino'], ['no', 'Not Hispanic or Latino'], ['undisclosed', 'Ethnicity undisclosed']].forEach(function (e) { cols.forEach(function (c) { rows.push(['III.C', e[1] + ' - ' + c[1], R.hisp[e[0]][c[0]], 'Auto']); }); });
   _PC_RACES.forEach(function (k) { cols.forEach(function (c) { rows.push(['III.C', k + ' - ' + c[1], R.race[k][c[0]], 'Auto']); }); });
   ['English', 'Spanish', 'Other'].forEach(function (l) { cols.forEach(function (c) { rows.push(['III.D', l + ' - ' + c[1], m('lang.' + l.toLowerCase() + '.' + c[0]), 'Typed']); }); });
-  [['iep', 'IFSP/IEP/504 meetings'], ['tiep', 'Transition IEP meetings'], ['fiep', 'Facilitated IEP meetings'], ['dp', 'Due process hearings'], ['mdr', 'Manifestation determination hearings'], ['med', 'Mediations'], ['res', 'Resolution sessions'], ['susp', 'Suspension/expulsion hearings'], ['slep', 'Student-led IEP meetings']].forEach(function (x) { rows.push(['IV.A', x[1], m('mtg.' + x[0]), 'Typed']); });
+  [['iep', 'IFSP/IEP/504 meetings'], ['tiep', 'Transition IEP meetings'], ['fiep', 'Facilitated IEP meetings'], ['dp', 'Due process hearings'], ['mdr', 'Manifestation determination hearings'], ['med', 'Mediations'], ['res', 'Resolution sessions'], ['susp', 'Suspension/expulsion hearings'], ['slep', 'Student-led IEP meetings']].forEach(function (x) { rows.push(['IV.A', x[1], (R.mtgCount[x[0]] || 0) + (Number(m('mtg.' + x[0])) || 0), 'Auto + typed']); });
   [['local', 'Local/community-level systems meetings'], ['state', 'State-level systems meetings'], ['national', 'National/federal-level systems meetings'], ['youth', 'Of those, related to youth/young adults']].forEach(function (x) { rows.push(['IV.B', x[1], m('sys.' + x[0]), 'Typed']); });
   rows.push(['V', 'Newsletters disseminated', m('out.newsletters'), 'Typed'], ['V', 'Social media reach', m('out.social'), 'Typed'],
             ['V', 'Exhibits/fairs - materials disseminated', R.outMaterials, 'Auto'], ['V', 'Exhibits/fairs - events attended', R.outEvents, 'Auto'],
