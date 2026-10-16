@@ -6011,7 +6011,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.28</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.29</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8566,6 +8566,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
             </span>
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="cmsBuildScreeningsReport()" title="Refresh">&#x21bb; Refresh</button>
             <button class="btn btn-ghost" style="font-size:.85rem;" onclick="_srExportReport()" title="Download what is shown as a CSV">&#x2913; Export CSV</button>
+            <button class="btn btn-primary" id="scrSendResultsBtn" style="font-size:.85rem;display:none;" onclick="_srOpenSendResults()" title="Email finished screening results to the families at one school">Send results to families</button>
           </div>
           <div id="scrBody"></div>
         </div>
@@ -22085,6 +22086,26 @@ var _photoPendingByIsland = {};
   };
 
   /* Vision printout photo on a screening (v151.66). Same private route as consents. */
+  /* Resend screening results to the family (v153.35): same function as the
+     first send, which mints a fresh link and counts the send. */
+  window.ctScResendResults = async function(contactId, screeningId, el) {
+    if (el && el.disabled) return;
+    if (el) { el.disabled = true; el.textContent = 'Sending\u2026'; }
+    try {
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var r = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendScreeningResults', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, contactId: contactId, screeningId: screeningId }) });
+      var j = await r.json().catch(function () { return {}; });
+      if (!r.ok || j.ok === false) throw new Error(j.error || ('Send failed (' + r.status + ')'));
+      if (window.auditLog) window.auditLog('Resent screening results', contactId + ' / ' + screeningId);
+      _showToast('Results sent again' + (j.to ? ' to ' + (Array.isArray(j.to) ? j.to.join(', ') : j.to) : '') + '.', '#16A34A');
+      if (el) el.textContent = 'Sent';
+    } catch (e) {
+      if (el) { el.disabled = false; el.textContent = 'Resend results'; }
+      _showToast('Could not resend: ' + (e && e.message), '#DC2626');
+    }
+  };
+
   window.ctScViewPrintout = async function(contactId, screeningId, idx) {
     try {
       var snap = await db.collection('contacts').doc(contactId).get();
@@ -22098,7 +22119,9 @@ var _photoPendingByIsland = {};
       });
       var d = await r.json();
       if (!r.ok || !d.url) throw new Error(d.error || 'Could not open that photo.');
-      cmsCgLightboxOpen(d.url, 'image/jpeg', 'Vision printout');
+      // A slot can hold a PDF since 10-16; the lightbox shows a PDF in a frame.
+      var _isPdf = rec.mimeType === 'application/pdf' || /\.pdf$/i.test(rec.storagePath);
+      cmsCgLightboxOpen(d.url, _isPdf ? 'application/pdf' : 'image/jpeg', window._srFileLabel ? window._srFileLabel(scr.printouts || [], idx) : 'Vision printout');
       var _dl = document.getElementById('cmsCgLightboxDl');
       if (_dl) _dl.onclick = null;
     } catch (e) {
@@ -22542,16 +22565,21 @@ window.openContactDetail = async function(contactId) {
             var _resWhen = _res.screenedAt && _res.screenedAt.toDate ? _res.screenedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : rsEscape(String(_res.screenedAt || ''));
             if (_res.site) railHtml += '<div style="font-size:.75rem;color:#94A3B8;">Site: ' + rsEscape(_res.site) + '</div>';
             if (_resWhen || _res.screenedBy) railHtml += '<div style="font-size:.75rem;color:#94A3B8;margin-top:2px;">Screened ' + _resWhen + (_res.screenedBy ? ' by ' + rsEscape(_res.screenedBy) : '') + '</div>';
-            railHtml += '<div style="font-size:.75rem;color:#94A3B8;">Results ' + (_res.resultsSentAt ? 'emailed to family' : 'not yet sent') + '</div></div>';
+            var _rsDay = function (v) { try { var d = v && v.toDate ? v.toDate() : (v ? new Date(v) : null); return d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Pacific/Honolulu' }) : ''; } catch (e) { return ''; } };
+            railHtml += '<div style="font-size:.75rem;color:#94A3B8;">Results ' + (_res.resultsSentAt ? 'emailed to family ' + _rsDay(_res.resultsSentAt) + ((_res.resultsSendCount || 0) > 1 ? ' (' + _res.resultsSendCount + ' times)' : '') : 'not yet sent') +
+              (_res.schoolSentAt ? ' &middot; sent to school ' + _rsDay(_res.schoolSentAt) + (_res.schoolSentTo ? ' (' + rsEscape(_res.schoolSentTo) + ')' : '') : '') + '</div>' +
+              (_srp.release && _srp.release.signed ? '<div style="font-size:.75rem;color:#5B21B6;font-weight:600;">Consent to Release signed' + (_srp.release.agency ? ' &middot; ' + rsEscape(_srp.release.agency) : '') + '</div>' : '') + '</div>';
           }
           /* Vision printout photos taken on screening day (v151.66). Private:
              each opens through a 10-minute signed link and every view is logged. */
           if (Array.isArray(_srp.printouts) && _srp.printouts.length) {
             railHtml += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">' + _srp.printouts.map(function (_p, _pi) {
-              return '<button onclick="event.stopPropagation(); ctScViewPrintout(\'' + contactId + '\', \'' + (_srp.id || '') + '\', ' + _pi + ')" style="font-size:.78rem;font-weight:600;color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;padding:4px 10px;cursor:pointer;">Vision printout' + (_srp.printouts.length > 1 ? ' ' + (_pi + 1) : '') + '</button>';
+              return '<button onclick="event.stopPropagation(); ctScViewPrintout(\'' + contactId + '\', \'' + (_srp.id || '') + '\', ' + _pi + ')" style="font-size:.78rem;font-weight:600;color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;padding:4px 10px;cursor:pointer;">' + rsEscape(window._srFileLabel ? window._srFileLabel(_srp.printouts, _pi) : 'Vision printout') + (/\.pdf$/i.test(String((_srp.printouts[_pi] || {}).storagePath || '')) ? ' (PDF)' : '') + '</button>';
             }).join('') + '</div>';
           }
-          railHtml += '<div style="margin-top:10px;"><button onclick="event.stopPropagation(); openScreeningResults(\'' + contactId + '\', \'' + (_srp.id || '') + '\')" style="font-size:.8rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 12px;cursor:pointer;">' + (_res ? 'Edit / send results' : 'Enter results') + '</button></div>';
+          railHtml += '<div style="margin-top:10px;"><button onclick="event.stopPropagation(); openScreeningResults(\'' + contactId + '\', \'' + (_srp.id || '') + '\')" style="font-size:.8rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 12px;cursor:pointer;">' + (_res ? 'Edit / send results' : 'Enter results') + '</button>' +
+            /* Resend (v153.35): a family that lost the email gets a fresh link, one click. */
+            (_res && _res.resultsSentAt ? ' <button onclick="event.stopPropagation(); ctScResendResults(\'' + contactId + '\', \'' + (_srp.id || '') + '\', this)" style="font-size:.8rem;font-weight:600;color:#fff;background:#0369A1;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;margin-left:6px;">Resend results</button>' : '') + '</div>';
           /* Consent provenance. A screening carried out before the online
              consent form existed (July 2026) was consented on PAPER, so saying
              "Electronically signed by …" over a handwritten signature would put
@@ -70845,6 +70873,282 @@ window.cmsBuildMembershipReport = async function() {
     } catch(e){ msg.style.color='#dc2626'; msg.textContent='Error: '+_esc(e.message); }
   };
 
+  // ── Send results to families (v152.31-STAGE) ──
+  /* Bulk email of finished screening results for one school (location), and
+     optionally one classroom. The backend decides who is ready; this modal
+     shows its four groups and sends only the ticked "ready" rows.
+     Super Admin and Admin only. */
+  var _SR_BULK_URL = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendScreeningResultsBulk';
+  var _srSendState = { busy: false, preview: null, ticked: {} };
+  function _srCanSendResults(){
+    var r = window.currentUserData && window.currentUserData.role;
+    return r === 'superAdmin' || r === 'admin';
+  }
+  async function _srBulkCall(payload){
+    var user = firebase.auth().currentUser;
+    if (!user) throw new Error('You are signed out. Sign in again and retry.');
+    var tok = await user.getIdToken();
+    var resp = await fetch(_SR_BULK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok },
+      body: JSON.stringify(payload)
+    });
+    var data = null;
+    try { data = await resp.json(); } catch (_) { data = null; }
+    if (!resp.ok) throw new Error((data && data.error) || ('Request failed (' + resp.status + ').'));
+    return data || {};
+  }
+  function _srKidName(c){
+    if (!c) return '';
+    if (typeof c === 'string') return c.trim();
+    return (((c.firstName || '') + ' ' + (c.lastName || '')).trim()) || String(c.name || '').trim();
+  }
+  function _srSentDate(v){
+    try {
+      if (!v) return '';
+      var d = null;
+      if (typeof v === 'string' || typeof v === 'number') d = new Date(v);
+      else if (v.toDate) d = v.toDate();
+      else if (v._seconds) d = new Date(v._seconds * 1000);
+      else if (v.seconds) d = new Date(v.seconds * 1000);
+      if (!d || isNaN(d.getTime())) return String(v);
+      return d.toLocaleDateString('en-US', { timeZone: 'Pacific/Honolulu' });
+    } catch (e) { return ''; }
+  }
+  function _srRowKey(r){ return String(r.contactId || '') + '|' + String(r.screeningId || ''); }
+  function _srEnsureSendModal(){
+    if (document.getElementById('srSendOverlay')) return;
+    var o = document.createElement('div');
+    o.className = 'overlay'; o.id = 'srSendOverlay';
+    o.innerHTML =
+      '<div class="modal" style="max-width:680px;">' +
+        '<div class="modal-header">' +
+          '<div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div>Send results to families</div></div>' +
+          '<div style="display:flex;align-items:center;gap:10px;"><button class="close" type="button" onclick="_srCloseSendResults()">&times;</button></div>' +
+        '</div>' +
+        '<div class="modal-body" style="display:block;padding:12px 18px 14px;">' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">' +
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:600;color:#334155;flex:1;min-width:180px;">Location' +
+              '<select id="srSendLoc" onchange="_srSendLocChanged()" style="padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:.88rem;"></select></label>' +
+            '<label style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:600;color:#334155;flex:1;min-width:160px;">Classroom' +
+              '<select id="srSendClass" onchange="_srSendClearPreview()" style="padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:.88rem;"></select></label>' +
+            '<button class="btn btn-ghost" type="button" id="srSendCheckBtn" onclick="_srSendCheck()">Check</button>' +
+          '</div>' +
+          '<div id="srSendBody" style="max-height:min(52vh,440px);overflow-y:auto;font-size:.88rem;line-height:1.5;"></div>' +
+          '<div id="srSendMsg" style="display:none;margin-top:10px;font-size:.86rem;padding:8px 10px;border-radius:8px;"></div>' +
+        '</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn btn-ghost" type="button" id="srSendCancelBtn" onclick="_srCloseSendResults()">Cancel</button>' +
+          '<button class="btn btn-primary" type="button" id="srSendGoBtn" onclick="_srSendGo()" disabled>Send to 0 families</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(o);
+  }
+  function _srSendMsg(text, kind){
+    var el = document.getElementById('srSendMsg'); if (!el) return;
+    if (!text) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    var c = kind === 'error' ? ['#FEF2F2', '#991B1B'] : kind === 'ok' ? ['#F0FDF4', '#166534'] : ['#F1F5F9', '#334155'];
+    el.style.background = c[0]; el.style.color = c[1];
+    el.innerHTML = text;
+    el.style.display = 'block';
+  }
+  function _srSendTickedRows(){
+    var p = _srSendState.preview; if (!p || !Array.isArray(p.ready)) return [];
+    return p.ready.filter(function(r){ return _srSendState.ticked[_srRowKey(r)]; });
+  }
+  function _srSendButtons(){
+    var st = _srSendState;
+    var n = _srSendTickedRows().length;
+    var go = document.getElementById('srSendGoBtn');
+    if (go) { go.textContent = 'Send to ' + n + ' ' + (n === 1 ? 'family' : 'families'); go.disabled = st.busy || n === 0; }
+    var chk = document.getElementById('srSendCheckBtn'); if (chk) chk.disabled = st.busy || !(document.getElementById('srSendLoc') || {}).value;
+    var cancel = document.getElementById('srSendCancelBtn'); if (cancel) { cancel.disabled = st.busy; cancel.textContent = st.preview ? 'Close' : 'Cancel'; }
+    ['srSendLoc', 'srSendClass'].forEach(function(id){ var el = document.getElementById(id); if (el) el.disabled = st.busy; });
+  }
+  /* Locations come from the rows the report already loaded; _srBuildRows has
+     applied _sandboxOK, so a sandbox school only shows for its viewers. */
+  function _srSendLocations(){
+    var seen = {};
+    (_srAllRows || []).forEach(function(r){ if (r.location) seen[r.location] = 1; });
+    return Object.keys(seen).sort(function(a, b){ return a.localeCompare(b); });
+  }
+  function _srSendClassrooms(loc){
+    var seen = {};
+    (_srAllRows || []).forEach(function(r){ if (r.location === loc && r.classroom) seen[r.classroom] = 1; });
+    return Object.keys(seen).sort(function(a, b){ return a.localeCompare(b, undefined, { numeric: true }); });
+  }
+  window._srSendClearPreview = function(){
+    _srSendState.preview = null; _srSendState.ticked = {};
+    var body = document.getElementById('srSendBody');
+    if (body) body.innerHTML = '<div style="padding:14px;color:var(--text-soft);text-align:center;">Pick a location, then press <b>Check</b> to see who is ready.</div>';
+    _srSendMsg('');
+    _srSendButtons();
+  };
+  window._srSendLocChanged = function(){
+    var loc = (document.getElementById('srSendLoc') || {}).value || '';
+    var cs = document.getElementById('srSendClass');
+    if (cs) {
+      cs.innerHTML = '<option value="">All classrooms</option>' + _srSendClassrooms(loc).map(function(c){ return '<option value="' + _esc(c) + '">' + _esc(c) + '</option>'; }).join('');
+    }
+    _srSendClearPreview();
+  };
+  window._srOpenSendResults = function(){
+    if (!_srCanSendResults()) { if (typeof _showToast === 'function') _showToast('Sending results is limited to Super Admin and Admin.', '#B45309'); return; }
+    _srEnsureSendModal();
+    _srSendState = { busy: false, preview: null, ticked: {} };
+    var locs = _srSendLocations();
+    var ls = document.getElementById('srSendLoc');
+    if (ls) {
+      ls.innerHTML = locs.length
+        ? '<option value="">Pick a location</option>' + locs.map(function(l){ return '<option value="' + _esc(l) + '">' + _esc(l) + '</option>'; }).join('')
+        : '<option value="">No locations on file</option>';
+      if (locs.length === 1) ls.value = locs[0];
+    }
+    _srSendLocChanged();
+    document.getElementById('srSendOverlay').classList.add('active');
+  };
+  window._srCloseSendResults = function(){
+    if (_srSendState.busy) return;
+    var o = document.getElementById('srSendOverlay'); if (o) o.classList.remove('active');
+  };
+  window._srSendToggle = function(key, on){
+    if (on) _srSendState.ticked[key] = true; else delete _srSendState.ticked[key];
+    _srSendButtons();
+  };
+  window._srSendToggleAll = function(on){
+    var p = _srSendState.preview; if (!p) return;
+    _srSendState.ticked = {};
+    if (on) (p.ready || []).forEach(function(r){ _srSendState.ticked[_srRowKey(r)] = true; });
+    document.querySelectorAll('#srSendBody input[data-srkey]').forEach(function(cb){ cb.checked = !!on; });
+    _srSendButtons();
+  };
+  function _srSendRenderPreview(){
+    var p = _srSendState.preview || {};
+    var body = document.getElementById('srSendBody'); if (!body) return;
+    var ready = Array.isArray(p.ready) ? p.ready : [];
+    var inc = Array.isArray(p.incomplete) ? p.incomplete : [];
+    var noE = Array.isArray(p.noEmail) ? p.noEmail : [];
+    var sent = Array.isArray(p.sent) ? p.sent : [];
+    var th = 'text-align:left;padding:5px 8px;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:1px solid #E2E8F0;';
+    var td = 'padding:5px 8px;border-bottom:1px solid #F1F5F9;vertical-align:top;';
+    function head(title, n, color, note){
+      return '<div style="margin:12px 0 4px;font-weight:700;color:' + color + ';font-size:.92rem;">' + title + ' (' + n + ')</div>' +
+        (note ? '<div style="font-size:.8rem;color:var(--text-soft);margin-bottom:4px;">' + note + '</div>' : '');
+    }
+    function none(){ return '<div style="font-size:.82rem;color:var(--text-soft);padding:2px 8px 4px;">None.</div>'; }
+    var h = '';
+    h += head('Ready to send', ready.length, '#15803D', 'Results are finished and there is an email on file. Untick anyone you want to hold back.');
+    if (ready.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="' + th + 'width:28px;"><input type="checkbox" checked onchange="_srSendToggleAll(this.checked)" title="Tick or untick all"></th>' +
+        '<th style="' + th + '">Child</th><th style="' + th + '">Parent</th><th style="' + th + '">Email</th><th style="' + th + '">Classroom</th></tr></thead><tbody>';
+      ready.forEach(function(r){
+        var k = _srRowKey(r);
+        h += '<tr><td style="' + td + '"><input type="checkbox" data-srkey="' + _esc(k) + '"' + (_srSendState.ticked[k] ? ' checked' : '') + ' onchange="_srSendToggle(this.getAttribute(\'data-srkey\'), this.checked)"></td>' +
+          '<td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.parentName || '—') + '</td>' +
+          '<td style="' + td + 'word-break:break-all;">' + _esc(r.email || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '—') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    h += head('Not finished yet', inc.length, '#B45309', 'These children are still missing a result, so nothing goes out yet.');
+    if (inc.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><tbody>';
+      inc.forEach(function(r){
+        var miss = (Array.isArray(r.missing) ? r.missing : []).map(function(m){ var t = String(m || ''); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''; }).filter(Boolean).join(' and ');
+        h += '<tr><td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '') + '</td>' +
+          '<td style="' + td + 'color:#B45309;">' + (miss ? 'Missing ' + _esc(miss) : 'Missing a result') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    h += head('No email on file', noE.length, '#B91C1C', 'Results are finished but the family has no email address. Add one on the contact card, then press Check again.');
+    if (noE.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><tbody>';
+      noE.forEach(function(r){
+        h += '<tr><td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + (r.contactId ? '<a href="#" onclick="event.preventDefault();openContactDetail(' + _esc(JSON.stringify(String(r.contactId))).replace(/"/g, '&quot;') + ')" style="color:#0E7490;">' + _esc(r.parentName || 'Open contact') + '</a>' : _esc(r.parentName || '—')) + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    h += head('Already sent', sent.length, '#475569', 'These families already have their results.');
+    if (sent.length) {
+      h += '<table style="width:100%;border-collapse:collapse;"><tbody>';
+      sent.forEach(function(r){
+        var d = _srSentDate(r.sentAt);
+        h += '<tr><td style="' + td + 'font-weight:600;">' + _esc(_srKidName(r.child) || '—') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.parentName || '') + '</td>' +
+          '<td style="' + td + '">' + _esc(r.classroom || '') + '</td>' +
+          '<td style="' + td + 'color:var(--text-soft);white-space:nowrap;">' + (d ? 'Sent ' + _esc(d) : 'Sent') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += none();
+    body.innerHTML = h;
+  }
+  window._srSendCheck = async function(keepMsg){
+    var st = _srSendState;
+    var loc = (document.getElementById('srSendLoc') || {}).value || '';
+    var cls = (document.getElementById('srSendClass') || {}).value || '';
+    if (!loc) { _srSendMsg('Pick a location first.', 'error'); return; }
+    var body = document.getElementById('srSendBody');
+    st.busy = true; st.preview = null; st.ticked = {};
+    if (!keepMsg) _srSendMsg('');
+    _srSendButtons();
+    if (body) body.innerHTML = '<div style="padding:14px;color:var(--text-soft);text-align:center;">Checking&hellip;</div>';
+    var payload = { mode: 'preview', location: loc };
+    if (cls) payload.classroom = cls;
+    try {
+      var data = await _srBulkCall(payload);
+      st.preview = data;
+      (Array.isArray(data.ready) ? data.ready : []).forEach(function(r){ st.ticked[_srRowKey(r)] = true; });
+      _srSendRenderPreview();
+    } catch (e) {
+      if (body) body.innerHTML = '';
+      _srSendMsg('Could not check: ' + _esc((e && e.message) || String(e)), 'error');
+    } finally {
+      st.busy = false; _srSendButtons();
+    }
+  };
+  window._srSendGo = async function(){
+    var st = _srSendState;
+    var rows = _srSendTickedRows();
+    if (!rows.length || st.busy) return;
+    var loc = (document.getElementById('srSendLoc') || {}).value || '';
+    var cls = (document.getElementById('srSendClass') || {}).value || '';
+    var ids = rows.map(function(r){ return r.screeningId; }).filter(Boolean);
+    st.busy = true; _srSendButtons();
+    _srSendMsg('Sending results to ' + ids.length + ' ' + (ids.length === 1 ? 'family' : 'families') + '&hellip; please keep this window open.', 'info');
+    var payload = { mode: 'send', location: loc, screeningIds: ids };
+    if (cls) payload.classroom = cls;
+    var resMsg = '', kind = 'ok';
+    try {
+      var data = await _srBulkCall(payload);
+      var nSent = Number(data.sent) || 0;
+      var failed = Array.isArray(data.failed) ? data.failed : [];
+      var skipped = Array.isArray(data.skipped) ? data.skipped : [];
+      resMsg = '<b>Sent ' + nSent + '. Failed ' + failed.length + '.</b>' + (skipped.length ? ' Skipped ' + skipped.length + '.' : '');
+      if (failed.length) {
+        kind = 'error';
+        resMsg += '<ul style="margin:6px 0 0 18px;padding:0;">' + failed.map(function(f){
+          return '<li>' + _esc(_srKidName(f.child) || f.contactId || 'Unknown') + ': ' + _esc(f.error || 'unknown error') + '</li>';
+        }).join('') + '</ul>';
+      }
+      try {
+        if (typeof window.auditLog === 'function') window.auditLog('Sent screening results to families',
+          loc + (cls ? ' / ' + cls : '') + ' — sent ' + nSent + ', failed ' + failed.length + (skipped.length ? ', skipped ' + skipped.length : ''));
+      } catch (_a) {}
+    } catch (e) {
+      kind = 'error';
+      resMsg = 'Could not send: ' + _esc((e && e.message) || String(e));
+    } finally {
+      st.busy = false;
+    }
+    _srSendMsg(resMsg, kind);
+    await _srSendCheck(true);
+    _srSendMsg(resMsg, kind);
+  };
+
   // ── Screenings Report (2026-07-16) — opened from the Reports section ──
   var _srReportRows = [];
   /* The floating overlay that used to hold this report was removed in v150.16:
@@ -70891,13 +71195,20 @@ window.cmsBuildMembershipReport = async function() {
           parentName: c.displayName||((((c.firstName||'')+' '+(c.lastName||'')).trim())),
           email: c.email||'',
           school: String(s.school||''), grade: String(s.grade||''),
+          location: String(s.location||'').trim(), classroom: String(s.classroom||'').trim(),   /* for Send results to families (v152.31) */
           outcome: String(s.outcome||''),
           hearingRec: String(s.hearingRecommendation||''),
           /* Lions keeps a flat screeningDate; everything else has the date on
              the entered results (results.screenedAt, YYYY-MM-DD). (v151.71) */
           screeningDate: String(s.screeningDate || ((s.results && typeof s.results.screenedAt === 'string') ? s.results.screenedAt.slice(0,10) : '') || ''),
           signedAt: s.signedAt,
-          hasResults: !!s.results, resultsSent: !!(s.results&&s.results.resultsSentAt)
+          hasResults: !!s.results, resultsSent: !!(s.results&&s.results.resultsSentAt),
+          /* School view (v153.35) */
+          results: s.results || null, printouts: Array.isArray(s.printouts) ? s.printouts : [],
+          hearingFail: _srHearingFail(s.results), visionFail: _srVisionFail(s.results),
+          releaseSigned: !!(s.release && s.release.signed),
+          resultsSentAt: (s.results && s.results.resultsSentAt) || null,
+          schoolSentAt: (s.results && s.results.schoolSentAt) || null
         });
       });
     });
@@ -70925,6 +71236,8 @@ window.cmsBuildMembershipReport = async function() {
      Lions Club school screenings, which it could not show at all. */
   window.cmsBuildScreeningsReport = async function(){
     _cmsShowOnlyReport('screeningsInGrid');
+    var _srSendBtn = document.getElementById('scrSendResultsBtn');
+    if (_srSendBtn) _srSendBtn.style.display = _srCanSendResults() ? '' : 'none';
     if (!window._srReportFilter) window._srReportFilter = 'all';
     var body = document.getElementById('scrBody');
     if (body) body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading screenings&hellip;</div>';
@@ -70946,6 +71259,7 @@ window.cmsBuildMembershipReport = async function() {
   };
   window._srRenderReport = function(){
     var body = document.getElementById('scrBody'); if (!body) return;
+    if (window._srLoc) { _srRenderSchool(body); return; }
     var rows = _srAllRows || [];
     var f = window._srReportFilter || 'all';
     var filtered = rows.filter(function(r){
@@ -70961,7 +71275,7 @@ window.cmsBuildMembershipReport = async function() {
     if (cnt) cnt.textContent = filtered.length + (filtered.length === 1 ? ' screening' : ' screenings') +
       ' \u00b7 ' + lionsN + ' from Lions, ' + (rows.length - lionsN) + ' online';
     if (!filtered.length){
-      body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-soft);background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Nothing to show for this filter.</div>';
+      body.innerHTML = _srSchoolPicker() + '<div style="padding:24px;text-align:center;color:var(--text-soft);background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Nothing to show for this filter.</div>';
       return;
     }
     var th='text-align:left;padding:8px 10px;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:2px solid #E2E8F0;background:#F8FAFC;';
@@ -71002,8 +71316,305 @@ window.cmsBuildMembershipReport = async function() {
         '<td style="'+td+'text-align:right;"><button onclick="openScreeningResults(\''+r.contactId+'\',\''+r.screeningId+'\',\'report\')" style="font-size:.8rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 12px;cursor:pointer;white-space:nowrap;">'+(r.hasResults?'Edit results':'Add results')+'</button></td>'+
         '</tr>';
     });
-    body.innerHTML = h + '</tbody></table></div>';
+    body.innerHTML = _srSchoolPicker() + h + '</tbody></table></div>';
   };
+  /* ── School screenings view (v153.35, Chassidy 2026-10-16) ──────────────
+     Pick a school (and classroom) on the Screenings report to see each
+     child's vision and hearing results, a red flag on any hearing failure
+     (OAE "Fail" in either ear), the vision photo and hearing PDFs, whether a
+     signed Consent to Release is on file, and whether results went to the
+     family and to the school. From here: upload a hearing PDF, email the
+     families (the existing bulk send), or email the school one PDF of every
+     released child's results. */
+  window._srLoc = window._srLoc || ''; window._srClass = window._srClass || '';
+  function _srPair(o){ o = o || {}; return [o.right || '', o.left || '']; }
+  function _srHearingFail(res){ var o = (res && res.hearing && res.hearing.oae) || {}; return o.right === 'Fail' || o.left === 'Fail'; }
+  function _srVisionFail(res){ var o = (res && res.vision && res.vision.distance) || {}; return o.right === 'Fail' || o.left === 'Fail'; }
+  function _srTsDay(v){
+    try { var d = v && v.toDate ? v.toDate() : (v ? new Date(v) : null); return d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'Pacific/Honolulu' }) : ''; } catch (e) { return ''; }
+  }
+  function _srSlotKind(p, i){ var s = Number(p && p.slot) || Math.min(i + 1, 3); return (p && p.kind) || (s === 1 ? 'vision' : 'hearing'); }
+  function _srFileLabel(list, i){
+    var p = list[i] || {}, s = Number(p.slot) || 0;
+    if (!s && !p.kind) return 'Vision printout' + (list.length > 1 ? ' ' + (i + 1) : '');
+    if (_srSlotKind(p, i) === 'vision') return 'Vision photo';
+    return 'Hearing PDF' + (s === 3 ? ' 2' : (s === 2 ? ' 1' : ''));
+  }
+  window._srFileLabel = _srFileLabel;
+  window._srPickLoc = function(v){ window._srLoc = v || ''; window._srClass = ''; _srRenderReport(); };
+  window._srPickClass = function(v){ window._srClass = v || ''; _srRenderReport(); };
+  function _srSchoolRows(){
+    return (_srAllRows || []).filter(function(r){
+      return !r.lions && r.location === window._srLoc && (!window._srClass || r.classroom === window._srClass);
+    });
+  }
+  function _srSchoolPicker(){
+    var locs = {}; (_srAllRows || []).forEach(function(r){ if (!r.lions && r.location) locs[r.location] = true; });
+    var L = Object.keys(locs).sort();
+    var cls = {}; (_srAllRows || []).forEach(function(r){ if (!r.lions && r.location === window._srLoc && r.classroom) cls[r.classroom] = true; });
+    var sel = 'padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:.88rem;background:#fff;';
+    return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:0 0 12px;">' +
+      '<label style="font-size:.74rem;font-weight:700;color:#475569;">School<br><select style="' + sel + 'min-width:230px;" onchange="_srPickLoc(this.value)">' +
+        '<option value="">All screenings</option>' + L.map(function(l){ return '<option' + (l === window._srLoc ? ' selected' : '') + ' value="' + _esc(l) + '">' + _esc(l) + '</option>'; }).join('') + '</select></label>' +
+      (window._srLoc ? '<label style="font-size:.74rem;font-weight:700;color:#475569;">Classroom<br><select style="' + sel + 'min-width:160px;" onchange="_srPickClass(this.value)"><option value="">All classrooms</option>' +
+        Object.keys(cls).sort().map(function(c){ return '<option' + (c === window._srClass ? ' selected' : '') + ' value="' + _esc(c) + '">' + _esc(c) + '</option>'; }).join('') + '</select></label>' : '') +
+      '</div>';
+  }
+  function _srResCell(pair){
+    var col = function(v){ return v === 'Pass' ? '#15803D' : (v === 'Fail' ? '#B91C1C' : (v ? '#B45309' : '#94A3B8')); };
+    var w = function(v){ return '<span style="color:' + col(v) + ';font-weight:' + (v === 'Fail' ? '800' : '600') + ';">' + _esc(v || '—') + '</span>'; };
+    return 'R ' + w(pair[0]) + ' &middot; L ' + w(pair[1]);
+  }
+  function _srRenderSchool(body){
+    var rows = _srSchoolRows().sort(function(a, b){
+      return (b.hearingFail - a.hearingFail) || String(a.classroom).localeCompare(String(b.classroom)) || String(a.childName).localeCompare(String(b.childName));
+    });
+    _srReportRows = rows;
+    var n = rows.length, hf = rows.filter(function(r){ return r.hearingFail; }).length, vf = rows.filter(function(r){ return r.visionFail; }).length;
+    var done = rows.filter(function(r){ return r.hasResults; }).length, sent = rows.filter(function(r){ return r.resultsSent; }).length;
+    var rel = rows.filter(function(r){ return r.releaseSigned; }).length, toSchool = rows.filter(function(r){ return r.schoolSentAt; }).length;
+    var cnt = document.getElementById('scrCount');
+    if (cnt) cnt.textContent = n + ' children · ' + window._srLoc + (window._srClass ? ' · ' + window._srClass : '');
+    var chip = function(t, bg, fg){ return '<span style="font-size:.78rem;font-weight:700;padding:5px 11px;border-radius:999px;background:' + bg + ';color:' + fg + ';">' + t + '</span>'; };
+    var btn = 'font-size:.82rem;font-weight:700;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;color:#fff;';
+    var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px;">' +
+      chip(done + ' of ' + n + ' with results', '#ECFDF5', '#166534') +
+      chip(hf + ' hearing fail' + (hf === 1 ? '' : 's'), hf ? '#FEE2E2' : '#F1F5F9', hf ? '#B91C1C' : '#475569') +
+      chip(vf + ' vision fail' + (vf === 1 ? '' : 's'), vf ? '#FEF3C7' : '#F1F5F9', vf ? '#92400E' : '#475569') +
+      chip(sent + ' emailed to families', '#EFF6FF', '#1D4ED8') +
+      chip(rel + ' signed release', '#F5F3FF', '#5B21B6') +
+      chip(toSchool + ' sent to school', '#F5F3FF', '#5B21B6') +
+      '<span style="flex:1"></span>' +
+      (_srCanSendResults() ? '<button style="' + btn + 'background:#0369A1;" onclick="_srOpenFamilySendFor()">Email results to families</button>' +
+        '<button style="' + btn + 'background:#6D28D9;" onclick="_srOpenSchoolSend()">Email results to school</button>' : '') +
+      '</div>';
+    if (!n) { body.innerHTML = _srSchoolPicker() + h + '<div style="padding:24px;text-align:center;color:var(--text-soft);background:#fff;border-radius:var(--radius);">No children for this pick.</div>'; return; }
+    var th = 'text-align:left;padding:8px 10px;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:2px solid #E2E8F0;background:#F8FAFC;';
+    var td = 'padding:8px 10px;border-bottom:1px solid #F1F5F9;font-size:.84rem;vertical-align:top;';
+    var sb = 'font-size:.76rem;font-weight:600;border-radius:6px;padding:4px 9px;cursor:pointer;margin:0 4px 4px 0;';
+    h += '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);overflow-x:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+      '<th style="' + th + '">Child</th><th style="' + th + '">Family</th><th style="' + th + '">Class</th><th style="' + th + '">Vision (distance)</th>' +
+      '<th style="' + th + '">Hearing (OAE)</th><th style="' + th + '">Release</th><th style="' + th + '">Sent</th><th style="' + th + '">Files</th><th style="' + th + '"></th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      var res = r.results || {}, hr = res.hearing || {};
+      var flags = (r.hearingFail ? '<div><span style="font-size:.7rem;font-weight:800;color:#fff;background:#DC2626;border-radius:999px;padding:2px 8px;">HEARING FAIL</span></div>' : '') +
+        (r.visionFail ? '<div><span style="font-size:.7rem;font-weight:800;color:#92400E;background:#FEF3C7;border-radius:999px;padding:2px 8px;">Vision fail</span></div>' : '');
+      var tymp = _srPair(hr.tympanometry);
+      var hearing = r.hasResults ? _srResCell(_srPair(hr.oae)) + ((tymp[0] || tymp[1]) ? '<div style="font-size:.74rem;color:#475569;">Tymp ' + _srResCell(tymp) + '</div>' : '') : '<span style="color:#B45309;font-weight:600;">Not entered</span>';
+      var vision = r.hasResults ? _srResCell(_srPair((res.vision || {}).distance)) : '';
+      var files = (r.printouts || []).map(function(p, i){
+        return '<button style="' + sb + 'color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE;" onclick="ctScViewPrintout(\'' + r.contactId + '\',\'' + r.screeningId + '\',' + i + ')">' + _esc(_srFileLabel(r.printouts, i)) + '</button>';
+      }).join('');
+      var hearingPdfs = (r.printouts || []).filter(function(p, i){ return _srSlotKind(p, i) === 'hearing'; }).length;
+      /* Only a hearing failure needs the machine's PDF (Daniel 2026-10-16). */
+      if (r.hearingFail && hearingPdfs < 2) files += '<button style="' + sb + 'color:#fff;background:#DC2626;border:none;" onclick="_srUploadHearingPdf(\'' + r.contactId + '\',\'' + r.screeningId + '\')">+ Hearing PDF</button>';
+      var sentTxt = '<div style="font-size:.78rem;">Family: ' + (r.resultsSent ? '<b style="color:#1D4ED8;">' + _esc(_srTsDay(r.resultsSentAt) || 'sent') + '</b>' : '<span style="color:#94A3B8;">not sent</span>') + '</div>' +
+        '<div style="font-size:.78rem;">School: ' + (r.schoolSentAt ? '<b style="color:#6D28D9;">' + _esc(_srTsDay(r.schoolSentAt)) + '</b>' : '<span style="color:#94A3B8;">not sent</span>') + '</div>';
+      h += '<tr style="' + (r.hearingFail ? 'background:#FEF2F2;' : '') + '">' +
+        '<td style="' + td + 'font-weight:600;">' + _esc(r.childName || '—') + flags + '</td>' +
+        '<td style="' + td + '"><a href="#" onclick="event.preventDefault();openContactDetail(\'' + r.contactId + '\')" style="color:#0E7490;font-weight:600;">' + _esc(r.parentName || '—') + '</a></td>' +
+        '<td style="' + td + '">' + _esc(r.classroom || '—') + '</td>' +
+        '<td style="' + td + 'white-space:nowrap;">' + vision + '</td>' +
+        '<td style="' + td + 'white-space:nowrap;">' + hearing + '</td>' +
+        '<td style="' + td + '">' + (r.releaseSigned ? '<span style="color:#5B21B6;font-weight:700;">Signed &#10003;</span>' : '<span style="color:#94A3B8;">—</span>') + '</td>' +
+        '<td style="' + td + 'white-space:nowrap;">' + sentTxt + '</td>' +
+        '<td style="' + td + '">' + files + '</td>' +
+        '<td style="' + td + 'text-align:right;"><button onclick="openScreeningResults(\'' + r.contactId + '\',\'' + r.screeningId + '\',\'report\')" style="font-size:.78rem;font-weight:600;color:#0369A1;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:6px;padding:5px 10px;cursor:pointer;white-space:nowrap;">' + (r.hasResults ? 'Edit results' : 'Add results') + '</button></td></tr>';
+    });
+    body.innerHTML = _srSchoolPicker() + h + '</tbody></table></div>';
+  }
+  window._srRenderSchool = _srRenderSchool; window._srSchoolPicker = _srSchoolPicker;
+
+  /* Hearing PDF from Chassidy's laptop: the machine's PDF goes in the next free
+     hearing slot (2, then 3) through the same private upload the screening-day
+     page uses, and is attached to the screening straight away. */
+  window._srUploadHearingPdf = function(contactId, screeningId){
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/pdf';
+    inp.onchange = async function(){
+      var file = inp.files && inp.files[0]; if (!file) return;
+      if (!/pdf$/i.test(file.type || '') && !/\.pdf$/i.test(file.name || '')) { _showToast('Pick the hearing machine’s PDF file.', '#B45309'); return; }
+      _showToast('Uploading the hearing PDF…', '#0369A1');
+      try {
+        var idToken = await firebase.auth().currentUser.getIdToken();
+        var r1 = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/requestScreeningConsentUploadUrl', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken: idToken, contactId: contactId, mimeType: 'application/pdf', sizeBytes: file.size, kind: 'printout' }) });
+        var j1 = await r1.json(); if (!r1.ok || !j1.uploadUrl) throw new Error(j1.error || 'Could not start the upload.');
+        var put = await fetch(j1.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: file });
+        if (!put.ok) throw new Error('Upload rejected (' + put.status + ').');
+        var ref = db.collection('contacts').doc(contactId), who = (firebase.auth().currentUser.displayName || firebase.auth().currentUser.email || '');
+        var slotUsed = 0;
+        await db.runTransaction(async function(tx){
+          var snap = await tx.get(ref), list = ((snap.data() || {}).screenings || []).slice(), hit = false;
+          list = list.map(function(s){
+            if (!s || s.id !== screeningId) return s;
+            hit = true;
+            var pr = Array.isArray(s.printouts) ? s.printouts.slice() : [];
+            var used = {}; pr.forEach(function(p, i){ used[Number(p && p.slot) || Math.min(i + 1, 3)] = true; });
+            slotUsed = !used[2] ? 2 : (!used[3] ? 3 : 0);
+            if (!slotUsed) throw new Error('This child already has two hearing PDFs. Replace one on the screening-day page.');
+            pr.push({ storagePath: j1.storagePath, uploadedAt: new Date().toISOString(), by: who, slot: slotUsed, mimeType: 'application/pdf', kind: 'hearing', filename: file.name || '' });
+            return Object.assign({}, s, { printouts: pr });
+          });
+          if (!hit) throw new Error('Screening not found on this contact.');
+          tx.update(ref, { screenings: list });
+        });
+        if (window.auditLog) window.auditLog('Uploaded hearing PDF', contactId + ' / ' + screeningId + ' (slot ' + slotUsed + ')');
+        _showToast('Hearing PDF saved to this child.', '#16A34A');
+      } catch (e) { _showToast('Upload failed: ' + (e && e.message), '#DC2626'); }
+    };
+    inp.click();
+  };
+
+  /* "Email results to families" from the school view: the existing bulk send,
+     opened on the school and classroom being looked at. */
+  window._srOpenFamilySendFor = function(){
+    _srOpenSendResults();
+    var ls = document.getElementById('srSendLoc'); if (ls && window._srLoc) { ls.value = window._srLoc; _srSendLocChanged(); }
+    var cs = document.getElementById('srSendClass'); if (cs && window._srClass) cs.value = window._srClass;
+  };
+
+  /* ── Email results to the school ─────────────────────────────────────────
+     Only children whose parent signed the Consent to Release (it names the
+     school). Staff type the school contact's name and email each time (the
+     last one used for this school is filled in), preview the PDF, then send.
+     One PDF, all ticked children, attached to one email. */
+  var _srSchool = { rows: [], ticked: {}, busy: false };
+  function _srAscii(s){ return String(s == null ? '' : s).replace(/[ʻ‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7E]/g, ''); }
+  var _SR_OTO_SHORT = { 'Clear or minimal earwax': 'Clear', 'Excessive earwax': 'Excess wax', 'Blood or foreign object': 'Blood/object', 'P.E. tube': 'PE tube' };
+  /* Own loader: the Lions screen's _srLoadPdfLib lives in another closure. */
+  function _srSchoolPdfLib(){
+    if (window.PDFLib && window.PDFLib.PDFDocument) return Promise.resolve(window.PDFLib);
+    if (window._srSchoolPdfLibP) return window._srSchoolPdfLibP;
+    window._srSchoolPdfLibP = new Promise(function(res, rej){
+      var sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
+      sc.onload = function(){ (window.PDFLib && window.PDFLib.PDFDocument) ? res(window.PDFLib) : (window._srSchoolPdfLibP = null, rej(new Error('pdf-lib did not load'))); };
+      sc.onerror = function(){ window._srSchoolPdfLibP = null; rej(new Error('pdf-lib failed to load')); };
+      document.head.appendChild(sc);
+    });
+    return window._srSchoolPdfLibP;
+  }
+  async function _srBuildSchoolPdf(rows){
+    var PDFLib = await _srSchoolPdfLib();
+    var doc = await PDFLib.PDFDocument.create();
+    var font = await doc.embedFont(PDFLib.StandardFonts.Helvetica), bold = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+    var W = 792, H = 612, M = 36, page, y;
+    var cols = [['Child', 140], ['Class', 66], ['Screened', 60], ['Otoscopy R / L', 140], ['OAE R / L', 104], ['Tymp R / L', 104], ['Vision R / L', 104]];
+    var ink = PDFLib.rgb(0.12, 0.16, 0.23), red = PDFLib.rgb(0.73, 0.11, 0.11), grey = PDFLib.rgb(0.45, 0.5, 0.56);
+    var title = 'Screening results - ' + _srAscii(window._srLoc) + (window._srClass ? ' - ' + _srAscii(window._srClass) + ' class' : '');
+    function head(){
+      page = doc.addPage([W, H]); y = H - M;
+      page.drawText('Leadership in Disabilities & Achievement of Hawaii - School Readiness Project', { x: M, y: y, size: 9, font: font, color: grey }); y -= 18;
+      page.drawText(title, { x: M, y: y, size: 15, font: bold, color: ink }); y -= 15;
+      page.drawText('Children whose parent signed the Consent to Release and Obtain Information naming the school. Confidential.', { x: M, y: y, size: 9, font: font, color: grey }); y -= 22;
+      var x = M; cols.forEach(function(c){ page.drawText(c[0], { x: x, y: y, size: 8.5, font: bold, color: ink }); x += c[1]; });
+      y -= 6; page.drawLine({ start: { x: M, y: y }, end: { x: W - M, y: y }, thickness: 0.8, color: grey }); y -= 13;
+    }
+    head();
+    rows.forEach(function(r){
+      if (y < M + 30) head();
+      var res = r.results || {}, h = res.hearing || {}, v = res.vision || {};
+      var oto = _srPair(h.otoscopy).map(function(t){ return _SR_OTO_SHORT[t] || t || '-'; }).join(' / ');
+      var nt = function(t){ return t === 'Could not test' ? 'Not tested' : (t || '-'); };
+      var two = function(o){ var p = _srPair(o); return nt(p[0]) + ' / ' + nt(p[1]); };
+      var lea = _srAscii(v.leaSymbols || '');
+      var cells = [_srAscii(r.childName), _srAscii(r.classroom), _srAscii(res.screenedAt ? String(res.screenedAt).slice(0, 10) : ''), _srAscii(oto), two(h.oae), two(h.tympanometry), two(v.distance)];
+      var x = M;
+      cells.forEach(function(t, k){
+        var f = (k === 0) ? bold : font, s = String(t), c = (k === 4 && r.hearingFail) || (k === 6 && r.visionFail) ? red : ink;
+        while (s && f.widthOfTextAtSize(s, 9) > cols[k][1] - 6) s = s.slice(0, -1);
+        page.drawText(s, { x: x, y: y, size: 9, font: f, color: c }); x += cols[k][1];
+      });
+      y -= 12;
+      var flag = [r.hearingFail ? 'HEARING: did not pass (OAE)' : '', r.visionFail ? 'VISION: did not pass' : ''].filter(Boolean).join('   ');
+      if (flag || lea) {
+        var note = (flag ? flag + (lea ? '   ' : '') : '') + (lea ? 'Lea/PlusOptix: ' + lea : '');
+        while (font.widthOfTextAtSize(note, 8) > W - 2 * M - 12) note = note.slice(0, -1);
+        page.drawText(note, { x: M + 10, y: y, size: 8, font: font, color: flag ? red : grey }); y -= 11;
+      }
+      y -= 4;
+    });
+    var pages = doc.getPages();
+    pages.forEach(function(p, i){ p.drawText('Page ' + (i + 1) + ' of ' + pages.length + '   Generated ' + new Date().toLocaleDateString('en-US', { timeZone: 'Pacific/Honolulu' }) + ' by LDAH', { x: M, y: 20, size: 8, font: font, color: grey }); });
+    return await doc.save();
+  }
+  function _srSchoolPicked(){ return _srSchool.rows.filter(function(r){ return _srSchool.ticked[r.contactId + '|' + r.screeningId]; }); }
+  window._srOpenSchoolSend = async function(){
+    if (!_srCanSendResults()) { _showToast('Sending results is limited to Super Admin and Admin.', '#B45309'); return; }
+    if (!window._srLoc) { _showToast('Pick a school first.', '#B45309'); return; }
+    var all = _srSchoolRows();
+    _srSchool = { rows: all.filter(function(r){ return r.releaseSigned && r.hasResults; }), ticked: {}, busy: false };
+    _srSchool.rows.forEach(function(r){ if (!r.schoolSentAt) _srSchool.ticked[r.contactId + '|' + r.screeningId] = true; });
+    var skipped = all.length - _srSchool.rows.length;
+    var o = document.getElementById('srSchoolOverlay');
+    if (!o) { o = document.createElement('div'); o.id = 'srSchoolOverlay'; o.className = 'overlay'; o.style.zIndex = '10002'; document.body.appendChild(o); }
+    var inp = 'width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:.9rem;box-sizing:border-box;';
+    o.innerHTML = '<div class="modal" style="max-width:640px;width:94vw;max-height:88vh;overflow:auto;padding:22px;">' +
+      '<h3 style="margin:0 0 4px;color:#5B21B6;">Email results to the school</h3>' +
+      '<div style="font-size:.84rem;color:#475569;margin-bottom:12px;">' + _esc(window._srLoc) + (window._srClass ? ' &middot; ' + _esc(window._srClass) : ' &middot; all classrooms') +
+      '. Only children with a signed Consent to Release and entered results are listed' + (skipped ? ' (' + skipped + ' left out)' : '') + '. One PDF of the ticked children is attached.</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:10px;margin-bottom:12px;">' +
+        '<label style="font-size:.76rem;font-weight:700;color:#475569;">School contact name<input id="srSchName" style="' + inp + '" placeholder="e.g. Director name"></label>' +
+        '<label style="font-size:.76rem;font-weight:700;color:#475569;">School contact email<input id="srSchEmail" type="email" style="' + inp + '" placeholder="name@school.org"></label>' +
+      '</div>' +
+      '<div style="border:1px solid #E2E8F0;border-radius:10px;max-height:38vh;overflow:auto;margin-bottom:12px;">' +
+        (_srSchool.rows.length ? _srSchool.rows.map(function(r){
+          var k = r.contactId + '|' + r.screeningId;
+          return '<label style="display:flex;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid #F1F5F9;font-size:.86rem;cursor:pointer;">' +
+            '<input type="checkbox"' + (_srSchool.ticked[k] ? ' checked' : '') + ' onchange="_srSchoolTick(\'' + k + '\',this.checked)">' +
+            '<span style="flex:1;"><b>' + _esc(r.childName) + '</b> <span style="color:#64748B;">' + _esc(r.classroom || '') + '</span>' +
+            (r.hearingFail ? ' <span style="font-size:.7rem;font-weight:800;color:#fff;background:#DC2626;border-radius:999px;padding:1px 7px;">HEARING FAIL</span>' : '') + '</span>' +
+            (r.schoolSentAt ? '<span style="font-size:.74rem;color:#6D28D9;">sent ' + _esc(_srTsDay(r.schoolSentAt)) + '</span>' : '') + '</label>';
+        }).join('') : '<div style="padding:14px;color:#64748B;">Nobody to send: no child here has both a signed release and entered results.</div>') +
+      '</div>' +
+      '<div id="srSchMsg" style="font-size:.84rem;min-height:1.2em;margin-bottom:10px;"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' +
+        '<button class="btn btn-ghost" onclick="document.getElementById(\'srSchoolOverlay\').classList.remove(\'active\')">Cancel</button>' +
+        '<button class="btn" style="background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;" onclick="_srSchoolPreview()">Preview PDF</button>' +
+        '<button id="srSchSendBtn" class="btn" style="background:#6D28D9;color:#fff;border:none;" onclick="_srSchoolSend()">Send to school</button>' +
+      '</div></div>';
+    o.classList.add('active');
+    try {
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var r = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendScreeningResultsToSchool', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, mode: 'contact', location: window._srLoc }) });
+      var j = await r.json();
+      if (j && j.contact) { var a = document.getElementById('srSchName'), b = document.getElementById('srSchEmail'); if (a && !a.value) a.value = j.contact.name || ''; if (b && !b.value) b.value = j.contact.email || ''; }
+    } catch (e) { console.warn('school contact lookup:', e && e.message); }
+  };
+  window._srSchoolTick = function(k, on){ if (on) _srSchool.ticked[k] = true; else delete _srSchool.ticked[k]; };
+  window._srSchoolPreview = async function(){
+    var picked = _srSchoolPicked(); if (!picked.length) { _showToast('Tick at least one child.', '#B45309'); return; }
+    try { var bytes = await _srBuildSchoolPdf(picked); window.open(URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), '_blank'); }
+    catch (e) { _showToast('Could not build the PDF: ' + (e && e.message), '#DC2626'); }
+  };
+  window._srSchoolSend = async function(){
+    if (_srSchool.busy) return;
+    var msg = document.getElementById('srSchMsg'), say = function(t, c){ if (msg) { msg.style.color = c || '#475569'; msg.textContent = t; } };
+    var name = String((document.getElementById('srSchName') || {}).value || '').trim(), email = String((document.getElementById('srSchEmail') || {}).value || '').trim();
+    var picked = _srSchoolPicked();
+    if (!name) return say('Type the school contact’s name.', '#B45309');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return say('Type a valid email address for the school contact.', '#B45309');
+    if (!picked.length) return say('Tick at least one child.', '#B45309');
+    _srSchool.busy = true; var btn = document.getElementById('srSchSendBtn'); if (btn) btn.disabled = true;
+    try {
+      say('Building the PDF…');
+      var bytes = await _srBuildSchoolPdf(picked), bin = '';
+      for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      say('Sending to ' + email + '…');
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var r = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendScreeningResultsToSchool', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: idToken, mode: 'send', location: window._srLoc, classroom: window._srClass || '', toName: name, toEmail: email,
+          items: picked.map(function(p){ return { contactId: p.contactId, screeningId: p.screeningId }; }),
+          pdfBase64: btoa(bin), filename: _srAscii(window._srLoc + (window._srClass ? ' ' + window._srClass : '') + ' screening results').replace(/\s+/g, '-') + '.pdf' }) });
+      var j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || 'Send failed.');
+      say('Sent to ' + email + ': ' + j.count + ' children. Each is marked "sent to school".', '#16A34A');
+      if (window.auditLog) window.auditLog('Emailed screening results to school', window._srLoc + ' -> ' + name + ' <' + email + '>, ' + j.count + ' children');
+    } catch (e) { say('Not sent: ' + (e && e.message), '#DC2626'); }
+    _srSchool.busy = false; if (btn) btn.disabled = false;
+  };
+
   window._srExportReport = function(){
     var rows = _srReportRows||[];
     var csv = 'Child,Grade,Family,Email,Source,Screened,Outcome,HearingRec,School,ContactBy,CaseStatus,Results,ResultsSent\n';
