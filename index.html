@@ -6011,7 +6011,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.32</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.33</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -51242,7 +51242,8 @@ window.myDayRateMeeting = async function(taskId, meetingId, outcome) {
    false, the retitle, the audit lines, the new owner's notice and the opening
    letter exactly as it would there. Picking yourself keeps the case and just
    clears the "needs advocate" state. */
-window.myDayAssignCaseMgmt = async function(taskId, uid, name, el) {
+window.myDayAssignCaseMgmt = async function(taskId, uid, name, el, opts) {
+  opts = opts || {};   // opts.quiet (v153.33): no confirm box, no toast; the caller shows it in the row
   var staff = (window.CASE_MGMT_ASSIGN_STAFF || []).filter(function(p) { return p.uid === uid; })[0];
   if (!taskId || !staff) return;
   name = staff.name;
@@ -51261,7 +51262,7 @@ window.myDayAssignCaseMgmt = async function(taskId, uid, name, el) {
       return;
     }
     // A select can change on a stray arrow key -- moving a case off your list is worth one confirm.
-    if (!confirm('Assign case management for ' + (d.contactName || 'this family') + ' to ' + name + '?')) {
+    if (!opts.quiet && !confirm('Assign case management for ' + (d.contactName || 'this family') + ' to ' + name + '?')) {
       if (el) el.value = '';
       return;
     }
@@ -51279,12 +51280,14 @@ window.myDayAssignCaseMgmt = async function(taskId, uid, name, el) {
     });
     if (typeof auditLog === 'function') auditLog('Case management assigned from My Day',
       (d.contactName || '(no contact)') + ' — ' + name + ' (' + taskId + ')');
-    if (typeof _showToast === 'function') _showToast('Case management for ' + (d.contactName || 'this family') + ' assigned to ' + name + '.', '#16A34A');
+    if (!opts.quiet && typeof _showToast === 'function') _showToast('Case management for ' + (d.contactName || 'this family') + ' assigned to ' + name + '.', '#16A34A');
+    var _ok = true;
   } catch (e) {
     console.warn('myDayAssignCaseMgmt:', e && e.message);
     if (typeof _showToast === 'function') _showToast('Could not assign the case: ' + ((e && e.message) || 'please try again'), '#DC2626');
     if (el) { el.disabled = false; el.value = ''; }
   }
+  if (opts.quiet) return typeof _ok !== 'undefined' && _ok === true;   // the report refreshes My Day once, later
   if (window.loadMyDayOpenCases) window.loadMyDayOpenCases();
   if (typeof window.loadInteractions === 'function') window.loadInteractions();
 };
@@ -65891,10 +65894,29 @@ window.cmrToggle = function (i) {
 window.cmrOpenCase = function (id) {
   if (id && typeof window.viewInteraction === 'function') window.viewInteraction(id);
 };
+/* Assigning 200+ cases in a row (v153.33, Daniel 2026-10-16): no confirm box and
+   no toast. The row itself says "✓ Name" and fades out; the report and My Day
+   refresh ONCE, a few seconds after the last pick, so nothing jumps mid-list. */
+var _cmrAssignTimer = null;
 window.cmrAssignStaff = async function (caseId, el) {
   var uid = el && el.value; if (!uid || typeof window.myDayAssignCaseMgmt !== 'function') return;
-  await window.myDayAssignCaseMgmt(caseId, uid, el.options[el.selectedIndex].text, el);
-  if (typeof window.cmsBuildCaseManagementReport === 'function') window.cmsBuildCaseManagementReport({ quiet: true });
+  var name = el.options[el.selectedIndex].text, row = el.closest('.cmr-attn-row');
+  var ok = await window.myDayAssignCaseMgmt(caseId, uid, name, el, { quiet: true });
+  if (ok && row) {
+    var tag = document.createElement('span');
+    tag.textContent = '\u2713 ' + name;
+    tag.style.cssText = 'font-size:.82rem;font-weight:700;color:#166534;background:#DCFCE7;border-radius:999px;padding:4px 12px;white-space:nowrap;';
+    el.replaceWith(tag);
+    row.style.transition = 'opacity .6s ease .9s, max-height .4s ease 1.5s';
+    row.style.maxHeight = row.offsetHeight + 'px'; row.style.overflow = 'hidden';
+    requestAnimationFrame(function () { row.style.opacity = '0'; row.style.maxHeight = '0px'; });
+  }
+  clearTimeout(_cmrAssignTimer);
+  _cmrAssignTimer = setTimeout(function () {
+    if (typeof window.cmsBuildCaseManagementReport === 'function') window.cmsBuildCaseManagementReport({ quiet: true });
+    if (window.loadMyDayOpenCases) window.loadMyDayOpenCases();
+    if (typeof window.loadInteractions === 'function') window.loadInteractions();
+  }, 6000);
 };
 
 window.cmrOpenContact = function (id) {
