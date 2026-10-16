@@ -6044,7 +6044,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.32-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.33-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7474,6 +7474,19 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                             +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();cmsViewSignups(' + _jsArg(d.cgEventId||'') + ',true,\'Connect-Gen\')">Today&rsquo;s Connect-Gen &rarr;</button>'
                             +(d.summarySignupId?'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();cmsCgSummaryOpen(' + _jsArg(d.summaryCollection||'recurringEvents') + ',' + _jsArg(d.summaryEventId||'') + ',' + _jsArg(d.summarySignupId) + ')">AI Summary &rarr;</button>':'')
                             +'</div>';
+                      }
+                      // Parent contact for a Lions family (v153.27): type the phone or email
+                      // here, one Save fills the contact card and closes the task.
+                      if(r.bucket!=='done'&&d.workflowStep==='lionsParentContact'&&d.contactId&&!actionBtn){
+                        var _pcI='font-size:.85rem;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;min-width:0;';
+                        actionBtn='<div style="margin-top:8px;" onclick="event.stopPropagation();">'
+                          +'<div style="display:grid;grid-template-columns:1fr 1.4fr auto;gap:6px;align-items:center;">'
+                          +'<input id="lpcPhone_'+d._id+'" type="tel" placeholder="Parent phone" style="'+_pcI+'">'
+                          +'<input id="lpcEmail_'+d._id+'" type="email" placeholder="Parent email" style="'+_pcI+'">'
+                          +'<button class="btn" style="font-size:.8rem;padding:8px 14px;background:#0891B2;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" onclick="event.stopPropagation();myDaySaveParentContact('+_jsArg(d._id)+','+_jsArg(d.contactId)+',this)">Save</button>'
+                          +'</div>'
+                          +'<button class="btn btn-ghost" style="font-size:.72rem;padding:4px 9px;margin-top:6px;" onclick="event.stopPropagation();openContactDetail('+_jsArg(d.contactId)+')">Open the contact card &rarr;</button>'
+                          +'</div>';
                       }
                       // Meeting type (2026-10-14): one big button per IV.A kind. One click
                       // records it on the meeting itself and closes the task.
@@ -51096,6 +51109,41 @@ window.addEventListener('focus', function() {
 /* My Day "Pick the meeting type" (2026-10-14). Writes meetingType on the
    meeting (the same field the New Interaction buttons and the detail card set),
    then closes the task. 'none' = not one of the 9 IV.A kinds. */
+/* My Day "Find a phone or email" for a Lions family (v153.27). Fills only the
+   blanks on the contact (a human-entered value is never overwritten), then
+   closes the task. The 30-minute server sweep would close it anyway. */
+window.myDaySaveParentContact = async function(taskId, contactId, el) {
+  var pEl = document.getElementById('lpcPhone_' + taskId), eEl = document.getElementById('lpcEmail_' + taskId);
+  var phone = String((pEl && pEl.value) || '').replace(/\D/g, ''), email = String((eEl && eEl.value) || '').trim().toLowerCase();
+  if (phone && phone.length < 7) { _showToast('That phone number looks too short.', '#B45309'); return; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { _showToast('That email address does not look right.', '#B45309'); return; }
+  if (!phone && !email) { _showToast('Type a phone number or an email first.', '#B45309'); return; }
+  if (el && el.disabled) return;
+  if (el) el.disabled = true;
+  try {
+    var cref = db.collection('contacts').doc(contactId), cs = await cref.get();
+    if (!cs.exists) { _showToast('That contact could not be found.', '#B45309'); if (el) el.disabled = false; return; }
+    var c = cs.data() || {}, patch = {};
+    if (phone && !String(c.phone || '').trim()) patch.phone = phone;
+    if (email && !String(c.email || '').trim()) patch.email = email;
+    if (Object.keys(patch).length) {
+      patch.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+      await cref.update(patch);
+    }
+    if (window.auditLog) window.auditLog('Added parent contact details', (c.displayName || contactId) + ': ' + Object.keys(patch).filter(function (k) { return k !== 'updatedAt'; }).join(' + ') + ' (from My Day task)');
+    var tref = db.collection('interactions').doc(taskId), ts = await tref.get();
+    var prev = ts.exists ? String((ts.data() || {}).notes || '') : '';
+    await tref.update({ status: 'Closed', notes: prev + '\n---\n[' + new Date().toLocaleString('en-US') + '] Added ' + [phone ? 'phone' : '', email ? 'email' : ''].filter(Boolean).join(' and ') + '.',
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (typeof window._clearAssignmentNotifs === 'function') await window._clearAssignmentNotifs(taskId);
+    _showToast('Saved to the contact card. Task closed.', '#16A34A');
+  } catch (e) {
+    if (el) el.disabled = false;
+    console.warn('parent contact:', e && e.message);
+    _showToast('Could not save: ' + (e && e.message), '#DC2626');
+  }
+};
+
 window.myDaySetMeetingType = async function(taskId, meetingId, type, el) {
   var label = type === 'none' ? 'Not one of these' : (window._ixMeetingTypeLabel ? window._ixMeetingTypeLabel(type) : '');
   if (!meetingId || !label) return;
@@ -68834,8 +68882,9 @@ window.cmsBuildMembershipReport = async function() {
       (SR_UNC_MAP[k] || []).forEach(function (g) { row.unc[g] = true; });
     });
     /* Ticked by default — except a page that reads as a PASS, which the server
-       refuses anyway. */
-    row.ticked = d.isReferral !== false;
+       refuses anyway. A VISION pass is ticked too (v153.27): it saves the family
+       and the screening, no case, so the child's hearing form can find them. */
+    row.ticked = d.isReferral !== false || (d.formType === 'vision' && d.outcome === 'pass');
   }
 
   async function _srbReadRow(row) {
@@ -68965,7 +69014,8 @@ window.cmsBuildMembershipReport = async function() {
       if (!f.form) issues.push('choose vision or hearing');
       if (!String((f.first || '') + (f.last || '')).trim()) issues.push("child's name");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f.date || '').trim())) issues.push('screening date YYYY-MM-DD');
-      if (f.outcome === 'pass') issues.push('reads as a PASS (the server refuses a pass)');
+      if (f.outcome === 'pass' && f.form === 'vision') issues.push('vision PASS: saves the family and screening, no case');
+      else if (f.outcome === 'pass') issues.push('reads as a PASS (a hearing pass is not saved)');
       else if (f.outcome !== 'refer') issues.push('result unclear (only a refer is saved)');
       if (d.confidence === 'low') issues.push('page was hard to read');
       var unc = Object.keys(row.unc || {}).map(function (k) { return SR_FIELD_LABEL[k] || k; });
@@ -69282,6 +69332,7 @@ window.cmsBuildMembershipReport = async function() {
             suppressEmail: !B.sendIntro
           });
           row.state = 'saved'; row.ticked = false; row.contactId = j.contactId || '';
+          if (j.passRecorded) { row.result = 'Vision pass: family and screening saved, no case, no email.'; ok++; _srbPutRow(row); continue; }
           row.result = (j.introEmailSent ? 'Intro email sent.' : 'No email (' + _srbSkipWhy(j.introEmailSkipped || 'no-email-address') + ').') +
             (j.caseReused ? ' Added to the family’s open case.' : '') +
             (j.needsParentContact ? ' Waiting on parent contact.' : '') +
