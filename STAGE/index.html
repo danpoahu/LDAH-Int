@@ -6044,7 +6044,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.43-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.44-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22154,18 +22154,42 @@ var _photoPendingByIsland = {};
 
   /* From a task or case card (v152.50): read the contact's pages, open the
      only one straight away, or turn the button into one button per page. */
+  /* One screening form opens at a time (v153.44): the button that was clicked
+     spins and is disabled until the viewer is up, so repeat clicks do nothing. */
+  window._scFormBusy = false;
+  window._scFormSpin = function(el) {
+    if (!el || el.tagName !== 'BUTTON') return function() {};
+    if (!document.getElementById('scFormSpinCss')) {
+      var st = document.createElement('style'); st.id = 'scFormSpinCss';
+      st.textContent = '@keyframes scFormSpin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(st);
+    }
+    var html = el.innerHTML, w = el.offsetWidth;
+    el.disabled = true; el.style.minWidth = w + 'px'; el.style.cursor = 'wait'; el.style.opacity = '.85';
+    el.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:scFormSpin .7s linear infinite;vertical-align:-1px;margin-right:6px;"></span>Opening&hellip;';
+    return function() { if (!el.isConnected) return; el.disabled = false; el.innerHTML = html; el.style.cursor = 'pointer'; el.style.opacity = ''; };
+  };
+
   window.scOpenFormsFor = async function(el, contactId) {
+    if (window._scFormBusy) return;
+    window._scFormBusy = true;
+    var done = window._scFormSpin(el);
     try {
       var cs = await db.collection('contacts').doc(contactId).get();
       var docs = ((cs.exists && cs.data()) || {}).screeningConsentDocs || [];
       var idx = []; docs.forEach(function(d, k) { if (d && d.storagePath) idx.push(k); });
       if (!idx.length) { if (typeof _showToast === 'function') _showToast('No scanned screening form on file for this family.', '#B45309'); return; }
-      if (idx.length === 1) { window.ctScViewConsent(contactId, idx[0]); return; }
+      if (idx.length === 1) { window._scFormBusy = false; await window.ctScViewConsent(contactId, idx[0], el); return; }
       if (el) { var w = document.createElement('span'); w.innerHTML = window._scFormBtns(contactId, docs, 'panel'); el.replaceWith(w); }
     } catch (e) { if (typeof _showToast === 'function') _showToast('Could not open the screening form.', '#DC2626'); }
+    finally { window._scFormBusy = false; done(); }
   };
 
-  window.ctScViewConsent = async function(contactId, idx) {
+  window.ctScViewConsent = async function(contactId, idx, btn) {
+    if (window._scFormBusy) return;
+    var ev = window.event, el = btn || (ev && ev.target && ev.target.closest ? ev.target.closest('button') : null);
+    window._scFormBusy = true;
+    var done = btn ? function() {} : window._scFormSpin(el);
     var msg = document.getElementById('ctScUploadMsg_' + contactId);
     try {
       var snap = await db.collection('contacts').doc(contactId).get();
@@ -22205,7 +22229,7 @@ var _photoPendingByIsland = {};
     } catch (e) {
       console.error('Screening consent view failed:', e);
       if (msg) { msg.textContent = e.message || 'Could not open that file.'; msg.style.color = '#DC2626'; }
-    }
+    } finally { window._scFormBusy = false; done(); }
   };
 
 window.openContactDetail = async function(contactId) {
