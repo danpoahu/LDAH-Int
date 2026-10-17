@@ -6061,7 +6061,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.46-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.47-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7208,6 +7208,9 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                 // Unassigned first — those are the coordinator's queue and are
                 // nobody's caseload until someone is named. Then oldest first.
                 rows.sort(function(a,b){
+                  /* Advocacy first, case management after it, never mixed (v153.47-STAGE). */
+                  var am=a.serviceLevel==='management',bm=b.serviceLevel==='management';
+                  if(am!==bm) return am?1:-1;
                   if(a._unassigned!==b._unassigned) return a._unassigned?-1:1;
                   return (b._days||0)-(a._days||0);
                 });
@@ -7252,10 +7255,12 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                     +'<div class="who">'+who+'</div></div>';
                 };
                 box.innerHTML=rows.map(_caseRow).join('');
-                /* Group by school (v153.45-STAGE): the school comes from the
-                   family's screening on the contact, read after the list is up.
-                   3+ cases from one school fold into one card; the rows keep
-                   their ids, so the pills and readiness bars still fill in. */
+                /* Group by school (v153.47-STAGE, Daniel 10-17): advocacy cases stay
+                   as their own rows; EVERY case management case folds into a card
+                   for its school, and the cards sit right after the advocacy rows.
+                   The school comes from the family's screening on the contact, read
+                   after the list is up. Rows keep their ids, so the pills and
+                   readiness bars still fill in. */
                 (async function(){
                   try{
                     var ids=rows.map(function(d){return d.contactId;}).filter(Boolean),sch={};
@@ -7267,22 +7272,21 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                         if(name)sch[x.id]={name:name,lions:!!(s&&s.source==='lions-screening'),type:String((s&&s.screeningType)||'').toLowerCase()};});
                     }
                     var key=function(n){return (String(n).toLowerCase().match(/[a-z']+/)||[''])[0].replace(/'/g,'');};
-                    var by={};rows.forEach(function(d,_ri){var s=d.contactId&&sch[d.contactId];if(!s)return;var k=key(s.name);(by[k]=by[k]||[]).push(_ri);});
-                    if(!Object.keys(by).some(function(k){return by[k].length>=3;}))return;
+                    var by={};rows.forEach(function(d,_ri){if(d.serviceLevel!=='management')return;var s=d.contactId&&sch[d.contactId];var k=s?key(s.name):'_none';(by[k]=by[k]||[]).push(_ri);});
+                    if(!Object.keys(by).length)return;
                     /* Move the live nodes, not copies, so click handlers already set
                        on a row (the readiness bar) keep working. */
                     var nodes=Array.prototype.slice.call(box.children),html={};
                     nodes.forEach(function(el,i){html[i]='<span data-md-slot="'+i+'"></span>';});
-                    var used={},out=[];
-                    rows.forEach(function(d,_ri){
-                      var s=d.contactId&&sch[d.contactId],k=s&&key(s.name);
-                      if(!k||by[k].length<3){out.push(html[_ri]);return;}
-                      if(used[k])return;used[k]=1;
+                    var out=[];
+                    rows.forEach(function(d,_ri){if(d.serviceLevel!=='management')out.push(html[_ri]);});
+                    Object.keys(by).sort(function(a,b){return (a==='_none')-(b==='_none')||by[b].length-by[a].length||a.localeCompare(b);}).forEach(function(k){
                       var idx=by[k],un=idx.filter(function(i){return rows[i]._unassigned;}).length;
                       var od=idx.filter(function(i){var f=rows[i].followUpDate;return f&&f<todayKey();}).length;
-                      var first=sch[rows[idx[0]].contactId];
+                      var td=idx.filter(function(i){return rows[i].followUpDate===todayKey();}).length;
+                      var first=sch[rows[idx[0]].contactId]||{name:'School not on file',lions:false};
                       var nice=first.name.replace(/\b([A-Z])([A-Z']+)\b/g,function(m,a,b){return a+b.toLowerCase();});
-                      var bits=[];if(un)bits.push('<b style="color:#92400E">'+un+' need staff</b>');if(idx.length-un)bits.push((idx.length-un)+' assigned');if(od)bits.push('<b style="color:#991B1B">'+od+' follow-up overdue</b>');
+                      var bits=['Case management'];if(un)bits.push('<b style="color:#92400E">'+un+' need staff</b>');if(idx.length-un)bits.push((idx.length-un)+' assigned');if(od)bits.push('<b style="color:#991B1B">'+od+' follow-up overdue</b>');if(td)bits.push('<b style="color:#9A3412">'+td+' follow-up today</b>');
                       out.push(window._myDayGrpHtml({key:'c_'+k,n:idx.length,title:esc(nice)+(first.lions?' &middot; Lions':''),sub:bits.join(' &middot; '),tone:'indigo',rowsHtml:idx.map(function(i){return html[i];})}));
                     });
                     box.innerHTML=out.join('');
