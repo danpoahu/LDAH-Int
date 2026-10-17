@@ -6011,7 +6011,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.34</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.44</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22147,18 +22147,42 @@ var _photoPendingByIsland = {};
 
   /* From a task or case card (v152.50): read the contact's pages, open the
      only one straight away, or turn the button into one button per page. */
+  /* One screening form opens at a time (v153.44): the button that was clicked
+     spins and is disabled until the viewer is up, so repeat clicks do nothing. */
+  window._scFormBusy = false;
+  window._scFormSpin = function(el) {
+    if (!el || el.tagName !== 'BUTTON') return function() {};
+    if (!document.getElementById('scFormSpinCss')) {
+      var st = document.createElement('style'); st.id = 'scFormSpinCss';
+      st.textContent = '@keyframes scFormSpin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(st);
+    }
+    var html = el.innerHTML, w = el.offsetWidth;
+    el.disabled = true; el.style.minWidth = w + 'px'; el.style.cursor = 'wait'; el.style.opacity = '.85';
+    el.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:scFormSpin .7s linear infinite;vertical-align:-1px;margin-right:6px;"></span>Opening&hellip;';
+    return function() { if (!el.isConnected) return; el.disabled = false; el.innerHTML = html; el.style.cursor = 'pointer'; el.style.opacity = ''; };
+  };
+
   window.scOpenFormsFor = async function(el, contactId) {
+    if (window._scFormBusy) return;
+    window._scFormBusy = true;
+    var done = window._scFormSpin(el);
     try {
       var cs = await db.collection('contacts').doc(contactId).get();
       var docs = ((cs.exists && cs.data()) || {}).screeningConsentDocs || [];
       var idx = []; docs.forEach(function(d, k) { if (d && d.storagePath) idx.push(k); });
       if (!idx.length) { if (typeof _showToast === 'function') _showToast('No scanned screening form on file for this family.', '#B45309'); return; }
-      if (idx.length === 1) { window.ctScViewConsent(contactId, idx[0]); return; }
+      if (idx.length === 1) { window._scFormBusy = false; await window.ctScViewConsent(contactId, idx[0], el); return; }
       if (el) { var w = document.createElement('span'); w.innerHTML = window._scFormBtns(contactId, docs, 'panel'); el.replaceWith(w); }
     } catch (e) { if (typeof _showToast === 'function') _showToast('Could not open the screening form.', '#DC2626'); }
+    finally { window._scFormBusy = false; done(); }
   };
 
-  window.ctScViewConsent = async function(contactId, idx) {
+  window.ctScViewConsent = async function(contactId, idx, btn) {
+    if (window._scFormBusy) return;
+    var ev = window.event, el = btn || (ev && ev.target && ev.target.closest ? ev.target.closest('button') : null);
+    window._scFormBusy = true;
+    var done = btn ? function() {} : window._scFormSpin(el);
     var msg = document.getElementById('ctScUploadMsg_' + contactId);
     try {
       var snap = await db.collection('contacts').doc(contactId).get();
@@ -22198,7 +22222,7 @@ var _photoPendingByIsland = {};
     } catch (e) {
       console.error('Screening consent view failed:', e);
       if (msg) { msg.textContent = e.message || 'Could not open that file.'; msg.style.color = '#DC2626'; }
-    }
+    } finally { window._scFormBusy = false; done(); }
   };
 
 window.openContactDetail = async function(contactId) {
@@ -65704,6 +65728,12 @@ function _cmrShape(files, contacts, ixByContact, today, visible) {
       emailFix: fix ? (String(fix.emailFixReason || '').trim() || 'Email did not go through') : '',
       badEmail: fix ? String(fix.badEmail || '') : '',
       noReach: !email && phone.replace(/\D/g, '').length < 7,
+      /* Waiting on the Lions vision form (v153.44): a hearing-only Lions family with no
+         contact yet. The hearing form carries no parent contact, so it comes from the
+         child's vision form when that arrives. */
+      awaitVision: !email && phone.replace(/\D/g, '').length < 7 &&
+        scr.some(function (x) { return x.source === 'lions-screening' && String(x.screeningType || '').toLowerCase() === 'hearing'; }) &&
+        !scr.some(function (x) { return x.source === 'lions-screening' && String(x.screeningType || '').toLowerCase() === 'vision'; }),
       callTask: call ? (call.status === 'Open' ? 'Open' : 'Closed') : '',
       callTaskOwner: call ? (call.owner || '') : '',
       notes: noteRecs
@@ -66111,13 +66141,15 @@ function _cmrRenderAttention(open) {
       function (r) { return 'cmrOpenContact(' + _jsArg(r.contactId) + ')'; }],
     ['Family email to fix', '#991B1B', '#FEE2E2', open.filter(function (r) { return r.emailFix; }), 'Fix email', '#2563EB',
       function (r) { return 'cmrOpenCase(' + _jsArg(r.fixTaskId) + ')'; }],
-    ['No phone or email on file', '#92400E', '#FEF3C7', open.filter(function (r) { return r.noReach; }), 'Add contact details', '#0891B2',
+    ['No phone or email on file', '#92400E', '#FEF3C7', open.filter(function (r) { return r.noReach; }).sort(function (a, b) { return (b.awaitVision ? 1 : 0) - (a.awaitVision ? 1 : 0); }), 'Add contact details', '#0891B2',
       function (r) { return 'cmrOpenContact(' + _jsArg(r.contactId) + ')'; }]
   ];
   var h = '';
   groups.forEach(function (g) {
     if (!g[3].length) return;
-    h += '<div class="cmr-attn-g"><h5>' + _carPill(g[3].length, g[2], g[1]) + ' ' + g[0] + '</h5><div class="cmr-attn-rows">' +
+    var nWait = g[0] === 'No phone or email on file' ? g[3].filter(function (r) { return r.awaitVision; }).length : 0;
+    h += '<div class="cmr-attn-g"><h5>' + _carPill(g[3].length, g[2], g[1]) + ' ' + g[0] +
+      (nWait ? ' ' + _carPill(nWait + ' waiting on the Lions vision form', '#E0E7FF', '#3730A3') : '') + '</h5><div class="cmr-attn-rows">' +
       g[3].map(function (r) {
         var left = r.due ? _cmrDaysBetween(TODAY, r.due) : null;
         var why = g[0] === 'Family email to fix' ? rsEscape(r.emailFix) + (r.badEmail ? ' (' + rsEscape(r.badEmail) + ')' : '')
@@ -66128,8 +66160,10 @@ function _cmrRenderAttention(open) {
         if (r.school) bits.push(rsEscape(r.school));
         if (r.screened) bits.push((r.type ? r.type + ' ' : '') + _cmrFmt(r.screened));
         bits.push(why);
-        return '<div class="cmr-attn-row"><div class="who"><b>' + '<a href="#" class="cmr-parent" title="Open the contact card" onclick="event.preventDefault();event.stopPropagation();cmrOpenContact(' + _jsArg(r.contactId) + ')">' + rsEscape(r.parent) + '</a>' + '</b>' +
+        var wv = g[0] === 'No phone or email on file' && r.awaitVision;
+        return '<div class="cmr-attn-row"' + (wv ? ' style="background:#EEF2FF;border-left:3px solid #6366F1;padding-left:8px;"' : '') + '><div class="who"><b>' + '<a href="#" class="cmr-parent" title="Open the contact card" onclick="event.preventDefault();event.stopPropagation();cmrOpenContact(' + _jsArg(r.contactId) + ')">' + rsEscape(r.parent) + '</a>' + '</b>' +
           (r.child ? ' <span class="cmr-sub">for ' + rsEscape(r.child) + '</span>' : '') +
+          (wv ? ' ' + _carPill('Waiting on Lions vision form', '#E0E7FF', '#3730A3') : '') +
           '<small>' + bits.join(' &middot; ') + '</small></div>' +
           (g[0] === 'No staff assigned' && r.caseId
             /* Assign straight from the report (v152.52): the same staff list and
