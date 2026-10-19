@@ -2158,6 +2158,12 @@
     }
     .wp-grid tr.on input, .wp-grid tr.on select{ background:#fff; border-color:rgba(8,145,178,.22); }
     .wp-grid input:disabled, .wp-grid select:disabled{ opacity:.35; cursor:not-allowed; }
+    /* v153.48-STAGE: chosen rows only once one is ticked; the permanent Screening row. */
+    .wp-grid tr.wp-hide{ display:none; }
+    .wp-grid tr[data-screen] td.wp-name{ font-weight:700; color:var(--ocean-deep); }
+    .wp-fold{ margin:6px 0 2px; }
+    .wp-fold button{ border:none; background:none; cursor:pointer; padding:4px 2px;
+      font:600 .82rem 'Outfit',sans-serif; color:var(--ocean-deep); text-decoration:underline; }
 
     .wp-hint{
       font-size:.82rem; line-height:1.4; color:#9A3412; background:#FFF7ED;
@@ -2220,7 +2226,7 @@
       #wpFormOverlay{ position:static !important; background:#fff !important; display:block !important; }
       #wpFormOverlay .wp-modal{ max-height:none; box-shadow:none; border:none; width:100%; }
       #wpFormOverlay .wp-body{ overflow:visible; max-height:none; }
-      #wpFormOverlay .modal-actions, #wpFormOverlay .close{ display:none !important; }
+      #wpFormOverlay .modal-actions, #wpFormOverlay .close, #wpFoldBar{ display:none !important; }
       .wp-grid input, .wp-grid select{ border-color:#ccc !important; }
     }
 
@@ -6061,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.47-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.48-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11738,6 +11744,57 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
             </tr></thead>
             <tbody id="wpRows"></tbody>
           </table>
+        </div>
+        <!-- Once a workshop is ticked the list folds down to the chosen rows
+             (v153.48-STAGE, Daniel 10-19); this brings the rest back. -->
+        <div class="wp-fold" id="wpFoldBar" style="display:none;">
+          <button type="button" id="wpFoldBtn" onclick="_wpToggleFold()"></button>
+        </div>
+
+        <!-- ── screening (v153.48-STAGE) ─────────────────────────────
+             The paper Screening Activity Form (rev 02/26, CK), shown only when
+             the permanent Screening row above is ticked. Location, audience,
+             agency, flyers and travel are the same on both paper forms, so
+             they are not repeated here. -->
+        <div id="wpScreenBlock" style="display:none;">
+          <div class="wp-sec">Screening Activities</div>
+          <div class="wp-gridwrap">
+            <table class="wp-grid">
+              <thead><tr>
+                <th style="width:34px">&#10003;</th>
+                <th>Screening Activity</th>
+                <th style="width:104px">Day</th>
+                <th style="width:132px">Date</th>
+                <th style="width:96px">Start</th>
+                <th style="width:96px">End</th>
+                <th style="width:150px">Staff Trainer</th>
+              </tr></thead>
+              <tbody id="wpScrRows"></tbody>
+            </table>
+          </div>
+          <div class="wp-sec">Screening Equipment to Bring</div>
+          <div class="wp-radios">
+            <label class="wp-r"><input type="checkbox" id="wpScrEqPlusOptix"> Plus Optix</label>
+            <label class="wp-r"><input type="checkbox" id="wpScrEqEroScan"> EroScan Pro</label>
+            <label class="wp-r"><input type="checkbox" id="wpScrEqTitan"> Titan</label>
+            <label class="wp-r"><input type="checkbox" id="wpScrEqLea"> Lea Symbols</label>
+            <label class="wp-r"><input type="checkbox" id="wpScrEqMobile"> Mobile Screening Unit</label>
+          </div>
+          <div class="wp-f" style="margin-top:8px;"><label>Other screening equipment</label><input id="wpScrEqOther"></div>
+          <div class="wp-f">
+            <label>Developmental Milestones Training Conducted</label>
+            <div class="wp-radios">
+              <label class="wp-r"><input type="radio" name="wpScrMilestones" value="no" onchange="_wpMilestonesHint()"> No</label>
+              <label class="wp-r"><input type="radio" name="wpScrMilestones" value="yes" onchange="_wpMilestonesHint()"> Yes</label>
+            </div>
+          </div>
+          <div class="wp-f" id="wpScrMilestonesByWrap" style="display:none;">
+            <label>If yes, conducted by</label>
+            <div class="wp-radios">
+              <label class="wp-r"><input type="radio" name="wpScrMilestonesBy" value="ldah"> LDAH</label>
+              <label class="wp-r"><input type="radio" name="wpScrMilestonesBy" value="other"> Other Agency</label>
+            </div>
+          </div>
         </div>
 
         <!-- ── venue ───────────────────────────────────────────────── -->
@@ -25355,6 +25412,8 @@ window.openContactDetail = async function(contactId) {
 
     var html = '';
     list.forEach(function(name, i) {
+      // Screening is a permanent row of its own (below), never a list item.
+      if (/^\s*screening\s*$/i.test(name)) return;
       var r = savedBy[name] || null;
       var pre = null;
       if (!r) {
@@ -25382,8 +25441,35 @@ window.openContactDetail = async function(contactId) {
     // "Other" — a free-text session that behaves like every listed row
     // (checkbox, day, date, start, end, trainer). It has no fixed name, so its
     // title cell is an editable input. Prefilled from a saved row flagged isOther.
-    var oRow = null;
-    saved.forEach(function(r){ if (r && r.isOther) oRow = r; });
+    var oRow = null, sRow = null;
+    saved.forEach(function(r){ if (r && r.isOther) oRow = r; if (r && r.isScreening) sRow = r; });
+    // Before the Screening row existed staff typed screenings into "Other"
+    // ("Screening: Vision & Hearing"). Such a form opens on the Screening row;
+    // the next save stores it there.
+    _wpLegacyScreenName = '';
+    if (!sRow && oRow && /^\s*screening\b/i.test(oRow.workshop || '')) {
+      _wpLegacyScreenName = oRow.workshop || '';
+      sRow = oRow; oRow = null;
+    }
+    // A new form for a screening event starts with the row ticked from its first session.
+    var sPre = null;
+    if (!sRow && !_wpDoc) {
+      for (var sk = 0; sk < sessions.length; sk++) {
+        if (!used[sk] && /screen/i.test(sessions[sk].title || '')) { sPre = sessions[sk]; used[sk] = 1; break; }
+      }
+      if (!sPre && /screen/i.test(_wpEvent.title || '') && sessions[0] && !used[0]) sPre = sessions[0];
+    }
+    if (!sRow && sPre) sRow = { day: sPre.day, date: _wpToDateInput(sPre.date), start: _wpTo24h(sPre.start), end: '', trainer: _wpPresenterName };
+    var sOn = !!sRow;
+    html += '<tr class="' + (sOn ? 'on' : '') + '" data-screen="1">' +
+      '<td><input type="checkbox" class="wp-chk"' + (sOn ? ' checked' : '') + ' onchange="_wpRowToggle(this)"></td>' +
+      '<td class="wp-name">Screening</td>' +
+      '<td>' + _wpDaySelect(sRow ? (sRow.day || '') : '', !sOn) + '</td>' +
+      '<td><input type="date" class="wp-date" value="' + _wpEsc(sRow ? (sRow.date || '') : '') + '"' + (sOn ? '' : ' disabled') + ' onchange="_wpSyncDay(this)"></td>' +
+      '<td><input type="time" class="wp-start" value="' + _wpEsc(sRow ? (sRow.start || '') : '') + '"' + (sOn ? '' : ' disabled') + '></td>' +
+      '<td><input type="time" class="wp-end" value="' + _wpEsc(sRow ? (sRow.end || '') : '') + '"' + (sOn ? '' : ' disabled') + '></td>' +
+      '<td>' + _wpStaffSelect('wp-trainer', sRow ? (sRow.trainer || '') : '', !sOn) + '</td>' +
+      '</tr>';
     var oOn = !!oRow;
     var oHtml = '<tr class="' + (oOn ? 'on' : '') + '" data-other="1">' +
       '<td><input type="checkbox" class="wp-chk"' + (oOn ? ' checked' : '') + ' onchange="_wpRowToggle(this)"></td>' +
@@ -25396,7 +25482,99 @@ window.openContactDetail = async function(contactId) {
       '</tr>';
     document.getElementById('wpRows').innerHTML = (html ||
       '<tr><td colspan="7" style="padding:14px;color:var(--text-soft);">No workshops in the list yet — add them under Admin &rarr; List Management.</td></tr>') + oHtml;
+    _wpRenderScreening();
+    _wpShowAll = false;
+    _wpApplyFold();
   }
+
+  // ── Screening section (v153.48-STAGE) ────────────────────────────────────
+  // The paper Screening Activity Form (rev 02/26), opened by ticking the
+  // permanent Screening row. Its own grid, in the order the paper prints it.
+  var WP_SCREEN_ACTIVITIES = ['Developmental Screening', 'ASQ-3', 'ASQ:SE', 'M-CHAT', 'Hearing Screening', 'Vision Screening'];
+  var _wpLegacyScreenName = '';
+  var _wpShowAll = false;
+
+  function _wpRenderScreening() {
+    var s = (_wpDoc && _wpDoc.screening) || {};
+    var saved = s.activities || [];
+    var savedBy = {}, oAct = null;
+    saved.forEach(function(r) { if (!r) return; if (r.isOther) oAct = r; else if (r.activity) savedBy[r.activity] = r; });
+    // A form saved before this section existed: tick what its "Other" text named.
+    var legacy = (!_wpDoc || !_wpDoc.screening) ? _wpLegacyScreenName.toLowerCase() : '';
+    var row = function(r, on, nameCell, attr) {
+      return '<tr class="' + (on ? 'on' : '') + '"' + (attr || '') + '>' +
+        '<td><input type="checkbox" class="wp-chk"' + (on ? ' checked' : '') + ' onchange="_wpRowToggle(this)"></td>' +
+        nameCell +
+        '<td>' + _wpDaySelect(r ? (r.day || '') : '', !on) + '</td>' +
+        '<td><input type="date" class="wp-date" value="' + _wpEsc(r ? (r.date || '') : '') + '"' + (on ? '' : ' disabled') + ' onchange="_wpSyncDay(this)"></td>' +
+        '<td><input type="time" class="wp-start" value="' + _wpEsc(r ? (r.start || '') : '') + '"' + (on ? '' : ' disabled') + '></td>' +
+        '<td><input type="time" class="wp-end" value="' + _wpEsc(r ? (r.end || '') : '') + '"' + (on ? '' : ' disabled') + '></td>' +
+        '<td>' + _wpStaffSelect('wp-trainer', r ? (r.trainer || '') : '', !on) + '</td>' +
+        '</tr>';
+    };
+    var main = _wpScreenMainRow();
+    var html = WP_SCREEN_ACTIVITIES.map(function(name) {
+      var r = savedBy[name] || null;
+      if (!r && legacy) {
+        var key = name.split(' ')[0].toLowerCase();   // hearing, vision, asq-3 …
+        if (legacy.indexOf(key) >= 0) r = main;
+      }
+      return row(r, !!r, '<td class="wp-name">' + _wpEsc(name) + '</td>', '');
+    }).join('');
+    html += row(oAct, !!oAct,
+      '<td><input type="text" class="wp-other-name" placeholder="Other — type the screening" value="' + _wpEsc(oAct ? (oAct.activity || '') : '') + '"' + (oAct ? '' : ' disabled') + '></td>',
+      ' data-other="1"');
+    document.getElementById('wpScrRows').innerHTML = html;
+
+    _wpChk('wpScrEqPlusOptix', s.eqPlusOptix); _wpChk('wpScrEqEroScan', s.eqEroScan);
+    _wpChk('wpScrEqTitan', s.eqTitan); _wpChk('wpScrEqLea', s.eqLea);
+    _wpChk('wpScrEqMobile', s.eqMobile);
+    _wpSet('wpScrEqOther', s.eqOther || '');
+    _wpRadio('wpScrMilestones', s.milestones || '');
+    _wpRadio('wpScrMilestonesBy', s.milestonesBy || '');
+    _wpMilestonesHint();
+    _wpScreenShow();
+  }
+
+  // The values on the Screening row in the main grid, as a row object.
+  function _wpScreenMainRow() {
+    var tr = document.querySelector('#wpRows tr[data-screen]');
+    if (!tr) return null;
+    var v = function(sel) { return (tr.querySelector(sel) || {}).value || ''; };
+    return { day: v('.wp-day'), date: v('.wp-date'), start: v('.wp-start'), end: v('.wp-end'), trainer: v('.wp-trainer') };
+  }
+  function _wpScreenOn() {
+    var cb = document.querySelector('#wpRows tr[data-screen] .wp-chk');
+    return !!(cb && cb.checked);
+  }
+  function _wpScreenShow() {
+    var b = document.getElementById('wpScreenBlock');
+    if (b) b.style.display = _wpScreenOn() ? 'block' : 'none';
+  }
+  window._wpMilestonesHint = function() {
+    var w = document.getElementById('wpScrMilestonesByWrap');
+    if (w) w.style.display = _wpGetRadio('wpScrMilestones') === 'yes' ? 'flex' : 'none';
+  };
+
+  // Once a workshop is ticked, the list shows only the ticked rows (Daniel,
+  // 2026-10-19). "Show all" brings the rest back to pick another.
+  function _wpApplyFold() {
+    var rows = document.querySelectorAll('#wpRows tr');
+    var chosen = 0, total = 0;
+    rows.forEach(function(tr) {
+      var cb = tr.querySelector('.wp-chk'); if (!cb) return;
+      total++; if (cb.checked) chosen++;
+    });
+    var fold = chosen > 0 && !_wpShowAll;
+    rows.forEach(function(tr) {
+      var cb = tr.querySelector('.wp-chk');
+      tr.classList.toggle('wp-hide', !!(fold && cb && !cb.checked));
+    });
+    var bar = document.getElementById('wpFoldBar'), btn = document.getElementById('wpFoldBtn');
+    if (bar) bar.style.display = chosen > 0 ? 'block' : 'none';
+    if (btn) btn.textContent = fold ? 'Show all ' + total + ' workshops' : 'Show only the chosen ' + (chosen === 1 ? 'one' : chosen);
+  }
+  window._wpToggleFold = function() { _wpShowAll = !_wpShowAll; _wpApplyFold(); };
 
   // One staff <select>, used for both the Staff Trainer column and the second
   // person. Keeps a value that is no longer on the staff list rather than
@@ -25437,7 +25615,20 @@ window.openContactDetail = async function(contactId) {
     tr.querySelectorAll('input:not(.wp-chk), select').forEach(function(el) { el.disabled = !cb.checked; });
     // an untouched row inherits the event's presenter the first time it is ticked
     var sel = tr.querySelector('select.wp-trainer');
+    // A screening activity starts from the Screening row's day, date, times and trainer.
+    if (cb.checked && tr.closest('#wpScrRows')) {
+      var m = _wpScreenMainRow() || {};
+      [['.wp-day', m.day], ['.wp-date', m.date], ['.wp-start', m.start], ['.wp-end', m.end], ['.wp-trainer', m.trainer]].forEach(function(p) {
+        var el = tr.querySelector(p[0]);
+        if (el && !el.value && p[1]) el.value = p[1];
+      });
+    }
     if (cb.checked && sel && !sel.value && _wpPresenterName) sel.value = _wpPresenterName;
+    if (tr.closest('#wpRows')) {
+      if (cb.checked) _wpShowAll = false;   // ticking one folds the list to the chosen rows
+      _wpApplyFold();
+      _wpScreenShow();
+    }
   };
 
   function _wpSet(id, v) { var el = document.getElementById(id); if (el) el.value = v == null ? '' : v; }
@@ -25636,8 +25827,42 @@ window.openContactDetail = async function(contactId) {
         trainer: (tr.querySelector('.wp-trainer') || {}).value || ''
       };
       if (isOther) row.isOther = true;
+      if (tr.hasAttribute('data-screen')) row.isScreening = true;
       rows.push(row);
     });
+    // Screening section — stored only while the Screening row is ticked.
+    var screening = null;
+    if (_wpScreenOn()) {
+      var acts = [];
+      document.querySelectorAll('#wpScrRows tr').forEach(function(tr) {
+        var cb = tr.querySelector('.wp-chk');
+        if (!cb || !cb.checked) return;
+        var isOther = tr.hasAttribute('data-other');
+        var name = isOther
+          ? ((tr.querySelector('.wp-other-name') || {}).value || '').trim()
+          : ((tr.querySelector('.wp-name') || {}).textContent || '');
+        if (isOther && !name) return;
+        var a = {
+          activity: name,
+          day: (tr.querySelector('.wp-day') || {}).value || '',
+          date: (tr.querySelector('.wp-date') || {}).value || '',
+          start: (tr.querySelector('.wp-start') || {}).value || '',
+          end: (tr.querySelector('.wp-end') || {}).value || '',
+          trainer: (tr.querySelector('.wp-trainer') || {}).value || ''
+        };
+        if (isOther) a.isOther = true;
+        acts.push(a);
+      });
+      var ck = function(id) { var el = document.getElementById(id); return !!(el && el.checked); };
+      screening = {
+        activities: acts,
+        eqPlusOptix: ck('wpScrEqPlusOptix'), eqEroScan: ck('wpScrEqEroScan'),
+        eqTitan: ck('wpScrEqTitan'), eqLea: ck('wpScrEqLea'), eqMobile: ck('wpScrEqMobile'),
+        eqOther: ((document.getElementById('wpScrEqOther') || {}).value || '').trim(),
+        milestones: _wpGetRadio('wpScrMilestones'),
+        milestonesBy: _wpGetRadio('wpScrMilestones') === 'yes' ? _wpGetRadio('wpScrMilestonesBy') : ''
+      };
+    }
     var g = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
     var c = function(id) { var el = document.getElementById(id); return !!(el && el.checked); };
     return {
@@ -25647,6 +25872,7 @@ window.openContactDetail = async function(contactId) {
       dateOfRequest: g('wpDateOfRequest'), takenBy: g('wpTakenBy'), grant: g('wpGrant'),
       contactPerson: g('wpContactPerson'), island: _wpGetRadio('wpIslandR'),
       rows: rows,
+      screening: screening,
       location: g('wpLocation'), accessible: _wpGetRadio('wpAccess'),
       eqLaptop: c('wpEqLaptop'), eqProjector: c('wpEqProjector'),
       eqCord: c('wpEqCord'), eqStrip: c('wpEqStrip'), eqOther: g('wpEqOther'),
@@ -25679,6 +25905,7 @@ window.openContactDetail = async function(contactId) {
     if (submit) {
       var missing = [];
       if (!data.rows.length) missing.push('at least one workshop (including Other)');
+      if (data.screening && !data.screening.activities.length) missing.push('at least one screening activity');
       if (!data.location) missing.push('the location');
       if (!data.island) missing.push('the island');
       if (!_wpGetRadio('wpAir')) missing.push('whether airline travel is needed');
