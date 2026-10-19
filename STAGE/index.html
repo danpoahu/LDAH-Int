@@ -71840,6 +71840,20 @@ window.cmsBuildMembershipReport = async function() {
     return any(h.otoscopy) || any(h.oae) || any(h.tympanometry) || any(v.distance) || !!String(v.leaSymbols||'').trim();
   }
   window._srAnyResult = _srAnyResult;
+  /* Re-screen list for the school (v153.50-STAGE, Daniel 10-19). A part still
+     needs screening when it is marked absent, has no result, or has "Could not
+     test" in either ear/eye on its main test (OAE for hearing, distance for
+     vision). Names only go to the school, never results, so no release is
+     needed for this list. Returns e.g. ['Vision (absent Oct 15)', 'Hearing']. */
+  function _srRescreenNeeds(r){
+    var res = r.results || {}, a = r.absent || {}, out = [];
+    var day = function(v){ var d = new Date(v + 'T12:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+    var gap = function(o){ var p = _srPair(o); return !p[0] || !p[1] || p[0] === 'Could not test' || p[1] === 'Could not test'; };
+    [['Vision', 'vision', ((res.vision || {}).distance)], ['Hearing', 'hearing', ((res.hearing || {}).oae)]].forEach(function(x){
+      if (gap(x[2])) out.push(x[0] + (a[x[1]] ? ' (absent ' + day(a[x[1]]) + ')' : ''));
+    });
+    return out;
+  }
   /* Absent from the Screenings report (v153.49-STAGE). Same field as the
      screening-day page and the results window: screenings[].absent.<part> =
      today's date (HST). Only the absent fields change; results are untouched.
@@ -72028,7 +72042,8 @@ window.cmsBuildMembershipReport = async function() {
     });
     return window._srSchoolPdfLibP;
   }
-  async function _srBuildSchoolPdf(rows){
+  async function _srBuildSchoolPdf(rows, rescreen){
+    rescreen = rescreen || [];
     var PDFLib = await _srSchoolPdfLib();
     var doc = await PDFLib.PDFDocument.create();
     var font = await doc.embedFont(PDFLib.StandardFonts.Helvetica), bold = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
@@ -72045,6 +72060,7 @@ window.cmsBuildMembershipReport = async function() {
       y -= 6; page.drawLine({ start: { x: M, y: y }, end: { x: W - M, y: y }, thickness: 0.8, color: grey }); y -= 13;
     }
     head();
+    if (!rows.length) { page.drawText('No results are included: no child here has both a signed release and entered results.', { x: M, y: y, size: 9, font: font, color: grey }); y -= 16; }
     rows.forEach(function(r){
       if (y < M + 30) head();
       var res = r.results || {}, h = res.hearing || {}, v = res.vision || {};
@@ -72068,6 +72084,25 @@ window.cmsBuildMembershipReport = async function() {
       }
       y -= 4;
     });
+    /* Still to be screened (v153.50-STAGE): names and what is missing only. */
+    if (rescreen.length) {
+      var rsHead = function(cont){
+        if (y < M + 70 || cont) { page = doc.addPage([W, H]); y = H - M; }
+        y -= 10;
+        page.drawText('Still to be screened' + (cont ? ' (continued)' : ''), { x: M, y: y, size: 13, font: bold, color: ink }); y -= 14;
+        if (!cont) { page.drawText('Absent or not screened on the day. For planning a re-screen day; no results are shared for these children.', { x: M, y: y, size: 9, font: font, color: grey }); y -= 18; }
+        page.drawText('Child', { x: M, y: y, size: 8.5, font: bold, color: ink }); page.drawText('Class', { x: M + 200, y: y, size: 8.5, font: bold, color: ink }); page.drawText('Still needs', { x: M + 300, y: y, size: 8.5, font: bold, color: ink });
+        y -= 6; page.drawLine({ start: { x: M, y: y }, end: { x: W - M, y: y }, thickness: 0.8, color: grey }); y -= 13;
+      };
+      rsHead(false);
+      rescreen.forEach(function(x){
+        if (y < M + 30) rsHead(true);
+        page.drawText(_srAscii(x.childName).slice(0, 40), { x: M, y: y, size: 9, font: bold, color: ink });
+        page.drawText(_srAscii(x.classroom || ''), { x: M + 200, y: y, size: 9, font: font, color: ink });
+        page.drawText(_srAscii(x.needs.join(', ')), { x: M + 300, y: y, size: 9, font: font, color: ink });
+        y -= 14;
+      });
+    }
     var pages = doc.getPages();
     pages.forEach(function(p, i){ p.drawText('Page ' + (i + 1) + ' of ' + pages.length + '   Generated ' + new Date().toLocaleDateString('en-US', { timeZone: 'Pacific/Honolulu' }) + ' by LDAH', { x: M, y: 20, size: 8, font: font, color: grey }); });
     return await doc.save();
@@ -72077,7 +72112,10 @@ window.cmsBuildMembershipReport = async function() {
     if (!_srCanSendResults()) { _showToast('Sending results is limited to Super Admin and Admin.', '#B45309'); return; }
     if (!window._srLoc) { _showToast('Pick a school first.', '#B45309'); return; }
     var all = _srSchoolRows();
-    _srSchool = { rows: all.filter(function(r){ return r.releaseSigned && r.hasResults; }), ticked: {}, busy: false };
+    _srSchool = { rows: all.filter(function(r){ return r.releaseSigned && r.hasResults; }), ticked: {}, busy: false,
+      rescreen: all.map(function(r){ return { childName: r.childName, classroom: r.classroom, needs: _srRescreenNeeds(r) }; })
+                   .filter(function(x){ return x.needs.length; })
+                   .sort(function(a, b){ return String(a.classroom).localeCompare(String(b.classroom)) || String(a.childName).localeCompare(String(b.childName)); }) };
     _srSchool.rows.forEach(function(r){ if (!r.schoolSentAt) _srSchool.ticked[r.contactId + '|' + r.screeningId] = true; });
     var skipped = all.length - _srSchool.rows.length;
     var o = document.getElementById('srSchoolOverlay');
@@ -72099,7 +72137,15 @@ window.cmsBuildMembershipReport = async function() {
             '<span style="flex:1;"><b>' + _esc(r.childName) + '</b> <span style="color:#64748B;">' + _esc(r.classroom || '') + '</span>' +
             (r.hearingFail ? ' <span style="font-size:.7rem;font-weight:800;color:#fff;background:#DC2626;border-radius:999px;padding:1px 7px;">HEARING FAIL</span>' : '') + '</span>' +
             (r.schoolSentAt ? '<span style="font-size:.74rem;color:#6D28D9;">sent ' + _esc(_srTsDay(r.schoolSentAt)) + '</span>' : '') + '</label>';
-        }).join('') : '<div style="padding:14px;color:#64748B;">Nobody to send: no child here has both a signed release and entered results.</div>') +
+        }).join('') : '<div style="padding:14px;color:#64748B;">No child here has both a signed release and entered results.</div>') +
+      '</div>' +
+      /* Re-screen list: always included, names only, every child whatever the release. */
+      '<div style="font-size:.84rem;font-weight:700;color:#B45309;margin:0 0 4px;">Still to be screened (' + _srSchool.rescreen.length + ')</div>' +
+      '<div style="font-size:.78rem;color:#64748B;margin:0 0 6px;">Added to the PDF so the school can plan a re-screen day. Names and what is missing only, no results, so it includes children without a release.</div>' +
+      '<div style="border:1px solid #FDE68A;background:#FFFBEB;border-radius:10px;max-height:22vh;overflow:auto;margin-bottom:12px;">' +
+        (_srSchool.rescreen.length ? _srSchool.rescreen.map(function(x){
+          return '<div style="display:flex;gap:10px;padding:6px 12px;border-bottom:1px solid #FEF3C7;font-size:.84rem;"><span style="flex:1;"><b>' + _esc(x.childName) + '</b> <span style="color:#64748B;">' + _esc(x.classroom || '') + '</span></span><span style="color:#92400E;">' + _esc(x.needs.join(', ')) + '</span></div>';
+        }).join('') : '<div style="padding:10px 12px;color:#64748B;font-size:.84rem;">Everyone here has been screened.</div>') +
       '</div>' +
       '<div id="srSchMsg" style="font-size:.84rem;min-height:1.2em;margin-bottom:10px;"></div>' +
       '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' +
@@ -72118,8 +72164,8 @@ window.cmsBuildMembershipReport = async function() {
   };
   window._srSchoolTick = function(k, on){ if (on) _srSchool.ticked[k] = true; else delete _srSchool.ticked[k]; };
   window._srSchoolPreview = async function(){
-    var picked = _srSchoolPicked(); if (!picked.length) { _showToast('Tick at least one child.', '#B45309'); return; }
-    try { var bytes = await _srBuildSchoolPdf(picked); window.open(URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), '_blank'); }
+    var picked = _srSchoolPicked(); if (!picked.length && !(_srSchool.rescreen || []).length) { _showToast('Tick at least one child.', '#B45309'); return; }
+    try { var bytes = await _srBuildSchoolPdf(picked, _srSchool.rescreen || []); window.open(URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), '_blank'); }
     catch (e) { _showToast('Could not build the PDF: ' + (e && e.message), '#DC2626'); }
   };
   window._srSchoolSend = async function(){
@@ -72129,21 +72175,22 @@ window.cmsBuildMembershipReport = async function() {
     var picked = _srSchoolPicked();
     if (!name) return say('Type the school contact’s name.', '#B45309');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return say('Type a valid email address for the school contact.', '#B45309');
-    if (!picked.length) return say('Tick at least one child.', '#B45309');
+    var rescreen = _srSchool.rescreen || [];
+    if (!picked.length && !rescreen.length) return say('Tick at least one child.', '#B45309');
     _srSchool.busy = true; var btn = document.getElementById('srSchSendBtn'); if (btn) btn.disabled = true;
     try {
       say('Building the PDF…');
-      var bytes = await _srBuildSchoolPdf(picked), bin = '';
+      var bytes = await _srBuildSchoolPdf(picked, rescreen), bin = '';
       for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
       say('Sending to ' + email + '…');
       var idToken = await firebase.auth().currentUser.getIdToken();
       var r = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendScreeningResultsToSchool', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken: idToken, mode: 'send', location: window._srLoc, classroom: window._srClass || '', toName: name, toEmail: email,
-          items: picked.map(function(p){ return { contactId: p.contactId, screeningId: p.screeningId }; }),
+          items: picked.map(function(p){ return { contactId: p.contactId, screeningId: p.screeningId }; }), rescreenCount: rescreen.length,
           pdfBase64: btoa(bin), filename: _srAscii(window._srLoc + (window._srClass ? ' ' + window._srClass : '') + ' screening results').replace(/\s+/g, '-') + '.pdf' }) });
       var j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || 'Send failed.');
-      say('Sent to ' + email + ': ' + j.count + ' children. Each is marked "sent to school".', '#16A34A');
+      say('Sent to ' + email + ': ' + j.count + ' with results' + (j.count ? ' (each marked "sent to school")' : '') + (rescreen.length ? ', plus ' + rescreen.length + ' still to be screened' : '') + '.', '#16A34A');
       if (window.auditLog) window.auditLog('Emailed screening results to school', window._srLoc + ' -> ' + name + ' <' + email + '>, ' + j.count + ' children');
     } catch (e) { say('Not sent: ' + (e && e.message), '#DC2626'); }
     _srSchool.busy = false; if (btn) btn.disabled = false;
