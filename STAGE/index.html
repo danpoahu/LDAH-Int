@@ -71827,6 +71827,33 @@ window.cmsBuildMembershipReport = async function() {
     return any(h.otoscopy) || any(h.oae) || any(h.tympanometry) || any(v.distance) || !!String(v.leaSymbols||'').trim();
   }
   window._srAnyResult = _srAnyResult;
+  /* Absent from the Screenings report (v153.49-STAGE). Same field as the
+     screening-day page and the results window: screenings[].absent.<part> =
+     today's date (HST). Only the absent fields change; results are untouched.
+     The report's live listener redraws the row. */
+  window._srMarkAbsent = async function(contactId, screeningId, part, on){
+    try {
+      var day = (typeof window._todayHst === 'function') ? window._todayHst() : new Date().toISOString().slice(0, 10);
+      var me = (window.currentUserData && window.currentUserData.displayName) || '';
+      var ref = _db().collection('contacts').doc(contactId);
+      await _db().runTransaction(async function(tx){
+        var snap = await tx.get(ref);
+        var found = false;
+        var arr = (((snap.data() || {}).screenings) || []).map(function(s){
+          if (!(s && s.id === screeningId)) return s;
+          found = true;
+          var a = Object.assign({}, s.absent || {});
+          a[part] = on ? day : ''; a[part + 'By'] = on ? me : '';
+          return Object.assign({}, s, { absent: a });
+        });
+        if (!found) throw new Error('screening not found');
+        tx.update(ref, { screenings: arr });
+      });
+      if (typeof _showToast === 'function') _showToast(on ? (part === 'vision' ? 'Vision' : 'Hearing') + ' marked absent.' : 'Absent removed.', '#475569');
+    } catch (e) {
+      if (typeof _showToast === 'function') _showToast('Could not change absent: ' + e.message, '#DC2626');
+    }
+  };
   function _srSchoolRows(){
     return (_srAllRows || []).filter(function(r){
       return !r.lions && r.location === window._srLoc && (!window._srClass || r.classroom === window._srClass);
@@ -71888,7 +71915,11 @@ window.cmsBuildMembershipReport = async function() {
          on screenings[].absent.{vision,hearing} = 'YYYY-MM-DD'. A part with no
          result shows "Absent <date>" when marked, otherwise "Not entered". */
       var _abs = function(k){ var v = (r.absent || {})[k]; if (!v) return ''; var d = new Date(v + 'T12:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-US', { month:'short', day:'numeric' }); };
-      var _gap = function(k){ var a = _abs(k); return a ? '<span style="color:#475569;font-weight:700;background:#E2E8F0;border-radius:999px;padding:2px 8px;font-size:.74rem;">Absent ' + _esc(a) + '</span>' : '<span style="color:#B45309;font-weight:600;">Not entered</span>'; };
+      /* Mark or undo Absent right here in the report (Daniel 10-19). */
+      var _absArgs = function(k, on){ return '_srMarkAbsent(\'' + r.contactId + '\',\'' + r.screeningId + '\',\'' + k + '\',' + on + ')'; };
+      var _gap = function(k){ var a = _abs(k);
+        return a ? '<button title="Click to undo" onclick="' + _absArgs(k, false) + '" style="color:#334155;font-weight:700;background:#E2E8F0;border:1.5px solid #94A3B8;border-radius:999px;padding:2px 9px;font-size:.74rem;cursor:pointer;">Absent ' + _esc(a) + ' &#10005;</button>'
+                 : '<span style="color:#B45309;font-weight:600;">Not entered</span> <button onclick="' + _absArgs(k, true) + '" style="color:#475569;font-weight:700;background:#fff;border:1.5px dashed #94A3B8;border-radius:999px;padding:2px 9px;font-size:.72rem;cursor:pointer;margin-left:4px;">Absent</button>'; };
       var _hasPair = function(p){ return !!(p[0] || p[1]); };
       var hearing = (r.hasResults && _hasPair(_srPair(hr.oae))) ? _srResCell(_srPair(hr.oae)) + ((tymp[0] || tymp[1]) ? '<div style="font-size:.74rem;color:#475569;">Tymp ' + _srResCell(tymp) + '</div>' : '') : _gap('hearing');
       var vision = (r.hasResults && _hasPair(_srPair((res.vision || {}).distance))) ? _srResCell(_srPair((res.vision || {}).distance)) : _gap('vision');
