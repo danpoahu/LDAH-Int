@@ -6067,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.50-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.51-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -71324,8 +71324,27 @@ window.cmsBuildMembershipReport = async function() {
       var _hasH = !!(results.hearing.otoscopy.right || results.hearing.otoscopy.left || results.hearing.oae.right || results.hearing.oae.left || results.hearing.tympanometry.right || results.hearing.tympanometry.left);
       var _hasV = !!(results.vision.distance.right || results.vision.distance.left || results.vision.leaSymbols);
       var _snap = await _db().collection('contacts').doc(contactId).get();
+      var _stamped = [], _kid = '', _loc = '';
       var _arr = (((_snap.data()||{}).screenings)||[]).map(function(s){
         if (!(s && s.id === screeningId)) return s;
+        /* Who saved what (v153.51-STAGE, Daniel 10-20): a changed hearing or
+           vision part gets <part>At / <part>By / <part>ByUid, the same stamps
+           the phone page writes. An unchanged part keeps its earlier stamp. */
+        var _prev = s.results || {}, _u = firebase.auth().currentUser;
+        var _norm = function(o){ return JSON.stringify(o || {}, function(k, v){ return v === undefined ? '' : v; }); };
+        var _blank = { hearing: { otoscopy:{right:'',left:''}, oae:{right:'',left:''}, tympanometry:{right:'',left:''} }, vision: { distance:{right:'',left:''}, leaSymbols:'' } };
+        ['hearing','vision'].forEach(function(k){
+          /* Compare only the fields this window edits (uploads etc. live beside them). */
+          var _pick = function(shape, src){ var o = {}; Object.keys(shape).forEach(function(f){ var v = src ? src[f] : undefined; o[f] = (shape[f] && typeof shape[f] === 'object') ? _pick(shape[f], (v && typeof v === 'object') ? v : null) : String(v == null ? '' : v); }); return o; };
+          if (_norm(_pick(_blank[k], _prev[k])) !== _norm(_pick(_blank[k], results[k]))) {
+            results[k + 'At'] = firebase.firestore.Timestamp.now();
+            results[k + 'By'] = (window.currentUserData && window.currentUserData.displayName) || (_u && _u.email) || '';
+            if (_u && _u.uid) results[k + 'ByUid'] = _u.uid;
+            _stamped.push(k);
+          }
+        });
+        _kid = _srKidName(s.child) || s.childName || '';
+        _loc = [s.location, s.classroom].filter(Boolean).join(' / ');
         /* Merge into the saved results (v153.49-STAGE) so resultsSentAt,
            resultsToken, resultsSendCount and schoolSent* survive an edit.
            Replacing the whole object made a sent child look unsent. */
@@ -71341,6 +71360,7 @@ window.cmsBuildMembershipReport = async function() {
         return nx;
       });
       await _db().collection('contacts').doc(contactId).update({ screenings: _arr });
+      if (typeof window.auditLog === 'function') window.auditLog('Saved screening results', (_kid || 'Child') + (_loc ? ' (' + _loc + ')' : '') + ' -- ' + (_stamped.length ? _stamped.join(' and ') + ' changed' : 'no result changes') + ', date ' + (results.screenedAt || '-') + ' [contact ' + contactId + ']');
       if (sendEmail){
         var idToken = '';
         try { idToken = await firebase.auth().currentUser.getIdToken(); } catch(_){}
