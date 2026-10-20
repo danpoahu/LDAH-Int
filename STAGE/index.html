@@ -6067,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.51-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.52-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -66055,6 +66055,12 @@ function _cmrShape(files, contacts, ixByContact, today, visible) {
 
     var email = String(c.email || '').trim();
     var phone = String(c.phone || '').trim();
+    /* No way to reach the family (v153.52, Daniel 2026-10-20): no real phone and
+       no real email (placeholders like 123456789 count as none). These families
+       do not need a staff member yet; they sit in their own bundle until someone
+       adds contact details. */
+    var noReach = (typeof _pcReachable === 'function') ? !_pcReachable({ email: email, phone: phone })
+                                                       : (!email && phone.replace(/\D/g, '').length < 7);
     var noteRecs = mg.concat(contactsMade).concat(fix ? [fix] : []).concat(call ? [call] : []);
     var schools = [];
     refs.forEach(function (r) { if (r.school && schools.indexOf(r.school) < 0) schools.push(r.school); });
@@ -66081,7 +66087,7 @@ function _cmrShape(files, contacts, ixByContact, today, visible) {
       screened: screened,
       due: due,
       staff: f.caseAdvocateName || '',
-      needsStaff: !f.caseAdvocateName || f.needsAdvocateAssignment === true,
+      needsStaff: (!f.caseAdvocateName || f.needsAdvocateAssignment === true) && !noReach,
       started: started,
       first: contactsMade.length ? day(contactsMade[0]) : '',
       last: contactsMade.length ? day(contactsMade[contactsMade.length - 1]) : '',
@@ -66092,7 +66098,7 @@ function _cmrShape(files, contacts, ixByContact, today, visible) {
       fixTaskId: fix ? fix._id : '',
       emailFix: fix ? (String(fix.emailFixReason || '').trim() || 'Email did not go through') : '',
       badEmail: fix ? String(fix.badEmail || '') : '',
-      noReach: !email && phone.replace(/\D/g, '').length < 7,
+      noReach: noReach,
       /* Waiting on the Lions vision form (v153.43): a hearing-only Lions family with no
          contact yet. The hearing form carries no parent contact, so it comes from the
          child's vision form when that arrives. */
@@ -66215,7 +66221,7 @@ function _cmrFillSelect(id, values, allLabel) {
   if (cur && values.indexOf(cur) >= 0) s.value = cur;
 }
 function _cmrFillFilters() {
-  _cmrFillSelect('cmrStaff', _cmrStaffNames().concat(['Needs staff']), 'All staff');
+  _cmrFillSelect('cmrStaff', _cmrStaffNames().concat(['Needs staff', 'No phone or email']), 'All staff');
   var sc = [];
   _cmrRows.forEach(function (r) { r.schools.forEach(function (x) { if (sc.indexOf(x) < 0) sc.push(x); }); });
   _cmrFillSelect('cmrSchool', sc.sort(), 'All schools');
@@ -66249,7 +66255,7 @@ function _cmrBaseFiltered(ignoreDates) {
   var st = _cmrVal('cmrStaff'), sc = _cmrVal('cmrSchool'), ty = _cmrVal('cmrType');
   return _cmrRows.filter(function (r) {
     if (!ignoreDates && !_cmrInRange(r)) return false;
-    if (st && (st === 'Needs staff' ? !r.needsStaff : r.staff !== st)) return false;
+    if (st && (st === 'Needs staff' ? !r.needsStaff : st === 'No phone or email' ? !r.noReach : r.staff !== st)) return false;
     if (sc && r.schools.indexOf(sc) < 0) return false;
     if (ty && !r.refs.some(function (x) { return x.type === ty; })) return false;
     return true;
@@ -66335,9 +66341,10 @@ window.cmrRender = function () {
 
   // KPIs: computed on the filtered set, open cases unless stated.
   var unassigned = open.filter(function (r) { return r.needsStaff; }).length;
-  var overdue = open.filter(function (r) { return _cmrContactState(r) === 'overdue'; }).length;
-  var soon = open.filter(function (r) { return _cmrContactState(r) === 'soon'; }).length;
-  var counted = base.filter(function (r) { return r.first || (r.due && r.due < TODAY); });
+  var overdue = open.filter(function (r) { return !r.noReach && _cmrContactState(r) === 'overdue'; }).length;
+  var soon = open.filter(function (r) { return !r.noReach && _cmrContactState(r) === 'soon'; }).length;
+  var noReachN = open.filter(function (r) { return r.noReach; }).length;
+  var counted = base.filter(function (r) { return r.first || (r.due && r.due < TODAY && !r.noReach); });
   var ontime = counted.filter(function (r) { return _cmrContactState(r) === 'ontime'; }).length;
   var pct = counted.length ? Math.round(ontime / counted.length * 100) + '%' : '&mdash;';
   /* Closed in this period: by the close date when a range is set (every other
@@ -66352,6 +66359,7 @@ window.cmrRender = function () {
   document.getElementById('cmrKpis').innerHTML =
     _cmrKpi(open.length, 'open cases') +
     _cmrKpi(unassigned, 'open, no staff assigned', unassigned ? 'alert' : '') +
+    _cmrKpi(noReachN, 'no phone or email', noReachN ? 'alert' : '') +
     _cmrKpi(overdue, 'first contact overdue', overdue ? 'alert' : '') +
     _cmrKpi(soon, 'first contact due in 7 days', '') +
     _cmrKpi(pct, 'contacted on time (' + ontime + ' of ' + counted.length + ')', counted.length ? (ontime / counted.length >= .8 ? 'good' : 'alert') : '') +
@@ -66433,7 +66441,7 @@ window.cmrRender = function () {
         (r.grade ? '<div class="cmr-sub">Grade ' + rsEscape(r.grade) + '</div>' : '') + '</td>' +
       '<td style="white-space:nowrap;">' + (r.school ? rsEscape(r.school) : '<span class="cmr-sub">&mdash;</span>') + '</td>' +
       '<td style="white-space:nowrap;">' + scr + ((r.forms || []).length ? '<div style="margin-top:4px;">' + r.forms.map(function (fm, n) { return '<button type="button" class="cmr-mini" style="background:#0891B2;margin-right:4px;" onclick="event.stopPropagation();ctScViewConsent(' + _jsArg(r.contactId) + ',' + fm.idx + ')">View form' + (r.forms.length > 1 ? ' ' + (n + 1) : '') + '</button>'; }).join('') + '</div>' : '') + '</td>' +
-      '<td>' + (r.staff ? rsEscape(r.staff) : _carPill('Needs staff', '#FEF3C7', '#92400E')) + '</td>' +
+      '<td>' + (r.staff ? rsEscape(r.staff) : r.noReach ? '<span class="cmr-sub">Add contact details first</span>' : _carPill('Needs staff', '#FEF3C7', '#92400E')) + '</td>' +
       '<td style="white-space:nowrap;">' + dueCell + '</td>' +
       '<td style="white-space:nowrap;">' + firstCell + '</td>' +
       '<td style="white-space:nowrap;">' + (r.last ? _cmrFmt(r.last) + ' <span class="cmr-sub">' + _cmrDaysBetween(r.last, TODAY) + 'd ago</span>' : '<span class="cmr-sub">&mdash;</span>') + '</td>' +
@@ -66473,18 +66481,18 @@ function _cmrRenderStaff() {
   var host = document.getElementById('cmrStaffStrip');
   if (!host) return;
   var cur = _cmrVal('cmrStaff');
-  var names = _cmrStaffNames().concat(['Needs staff']);
+  var names = _cmrStaffNames().concat(['Needs staff', 'No phone or email']);
   // Staff counts ignore the staff filter so the strip always shows everyone.
   var all = _cmrRows.filter(function (r) { return r.open && _cmrInRange(r); });
   var TODAY = _cmrToday;
   host.innerHTML = names.map(function (n) {
-    var mine = all.filter(function (r) { return n === 'Needs staff' ? r.needsStaff : r.staff === n; });
+    var mine = all.filter(function (r) { return n === 'Needs staff' ? r.needsStaff : n === 'No phone or email' ? r.noReach : r.staff === n; });
     var c = { ontime: 0, late: 0, overdue: 0, soon: 0, later: 0 };
     mine.forEach(function (r) { c[_cmrContactState(r)]++; });
     var done = c.ontime + c.late, pend = c.soon + c.later, t = mine.length || 1;
     var fu = mine.filter(function (r) { return r.followUp && r.followUp < TODAY && r.first; }).length;
     return '<div class="cmr-staff' + (cur === n ? ' on' : '') + '" onclick="cmrPickStaff(' + _jsArg(n) + ')">' +
-      '<div class="nm">' + (n === 'Needs staff' ? _carPill('Needs staff', '#FEF3C7', '#92400E') : rsEscape(n)) + '</div>' +
+      '<div class="nm">' + (n === 'Needs staff' ? _carPill('Needs staff', '#FEF3C7', '#92400E') : n === 'No phone or email' ? _carPill('No phone or email', '#FEE2E2', '#991B1B') : rsEscape(n)) + '</div>' +
       '<div style="font-family:Outfit,sans-serif;font-size:1.3rem;font-weight:800;color:var(--cm-head);line-height:1.2;margin-top:4px;">' + mine.length + ' <span style="font-size:.72rem;font-weight:600;color:var(--text-soft);">open</span></div>' +
       '<div class="ct">' + done + ' contacted &middot; ' + pend + ' not yet due' +
         (c.overdue ? ' &middot; <b style="color:#DC2626">' + c.overdue + ' overdue</b>' : '') +
@@ -66502,12 +66510,12 @@ function _cmrRenderAttention(open) {
   var groups = [
     ['No staff assigned', '#92400E', '#FEF3C7', open.filter(function (r) { return r.needsStaff; }), 'Assign', '#4338CA',
       function (r) { return 'cmrOpenCase(' + _jsArg(r.caseId) + ')'; }],
-    ['First contact overdue', '#991B1B', '#FEE2E2', open.filter(function (r) { return _cmrContactState(r) === 'overdue' && !r.needsStaff; }), 'Call', '#16A34A',
+    ['No phone or email on file', '#92400E', '#FEF3C7', open.filter(function (r) { return r.noReach; }).sort(function (a, b) { return (b.awaitVision ? 1 : 0) - (a.awaitVision ? 1 : 0); }), 'Add contact details', '#0891B2',
+      function (r) { return 'cmrOpenContact(' + _jsArg(r.contactId) + ')'; }],
+    ['First contact overdue', '#991B1B', '#FEE2E2', open.filter(function (r) { return _cmrContactState(r) === 'overdue' && !r.needsStaff && !r.noReach; }), 'Call', '#16A34A',
       function (r) { return 'cmrOpenContact(' + _jsArg(r.contactId) + ')'; }],
     ['Family email to fix', '#991B1B', '#FEE2E2', open.filter(function (r) { return r.emailFix; }), 'Fix email', '#2563EB',
-      function (r) { return 'cmrOpenCase(' + _jsArg(r.fixTaskId) + ')'; }],
-    ['No phone or email on file', '#92400E', '#FEF3C7', open.filter(function (r) { return r.noReach; }).sort(function (a, b) { return (b.awaitVision ? 1 : 0) - (a.awaitVision ? 1 : 0); }), 'Add contact details', '#0891B2',
-      function (r) { return 'cmrOpenContact(' + _jsArg(r.contactId) + ')'; }]
+      function (r) { return 'cmrOpenCase(' + _jsArg(r.fixTaskId) + ')'; }]
   ];
   var h = '';
   groups.forEach(function (g) {
