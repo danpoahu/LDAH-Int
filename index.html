@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.54</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.55</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -36651,8 +36651,10 @@ async function edLoadPresenters() {
     rows.sort(function(a,b){ return (a.sortOrder||0)-(b.sortOrder||0) || String(a.name).localeCompare(String(b.name)); });
     var roles = {};
     var ur = await db.collection('userRoles').get();
-    ur.forEach(function(d){ var v = d.data() || {}; if (v.displayName) roles[v.displayName] = d.id; });
-    rows.forEach(function(r){ out.push({ name: r.name, uid: roles[r.name] || '' }); });
+    // Keyed case-insensitively: a capital-letter difference between this list and the
+    // account name left a 10-14 session with no uid, so its tasks fell back to the creator.
+    ur.forEach(function(d){ var v = d.data() || {}; if (v.displayName) roles[String(v.displayName).trim().toLowerCase()] = d.id; });
+    rows.forEach(function(r){ out.push({ name: r.name, uid: roles[String(r.name).trim().toLowerCase()] || '' }); });
     var unresolved = out.filter(function(p){ return !p.uid; }).map(function(p){ return p.name; });
     if (unresolved.length) console.warn('Events Dashboard: no userRoles match for ' + unresolved.join(', ') + ' — tasks for their sessions will fall back.');
   } catch (e) { console.warn('edLoadPresenters:', e.message); }
@@ -43858,6 +43860,12 @@ window.cmsSaveEventSummary = async function() {
       try {
         var _urSnap = await db.collection('userRoles').where('displayName', '==', newPresenter).limit(1).get();
         if (!_urSnap.empty) _newPresenterUid = _urSnap.docs[0].id;
+        else {
+          // Exact match missed — retry ignoring capitals and spaces (10-14: one capital letter differed).
+          var _want = String(newPresenter).trim().toLowerCase();
+          var _urAll = await db.collection('userRoles').get();
+          _urAll.forEach(function(d) { if (!_newPresenterUid && String((d.data() || {}).displayName || '').trim().toLowerCase() === _want) _newPresenterUid = d.id; });
+        }
       } catch (_) {}
     }
   }
