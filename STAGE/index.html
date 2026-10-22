@@ -6067,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.61-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.62-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6690,33 +6690,113 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                resolveContactDuplicate so the decision is recorded either way —
                "keep separate" is remembered permanently, which is what stops
                the daily job raising the same pair every morning. */
-            window.dupResolve = async function(action, keeperId, loserId, interactionId, keeperName, loserName){
+            window._dupState = null;
+            function _dupE(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+            function _dupName(v){return (String(v.displayName||((v.firstName||'')+' '+(v.lastName||''))).trim())||'(no name)';}
+            function _dupLev(a,b){var m=a.length,n=b.length,d=[],i,j;for(i=0;i<=m;i++){d[i]=[i];}for(j=0;j<=n;j++)d[0][j]=j;
+              for(i=1;i<=m;i++)for(j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n];}
+            /* Mark the part of x that differs from y: common start and end stay plain. */
+            function _dupMark(x,y){x=String(x||'');y=String(y||'');if(!x||!y||x.toLowerCase()===y.toLowerCase())return _dupE(x);
+              var p=0;while(p<x.length&&p<y.length&&x[p].toLowerCase()===y[p].toLowerCase())p++;
+              var q=0;while(q<x.length-p&&q<y.length-p&&x[x.length-1-q].toLowerCase()===y[y.length-1-q].toLowerCase())q++;
+              var mid=x.slice(p,x.length-q);
+              return _dupE(x.slice(0,p))+(mid?'<mark style="background:#FEF08A;color:#92400E;border-radius:3px;padding:0 1px;">'+_dupE(mid)+'</mark>':'<mark style="background:#FEF08A;padding:0 2px;">&nbsp;</mark>')+_dupE(x.slice(x.length-q));}
+            function _dupWhen(v){var t=v.createdAt&&v.createdAt.toDate?v.createdAt.toDate():null;
+              return (t?t.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'date unknown')+(v.createdByName?' by '+v.createdByName:'');}
+            window._dupFill = async function(aId, bId, interactionId){
+              var host=document.getElementById('ixDupHost'); if(!host) return;
+              try{
+                var r=await Promise.all([db.collection('contacts').doc(aId).get(), db.collection('contacts').doc(bId).get()]);
+                if(!r[0].exists||!r[1].exists){
+                  host.innerHTML='<div style="font-weight:700;margin-bottom:4px;">One of these records no longer exists.</div>'+
+                    '<div style="color:#334155;">It was merged or removed elsewhere, so there is nothing left to decide. You can close this task.</div>';
+                  return;
+                }
+                var A={id:aId,v:r[0].data()||{}}, B={id:bId,v:r[1].data()||{}};
+                var eA=String(A.v.email||'').trim(), eB=String(B.v.email||'').trim();
+                var differ=!!eA&&!!eB&&eA.toLowerCase()!==eB.toLowerCase();
+                window._dupState={A:A,B:B,interactionId:interactionId,differ:differ,
+                  pick: differ?null:'A',
+                  drop: differ && _dupLev(eA.toLowerCase(),eB.toLowerCase())<=2};
+                window._dupPaint();
+              }catch(e){ host.innerHTML='Could not load the two records: '+_dupE(e.message); }
+            };
+            window._dupPick = function(k){ if(!window._dupState) return; window._dupState.pick=k; window._dupPaint(); };
+            window._dupDrop = function(v){ if(!window._dupState) return; window._dupState.drop=!!v; window._dupPaint(); };
+            window._dupPaint = function(){
+              var S=window._dupState, host=document.getElementById('ixDupHost'); if(!S||!host) return;
+              var card=function(k){
+                var R=S[k], O=S[k==='A'?'B':'A'], v=R.v, on=S.pick===k, off=!!S.pick&&!on;
+                var kids=(v.children||[]).map(function(c){var n=String(c.name||((c.firstName||'')+' '+(c.lastName||''))).trim()||'(no name)';
+                  return _dupE(n)+(c.birthdate?' <span style="color:#94A3B8;">('+_dupE(c.birthdate)+')</span>':(c.ageRange?' <span style="color:#94A3B8;">(age '+_dupE(c.ageRange)+')</span>':''));});
+                var scr=(v.screenings||[]).length;
+                return '<button type="button" onclick="_dupPick(\''+k+'\')" style="text-align:left;font:inherit;color:#1E293B;cursor:pointer;background:#fff;border-radius:12px;padding:11px 12px;'+
+                    'border:2px solid '+(on?'#16A34A':'#E2E8F0')+';'+(on?'box-shadow:0 0 0 3px #BBF7D0;':'')+(off?'opacity:.62;':'')+'">'+
+                  '<span style="display:inline-block;font-size:.66rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:2px 8px;'+
+                    (on?'background:#16A34A;color:#fff;':off?'background:#FECACA;color:#991B1B;':'background:#E2E8F0;color:#334155;')+'">Record '+k+(on?' &middot; keep':off?' &middot; fold in':'')+'</span>'+
+                  '<div style="font-weight:700;margin:7px 0 2px;">'+_dupE(_dupName(v))+'</div>'+
+                  '<div style="font-size:.98rem;font-weight:800;word-break:break-all;margin-bottom:4px;">'+(v.email?_dupMark(v.email,O.v.email):'<span style="color:#94A3B8;">no email</span>')+'</div>'+
+                  '<div style="font-size:.76rem;color:#64748B;line-height:1.5;">'+_dupE(v.phone||'no phone')+'<br>Added '+_dupE(_dupWhen(v))+
+                    '<br>Children: '+(kids.length?kids.join(', '):'none')+(scr?'<br>Screenings: '+scr:'')+'</div>'+
+                '</button>';
+              };
+              var keep=S.pick?S[S.pick]:null, fold=S.pick?S[S.pick==='A'?'B':'A']:null;
+              var summary;
+              if(!keep) summary='Tap the card with the correct email to see what the merge will do.';
+              else {
+                var badEm=String(fold.v.email||'').trim();
+                summary='Keep <b>Record '+S.pick+'</b>'+(keep.v.email?' with <b>'+_dupE(keep.v.email)+'</b>':'')+'. Record '+(S.pick==='A'?'B':'A')+
+                  '&rsquo;s signups, interactions, children and screenings move onto it, then it is removed. The same child on both records is kept once.'+
+                  (S.differ?' <b>'+_dupE(badEm)+'</b> is '+(S.drop?'discarded.':'saved as an alternate email.'):'');
+              }
+              host.innerHTML=
+                '<div style="font-weight:700;color:#92400E;font-size:.92rem;margin-bottom:4px;">Is this one person, or two?</div>'+
+                '<div style="font-size:.84rem;color:#334155;line-height:1.5;margin-bottom:10px;">'+
+                  (S.differ?'If they are the same person, <b>which email is correct?</b> Tap that card. It is kept and the other folds into it.'
+                           :'If they are the same person, tap the record to keep. The other folds into it.')+
+                  ' Keeping them separate is remembered, so this pair will not be raised again.</div>'+
+                '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">'+card('A')+card('B')+'</div>'+
+                (S.differ?'<div style="margin-top:12px;font-size:.84rem;color:#334155;">'+
+                  '<div style="font-weight:700;color:#92400E;margin-bottom:4px;">What about the other email?</div>'+
+                  '<label style="display:block;margin:4px 0;cursor:pointer;"><input type="radio" name="dupOth" '+(S.drop?'checked':'')+' onchange="_dupDrop(true)"> It&rsquo;s a typo. Throw it away.</label>'+
+                  '<label style="display:block;margin:4px 0;cursor:pointer;"><input type="radio" name="dupOth" '+(!S.drop?'checked':'')+' onchange="_dupDrop(false)"> It&rsquo;s a real second address. Keep it as an alternate email.</label></div>':'')+
+                '<div style="margin-top:10px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:9px 12px;font-size:.84rem;color:#334155;line-height:1.5;">'+summary+'</div>'+
+                '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'+
+                  '<button class="btn" '+(keep?'':'disabled ')+'onclick="dupResolve(\'merge\')" style="font-size:.82rem;padding:8px 15px;background:#16A34A;color:#fff;border:none;border-radius:7px;font-weight:700;'+(keep?'cursor:pointer;':'opacity:.45;cursor:default;')+'">&#10003; Same person &mdash; merge</button>'+
+                  '<button class="btn" onclick="dupResolve(\'keep-separate\')" style="font-size:.82rem;padding:8px 15px;background:#475569;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;">Two different people &mdash; keep both</button>'+
+                '</div>';
+            };
+            /* Duplicate-contact review. Both actions go through
+               resolveContactDuplicate so the decision is recorded either way --
+               "keep separate" is remembered permanently, which is what stops
+               the daily job raising the same pair every morning. The merge
+               needs no pop-up: the summary above already says what happens. */
+            window.dupResolve = async function(action){
+              var S=window._dupState; if(!S) return;
               var merging = (action === 'merge');
-              var msg = merging
-                ? 'Merge these two records into ONE?\n\nKEEP:   ' + keeperName +
-                  '\nREMOVE: ' + loserName +
-                  '\n\nEverything on the removed record — interactions, signups, screenings, ' +
-                  'children — moves onto the kept one. A second email address is preserved. ' +
-                  'This cannot be undone from here.'
-                : 'Keep these as TWO separate people?\n\n  ' + keeperName + '\n  ' + loserName +
-                  '\n\nNothing changes, and this pair will never be raised again.';
-              if(!confirm(msg)) return;
+              if(merging && !S.pick) return;
+              var keep = merging ? S[S.pick] : S.A, fold = merging ? S[S.pick==='A'?'B':'A'] : S.B;
+              var keeperName=_dupName(keep.v), loserName=_dupName(fold.v);
+              if(!merging && !confirm('Keep these as TWO separate people?\n\n  ' + keeperName + '\n  ' + loserName +
+                  '\n\nNothing changes, and this pair will never be raised again.')) return;
               try{
                 /* Signed-in only (10-08): the function now refuses a call with no ID token. */
                 var _tok = await firebase.auth().currentUser.getIdToken();
                 var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/resolveContactDuplicate',{
                   method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + _tok},
-                  body: JSON.stringify({ action: action, keeperId: keeperId, loserId: loserId,
-                    interactionId: interactionId,
+                  body: JSON.stringify({ action: action, keeperId: keep.id, loserId: fold.id,
+                    interactionId: S.interactionId, dropOtherEmail: !!(merging && S.differ && S.drop),
                     decidedBy: (window.currentUserData && window.currentUserData.displayName) || 'staff' })
                 });
                 var j = {}; try{ j = await resp.json(); }catch(e){}
                 if(!resp.ok){ alert('Could not save that: ' + (j.error || resp.status)); return; }
                 auditLog(merging ? 'Merged duplicate contacts' : 'Kept duplicate contacts separate',
-                         keeperName + ' / ' + loserName);
+                         merging ? (keeperName + ' (' + (keep.v.email||'no email') + ') kept / ' + loserName + ' (' + (fold.v.email||'no email') + ') folded in')
+                                 : (keeperName + ' / ' + loserName));
                 if(typeof _showToast==='function') _showToast(
                   merging ? 'Merged. Moved ' + (j.interactions||0) + ' interaction(s) and ' + (j.signups||0) + ' signup(s).'
                           : 'Kept separate — this pair will not come back.', '#16A34A');
+                window._dupState = null;
                 if(typeof closeIxView==='function') closeIxView();
                 if(typeof loadContacts==='function') loadContacts(true);
               }catch(e){ alert('Could not save that: '+e.message); }
@@ -27361,26 +27441,14 @@ window.openContactDetail = async function(contactId) {
     }
     /* Duplicate-contact review actions. The task NOTES carry the full side-by-side
        comparison and what to look for; these are the two ways out of it. */
-    var _dupBtns = '';
-    if (d.workflowStep === 'contactDuplicate' && d.dupKeeperId && d.dupLoserId && d.status !== 'Closed') {
-      var _kn = d.contactName || 'the first record';
-      var _ln = (String(d.summary || '').split(' and ')[1] || '').split(' share')[0] || 'the second record';
-      _dupBtns =
-        '<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 16px;margin-bottom:14px;">' +
-          '<div style="font-weight:700;color:#92400E;font-size:.92rem;margin-bottom:4px;">Is this one person, or two?</div>' +
-          '<div style="font-size:.84rem;color:#334155;line-height:1.5;margin-bottom:10px;">' +
-            'Read the two records below before choosing. Merging cannot be undone from here; ' +
-            'keeping them separate is remembered, so this pair will not be raised again.</div>' +
-          '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-            '<button class="btn" style="font-size:.82rem;padding:8px 15px;background:#16A34A;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" ' +
-              'onclick="dupResolve(\'merge\',' + _jsArg(d.dupKeeperId) + ',' + _jsArg(d.dupLoserId) + ',' +
-                _jsArg(docId) + ',' + _jsArg(_kn) + ',' + _jsArg(_ln) + ')">&#10003; Same person &mdash; merge them</button>' +
-            '<button class="btn" style="font-size:.82rem;padding:8px 15px;background:#475569;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" ' +
-              'onclick="dupResolve(\'keep-separate\',' + _jsArg(d.dupKeeperId) + ',' + _jsArg(d.dupLoserId) + ',' +
-                _jsArg(docId) + ',' + _jsArg(_kn) + ',' + _jsArg(_ln) + ')">Two different people &mdash; keep both</button>' +
-          '</div>' +
-        '</div>';
-    }
+    /* Duplicate-contact review (v153.62-STAGE): both records side by side, filled
+       after the two contact reads. Staff pick the record with the CORRECT email
+       and that one is kept -- either record can win (Maggie Li 10-21: A had the
+       typo and A always won). */
+    var _dupOpen = (d.workflowStep === 'contactDuplicate' && d.dupKeeperId && d.dupLoserId && d.status !== 'Closed');
+    var _dupBtns = _dupOpen
+      ? '<div id="ixDupHost" style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 16px;margin-bottom:14px;font-size:.84rem;color:#92400E;">Loading the two records&hellip;</div>'
+      : '';
     var _cgPrepBtns = '';
     if (d.workflowStep === 'cgPrep') {
       _cgPrepBtns =
@@ -27412,6 +27480,7 @@ window.openContactDetail = async function(contactId) {
     var _scFormCid = (d.contactId && ((d.screeningReferrals || []).length || d.source === 'lions-screening' || d.caseAdvocacySource === 'lions-screening' || d.workflowStep === 'fixFamilyEmail')) ? d.contactId : '';
     var _scFormHost = _scFormCid ? '<div id="ixScFormHost" style="margin:0 0 10px;"></div>' : '';
     body.innerHTML = _lwBack + _memBtns + _dupBtns + _cgPrepBtns + _scFormHost + infoCard + contactSection + _arHost + detailSection;
+    if (_dupOpen && window._dupFill) window._dupFill(d.dupKeeperId, d.dupLoserId, docId);
     if (_scFormCid) db.collection('contacts').doc(_scFormCid).get().then(function(cs) {
       var host = document.getElementById('ixScFormHost'); if (!host) return;
       var h = window._scFormBtns ? window._scFormBtns(_scFormCid, ((cs.exists && cs.data()) || {}).screeningConsentDocs, 'panel') : '';
