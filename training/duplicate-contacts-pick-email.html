@@ -1,0 +1,311 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Duplicate contacts: pick the right email — Training</title>
+<link rel="stylesheet" href="deck-base.css">
+<!-- Same Firebase build as the dashboard, so the deck shares its sign-in and records progress. -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+/* Every class here starts with dp- (duplicate task), md- (My Day) or qz- (quiz), so nothing collides with deck-base.css.
+   Colours are the live task's: yellow box #FFFBEB / #FDE68A / #92400E, keep green #16A34A, keep-both grey #475569,
+   summary line #F0FDF4 / #BBF7D0, highlight #FEF08A. All names, emails and phone numbers are made up. */
+/* ---------- the task window ---------- */
+.dp-win{position:absolute;left:58px;top:118px;width:712px;height:570px;background:#F4F6F9;border:1px solid #D5DEE8;border-radius:12px;overflow:hidden;box-shadow:0 14px 36px rgba(15,23,42,.16);z-index:4;color:#1E293B;font-size:13px}
+.dp-in{position:relative;padding:12px 14px}
+.dp-th{display:flex;align-items:center;gap:8px;background:#fff;border-radius:10px;padding:9px 12px;margin-bottom:9px;box-shadow:0 1px 6px rgba(15,40,70,.08)}
+.dp-th b{flex:1;font-size:13.5px;line-height:1.3}
+.dp-tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;border-radius:999px;padding:2px 8px;white-space:nowrap}
+/* the yellow box (#ixDupHost) */
+.dp-box{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:12px 14px;color:#92400E}
+.dp-h{font-weight:800;font-size:15px;margin-bottom:3px}
+.dp-p{font-size:12.5px;color:#334155;line-height:1.45;margin-bottom:9px}
+.dp-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dp-card{text-align:left;color:#1E293B;background:#fff;border-radius:12px;padding:10px 12px;border:2px solid #E2E8F0;transition:all .35s}
+.dp-card.on{border-color:#16A34A;box-shadow:0 0 0 3px #BBF7D0}
+.dp-card.off{opacity:.62}
+.dp-rk{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:2px 8px;background:#E2E8F0;color:#334155}
+.dp-card.on .dp-rk{background:#16A34A;color:#fff}
+.dp-card.off .dp-rk{background:#FECACA;color:#991B1B}
+.dp-nm{font-weight:700;margin:6px 0 1px;font-size:14px}
+.dp-em{font-size:16px;font-weight:800;word-break:break-all;margin-bottom:3px}
+.dp-em mark{background:#FEF08A;color:#92400E;border-radius:3px;padding:0 1px}
+.dp-mt{font-size:11.5px;color:#64748B;line-height:1.5}
+.dp-oth{margin-top:9px;font-size:12.5px;color:#334155}
+.dp-oth .t{font-weight:800;color:#92400E;margin-bottom:3px}
+.dp-rad{display:flex;align-items:center;gap:7px;margin:3px 0}
+.dp-rad i{width:13px;height:13px;border-radius:50%;border:2px solid #94A3B8;background:#fff;flex:none;position:relative}
+.dp-rad.on i{border-color:#2563EB}
+.dp-rad.on i::after{content:"";position:absolute;inset:2px;border-radius:50%;background:#2563EB}
+.dp-sum{margin-top:8px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:8px 11px;font-size:12.5px;color:#334155;line-height:1.45}
+.dp-btns{display:flex;gap:8px;margin-top:9px}
+.dp-b{font-size:12.5px;font-weight:700;color:#fff;border-radius:7px;padding:7px 13px;white-space:nowrap}
+.dp-b.merge{background:#16A34A}.dp-b.merge.dis{opacity:.45}
+.dp-b.both{background:#475569}
+/* browser confirm */
+.dp-cf{position:absolute;left:50%;top:150px;transform:translateX(-50%);width:430px;background:#fff;border-radius:12px;box-shadow:0 18px 50px rgba(15,23,42,.35);padding:16px 18px;font-size:14px;z-index:20;white-space:pre-line;line-height:1.45;color:#0F172A}
+.dp-cf small{display:block;font-size:12px;color:#64748B;margin-bottom:6px}
+.dp-cf .bt{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;white-space:normal}
+.dp-cf .bt span{border-radius:8px;padding:6px 18px;font-size:14px;font-weight:700;background:#E2E8F0;color:#0F172A}
+.dp-cf .bt span.ok{background:#2563EB;color:#fff}
+/* toast */
+.dp-toast{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);background:#16A34A;color:#fff;font-weight:700;font-size:13.5px;border-radius:10px;padding:10px 16px;box-shadow:0 10px 24px rgba(22,163,74,.35);white-space:nowrap;z-index:20}
+/* ---------- My Day ---------- */
+.md-band{border-radius:10px;background:linear-gradient(90deg,#16395A,#1F6E8C);color:#fff;padding:12px 16px;margin-bottom:10px}
+.md-band b{font-size:18px}.md-band p{margin:2px 0 0;font-size:11px;opacity:.85}
+.md-task{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid #E2E8F0;border-left:4px solid #B45309;border-radius:10px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 4px rgba(15,40,70,.06)}
+.md-task.dim{border-left-color:#94A3B8;opacity:.55}
+.md-task .ck{width:18px;height:18px;border-radius:50%;border:2px solid #94A3B8;flex:none;margin-top:1px}
+.md-task .meta{flex:1;min-width:0}
+.md-task .ttl{font-size:13px;font-weight:800;color:#0F172A;line-height:1.35}
+.md-task .sub{font-size:11px;color:#64748B;margin-top:2px}
+.md-btn{display:inline-block;font-size:11px;font-weight:700;color:#fff;border-radius:6px;padding:5px 11px;margin-top:7px;white-space:nowrap;background:#B45309}
+/* ---------- clock (6 AM check) ---------- */
+.dp-clock{position:absolute;left:230px;top:330px;width:220px;background:#fff;border:2px solid #FDE68A;border-radius:14px;padding:10px 14px;box-shadow:0 10px 26px rgba(146,64,14,.15);font-size:13px;color:#334155;z-index:6}
+.dp-clock b{display:block;font-size:26px;color:#92400E;line-height:1.1}
+/* ---------- merge flow ---------- */
+.mg-col{position:absolute;top:150px;width:300px;background:#fff;border-radius:14px;border:2px solid #E2E8F0;padding:12px 14px;box-shadow:0 10px 24px rgba(15,23,42,.1);font-size:14px}
+.mg-col.mg-keep{border-color:#16A34A;box-shadow:0 0 0 4px #BBF7D0}
+.mg-col.mg-fold .dp-rk{background:#FECACA;color:#991B1B}
+.mg-col.mg-keep .dp-rk{background:#16A34A;color:#fff}
+.mg-it{display:flex;justify-content:space-between;align-items:center;border-bottom:1px dashed #E2E8F0;padding:7px 0;font-size:14px}
+.mg-it:last-child{border-bottom:0}
+.mg-it b{color:#0F172A}
+.mg-it .n{font-weight:800;color:#0E7490;min-width:24px;text-align:right}
+.mg-chip{position:absolute;z-index:8;background:#ECFDF5;border:2px solid #16A34A;color:#166534;font-weight:800;font-size:13px;border-radius:999px;padding:4px 12px;white-space:nowrap}
+.mg-note{position:absolute;left:58px;top:520px;width:712px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:12px;padding:12px 16px;font-size:16px;color:#92400E;line-height:1.45}
+.mg-gone{position:absolute;z-index:12;border:4px solid #DC2626;color:#DC2626;font-weight:900;font-size:22px;padding:4px 14px;border-radius:10px;transform:rotate(-10deg);background:rgba(255,255,255,.88)}
+/* ---------- decide panels ---------- */
+.dc-p{position:absolute;left:58px;width:712px;background:#fff;border-radius:14px;box-shadow:0 10px 26px rgba(15,23,42,.1);padding:12px 16px;border-left:8px solid #16A34A;opacity:0}
+.dc-p.two{border-left-color:#475569}
+.dc-p .k{font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#16A34A}
+.dc-p.two .k{color:#475569}
+.dc-p .pr{display:flex;gap:10px;margin:7px 0}
+.dc-p .pr div{flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:7px 10px;font-size:13px;color:#64748B;line-height:1.4}
+.dc-p .pr b{display:block;color:#0F172A;font-size:15px}
+.dc-p .v{font-size:15px;color:#334155;line-height:1.4}
+/* cover art */
+.cv-a{position:absolute;left:770px;top:110px;width:440px;transform:rotate(2.5deg);animation:bob 6s ease-in-out infinite;z-index:3;box-shadow:0 24px 50px rgba(0,0,0,.35);border-radius:10px}
+/* ---------- quiz (qz- prefix, copied from case-management-report.html) ---------- */
+.scene.quiz{background:linear-gradient(135deg,#FFF1F8,#E0F7FA)}
+.qz-wrap{position:absolute;left:0;top:0;right:0;bottom:0}
+.qz-intro{position:absolute;left:120px;top:190px;width:1040px;text-align:center;font-size:30px;font-weight:800;color:#0B3A53;line-height:1.35;animation:rise .5s both}
+.qz-intro small{display:block;font-size:20px;color:#475569;font-weight:700;margin-top:14px}
+.qz-card{position:absolute;left:120px;top:138px;width:1040px;background:#fff;border-radius:20px;box-shadow:0 18px 40px rgba(15,23,42,.14);padding:22px 30px;animation:rise .5s both}
+.qz-n{font-size:14px;font-weight:900;color:var(--pink);letter-spacing:.08em;text-transform:uppercase}
+.qz-q{font-size:27px;font-weight:800;line-height:1.25;margin:6px 0 16px}
+.qz-o{display:flex;align-items:center;gap:14px;width:100%;text-align:left;font:inherit;font-size:21px;font-weight:700;background:#F8FAFC;border:3px solid #E2E8F0;border-radius:14px;padding:11px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .2s,background .2s;color:var(--ink)}
+.qz-o:hover:not([disabled]){border-color:#0891B2;background:#F0F9FF}
+.qz-o[disabled]{cursor:default}
+.qz-o .qz-L{width:38px;height:38px;border-radius:50%;background:#0E7490;color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-weight:900}
+.qz-o.qz-no{border-color:#DC2626;background:#FEF2F2;animation:qzshake .4s}.qz-o.qz-no .qz-L{background:#DC2626}
+.qz-o.qz-yes{border-color:#16A34A;background:#F0FDF4}.qz-o.qz-yes .qz-L{background:#16A34A}
+.qz-fb{min-height:30px;font-size:19px;font-weight:700;margin-top:4px}.qz-fb.good{color:#15803D}.qz-fb.bad{color:#B91C1C}
+.qz-stars{position:absolute;right:60px;top:46px;display:flex;gap:8px}
+.qz-stars i{width:36px;height:36px;background:#E2E8F0;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);transition:background .3s}
+.qz-stars i.on{background:#F59E0B;animation:popn .6s}
+@keyframes qzshake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+</style>
+</head><body>
+<div id="view"><div id="stage"><div id="nbar"><i></i></div>
+<div id="scenes"></div>
+<div id="spot"></div>
+<svg id="cursor" viewBox="0 0 28 32"><path d="M3 2 L3 26 L9.5 19.5 L14 29 L18.5 27 L14 17.5 L23 17.5 Z" fill="#fff" stroke="#0F172A" stroke-width="2" stroke-linejoin="round"/></svg>
+</div></div>
+<div id="cap" aria-live="polite"></div>
+<div id="bar">
+ <button id="prev">Back</button><button id="play">Start</button><button id="next">Next</button>
+ <div id="dots"></div>
+ <button id="capbtn" aria-pressed="false">Captions</button><button id="voice" aria-pressed="true">Voice on</button>
+</div>
+<script>
+const DECK_ID='duplicate-contacts-pick-email';
+
+/* ================= helpers ================= */
+const all=s=>[...document.querySelectorAll('.scene.on '+s)];
+const tap=async(s,ms=850)=>{const e=typeof s==='string'?q(s):s;await move(e,ms);await click(e);return e};
+const PTS=(items,top=140)=>`<div class="abs" style="left:790px;top:${top}px;width:440px"><ul class="pts">${items.map(t=>`<li>${t}</li>`).join('')}</ul></div>`;
+const TAG=(t,bg,fg)=>`<span class="dp-tag" style="background:${bg};color:${fg}">${t}</span>`;
+const LOGO=`<div style="position:absolute;left:70px;top:22px;background:#fff;border-radius:14px;padding:6px 10px;box-shadow:0 4px 14px rgba(0,0,0,.18);animation:rise .6s both"><img src="../logo_blue.png" alt="LDAH" style="height:80px;display:block"></div>`;
+const show=(e,ms=450)=>anim(e,[{opacity:0,transform:'translateY(14px)'},{opacity:1,transform:'none'}],ms,'ease-out').then(()=>{e.style.opacity=1});
+
+/* ================= the two records (made-up family, example.com) ================= */
+const PHONE='(808) 555-0142';
+const REC={
+ A:{nm:'Leilani Example',em:'keikinom@example.com',added:'Sep 12, 2026 by Malia Santos',kids:'Kai Example <span style="color:#94A3B8">(2021-04-12)</span>',scr:1},
+ B:{nm:'Leilani Example',em:'keikimom@example.com',added:'Oct 20, 2026 by Ben Ito',kids:'Kia Example <span style="color:#94A3B8">(2021-04-12)</span>',scr:0}};
+/* Same rule as the live _dupMark: common start and end stay plain, the middle is marked. */
+function mark(x,y){if(!y||x.toLowerCase()===y.toLowerCase())return x;let p=0;while(p<x.length&&p<y.length&&x[p].toLowerCase()===y[p].toLowerCase())p++;
+ let s=0;while(s<x.length-p&&s<y.length-p&&x[x.length-1-s].toLowerCase()===y[y.length-1-s].toLowerCase())s++;
+ return x.slice(0,p)+'<mark>'+x.slice(p,x.length-s)+'</mark>'+x.slice(x.length-s)}
+/* st = {pick:null|'A'|'B', drop:true|false, differ:true|false, recs} */
+function CARD(k,st){const R=st.recs[k],O=st.recs[k==='A'?'B':'A'],on=st.pick===k,off=!!st.pick&&!on;
+ return `<div class="dp-card k-card${k}${on?' on':''}${off?' off':''}"><span class="dp-rk">Record ${k}${on?' · keep':off?' · fold in':''}</span>
+ <div class="dp-nm">${R.nm}</div><div class="dp-em k-em${k}">${st.differ?mark(R.em,O.em):R.em}</div>
+ <div class="dp-mt">${PHONE}<br>Added ${R.added}<br>Children: ${R.kids}${R.scr?'<br>Screenings: '+R.scr:''}</div></div>`}
+function SUMMARY(st){if(!st.pick)return 'Tap the card with the correct email to see what the merge will do.';
+ const k=st.pick,o=k==='A'?'B':'A',K=st.recs[k],O=st.recs[o];
+ return `Keep <b>Record ${k}</b> with <b>${K.em}</b>. Record ${o}’s signups, interactions, children and screenings move onto it, then it is removed. The same child on both records is kept once.`+
+  (st.differ?` <b>${O.em}</b> is ${st.drop?'discarded.':'saved as an alternate email.'}`:'')}
+function BOX(st){return `<div class="dp-h">Is this one person, or two?</div>
+ <div class="dp-p">${st.differ?'If they are the same person, <b>which email is correct?</b> Tap that card. It is kept and the other folds into it.':'If they are the same person, tap the record to keep. The other folds into it.'} Keeping them separate is remembered, so this pair will not be raised again.</div>
+ <div class="dp-cards">${CARD('A',st)}${CARD('B',st)}</div>
+ ${st.differ?`<div class="dp-oth k-oth"><div class="t">What about the other email?</div><div class="dp-rad k-r1${st.drop?' on':''}"><i></i>It’s a typo. Throw it away.</div><div class="dp-rad k-r2${st.drop?'':' on'}"><i></i>It’s a real second address. Keep it as an alternate email.</div></div>`:''}
+ <div class="dp-sum k-sum">${SUMMARY(st)}</div>
+ <div class="dp-btns"><span class="dp-b merge k-merge${st.pick?'':' dis'}">&#10003; Same person — merge</span><span class="dp-b both k-both">Two different people — keep both</span></div>`}
+let S={pick:null,drop:true,differ:true,recs:REC};
+const paint=()=>{const b=q('.k-box');if(b)b.innerHTML=BOX(S)};
+const TITLE=(a,b)=>`Possible duplicate — ${a} and ${b} share the phone number ${PHONE}`;
+const TASKWIN=(st,a,b)=>`<div class="dp-win"><div class="dp-in"><div class="dp-th"><b>${TITLE(a||'Leilani Example',b||'Leilani Example')}</b>${TAG('Data review','#FEF3C7','#92400E')}${TAG('Open','#DBEAFE','#1E40AF')}</div>
+ <div class="dp-box k-box">${BOX(st)}</div></div></div>`;
+
+/* ---- quiz: the standard ask()/QUIZ pair. Each answer is reported to ldahTrack.quiz(sec,i,correct). ---- */
+window.QUIZ_TOTAL=3;
+function ask(Q,i,sec){const w=q('.qz-wrap');
+ w.innerHTML=`<div class="qz-card"><div class="qz-n">Question ${i+1} of 3</div><div class="qz-q">${Q.q}</div>${Q.o.map((o,j)=>`<button class="qz-o" data-j="${j}"><span class="qz-L">${'ABC'[j]}</span><span>${o}</span></button>`).join('')}<div class="qz-fb"></div></div>`;
+ const card=w.firstChild,fb=card.querySelector('.qz-fb'),btns=[...card.querySelectorAll('.qz-o')];
+ const finish=()=>{btns.forEach(b=>b.disabled=true);btns[Q.a].classList.add('qz-yes');const st=document.querySelectorAll('.scene.on .qz-stars i')[i];if(st)st.classList.add('on');fb.className='qz-fb good';fb.textContent='Yes! '+Q.y};
+ if(FAST){finish();return Promise.resolve()}
+ return new Promise(res=>{btns.forEach((b,j)=>b.onclick=async()=>{
+  if(b.disabled)return;
+  if(window.ldahTrack)ldahTrack.quiz(sec,i,j===Q.a);
+  if(j===Q.a){finish();const p=pos(b);confetti(p.x+60,p.y+20,70);await speak('Yes! '+Q.y,run);await wait(700);res()}
+  else{b.disabled=true;b.classList.add('qz-no');fb.className='qz-fb bad';fb.textContent='Not quite. '+Q.n+' Try again.';speak('Not quite. '+Q.n+' Try again.',run)}})})}
+const QUIZ=(sec,qs)=>({cls:'quiz',html:()=>HEAD('Quick check','Your turn!')+`<div class="qz-stars">${qs.map(()=>'<i></i>').join('')}</div><div class="qz-wrap"><div class="qz-intro">Three quick questions. Your first answer to each one counts.<small>Click the answer you think is right. If you miss, you can try again.</small></div></div>`,
+ steps:[{say:'Quick check. Three quick questions. Your first answer to each one counts.'},
+  ...qs.map((Q,i)=>({say:`Question ${i+1}. ${Q.q}`,act:()=>ask(Q,i,sec)}))]});
+
+const EMA='[keikinom@example.com|keiki N O M at example dot com]', EMB='[keikimom@example.com|keiki M O M at example dot com]';
+
+const SC=[
+// ================= 1 COVER =================
+{cls:'cover',html:()=>`${LOGO}<div class="brand">Leadership in Disabilities &amp; Achievement of Hawaiʻi · Contacts</div><div class="hello">Aloha <span class="nm"></span></div>
+ <h1>Duplicate contacts: pick the right email</h1><p class="sub" style="top:400px">The updated Possible duplicate task in DAN. Compare the two records, keep the one with the correct email, and fold the other in. About five minutes.</p>
+ <div class="cv-a"><div class="dp-box" style="font-size:12px">${BOX({pick:'B',drop:true,differ:true,recs:REC})}</div></div>
+ <div class="spark" style="left:1200px;top:70px">${SPARK}</div><div class="spark" style="left:740px;top:600px;animation-delay:1s">${SPARK}</div>
+ <div class="gate" style="top:520px"><button class="btn" data-go="start">Start training</button><button class="btn ghost" data-go="skip">Skip for now</button><label><input type="checkbox" id="voiceChk" checked> Read it out loud to me</label></div>${WAVES}`,
+ steps:[{say:'Aloha {name}! This short training shows the updated Possible duplicate task in DAN. When two records share a phone number, you decide if they are one person or two. And when the two emails are different, you now pick the record with the correct email. You can pause, go back, or watch again any time.'}]},
+
+// ================= 2 WHERE IT COMES FROM =================
+{html:()=>HEAD('Step 1','The task comes to you in My Day')+`<div class="dp-win"><div class="dp-in"><div class="md-band"><b>My Day</b><p>Thursday, October 22 · 3 tasks</p></div>
+ <div class="dp-clock k-clock" style="opacity:0">Every morning at<b>6:00 AM</b>DAN looks for records that share a phone number.</div>
+ <div class="md-task k-task"><span class="ck"></span><div class="meta"><div class="ttl">${TITLE('Leilani Example','Leilani Example')}</div><div class="sub">Data review · Office · Due today</div>
+  <span class="md-btn k-cmp">Compare the two records →</span></div></div>
+ <div class="md-task dim"><span class="ck"></span><div class="meta"><div class="ttl">Call back about the Saturday workshop</div><div class="sub">Phone · Due today</div></div></div>
+ <div class="md-task dim"><span class="ck"></span><div class="meta"><div class="ttl">Send the flyer to the school office</div><div class="sub">Email · Due today</div></div></div></div></div>`
+ +PTS(['Every morning at <b>6 AM</b>, DAN finds contact records that <b>share a phone number</b>.','It raises a <b>Possible duplicate</b> task, a <b>Data review</b>.','You see it in <b>My Day</b>.','Press <b>Compare the two records</b> to open it. Do not just tick it off.']),
+ steps:[
+ {say:'Every morning at six, DAN looks for contact records that share the same phone number.',li:0,act:async()=>{const c=q('.k-clock');await show(c);spot(c,6)}},
+ {say:'When it finds a pair, it raises a task called Possible duplicate. It names both people, and the phone number they share. It is a Data review task.',li:1,act:async()=>{spot(q('.k-task .ttl'),5)}},
+ {say:'The task shows up in My Day, for the person it is assigned to.',li:2,act:async()=>{spot(q('.k-task'),5)}},
+ {say:'Press the brown Compare the two records button. That opens the task, with both records side by side. Please do not just tick the task off. The decision is the whole point.',li:3,act:async()=>{spot(null);await tap('.k-cmp',900);hideCursor();spot(q('.k-cmp'),5)}}]},
+
+// ================= 3 THE YELLOW BOX =================
+{init:()=>{S={pick:null,drop:true,differ:true,recs:REC}},
+ html:()=>HEAD('Step 2','Is this one person, or two?')+TASKWIN({pick:null,drop:true,differ:true,recs:REC})
+ +PTS(['The yellow box shows <b>both records</b>, side by side.','Each card: <b>name</b>, <b>email</b>, <b>phone</b>, who added it and when.','Then the <b>children</b>, with birthdate or age range, and any <b>screenings</b>.','Different emails? The letters that differ are <b>highlighted</b>.']),
+ steps:[
+ {say:'Inside the task is a yellow box. Is this one person, or two? Both records are there, side by side, as Record A and Record B.',li:0,act:async()=>{spot(q('.k-box'),4)}},
+ {say:'Each card shows the name, the email, the phone, and who added the record, and when.',li:1,act:async()=>{spot(q('.k-cardA'),5)}},
+ {say:'Then the children, with a birthdate or an age range, and how many screenings the record has.',li:2,act:async()=>{const m=q('.k-cardA .dp-mt');spot(m,5)}},
+ {say:`Look at the two emails. ${EMA}, and ${EMB}. They are only one letter apart, so DAN highlights the letter that is different: an N on one card, an M on the other.`,li:3,act:async()=>{const a=pos(q('.k-emA')),b=pos(q('.k-emB'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:Math.max(a.h,b.h)},6)}}]},
+
+// ================= 4 TAP THE CORRECT EMAIL =================
+{init:()=>{S={pick:null,drop:true,differ:true,recs:REC}},
+ html:()=>HEAD('Step 3','Tap the card with the correct email')+TASKWIN({pick:null,drop:true,differ:true,recs:REC})
+ +PTS(['Which email is right? Tap <b>that</b> card.','It turns green: <b>keep</b>. The other says <b>fold in</b>.','<b>Either card</b> can be kept. Before, Record A was always kept, so a typo could survive a merge.','Not sure which is right? Check the family’s signup, or call them, before you merge.']),
+ steps:[
+ {say:'If they are the same person, which email is correct? Here, the family’s real address is [keikimom|keiki mom], with an M. That is Record B. Tap that card.',li:0,act:async()=>{spot(null);await tap('.k-cardB',900);hideCursor();S.pick='B';paint();spot(q('.k-cardB'),5)}},
+ {say:'Record B turns green, and says keep. Record A says fold in. Its details will move onto Record B.',li:1,act:async()=>{const a=pos(q('.k-cardA')),b=pos(q('.k-cardB'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:Math.max(a.h,b.h)},5)}},
+ {say:'Either card can be kept now. Before this update, Record A was always the one kept, and that is how one typo once survived a merge. Now you choose.',li:2,act:async()=>{spot(q('.k-cardB .dp-rk'),5)}},
+ {say:'Not sure which email is right? Look at the family’s signup, or give them a call, before you merge.',li:3,act:async()=>{spot(null)}}]},
+
+// ================= 5 THE OTHER EMAIL + SUMMARY =================
+{init:()=>{S={pick:'B',drop:true,differ:true,recs:REC}},
+ html:()=>HEAD('Step 4','What about the other email?')+TASKWIN({pick:'B',drop:true,differ:true,recs:REC})
+ +PTS(['<b>It’s a typo. Throw it away.</b> Already picked when the emails are only 1 or 2 letters apart.','<b>It’s a real second address.</b> Kept on the record as an <b>alternate email</b>.','The green line says <b>exactly</b> what will happen.','<b>Same person — merge</b> stays grey until you pick a card. No pop-up after it.'],130),
+ steps:[
+ {say:'Under the cards, DAN asks: what about the other email?',li:0,act:async()=>{spot(q('.k-oth'),5)}},
+ {say:'It’s a typo, throw it away. When the two emails are only one or two letters apart, DAN picks this for you, because that is almost always a typing slip.',li:0,act:async()=>{spot(q('.k-r1'),5)}},
+ {say:'Or: it’s a real second address. For example, a work email and a home email. Pick this, and the other address is kept on the record as an alternate email.',li:1,act:async()=>{await tap('.k-r2',800);hideCursor();S.drop=false;paint();spot(q('.k-r2'),5);await wait(1400);await tap('.k-r1',700);hideCursor();S.drop=true;paint();spot(q('.k-r1'),5)}},
+ {say:'Now read the green line. It spells out exactly what will happen: which record is kept, with which email, what moves over, and what happens to the other email.',li:2,act:async()=>{spot(q('.k-sum'),5)}},
+ {say:'The green Same person, merge button only turns on once you have picked a card. Until then it stays grey. There is no pop-up after you press it, so the green line is your check.',li:3,act:async()=>{spot(q('.k-merge'),5)}}]},
+
+// ================= 6 WHAT A MERGE DOES =================
+{html:()=>HEAD('Step 5','What happens when you merge')+`
+ <div class="mg-col mg-fold k-fold" style="left:58px"><span class="dp-rk">Record A · fold in</span><div class="dp-nm">Leilani Example</div><div class="dp-mt" style="margin-bottom:6px">keikinom@example.com</div>
+  <div class="mg-it k-i1"><b>Signups</b><span class="n">2</span></div><div class="mg-it k-i2"><b>Interactions</b><span class="n">3</span></div>
+  <div class="mg-it k-i3"><b>Children</b><span>Kai · 2021-04-12</span></div><div class="mg-it k-i4"><b>Screenings</b><span class="n">1</span></div></div>
+ <div class="fl-arr" style="position:absolute;left:378px;top:270px;font-size:44px;font-weight:900;color:#16A34A">→</div>
+ <div class="mg-col mg-keep k-keep" style="left:440px;width:330px"><span class="dp-rk">Record B · keep</span><div class="dp-nm">Leilani Example</div><div class="dp-mt" style="margin-bottom:6px">keikimom@example.com</div>
+  <div class="mg-it"><b>Signups</b><span class="n k-n1">1</span></div><div class="mg-it"><b>Interactions</b><span class="n k-n2">1</span></div>
+  <div class="mg-it k-kid"><b>Children</b><span>Kia · 2021-04-12</span></div><div class="mg-it k-scr"><b>Screenings</b><span class="n k-n4">0</span></div></div>
+ <div class="mg-note k-note" style="opacity:0"><b>Merging cannot be undone from the task.</b> Read both cards first.</div>`
+ +PTS(['Record A’s <b>signups</b>, <b>interactions</b>, <b>children</b> and <b>screenings</b> move onto Record B.','The <b>same child</b> on both records is kept <b>once</b>: same birthdate, or the same first name with a one-letter slip, like Kai and Kia.','Screenings are <b>not doubled</b>.','Record A is <b>removed</b>. A green note says what moved.','It cannot be undone from the task, so <b>read both cards first</b>.']),
+ steps:[
+ {say:'Here is what a merge does. Everything on Record A moves onto Record B: its signups, its interactions, its children, and its screenings.',li:0,act:async()=>{
+   for(const [i,n,to] of [[1,1,3],[2,2,4]]){const it=q('.k-i'+i);spot(it,4);const p=pos(it);const c=add(`<div class="mg-chip" style="left:${p.x+150}px;top:${p.y}px">+${i===1?2:3}</div>`);
+    const t=pos(q('.k-n'+n));await anim(c,[{transform:'none',opacity:1},{transform:`translate(${t.x-p.x-150}px,${t.y-p.y}px)`,opacity:.2}],900,'ease-in-out');c.remove();await countTo(q('.k-n'+n),to,'',500)}
+   spot(null)}},
+ {say:'Children are matched first. Kai on Record A and Kia on Record B have the same birthdate. That is the same child, with a one-letter slip in the name. So the child is kept once, not twice.',li:1,act:async()=>{const a=pos(q('.k-i3')),b=pos(q('.k-kid'));spot({x:a.x,y:Math.min(a.y,b.y),w:b.x+b.w-a.x,h:a.h},5)}},
+ {say:'The screening moves across too, and screenings are not doubled. Record B now has the one screening.',li:2,act:async()=>{spot(q('.k-scr'),4);await countTo(q('.k-n4'),1,'',400)}},
+ {say:'Then Record A is removed, and a green note tells you what moved.',li:3,act:async()=>{spot(null);const f=q('.k-fold');await anim(f,[{opacity:1},{opacity:.35}],500,'ease-out');f.style.opacity=.35;const p=pos(f);const g=add(`<div class="mg-gone" style="left:${p.x+80}px;top:${p.y+p.h+24}px">REMOVED</div>`);await pop(g);
+   const t=add('<div class="dp-toast" style="bottom:auto;top:470px;left:414px">Merged. Moved 3 interaction(s) and 2 signup(s).</div>');await show(t)}},
+ {say:'One thing to remember. A merge cannot be undone from the task. So read both cards first, every time.',li:4,act:async()=>{const n=q('.k-note');await show(n);spot(n,5)}}]},
+
+// ================= 7 TWO DIFFERENT PEOPLE =================
+{html:()=>{S={pick:null,drop:false,differ:true,recs:{A:{nm:'Leilani Example',em:'keikimom@example.com',added:'Sep 12, 2026 by Malia Santos',kids:'Kai Example <span style="color:#94A3B8">(2021-04-12)</span>',scr:1},B:{nm:'Keoni Example',em:'keoni.ex@example.com',added:'Oct 20, 2026 by Ben Ito',kids:'Kai Example <span style="color:#94A3B8">(2021-04-12)</span>',scr:0}}};return HEAD('Step 6','Two different people? Keep both')+TASKWIN(S,'Leilani Example','Keoni Example')
+ +PTS(['Different first names on one phone: <b>usually two people</b>, like two parents in one household.','Press the grey <b>Two different people — keep both</b>.','This one <b>asks you to confirm</b>. Press OK.','Nothing changes, and the pair is <b>remembered for good</b>. It is never raised again.'])},
+ steps:[
+ {say:'Here is a different pair. Leilani Example and Keoni Example share the same phone. Different first names on one number usually means two people. Here, two parents in one household.',li:0,act:async()=>{const a=pos(q('.k-cardA .dp-nm')),b=pos(q('.k-cardB .dp-nm'));spot({x:a.x,y:a.y,w:b.x+b.w-a.x,h:a.h},6)}},
+ {say:'So press the grey button: Two different people, keep both.',li:1,act:async()=>{spot(null);await tap('.k-both',900);hideCursor()}},
+ {say:'This one does ask you to confirm. It says: keep these as two separate people? Nothing changes, and this pair will never be raised again. Press OK.',li:2,act:async()=>{const c=add('<div class="dp-cf"><small>danpoahu.github.io says</small>Keep these as TWO separate people?\n\n  Leilani Example\n  Keoni Example\n\nNothing changes, and this pair will never be raised again.<div class="bt"><span>Cancel</span><span class="ok k-ok">OK</span></div></div>',q('.dp-win'));await pop(c);await wait(400);await tap('.k-ok',700);hideCursor();c.remove()}},
+ {say:'Both records stay just as they are. DAN remembers your answer for good, so this pair will not come back tomorrow morning.',li:3,act:async()=>{const t=add('<div class="dp-toast" style="background:#16A34A">Kept separate — this pair will not come back.</div>',q('.dp-win'));await show(t)}}]},
+
+// ================= 8 WHEN THE EMAILS MATCH =================
+{html:()=>{S={pick:'A',drop:true,differ:false,recs:{A:Object.assign({},REC.A,{em:'keikimom@example.com'}),B:Object.assign({},REC.B,{em:'keikimom@example.com'})}};return HEAD('Good to know','When the two emails match')+TASKWIN(S)
+ +PTS(['Same email on both? The cards still show.','Just <b>tap the record to keep</b>. Nothing is highlighted.','There is <b>no typo question</b>, because there is only one email.','Same email on both is a strong sign of <b>one person</b>, even if a surname changed.'])},
+ steps:[
+ {say:'Sometimes the two records carry the same email. The cards still show, side by side.',li:0,act:async()=>{spot(q('.dp-cards'),5)}},
+ {say:'Just tap the record you want to keep. Nothing is highlighted, because the emails are the same.',li:1,act:async()=>{spot(null);await tap('.k-cardB',800);hideCursor();S.pick='B';paint();spot(q('.k-cardB'),5)}},
+ {say:'And there is no question about the other email, because there is only one.',li:2,act:async()=>{spot(q('.k-sum'),5)}},
+ {say:'The same email on both records is a strong sign of one person, even when the surnames are different. People do change their names.',li:3,act:async()=>{spot(null)}}]},
+
+// ================= 9 HOW TO DECIDE =================
+{html:()=>HEAD('How to decide','One person, or two?')+`
+ <div class="dc-p k-d1" style="top:130px"><div class="k">Almost always one person: merge</div><div class="pr"><div><b>Leilani Example</b>keikimom@example.com</div><div><b>Leilani Example</b>leilani@work.example.com</div></div><div class="v">Same name, same phone, two emails. A <b>work</b> and a <b>personal</b> email, or an old one.</div></div>
+ <div class="dc-p two k-d2" style="top:320px"><div class="k">Usually two people: keep both</div><div class="pr"><div><b>Leilani Example</b>keikimom@example.com</div><div><b>Keoni Example</b>keoni.ex@example.com</div></div><div class="v">Different first names on one phone: <b>two parents</b> in one household, a <b>couple</b>, or <b>staff</b> on one office line.</div></div>
+ <div class="mg-note k-d3" style="top:515px;opacity:0"><b>Not sure?</b> Open both contacts and look at the children and signups, or call the family. Merge only when you are sure.</div>`
+ +PTS(['<b>Same name + same phone</b> is almost always one person.','<b>Different first names</b> on one phone usually means two people.','Not sure? <b>Check first</b>. A merge cannot be undone from the task.']),
+ steps:[
+ {say:'So how do you decide? Same name, and same phone, is almost always one person. Often they just used a work email one time, and a personal email the next.',li:0,act:async()=>{const p=q('.k-d1');await show(p);spot(p,5)}},
+ {say:'Different first names on the same phone usually means two people. Two parents in one household, a couple, or staff calling from one office line.',li:1,act:async()=>{const p=q('.k-d2');await show(p);spot(p,5)}},
+ {say:'Not sure? Check first. Open both contacts, look at the children and the signups, or call the family. Merge only when you are sure, because a merge cannot be undone from the task.',li:2,act:async()=>{const p=q('.k-d3');await show(p);spot(p,5)}}]},
+
+/* ---------- QUIZ (answers: C, A, B) ---------- */
+QUIZ('Duplicate contacts',[
+ {q:'Record A says keikinom, Record B says keikimom. The family confirms keikimom is right. Which card do you tap?',o:['Record A, because Record A is always kept','Either one. It makes no difference','Record B, the card with the correct email'],a:2,y:'Tap the card with the correct email. Either card can be kept now.',n:'The card you tap is the one that is kept, email and all.'},
+ {q:'Leilani Example and Keoni Example share one phone number. What is most likely?',o:['Two people, maybe two parents in one household. Check, then keep both','One person with two names. Merge them','Neither. Delete one of the records'],a:0,y:'Different first names on one phone usually means two people. Keep both is remembered for good.',n:'Different first names on the same number is the usual sign of two people.'},
+ {q:'You tapped the card with the correct email. The other address is the person’s real work email. What do you choose?',o:['It’s a typo. Throw it away','It’s a real second address. Keep it as an alternate email','Two different people, keep both'],a:1,y:'A real second address is kept on the record as an alternate email.',n:'It is one person, and the other address is real, so you do not want to lose it.'}]),
+
+// ================= RECAP =================
+{html:()=>HEAD('Recap','Your duplicate checklist')+`<div class="cl" style="top:122px">${[
+ 'The <b>6 AM</b> check raises <b>Possible duplicate</b>. Open it with <b>Compare the two records</b>.',
+ 'Read <b>both cards</b>: name, email, phone, who added it, children, screenings.',
+ 'Different emails? The letters that differ are <b>highlighted</b>.',
+ 'Tap the card with the <b>correct email</b>. Either card can be kept.',
+ 'A typo? <b>Throw it away</b>. A real second address? Keep it as an <b>alternate email</b>.',
+ 'Read the <b>green line</b>, then <b>Same person — merge</b>. It cannot be undone from the task.',
+ 'Different first names on one phone? Usually <b>two people</b>: <b>keep both</b>, remembered for good.'].map(t=>`<div class="ci"><div class="bx"><svg viewBox="0 0 24 24"><path d="M5 12 L10 17 L19 7"/></svg></div><div>${t}</div></div>`).join('')}</div>`,
+ steps:[{say:'Let’s recap.',act:async()=>{for(const c of all('.ci')){c.classList.add('on');await wait(160)}}},
+ ...['The six A M check raises a Possible duplicate task. Open it with Compare the two records.','Read both cards: the name, email, phone, who added it, the children and the screenings.','If the emails are different, the letters that differ are highlighted.','Tap the card with the correct email. Either card can be kept.','A typo? Throw it away. A real second address? Keep it as an alternate email.','Read the green line, then press Same person, merge. It cannot be undone from the task.','Different first names on one phone usually means two people. Keep both, and DAN remembers it for good.']
+  .map((s,i)=>({say:s,act:async()=>{const c=all('.ci')[i];c.classList.add('done');spot(c,4)}}))]},
+
+// ================= MAHALO =================
+{cls:'cover',html:()=>`${LOGO}<div class="brand">Duplicate contacts: pick the right email</div><div class="hello">All done</div><h1>Mahalo<span class="nmc"></span>!</h1><p class="sub">Read both cards, tap the one with the correct email, and keep two people as two. Come back and watch it again any time.</p>
+ <div class="gate" style="top:460px"><button class="btn ghost" data-go="again">Watch again</button><button class="btn" data-go="close">Close</button></div>${WAVES}`,
+ steps:[{say:'Mahalo {name}! Read both cards, tap the one with the correct email, and keep two people as two. Come back and watch it again any time.',act:async()=>{await wait(400);confetti(640,300,160)}}]}
+];
+</script>
+<script src="deck-engine.js?v=3"></script>
+<script src="deck-tracker.js"></script></body></html>
