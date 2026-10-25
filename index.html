@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.64</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.66</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -14708,6 +14708,7 @@ var _photoPendingByIsland = {};
     if (typeof updateNotifBadge === 'function') updateNotifBadge();
     if (typeof loadDashboardCalendar === 'function') loadDashboardCalendar();
     try { _handleAnalyticsDeepLink(); } catch(_){}
+    try { _handleGoDeepLink(); } catch(_){}
   }
 
   // Deep-link: the daily-report email's "View full report" button links to
@@ -14737,6 +14738,151 @@ var _photoPendingByIsland = {};
       }, 300);
     }, 400);
   }
+  /* Daily-report deep links (2026-10-25, v153.65-STAGE). The 6am LDAH Daily
+     Report email links its tiles and event cards into DAN as #go=<target>&...
+     The hash is copied into sessionStorage the moment the page loads, so it
+     survives the login screen, and is run once showApp() fires after sign-in.
+     Then it is stripped, so a refresh does not reopen it. Unknown go= values
+     do nothing. */
+  var _GO_STASH_KEY = 'ldahGoDeepLink';
+  (function _stashGoDeepLink() {
+    try {
+      var h = (location.hash || '').replace(/^#/, '');
+      if (/(^|&)go=/.test(h)) sessionStorage.setItem(_GO_STASH_KEY, h);
+    } catch(_){}
+  })();
+  function _goNav(section) {
+    var link = document.querySelector('.nav a[data-section="' + section + '"]');
+    if (link) link.click();
+    return !!link;
+  }
+  function _goCall(fn, arg) {
+    if (typeof window[fn] === 'function') return window[fn](arg);
+  }
+  function _goFlash(el) {
+    if (!el) return;
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_){ try { el.scrollIntoView(); } catch(__){} }
+    var prev = el.style.boxShadow;
+    el.style.boxShadow = '0 0 0 3px #F59E0B';
+    setTimeout(function() { el.style.boxShadow = prev; }, 4000);
+  }
+  // Wait (up to ~10s) for an element to exist and be visible, then hand it on.
+  function _goWaitFor(id, cb) {
+    var tries = 0;
+    (function poll() {
+      var el = document.getElementById(id);
+      if (el && el.style.display !== 'none' && el.innerHTML) { cb(el); return; }
+      if (++tries < 40) setTimeout(poll, 250);
+    })();
+  }
+  // Reports-tab report: replay a Reports nav click, then run the builder.
+  function _goReport(fn, before) {
+    _goNav('reports');
+    setTimeout(function() {
+      if (before) try { before(); } catch(_){}
+      _goCall(fn);
+    }, 300);
+  }
+  /* Open an event's View Signups window; with a session key, bring that
+     session/date to the top and flash it. The modal has no single-session
+     filter, so this scrolls to it instead (a past one-time date is opened). */
+  async function _goOpenSignups(collection, eventId, sessionKey) {
+    if (!eventId || typeof window.cmsViewSignups !== 'function') return;
+    var isRec = collection === 'recurringEvents';
+    var title = '';
+    try {
+      var d = await db.collection(isRec ? 'recurringEvents' : 'events').doc(eventId).get();
+      if (d.exists) title = (d.data() || {}).title || '';
+    } catch(_){}
+    await window.cmsViewSignups(eventId, isRec, title);
+    if (!sessionKey) return;
+    var list = document.getElementById('cmsSignupsList');
+    if (!list) return;
+    if (!isRec) {
+      _cmsOtPastOpen[eventId + '|' + sessionKey] = true;
+      cmsRenderSignupsList(_cmsSignupsModalData.signups, 'events', eventId);
+      var body = document.getElementById('cmsOtBody_' + String(eventId + '|' + sessionKey).replace(/[^A-Za-z0-9]/g, '_'));
+      _goFlash(body && body.parentNode);
+      return;
+    }
+    // Recurring keys: "YYYY-MM-DD|Location|Time". Headings read "... YYYY-MM-DD — time @ Location".
+    var parts = String(sessionKey).split('|');
+    var date = parts[0] || '', loc = parts[1] || '';
+    if (!date) return;
+    var hit = null;
+    Array.prototype.forEach.call(list.children, function(box) {
+      if (hit) return;
+      var head = box.firstElementChild;
+      var t = head ? head.textContent : '';
+      if (t.indexOf(date) !== -1 && (!loc || t.indexOf('@ ' + loc) !== -1)) hit = box;
+    });
+    if (!hit) {
+      // No signups yet: the session is folded into "upcoming dates with no signups".
+      ['cmsFoldEmpty', 'cmsFoldCancelled'].forEach(function(id) {
+        if (hit) return;
+        var fold = document.getElementById(id);
+        if (!fold) return;
+        Array.prototype.forEach.call(fold.children, function(row) {
+          if (hit) return;
+          var t = row.textContent;
+          if (t.indexOf(date) !== -1 && (!loc || t.indexOf(loc) !== -1)) { fold.style.display = 'block'; hit = row; }
+        });
+      });
+    }
+    _goFlash(hit);
+  }
+  function _handleGoDeepLink() {
+    var raw = (location.hash || '').replace(/^#/, '');
+    if (!/(^|&)go=/.test(raw)) {
+      try { raw = sessionStorage.getItem(_GO_STASH_KEY) || ''; } catch(_){ raw = ''; }
+    }
+    try { sessionStorage.removeItem(_GO_STASH_KEY); } catch(_){}
+    if (!/(^|&)go=/.test(raw)) return;
+    var q = new URLSearchParams(raw);
+    var go = String(q.get('go') || '').toLowerCase();
+    var run = {
+      'signups': function() {
+        var c = q.get('c') === 'recurringEvents' ? 'recurringEvents' : 'events';
+        _goOpenSignups(c, q.get('e') || '', q.get('k') || '');
+      },
+      'myday': function() {
+        _goNav('dashboard');
+        setTimeout(function() { _goFlash(document.getElementById('myDayTodos')); }, 400);
+      },
+      'advocacy-membership': function() {
+        _goReport('cmsBuildCaseAdvocacyReport', function() { _carNoMemberOnly = true; });
+      },
+      'case-mgmt': function() { _goReport('cmsBuildCaseManagementReport'); },
+      'volunteers': function() {
+        _goNav('cmsVolunteers');
+        setTimeout(function() { if (typeof cmsSwitchVolunteersTab === 'function') cmsSwitchVolunteersTab('applications'); }, 300);
+      },
+      'webforms': function() { _goNav('cmsWebData'); },
+      'resource-cycle': function() {
+        _goNav('cmsHomeDash');
+        _goWaitFor('cmsResourceCyclePanel', _goFlash);
+      },
+      'screenings': function() {
+        var school = q.get('school') || '';
+        _goReport('cmsBuildScreeningsReport', function() {
+          if (school) { window._srLoc = school; window._srClass = ''; }
+        });
+      },
+      'connectgen': function() {
+        if (typeof CONNECT_GEN_EVENT_ID !== 'undefined') _goOpenSignups('recurringEvents', CONNECT_GEN_EVENT_ID, '');
+      },
+      'contacts': function() { _goNav('contacts'); }
+    }[go];
+    if (!run) return;
+    try { history.replaceState(null, '', location.pathname + location.search); } catch(_){}
+    setTimeout(function() { try { run(); } catch(e) { console.warn('go deep link failed:', e && e.message); } }, 400);
+  }
+  // Already signed in and another #go= link lands in this tab: run it now.
+  window.addEventListener('hashchange', function() {
+    if (window.currentUserData && /(^|&)go=/.test((location.hash || '').replace(/^#/, ''))) {
+      try { _handleGoDeepLink(); } catch(_){}
+    }
+  });
   function showLogin() {
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('appContainer').style.display = 'none';
@@ -62082,6 +62228,9 @@ window.cmsCheckPayPalPayments = async function() {
    existed simply have blanks there -- shown as gaps to work, not as errors.
    (2026-08-31) */
 var _carRows = [];
+/* Set by the daily-report #go=advocacy-membership link (2026-10-25): show only
+   families with no membership. A banner on the report clears it. */
+var _carNoMemberOnly = false;
 
 /* ── Advocacy Readiness score (v150.40-STAGE) ─────────────────────────────────
    0 = never heard of IDEA, 10 = advocates for their own child without us.
@@ -62357,6 +62506,7 @@ window.cmsBuildCaseAdvocacyReport = async function() {
 };
 
 window.cmsCloseCaseAdvocacyReport = function() {
+  _carNoMemberOnly = false;
   _cmsShowOnlyReport(null);
 };
 
@@ -65833,9 +65983,14 @@ function _carReadinessCell(r) {
 function _carRender() {
   var body = document.getElementById('carBody');
   if (!body) return;
-  var rows = _carRows;
+  var rows = _carNoMemberOnly ? _carRows.filter(function(r) { return !r.member; }) : _carRows;
+  var _carMemBanner = _carNoMemberOnly
+    ? '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:8px 12px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;font-size:.84rem;color:#92400E;">' +
+      '<span style="flex:1;">Showing only families with <b>no membership</b> (' + rows.length + ').</span>' +
+      '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 12px;" onclick="_carNoMemberOnly=false;_carRender()">Show all</button></div>'
+    : '';
   if (!rows.length) {
-    body.innerHTML = '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">No case advocacy families match.</div>';
+    body.innerHTML = _carMemBanner + '<div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">No case advocacy families match.</div>';
     return;
   }
   var open = rows.filter(function(r) { return r.open; }).length;
@@ -65991,7 +66146,7 @@ function _carRender() {
     'The score stops at 9.5 until the family has BOTH a Gold certificate and a meeting the parent led; then it can reach 10.<br><br>' +
     '<b style="color:var(--text-dark);">Days</b> counts from the case start to today for an open case, or to the close date for a closed one. A long case is not a bad case &mdash; it is here so a stalled one is visible.' +
     '</div>';
-  body.innerHTML = h;
+  body.innerHTML = _carMemBanner + h;
 }
 
 window.cmsExportCaseAdvocacyCsv = function() {
