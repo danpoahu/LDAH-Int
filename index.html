@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.66</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.68</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -63359,7 +63359,15 @@ async function _pbLoadAll() {
            and it keeps one shape for both kinds of row. */
         archived: v.archived === true,
         evPresenter: (v.summary && v.summary.presenter) || '',
-        evPresenterUid: (v.summary && v.summary.presenterUid) || ''
+        evPresenterUid: (v.summary && v.summary.presenterUid) || '',
+        /* For partner one-offs with no attendance (see _pbTaskCandidates). A
+           partner one-off is saved archived with no signups, so the normal test
+           never saw it; these let it be found and routed to the partner who owns
+           it. pipImport marks rows Daniel's spreadsheet import created, whose
+           createdByUid is Daniel, not the partner. (2026-10-26) */
+        isOneOff: v.isOneOff === true,
+        createdByUid: v.createdByUid || '',
+        pipImport: !!v._pipImport
       });
     }
 
@@ -63792,6 +63800,25 @@ function _pbTaskOwner(r) {
   var sm = r.s || {};
   if (sm.presenterUid) return { uid: sm.presenterUid, name: sm.presenter || '' };
   if (r.evPresenterUid) return { uid: r.evPresenterUid, name: r.evPresenter || '' };
+  /* Partner one-offs carry a presenter NAME only. Route to the partner account
+     that owns the island: the one who entered it, or for an imported row the
+     partner named as presenter, else the island's only partner account
+     (userRoles.location). Islands with two accounts are not guessed at:
+     American Samoa also has Daniel's test login. Needs _pbStaff, which the
+     panel loads. (2026-10-26) */
+  if (_pbIsPartnerOneOff(r) && _pbStaff) {
+    var onIsland = _pbStaff.filter(function (p) {
+      return (p.role === 'partner' || p.role === 'superPartner') && p.location === r.pIsland;
+    });
+    var pick = null;
+    if (!r.pipImport && r.createdByUid) pick = onIsland.filter(function (p) { return p.uid === r.createdByUid; })[0];
+    if (!pick && sm.presenter) {
+      var pn = String(sm.presenter).toLowerCase().trim();
+      pick = onIsland.filter(function (p) { return String(p.name).toLowerCase().trim() === pn; })[0];
+    }
+    if (!pick && onIsland.length === 1) pick = onIsland[0];
+    if (pick) return { uid: pick.uid, name: pick.name };
+  }
   return { uid: '', name: sm.presenter || r.evPresenter || '' };
 }
 
@@ -63856,9 +63883,24 @@ function _pbNotesCandidates() {
   }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
 }
 
+/* A partner's one-off: saved archived, with no signups (the partner types a
+   headcount instead of naming people). The two tests below that exist for LDAH
+   sessions — not archived, at least one signup — would hide every one of these,
+   so a blank partner one-off showed a dash in section 1 while this panel said
+   "Nothing to raise". (2026-10-26) */
+function _pbIsPartnerOneOff(r) {
+  return !!(r && r.pip && r.isOneOff && !r.perSession && !r.isFlyer);
+}
+
 function _pbTaskCandidates() {
   var today = _pbTodayISO();
   return _pbScope().sessions.filter(function (r) {
+    if (_pbIsPartnerOneOff(r)) {
+      if (_pbRowAttendance(r) != null) return false;
+      if (_pbCountInNotes(r.s)) return false;   /* listed in the notes group instead */
+      if (!r.date || r.date >= today) return false;
+      return true;
+    }
     if (r.archived === true) return false;
     /* The ROW resolver, not the stored summary. Marking people present writes to
        the signup, not the summary, so a fully attended session can have a blank
@@ -63905,7 +63947,9 @@ window.pbToggleTaskPanel = function (force) {
           (window.auth && window.auth.currentUser && window.auth.currentUser.uid) || '';
       }
       var p = document.getElementById('pbTaskPanel');
-      if (p && p.style.display !== 'none') _pbRenderTaskPanel();
+      /* Rebuild, not just redraw: partner one-offs are routed by the staff
+         list, so their owner is only known once it has arrived. */
+      if (p && p.style.display !== 'none') { _pbBuildTaskRows(); _pbRenderTaskPanel(); }
     });
   }
   /* Same idea for the tasks already raised: read them in the background and
@@ -64008,7 +64052,7 @@ function _pbLoadStaff() {
       if (v.archived === true) return;
       var name = v.displayName || v.email || '';
       if (!name) return;
-      out.push({ uid: d.id, name: name, email: v.email || '', role: v.role || '' });
+      out.push({ uid: d.id, name: name, email: v.email || '', role: v.role || '', location: v.location || '' });
     });
     out.sort(function (a, b) { return a.name.localeCompare(b.name); });
     _pbStaff = out;
@@ -64196,7 +64240,7 @@ function _pbRenderTaskPanel(resultHtml) {
   if (!_pbTaskRows.length) {
     h += '<div class="pb-note">Nothing to raise. Every session between ' +
            _pbEsc(_pbDayLabel(_pbState.from)) + ' and ' + _pbEsc(_pbDayLabel(_pbState.to)) +
-           ' that had signups already has its attendance recorded.</div>' +
+           ' that had signups, and every Pacific partner one-off, already has its attendance recorded.</div>' +
          _notesHtml +
          (resultHtml || '') +
          '<div style="margin-top:12px;"><button class="btn btn-ghost" style="font-size:.82rem;" onclick="pbToggleTaskPanel(false)">Close</button></div>' +
@@ -64206,8 +64250,10 @@ function _pbRenderTaskPanel(resultHtml) {
   }
 
   var noOwner = _pbTaskRows.filter(function (t) { return !t.ownerUid; }).length;
-  h += '<div class="pb-note">These sessions fall in the range on screen, had at least one live signup, ' +
+  h += '<div class="pb-note">These sessions fall in the range on screen, had at least one live signup ' +
+       '(or are a Pacific partner one-off, which never has signups), ' +
        'have already happened, and have no attendance recorded — the dashes in section 1. ' +
+       'A partner one-off goes to that partner\'s own account. ' +
        'Untick anything that should not be chased. Each tick raises one <strong>Event Wrap-Up → Event Summary</strong> ' +
        'task, due today, on the session presenter\'s My Day. A session that already has one is skipped.</div>';
   if (noOwner) {
