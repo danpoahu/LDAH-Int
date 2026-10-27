@@ -6067,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.71-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.72-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7688,6 +7688,17 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                           +'<button class="btn" style="font-size:.8rem;padding:8px 14px;background:#0891B2;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;" onclick="event.stopPropagation();myDaySaveParentContact('+_jsArg(d._id)+','+_jsArg(d.contactId)+',this)">Save</button>'
                           +'</div>'
                           +'<button class="btn btn-ghost" style="font-size:.72rem;padding:4px 9px;margin-top:6px;" onclick="event.stopPropagation();openContactDetail('+_jsArg(d.contactId)+')">Open the contact card &rarr;</button>'
+                          +'</div>';
+                      }
+                      // Wrong screening printout (v153.72): view the file, take it off the
+                      // child's record in one click, upload the right one, or open the card.
+                      if(r.bucket!=='done'&&d.workflowStep==='screeningPrintoutFix'&&d.contactId&&d.screeningId&&d.printoutPath&&!actionBtn){
+                        var _pfB='font-size:.8rem;padding:8px 14px;border:none;border-radius:7px;cursor:pointer;font-weight:700;color:#fff;';
+                        actionBtn='<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;" onclick="event.stopPropagation();">'
+                          +'<button class="btn" style="'+_pfB+'background:#5B21B6;" onclick="event.stopPropagation();myDayViewPrintout('+_jsArg(d.contactId)+','+_jsArg(d.screeningId)+','+_jsArg(d.printoutPath)+')">View the wrong PDF</button>'
+                          +'<button class="btn" style="'+_pfB+'background:#DC2626;" onclick="event.stopPropagation();myDayRemovePrintout('+_jsArg(d._id)+','+_jsArg(d.contactId)+','+_jsArg(d.screeningId)+','+_jsArg(d.printoutPath)+',this)">Remove it from the record</button>'
+                          +'<button class="btn" style="'+_pfB+'background:#0891B2;" onclick="event.stopPropagation();myDayUploadHearingPdf('+_jsArg(d.contactId)+','+_jsArg(d.screeningId)+')">Upload the right hearing PDF</button>'
+                          +'<button class="btn btn-ghost" style="font-size:.72rem;padding:4px 9px;" onclick="event.stopPropagation();openContactDetail('+_jsArg(d.contactId)+')">Open the contact card &rarr;</button>'
                           +'</div>';
                       }
                       // Meeting type (2026-10-14): one big button per IV.A kind. One click
@@ -51881,6 +51892,54 @@ window.myDaySaveParentContact = async function(taskId, contactId, el) {
     console.warn('parent contact:', e && e.message);
     _showToast('Could not save: ' + (e && e.message), '#DC2626');
   }
+};
+
+/* Wrong screening printout task (v153.72). The file is located by its storage
+   path, never by position, so a printout added or removed in the meantime
+   cannot shift which one gets removed. Removing takes it off the record only;
+   the stored file stays, so a mistaken removal can be put back. */
+window.myDayViewPrintout = async function(contactId, screeningId, path) {
+  try {
+    var cs = await db.collection('contacts').doc(contactId).get();
+    var scr = ((cs.data() || {}).screenings || []).filter(function (x) { return x && x.id === screeningId; })[0];
+    var idx = scr ? (scr.printouts || []).map(function (p) { return p && p.storagePath; }).indexOf(path) : -1;
+    if (idx < 0) { _showToast('That PDF is no longer on the record.', '#16A34A'); return; }
+    if (typeof window.ctScViewPrintout === 'function') window.ctScViewPrintout(contactId, screeningId, idx);
+  } catch (e) { _showToast('Could not open the PDF: ' + (e && e.message), '#DC2626'); }
+};
+window.myDayRemovePrintout = async function(taskId, contactId, screeningId, path, el) {
+  if (!confirm('Take this PDF off the child\'s screening record?')) return;
+  if (el && el.disabled) return;
+  if (el) el.disabled = true;
+  try {
+    var cref = db.collection('contacts').doc(contactId), removed = null, who = '';
+    await db.runTransaction(async function (tx) {
+      var cs = await tx.get(cref); if (!cs.exists) throw new Error('That contact could not be found.');
+      var c = cs.data() || {}; who = c.displayName || contactId;
+      var list = (c.screenings || []).map(function (sc) {
+        if (!sc || sc.id !== screeningId) return sc;
+        var keep = (sc.printouts || []).filter(function (p) { if (p && p.storagePath === path) { removed = p; return false; } return true; });
+        return Object.assign({}, sc, { printouts: keep });
+      });
+      if (!removed) return;
+      tx.update(cref, { screenings: list, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    });
+    if (!removed) { _showToast('That PDF was already off the record.', '#16A34A'); if (el) el.disabled = false; return; }
+    if (window.auditLog) window.auditLog('Removed screening printout', who + ' / ' + screeningId + ': ' + path + ' (from My Day task)');
+    var tref = db.collection('interactions').doc(taskId), ts = await tref.get();
+    var prev = ts.exists ? String((ts.data() || {}).notes || '') : '';
+    await tref.update({ notes: prev + '\n---\n[' + new Date().toLocaleString('en-US') + '] Removed the wrong PDF from the record.', printoutRemovedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    _showToast('Removed. Upload the right PDF if you have it, then tick the task done.', '#16A34A');
+  } catch (e) {
+    if (el) el.disabled = false;
+    console.warn('remove printout:', e && e.message);
+    _showToast('Could not remove it: ' + (e && e.message), '#DC2626');
+  }
+};
+window.myDayUploadHearingPdf = function(contactId, screeningId) {
+  if (typeof window._srUploadHearingPdf === 'function') return window._srUploadHearingPdf(contactId, screeningId);
+  _showToast('Open the Screening Results report once, then try again.', '#B45309');
 };
 
 window.myDaySetMeetingType = async function(taskId, meetingId, type, el) {
