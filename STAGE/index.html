@@ -51907,25 +51907,37 @@ window.myDayViewPrintout = async function(contactId, screeningId, path) {
     if (typeof window.ctScViewPrintout === 'function') window.ctScViewPrintout(contactId, screeningId, idx);
   } catch (e) { _showToast('Could not open the PDF: ' + (e && e.message), '#DC2626'); }
 };
+async function _removeScreeningPrintout(contactId, screeningId, path, from) {
+  var cref = db.collection('contacts').doc(contactId), removed = null, who = '';
+  await db.runTransaction(async function (tx) {
+    var cs = await tx.get(cref); if (!cs.exists) throw new Error('That contact could not be found.');
+    var c = cs.data() || {}; who = c.displayName || contactId; removed = null;
+    var list = (c.screenings || []).map(function (sc) {
+      if (!sc || sc.id !== screeningId) return sc;
+      var keep = (sc.printouts || []).filter(function (p) { if (p && p.storagePath === path) { removed = p; return false; } return true; });
+      return Object.assign({}, sc, { printouts: keep });
+    });
+    if (!removed) return;
+    tx.update(cref, { screenings: list, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  });
+  if (removed && window.auditLog) window.auditLog('Removed screening printout', who + ' / ' + screeningId + ': ' + path + ' (' + from + ')');
+  return !!removed;
+}
+window.srRemovePrintout = async function(contactId, screeningId, path) {
+  if (!path || !confirm('Take this PDF off the child\'s screening record?')) return;
+  try {
+    var ok = await _removeScreeningPrintout(contactId, screeningId, path, 'from Screening Results');
+    _showToast(ok ? 'Removed from the record.' : 'That PDF was already off the record.', '#16A34A');
+    if (typeof window.openScreeningResults === 'function') window.openScreeningResults(contactId, screeningId, window._srCtx || '');
+  } catch (e) { _showToast('Could not remove it: ' + (e && e.message), '#DC2626'); }
+};
 window.myDayRemovePrintout = async function(taskId, contactId, screeningId, path, el) {
   if (!confirm('Take this PDF off the child\'s screening record?')) return;
   if (el && el.disabled) return;
   if (el) el.disabled = true;
   try {
-    var cref = db.collection('contacts').doc(contactId), removed = null, who = '';
-    await db.runTransaction(async function (tx) {
-      var cs = await tx.get(cref); if (!cs.exists) throw new Error('That contact could not be found.');
-      var c = cs.data() || {}; who = c.displayName || contactId;
-      var list = (c.screenings || []).map(function (sc) {
-        if (!sc || sc.id !== screeningId) return sc;
-        var keep = (sc.printouts || []).filter(function (p) { if (p && p.storagePath === path) { removed = p; return false; } return true; });
-        return Object.assign({}, sc, { printouts: keep });
-      });
-      if (!removed) return;
-      tx.update(cref, { screenings: list, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-    });
+    var removed = await _removeScreeningPrintout(contactId, screeningId, path, 'from My Day task');
     if (!removed) { _showToast('That PDF was already off the record.', '#16A34A'); if (el) el.disabled = false; return; }
-    if (window.auditLog) window.auditLog('Removed screening printout', who + ' / ' + screeningId + ': ' + path + ' (from My Day task)');
     var tref = db.collection('interactions').doc(taskId), ts = await tref.get();
     var prev = ts.exists ? String((ts.data() || {}).notes || '') : '';
     await tref.update({ notes: prev + '\n---\n[' + new Date().toLocaleString('en-US') + '] Removed the wrong PDF from the record.', printoutRemovedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -72242,14 +72254,15 @@ window.cmsBuildMembershipReport = async function() {
       var c = snap.exists ? (snap.data()||{}) : {};
       var _list = Array.isArray(c.screenings) ? c.screenings : [];
       var scr = _list.filter(function(s){ return s && s.id === screeningId; })[0] || {};
-      _renderForm(contactId, screeningId, scr.child || {}, scr.results || {}, c, scr.absent || {});
+      _renderForm(contactId, screeningId, scr.child || {}, scr.results || {}, c, scr.absent || {}, scr.printouts || []);
     } catch(e){ document.getElementById('srResultsBody').innerHTML = '<p style="color:#dc2626;padding:20px;">Error: ' + _esc(e.message) + '</p>'; }
   };
 
   window.closeScreeningResults = function(){ var ov = document.getElementById('srResultsOverlay'); if (ov) ov.classList.remove('active'); };
 
-  function _renderForm(contactId, screeningId, child, r, c, absent){
+  function _renderForm(contactId, screeningId, child, r, c, absent, printouts){
     absent = absent || {};
+    printouts = Array.isArray(printouts) ? printouts : [];
     var childName = ((child.firstName||'')+' '+(child.lastName||'')).replace(/\s+/g,' ').trim() || 'this child';
     document.getElementById('srResultsTitle').textContent = 'Screening Results — ' + childName;
     var by = r.screenedBy || (typeof currentUserData !== 'undefined' && currentUserData ? currentUserData.displayName : '') || '';
@@ -72293,6 +72306,20 @@ window.cmsBuildMembershipReport = async function() {
     h += '<div id="srSecVision">' + hdr3();
     h += rlRow('Distance', 'srDistR', 'srDistL', pf, dist.right, dist.left);
     h += '<label style="'+lbl+'">Lea Symbols / PlusOptix</label><textarea id="srLea" rows="2" style="'+inp+'resize:vertical;">'+_esc(vs.leaSymbols||'')+'</textarea></div>';
+    /* Printouts and PDFs (v153.72): each attached file can be viewed or taken
+       off this child's record here; a wrong file used to need a developer. */
+    if (printouts.length) {
+      h += '<div style="display:flex;align-items:center;font-weight:700;color:#0891B2;margin:18px 0 6px;border-bottom:2px solid #E0F2FE;padding-bottom:4px;">Printouts and PDFs</div>';
+      printouts.forEach(function(p, i){
+        var lab = window._srFileLabel ? window._srFileLabel(printouts, i) : 'Printout';
+        var up = p && p.uploadedAt ? (function(v){ var d = new Date(v); return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month:'short', day:'numeric' }); })(p.uploadedAt) : '';
+        h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:.88rem;">' +
+          '<span style="flex:1;color:#334155;">' + _esc(lab) + (up ? ' <span style="color:#94A3B8;font-size:.78rem;">added ' + _esc(up) + '</span>' : '') + '</span>' +
+          '<button type="button" onclick="ctScViewPrintout(' + _jsArg(contactId) + ',' + _jsArg(screeningId) + ',' + i + ')" style="font-size:.78rem;font-weight:600;color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;padding:4px 10px;cursor:pointer;">View</button>' +
+          '<button type="button" onclick="srRemovePrintout(' + _jsArg(contactId) + ',' + _jsArg(screeningId) + ',' + _jsArg((p && p.storagePath) || '') + ')" style="font-size:.78rem;font-weight:600;color:#B91C1C;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:4px 10px;cursor:pointer;">Remove</button>' +
+          '</div>';
+      });
+    }
     h += '<div id="srMsg" style="font-size:.85rem;margin-top:12px;min-height:18px;"></div>';
     h += '<div style="display:flex;gap:10px;margin-top:6px;">';
     h += '<button onclick="_srSave(\''+contactId+'\', \''+screeningId+'\', false)" style="flex:1;padding:10px;border:2px solid #0891B2;background:#fff;color:#0891B2;border-radius:8px;font-weight:600;cursor:pointer;">Save results</button>';
