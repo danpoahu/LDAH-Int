@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.73</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.74</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -72240,6 +72240,104 @@ window.cmsBuildMembershipReport = async function() {
   function _db(){ return (typeof db !== 'undefined' && db) ? db : firebase.firestore(); }
   function _esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   function _rv(name){ var el=document.querySelector('input[name="'+name+'"]:checked'); return el?el.value:''; }
+  /* SCREENEDBY-BEGIN (10-27) Screened by line, built from the per-part stamps.
+     Same text on the phone page and in DAN; the 10-27 backfill used the same rules.
+       "V: <first> 9:39 AM · H: <first> 9:45 AM"   vision first, HST clock
+       "V: <first> 10/26 9:16 AM · H: <first> 10/27 10:08 AM"  parts on different HST days
+     Only parts that have results AND a stamp (<part>At plus <part>By or <part>ByUid).
+     First name: <part>ByName, else staff[<part>ByUid] (first word of
+     userRoles.displayName), else first word of <part>By (an email gives its
+     local part, capitalised). */
+  function sbFirstName(r, part, staff){
+    var n = r[part + 'ByName'] || (staff && r[part + 'ByUid'] ? staff[r[part + 'ByUid']] : '') || '';
+    if (String(n).trim()) return String(n).trim().split(/\s+/)[0];
+    var by = String(r[part + 'By'] || '').trim();
+    if (by.indexOf('@') > -1){ by = by.split('@')[0]; return by.charAt(0).toUpperCase() + by.slice(1); }
+    return by ? by.split(/\s+/)[0] : '';
+  }
+  function sbHst(at){
+    if (!at) return null;
+    var ms = (typeof at.toMillis === 'function') ? at.toMillis()
+      : (typeof at.toDate === 'function') ? at.toDate().getTime()
+      : (at.seconds != null) ? Number(at.seconds) * 1000
+      : (at instanceof Date) ? at.getTime() : new Date(at).getTime();
+    if (isNaN(ms)) return null;
+    var d = new Date(ms - 36e6);   /* HST = UTC-10, no daylight saving */
+    var h = d.getUTCHours(), m = d.getUTCMinutes();
+    return { key: d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate(),
+             day: (d.getUTCMonth() + 1) + '/' + d.getUTCDate(),
+             time: ((h % 12) || 12) + ':' + (m < 10 ? '0' : '') + m + ' ' + (h < 12 ? 'AM' : 'PM') };
+  }
+  function sbHasPart(r, part){
+    var x = r[part] || {};
+    if (part === 'vision'){ var d = x.distance || {}; return !!(d.right || d.left || x.leaSymbols); }
+    return ['otoscopy', 'oae', 'tympanometry'].some(function(k){ var o = x[k] || {}; return !!(o.right || o.left); });
+  }
+  function screenedByLine(r, staff){
+    r = r || {};
+    var parts = [];
+    [['V', 'vision'], ['H', 'hearing']].forEach(function(p){
+      var t = sbHst(r[p[1] + 'At']);
+      if (!t || !sbHasPart(r, p[1]) || !(r[p[1] + 'By'] || r[p[1] + 'ByUid'])) return;
+      parts.push({ tag: p[0], name: sbFirstName(r, p[1], staff), t: t });
+    });
+    var two = parts.length === 2 && parts[0].t.key !== parts[1].t.key;
+    return parts.map(function(p){ return (p.tag + ': ' + p.name + ' ' + (two ? p.t.day + ' ' : '') + p.t.time).replace(/\s+/g, ' '); }).join(' · ');
+  }
+  /* SCREENEDBY-END */
+  /* Staff first names by uid for the Screened by line (v153.74). */
+  var _srStaff = null;
+  async function _srLoadStaff(){
+    if (_srStaff) return _srStaff;
+    try { var rs = await _db().collection('userRoles').get(); var m = {}; rs.forEach(function(d){ var n = String((d.data() || {}).displayName || '').trim(); m[d.id] = n ? n.split(/\s+/)[0] : ''; }); _srStaff = m; } catch(e){ return {}; }
+    return _srStaff;
+  }
+  function _srMe(){
+    var u = firebase.auth().currentUser, cd = window.currentUserData || {};
+    var dn = String(cd.displayName || '').trim();
+    return { by: cd.displayName || (u && u.email) || '', uid: (u && u.uid) || '', name: dn ? dn.split(/\s+/)[0] : '' };
+  }
+  /* The vision / hearing values in the form (no stamps, no screenedBy). */
+  function _srCollect(){
+    var _v = function(id){ var e=document.getElementById(id); return e?(e.value||'').trim():''; };
+    var dt = document.getElementById('srDate');
+    return {
+      site: _v('srSite'),
+      screenedAt: (dt && dt.value) || '',
+      hearing: {
+        otoscopy: { right: _v('srOtoR'), left: _v('srOtoL') },
+        oae: { right: _v('srOaeR'), left: _v('srOaeL') },
+        tympanometry: { right: _v('srTympR'), left: _v('srTympL') }
+      },
+      vision: {
+        distance: { right: _v('srDistR'), left: _v('srDistL') },
+        leaSymbols: _v('srLea')
+      }
+    };
+  }
+  /* Did this window change part k ('hearing' / 'vision')? Compares only the
+     fields this window edits (uploads etc. live beside them). */
+  function _srPartChanged(prev, results, k){
+    var _norm = function(o){ return JSON.stringify(o || {}, function(kk, v){ return v === undefined ? '' : v; }); };
+    var _blank = { hearing: { otoscopy:{right:'',left:''}, oae:{right:'',left:''}, tympanometry:{right:'',left:''} }, vision: { distance:{right:'',left:''}, leaSymbols:'' } };
+    var _pick = function(shape, src){ var o = {}; Object.keys(shape).forEach(function(f){ var v = src ? src[f] : undefined; o[f] = (shape[f] && typeof shape[f] === 'object') ? _pick(shape[f], (v && typeof v === 'object') ? v : null) : String(v == null ? '' : v); }); return o; };
+    return _norm(_pick(_blank[k], (prev || {})[k])) !== _norm(_pick(_blank[k], (results || {})[k]));
+  }
+  /* Screened by box (v153.74): shows the line the save will write
+     (this person + now for each part changed here, the saved stamp for the
+     other). A box typed in on purpose saves that text (screenedByAuto false). */
+  function _srByValue(base){
+    base = base || {};
+    var cur = _srCollect(), tmp = Object.assign({}, base, cur), me = _srMe(), changed = false;
+    ['hearing','vision'].forEach(function(k){ if (_srPartChanged(base, cur, k)){ changed = true; tmp[k + 'At'] = new Date(); tmp[k + 'By'] = me.by; tmp[k + 'ByUid'] = me.uid; tmp[k + 'ByName'] = me.name; } });
+    if (!changed && base.screenedByAuto === false && base.screenedBy) return String(base.screenedBy);
+    return screenedByLine(tmp, _srStaff || {}) || (changed ? '' : String(base.screenedBy || ''));
+  }
+  function _srByRefresh(){
+    var st = window._srByState, el = document.getElementById('srBy');
+    if (!st || st.edited || !el) return;
+    el.value = _srByValue(st.base);
+  }
 
   function _buildOverlay(){
     var ov = document.createElement('div');
@@ -72272,6 +72370,7 @@ window.cmsBuildMembershipReport = async function() {
       var c = snap.exists ? (snap.data()||{}) : {};
       var _list = Array.isArray(c.screenings) ? c.screenings : [];
       var scr = _list.filter(function(s){ return s && s.id === screeningId; })[0] || {};
+      await _srLoadStaff();
       _renderForm(contactId, screeningId, scr.child || {}, scr.results || {}, c, scr.absent || {}, scr.printouts || []);
     } catch(e){ document.getElementById('srResultsBody').innerHTML = '<p style="color:#dc2626;padding:20px;">Error: ' + _esc(e.message) + '</p>'; }
   };
@@ -72283,7 +72382,6 @@ window.cmsBuildMembershipReport = async function() {
     printouts = Array.isArray(printouts) ? printouts : [];
     var childName = ((child.firstName||'')+' '+(child.lastName||'')).replace(/\s+/g,' ').trim() || 'this child';
     document.getElementById('srResultsTitle').textContent = 'Screening Results — ' + childName;
-    var by = r.screenedBy || (typeof currentUserData !== 'undefined' && currentUserData ? currentUserData.displayName : '') || '';
     var when = '';
     if (r.screenedAt){ if (r.screenedAt.toDate){ var d=r.screenedAt.toDate(); when = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); } else if (typeof r.screenedAt==='string'){ when = r.screenedAt.slice(0,10); } }
     if (!when){ var t=new Date(); when = t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
@@ -72303,7 +72401,7 @@ window.cmsBuildMembershipReport = async function() {
     h += '<div><label style="'+lbl+'">Date of Screening</label><input type="date" id="srDate" value="'+when+'" style="'+inp+'"></div>';
     h += '<div><label style="'+lbl+'">Site</label><input id="srSite" value="'+_esc(r.site||'')+'" style="'+inp+'"></div>';
     h += '</div>';
-    h += '<label style="'+lbl+'">Screened by</label><input id="srBy" value="'+_esc(by)+'" style="'+inp+'">';
+    h += '<label style="'+lbl+'">Screened by</label><input id="srBy" value="" autocomplete="off" style="'+inp+'">';
     /* Absent, one per part (v153.49, Daniel 10-19): vision and hearing are
        often screened on different days. Stored on screenings[].absent.<part> =
        the Date of Screening, never inside results. While ticked, that part's
@@ -72344,7 +72442,13 @@ window.cmsBuildMembershipReport = async function() {
     h += '<button onclick="_srSave(\''+contactId+'\', \''+screeningId+'\', true)"'+(noEmail?' disabled title="No email on this contact"':'')+' style="flex:1.4;padding:10px;border:none;background:'+(noEmail?'#94a3b8':'#0891B2')+';color:#fff;border-radius:8px;font-weight:600;cursor:'+(noEmail?'not-allowed':'pointer')+';">Save &amp; email family</button>';
     h += '</div>';
     if (noEmail) h += '<div style="font-size:.78rem;color:#B45309;margin-top:6px;">This contact has no email — add one to send results.</div>';
-    document.getElementById('srResultsBody').innerHTML = h;
+    var _body = document.getElementById('srResultsBody');
+    _body.innerHTML = h;
+    window._srByState = { base: r, edited: false };
+    _srByRefresh();
+    document.getElementById('srBy').addEventListener('input', function(){ if (window._srByState) window._srByState.edited = true; });
+    _body.addEventListener('change', function(e){ if (e.target && e.target.id !== 'srBy') _srByRefresh(); });
+    _body.addEventListener('input', function(e){ if (e.target && e.target.id === 'srLea') _srByRefresh(); });
     window._srAbsentOrig = { vision: absent.vision || '', hearing: absent.hearing || '' };
     _srAbsentDim('hearing'); _srAbsentDim('vision');
   }
@@ -72372,21 +72476,9 @@ window.cmsBuildMembershipReport = async function() {
   window._srSave = async function(contactId, screeningId, sendEmail){
     var msg = document.getElementById('srMsg');
     msg.style.color='#64748b'; msg.textContent = sendEmail ? 'Saving & emailing…' : 'Saving…';
-    var _v = function(id){ var e=document.getElementById(id); return e?(e.value||'').trim():''; };
-    var results = {
-      site: _v('srSite'),
-      screenedAt: document.getElementById('srDate').value || '',
-      screenedBy: _v('srBy'),
-      hearing: {
-        otoscopy: { right: _v('srOtoR'), left: _v('srOtoL') },
-        oae: { right: _v('srOaeR'), left: _v('srOaeL') },
-        tympanometry: { right: _v('srTympR'), left: _v('srTympL') }
-      },
-      vision: {
-        distance: { right: _v('srDistR'), left: _v('srDistL') },
-        leaSymbols: _v('srLea')
-      }
-    };
+    var results = _srCollect();
+    var _byEl = document.getElementById('srBy'), _byText = _byEl ? (_byEl.value || '').trim() : '';
+    var _byManual = !!(window._srByState && window._srByState.edited);
     try {
       /* Absent per part (v153.49). A ticked part keeps the date it was
          first marked; a part with results entered is never absent. */
@@ -72401,16 +72493,13 @@ window.cmsBuildMembershipReport = async function() {
         /* Who saved what (v153.51, Daniel 10-20): a changed hearing or
            vision part gets <part>At / <part>By / <part>ByUid, the same stamps
            the phone page writes. An unchanged part keeps its earlier stamp. */
-        var _prev = s.results || {}, _u = firebase.auth().currentUser;
-        var _norm = function(o){ return JSON.stringify(o || {}, function(k, v){ return v === undefined ? '' : v; }); };
-        var _blank = { hearing: { otoscopy:{right:'',left:''}, oae:{right:'',left:''}, tympanometry:{right:'',left:''} }, vision: { distance:{right:'',left:''}, leaSymbols:'' } };
+        var _prev = s.results || {}, _me = _srMe();
         ['hearing','vision'].forEach(function(k){
-          /* Compare only the fields this window edits (uploads etc. live beside them). */
-          var _pick = function(shape, src){ var o = {}; Object.keys(shape).forEach(function(f){ var v = src ? src[f] : undefined; o[f] = (shape[f] && typeof shape[f] === 'object') ? _pick(shape[f], (v && typeof v === 'object') ? v : null) : String(v == null ? '' : v); }); return o; };
-          if (_norm(_pick(_blank[k], _prev[k])) !== _norm(_pick(_blank[k], results[k]))) {
+          if (_srPartChanged(_prev, results, k)) {
             results[k + 'At'] = firebase.firestore.Timestamp.now();
-            results[k + 'By'] = (window.currentUserData && window.currentUserData.displayName) || (_u && _u.email) || '';
-            if (_u && _u.uid) results[k + 'ByUid'] = _u.uid;
+            results[k + 'By'] = _me.by;
+            if (_me.uid) results[k + 'ByUid'] = _me.uid;
+            if (_me.name) results[k + 'ByName'] = _me.name;
             _stamped.push(k);
           }
         });
@@ -72420,11 +72509,14 @@ window.cmsBuildMembershipReport = async function() {
            resultsToken, resultsSendCount and schoolSent* survive an edit.
            Replacing the whole object made a sent child look unsent. */
         var nx = Object.assign({}, s, { results: Object.assign({}, s.results || {}, results) });
+        /* Screened by (v153.74) from the stamps after this save, unless typed on purpose. */
+        if (_byManual) { nx.results.screenedBy = _byText; nx.results.screenedByAuto = false; }
+        else if (_stamped.length) { nx.results.screenedBy = screenedByLine(nx.results, _srStaff || {}); nx.results.screenedByAuto = true; }
         var a = Object.assign({}, s.absent || {});
-        var _me = (window.currentUserData && window.currentUserData.displayName) || '';
+        var _meName = (window.currentUserData && window.currentUserData.displayName) || '';
         [['vision', _hasV], ['hearing', _hasH]].forEach(function(p){
           var k = p[0];
-          if (_absOn(k) && !p[1]) { a[k] = _orig[k] || results.screenedAt || ''; if (!_orig[k]) a[k + 'By'] = _me; }
+          if (_absOn(k) && !p[1]) { a[k] = _orig[k] || results.screenedAt || ''; if (!_orig[k]) a[k + 'By'] = _meName; }
           else if (a[k]) { a[k] = ''; a[k + 'By'] = ''; }
         });
         if (s.absent || a.vision || a.hearing) nx.absent = a;
