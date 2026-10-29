@@ -6067,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.85-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.88-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7786,6 +7786,9 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                           +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0891B2;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();myDayOpenAsqReport()">Open ASQ report &rarr;</button>'
                           +'</div>';
                       // Training reminder (v151.77): Remind me later on the sign-in popup.
+                      // Scan + upload a paper screening consent (v153.86): the upload opens right from the task.
+                      if(r.bucket!=='done'&&(d.workflowStep==='screeningConsentUpload'||d.workflowStep==='screeningConsentMissing')&&d.contactId&&!actionBtn)
+                        actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();ctScUploadConsent('+_jsArg(d.contactId)+')">+ Upload consent form</button><div id="ctScUploadMsg_'+esc(d.contactId)+'" style="font-size:.72rem;color:#64748B;margin-top:3px;"></div>';
                       if(r.bucket!=='done'&&(d.workflowStep==='training'||d.workflowStep==='trainingReview')&&!actionBtn)
                         actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0891B2;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();wnLaunchTraining('+_jsArg(d.trainingCardId||'')+')">Launch training</button>';
                       return '<div class="'+m.cls+'" onclick="viewInteraction(\''+d._id+'\')">'
@@ -23119,8 +23122,49 @@ window.openContactDetail = async function(contactId) {
             if (_sfSig.length || _sfRel) scH += '<div style="padding-top:6px;border-top:1px solid #E2E8F0;font-size:.76rem;color:#64748B;">' + _sfSig.join(' &middot; ') + _sfRel + '</div>';
             scH += '</div>';
           }
-          if (!(_srp.child && Object.keys(_srp.child).length) && !(_srp.health && Object.keys(_srp.health).length)) scH += '<div style="color:#64748B;">No form answers on this screening' + (_isLions ? ' (Lions screening)' : '') + '.</div>';
-          if (_isLions && _srp.resultNotes) scH += '<div style="margin-top:6px;"><strong>Lions notes:</strong> ' + rsEscape(_srp.resultNotes) + '</div>';
+          if (!_isLions && !(_srp.child && Object.keys(_srp.child).length) && !(_srp.health && Object.keys(_srp.health).length)) scH += '<div style="color:#64748B;">No form answers on this screening.</div>';
+          if (_isLions) {
+            var _lp = window._lionsParse ? window._lionsParse(_srp.resultNotes, _srp.screeningType) : { eyes: { R: {}, L: {} }, hearing: {} };
+            var _lCell = function (lbl, val) { return val ? '<div style="min-width:0;"><div style="font-size:.7rem;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:.03em;">' + lbl + '</div><div>' + rsEscape(val) + '</div></div>' : ''; };
+            var _lTag = function (txt, bad) { return '<span style="display:inline-block;font-size:.74rem;font-weight:700;color:' + (bad ? '#991B1B' : '#166534') + ';background:' + (bad ? '#FEE2E2' : '#DCFCE7') + ';border-radius:6px;padding:2px 8px;margin:0 6px 4px 0;">' + txt + '</span>'; };
+            var _lNote = function (txt) { return '<span style="display:inline-block;font-size:.74rem;font-weight:700;color:#1E40AF;background:#DBEAFE;border-radius:6px;padding:2px 8px;margin:0 6px 4px 0;">' + txt + '</span>'; };
+            scH += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin:2px 0 8px;">' +
+              _lCell('School', _srp.school) + _lCell('Teacher', _srp.teacher) +
+              _lCell('Grade / room', [_srp.grade ? 'Grade ' + _srp.grade : '', _srp.room ? 'Room ' + _srp.room : ''].filter(Boolean).join(' · ')) +
+              _lCell('Consent signed', _srp.consentDate ? _rsDay(_srp.consentDate) : '') + '</div>';
+            var _lt2 = '';
+            if (/^vision$/i.test(_srp.screeningType || '')) {
+              if (_lp.photo) _lt2 += _lTag('Photoscreener: ' + _lp.photo, _lp.photo === 'Refer');
+              if (_lp.chart) _lt2 += _lTag('Eye chart: ' + _lp.chart, _lp.chart === 'Refer');
+              if (_lp.utt) _lt2 += _lTag('Unable to test', true);
+              if (_lp.doctor) _lt2 += _lTag('See an eye doctor', true);
+              if (_lp.condition) _lt2 += _lNote('Possible ' + rsEscape(_lp.condition.replace(/\(OD, OS\)/, '(both eyes)').replace(/\(OD\)/, '(right eye)').replace(/\(OS\)/, '(left eye)')));
+              if (_lp.glasses) _lt2 += _lNote('Wears glasses');
+            } else if (_srp.hearingRecommendation) {
+              _lt2 += _lNote('Lions recommendation ' + rsEscape(_srp.hearingRecommendation));
+            }
+            if (_lt2) scH += '<div style="margin-bottom:4px;">' + _lt2 + '</div>';
+            var _lk = ['SE', 'Sphere', 'Cylinder', 'Axis', 'Pupil'], _lu = { SE: ' dpt', Sphere: ' dpt', Cylinder: ' dpt', Axis: '°', Pupil: ' mm' };
+            var _lHas = _lk.some(function (k) { return _lp.eyes.R[k] || _lp.eyes.L[k]; });
+            if (_lHas) {
+              var _lv = function (e, k) { var x = _lp.eyes[e][k]; if (!x) return '<span style="color:#CBD5E1;">&mdash;</span>'; return rsEscape(x) + (/^[+-]?\d/.test(x) ? _lu[k] : ''); };
+              scH += '<table style="width:100%;border-collapse:collapse;font-size:.78rem;margin:4px 0 2px;"><thead><tr><th style="text-align:left;padding:3px 4px;color:#64748B;font-weight:600;"></th>' +
+                ['SE', 'Sphere', 'Cyl', 'Axis', 'Pupil'].map(function (h) { return '<th style="text-align:right;padding:3px 4px;color:#64748B;font-weight:600;">' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                [['R', 'Right eye'], ['L', 'Left eye']].map(function (e) { return '<tr style="border-top:1px solid #E2E8F0;"><td style="padding:4px;font-weight:700;color:#0c2547;white-space:nowrap;">' + e[1] + '</td>' + _lk.map(function (k) { return '<td style="text-align:right;padding:4px;white-space:nowrap;">' + _lv(e[0], k) + '</td>'; }).join('') + '</tr>'; }).join('') +
+                '</tbody></table>';
+              if (_lp.gaze) scH += '<div style="font-size:.76rem;color:#64748B;">Gaze asymmetry ' + rsEscape(_lp.gaze) + '</div>';
+            }
+            if (_srp.resultNotes) {
+              var _lnId = 'ctLionsNotes_' + contactId + '_' + _sid;
+              var _lines = String(_srp.resultNotes).split(/;\s+|\.\s+(?=[A-Z"“])/).map(function (x) { return x.trim().replace(/\.$/, ''); }).filter(Boolean);
+              if (/^hearing$/i.test(_srp.screeningType || '')) {
+                scH += '<ul style="margin:6px 0 0;padding-left:18px;">' + _lines.map(function (x) { return '<li>' + rsEscape(x) + '</li>'; }).join('') + '</ul>';
+              } else {
+                scH += '<div onclick="_ctScToggle(this, \'' + _lnId + '\')" style="margin-top:8px;cursor:pointer;user-select:none;font-size:.78rem;font-weight:600;color:#0369A1;"><span class="ct-sc-arrow" style="font-size:.6rem;">&#9654;</span> Full Lions notes</div>' +
+                  '<ul id="' + _lnId + '" style="display:none;margin:4px 0 0;padding-left:18px;font-size:.78rem;color:#475569;">' + _lines.map(function (x) { return '<li>' + rsEscape(x) + '</li>'; }).join('') + '</ul>';
+              }
+            }
+          }
           if (_res && _res.screenedBy) scH += '<div style="font-size:.75rem;color:#94A3B8;margin-top:6px;">Screened by ' + rsEscape(_res.screenedBy) + '</div>';
           /* Vision printout photos (v151.66), each through a 10-minute signed link. */
           if (Array.isArray(_srp.printouts) && _srp.printouts.length) {
@@ -23129,7 +23173,7 @@ window.openContactDetail = async function(contactId) {
             }).join('') + '</div>';
           }
           scH += '</div></div>';
-          _scRows.push({ nm: _scNorm(_srpChildName), first: _scNorm(_ch.firstName), label: _srpChildName, child: _ch, html: scH.slice(_rowStart) });
+          _scRows.push({ lions: _isLions, nm: _scNorm(_srpChildName), first: _scNorm(_ch.firstName), label: _srpChildName, child: _ch, html: scH.slice(_rowStart) });
           scH = scH.slice(0, _rowStart);
         });
         if (!_screenings.length && c.srpConsentRequestedAt) {
@@ -23183,7 +23227,7 @@ window.openContactDetail = async function(contactId) {
         if (_open) {
           html += '<div id="' + _cpId + '" style="display:none;margin-top:10px;padding:10px 12px;border:2px solid #A7F3D0;background:linear-gradient(180deg,#F0FDF4,#fff);border-radius:10px;">' +
             '<div style="font-size:.7rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#047857;margin-bottom:6px;">' + (rows.length > 1 ? 'Screenings' : 'Screening') + '</div>' +
-            rows.map(function (r, i) { return (i ? '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #BBF7D0;">' : '<div>') + r.html.replace('@@SCT@@', 'Form answers') + '</div>'; }).join('') +
+            rows.map(function (r, i) { return (i ? '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #BBF7D0;">' : '<div>') + r.html.replace('@@SCT@@', r.lions ? 'Lions details' : 'Form answers') + '</div>'; }).join('') +
             (foot || '') + '</div>';
         }
         html += '</div>';
@@ -42983,7 +43027,17 @@ window.cmsCreateSendRecapTasks = async function(eventId, eventTitle, updates) {
 };
 
 /* ── Attendance Mode Renderers ── */
-function cmsRenderAttendanceOneTime(signups, collection, eventId) {
+/* A second Save Attendance at the foot of the list (v153.87-STAGE), so a
+   long list doesn't need scrolling back up. Only added when the top bar is. */
+function _cmsAttSaveFoot(h) {
+  if (h.indexOf('onclick="cmsSaveAttendance()"') < 0) return h;
+  return h + '<div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 14px;margin-top:12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;">' +
+    '<button class="btn btn-ghost" style="font-size:.78rem;padding:4px 12px;" onclick="cmsCancelAttendanceMode()">Cancel</button>' +
+    '<button class="btn btn-primary" style="font-size:.82rem;padding:6px 14px;background:#059669;" onclick="cmsSaveAttendance()">Save Attendance</button></div>';
+}
+function cmsRenderAttendanceOneTime(signups, collection, eventId) { return _cmsAttSaveFoot(_cmsRenderAttendanceOneTimeInner(signups, collection, eventId)); }
+function cmsRenderAttendanceRecurring(active, collection, eventId) { return _cmsAttSaveFoot(_cmsRenderAttendanceRecurringInner(active, collection, eventId)); }
+function _cmsRenderAttendanceOneTimeInner(signups, collection, eventId) {
   var active = signups.filter(function(s) { return s.archived !== true && s.status !== 'cancelled'; });
   if (!active.length) return '<div class="cms-empty"><p>No active signups for attendance.</p></div>';
 
@@ -43075,7 +43129,7 @@ function cmsRenderAttendanceOneTime(signups, collection, eventId) {
   return html;
 }
 
-function cmsRenderAttendanceRecurring(active, collection, eventId) {
+function _cmsRenderAttendanceRecurringInner(active, collection, eventId) {
   var prog = _cmsSignupsModalData.programDoc;
   // v120.6.0: PAST sessions only — never include future sessions in attendance
   //   mode. Saving attendance writes every unchecked box as 'no-show', so
@@ -73590,6 +73644,48 @@ window.cmsBuildMembershipReport = async function() {
 <script>
 /* Accordion for the contact-card rail collapsibles (2026-07-16): opening one
    panel closes the others. Scoped to the contact detail's .ctd2-rail. */
+/* Lions notes reader (v153.87-STAGE): the Lions forms are transcribed as
+   free text. This pulls out the photoscreener numbers per eye and the boxes
+   that matter; anything it can't read stays in the full notes. */
+/* Lions notes parser (draft for DAN). Returns {eyes:{R:{},L:{}}, gaze, hearing:{}, ok} */
+window._lionsParse = function (t, type) {
+  t=String(t||''); var out={eyes:{R:{},L:{}},gaze:'',hearing:{},n:0};
+  var V='([+-]?\\d+(?:\\.\\d+)?|HYP|n/a)';
+  var M=['SE','Sphere','Cylinder','Axis','Pupil'];
+  var put=function(e,k,v){ if(v==null||v==='')return; v=String(v).trim(); if(!out.eyes[e][k]){out.eyes[e][k]=v;out.n++;} };
+  // paired:  Metric OD v / OS v   or  Metric v / v
+  M.forEach(function(k){
+    var re=new RegExp(k+'(?:\\s*OD)?[^;/]{0,12}?'+V+'\\s*(?:dpt|mm|°)?\\s*/\\s*(?:OS\\s*)?'+V,'i'); var m=re.exec(t);
+    if(m){put('R',k,m[1]);put('L',k,m[2]);}
+  });
+  // per-eye segments
+  var seg=function(lbl){ var re=new RegExp('\\b'+lbl+'\\b[:\\s]([^;]*?(?:;[^;]*?)?)(?=\\bO[DS]\\b|Gaze|$)','i'); var m=re.exec(t); return m?m[1]:''; };
+  [['R','OD'],['L','OS']].forEach(function(p){
+    var s=seg(p[1]); if(!s) return;
+    M.forEach(function(k){
+      var a=new RegExp(k+'\\s*(?:Ø\\s*)?'+V,'i').exec(s) || new RegExp(V+'\\s*(?:dpt|mm|°)?\\s*'+k,'i').exec(s);
+      if(a) put(p[0],k,a[1]);
+    });
+  });
+  // autorefractor printout: OD(Right): +0.75 DS | -1.75 DC | @7° AX | 0.00 SE
+  [['R','OD\\s*\\(Right\\)'],['L','OS\\s*\\(Left\\)']].forEach(function(p){
+    var m=new RegExp(p[1]+'\\s*:?\\s*'+V+'\\s*DS\\s*\\|\\s*'+V+'\\s*DC\\s*\\|\\s*@?\\s*'+V+'\\s*°?\\s*AX\\s*\\|\\s*'+V+'\\s*SE','i').exec(t);
+    if(m){put(p[0],'Sphere',m[1]);put(p[0],'Cylinder',m[2]);put(p[0],'Axis',m[3]);put(p[0],'SE',m[4]);}
+  });
+  var hy=/OD\s*(HYP|n\/a)\s*dpt\s*\/\s*OS\s*(HYP|n\/a)/i.exec(t); if(hy){put('R','SE',hy[1]);put('L','SE',hy[2]);}
+  var pb=/Pupil\s*(?:Ø\s*)?([\d.]+)\s*mm\s*both/i.exec(t); if(pb){put('R','Pupil',pb[1]);put('L','Pupil',pb[1]);}
+  var ps=/Pupil Size:?\s*\(\s*([\d.]+)\s*mm\s*OD,\s*([\d.]+)\s*mm\s*OS/i.exec(t); if(ps){put('R','Pupil',ps[1]);put('L','Pupil',ps[2]);}
+  var pc=/Potential Condition:\s*([^;"”]+?\))/i.exec(t); out.condition=pc?pc[1].trim():'';
+  out.doctor=/see an Eye Doctor["”]?\s*(?:box\s*)?(?:is\s*)?(?:marked|checked)/i.test(t);
+  out.chart=/X(?:\s*marks?)?[^.]{0,60}(?:Right eye|rows)|large\s*["“]?X/i.test(t)?'Refer':(/["“]\/["”]\s*marks?|faint marks/i.test(t)?'Pass':'');
+  out.glasses=/(?:Wears Glasses|Glasses On)[^.;]{0,40}checked/i.test(t) && !/not\s*(?:checked|marked)/i.test((/(?:Wears Glasses|Glasses On)[^.;]{0,60}/i.exec(t)||[''])[0]);
+  var g=/Gaze asymmetry\s*(\d+(?:\.\d+)?)\s*°?/i.exec(t); if(g) out.gaze=g[1]+'°';
+  out.utt=/UTT\s*=\s*Unable to Test[^.;]{0,40}(?:checked|marked)|["“]UTT["”]\s*written|eye\s*["“]?UTT/i.test(t);
+  out.photo=/Passed the Photoscreener|photoscreener (?:box )?marked Passed/i.test(t)?'Pass':(/(?:Photoscreen|Plusoptix|Autorefractor)[^.]{0,80}?["“]Refer["”]|["“]Refer["”]/i.test(t)?'Refer':'');
+  // hearing
+  if (type==='hearing') [['Otoscopy',/\bOto[^;]*?(?:marked\s*)?["“]?([X\/])["”]?/i],['OAE',/OAE[^;]*?(?:marked\s*)?["“]?([X\/])["”]?/i],['Tympanometry',/Tymp[^;]*?(?:marked\s*)?["“]?([X\/])["”]?/i],['Pure tone',/(?:\bAudio|Pure Tone)[^;]*?(?:marked\s*)?["“]?([X\/])["”]?/i]].forEach(function(h){ var m=h[1].exec(t); if(m) out.hearing[h[0]]=m[1]==='/'?'Pass':'Refer'; });
+  return out;
+};
 /* Screenings card toggle (v153.82-STAGE): main-column panels open and close
    on their own, without touching the rail accordions. */
 window._ctScToggle = function(head, panelId){
