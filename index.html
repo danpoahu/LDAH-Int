@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.80</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.81</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -60539,6 +60539,10 @@ window.prExportCsv = function() {
   }
   function _komScreeningDate(s) {
     if (s.screeningDate) return String(s.screeningDate).slice(0, 10);
+    /* Screenings entered on the phone or imported from school paper forms
+       (Central Union, Pali View, outreach kiosk) keep their date in
+       results.screenedAt and have no screeningType (v153.81). */
+    if (s.results && s.results.screenedAt) return String(s.results.screenedAt).slice(0, 10);
     var t = s.signedAt;
     var msv = t && t.toMillis ? t.toMillis() : (t && t.seconds ? t.seconds * 1000 : 0);
     return msv ? new Date(msv).toISOString().slice(0, 10) : '';
@@ -60623,10 +60627,24 @@ window.prExportCsv = function() {
           if (!dt || dt < mStart || dt > mEnd) return;
           var ty = String(s.screeningType || '').toLowerCase();
           if (ty === 'hearing') {
-            hearing.push({ s: s, c: c });
-            if (String(s.outcome || '').toLowerCase() === 'refer') hearingRefer++;
+            var lionsRefer = String(s.outcome || '').toLowerCase() === 'refer';
+            hearing.push({ s: s, c: c, refer: lionsRefer, pass: String(s.outcome || '').toLowerCase() === 'pass' });
+            if (lionsRefer) hearingRefer++;
           } else if (ty === 'vision') {
             vision.push({ s: s, c: c });
+          } else if (s.results) {
+            /* One record holds both parts. A part counts once it has a result
+               and the child was not marked absent for it. Refer = OAE Fail in
+               either ear, the same rule as the Screenings report. */
+            var r = s.results, ab = s.absent || {};
+            var h = r.hearing || {}, oae = h.oae || {}, ty2 = h.tympanometry || {};
+            var dist = (r.vision || {}).distance || {};
+            if (!ab.hearing && (oae.right || oae.left || ty2.right || ty2.left)) {
+              var hRefer = oae.right === 'Fail' || oae.left === 'Fail';
+              hearing.push({ s: s, c: c, refer: hRefer, pass: !hRefer && !!(oae.right || oae.left) });
+              if (hRefer) hearingRefer++;
+            }
+            if (!ab.vision && (dist.right || dist.left)) vision.push({ s: s, c: c });
           }
         });
       });
@@ -60799,7 +60817,7 @@ window.prExportCsv = function() {
       d.hearing.slice().sort(function(a, b) { return _komScreeningDate(a.s).localeCompare(_komScreeningDate(b.s)); }).forEach(function(r) {
         var s = r.s;
         var kid = s.childName || [(s.child || {}).firstName, (s.child || {}).lastName].filter(Boolean).join(' ') || '—';
-        var out = String(s.outcome || '').toLowerCase();
+        var out = r.refer ? 'refer' : (r.pass ? 'pass' : '');
         var pill = out === 'refer'
           ? '<span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:999px;font-size:.74rem;font-weight:700;">Referred</span>'
           : (out === 'pass' ? '<span style="background:#DCFCE7;color:#15803D;padding:2px 8px;border-radius:999px;font-size:.74rem;font-weight:700;">Pass</span>' : '—');
@@ -60808,7 +60826,7 @@ window.prExportCsv = function() {
           + '<td style="' + td + '">' + rsEscape(kid) + '</td>'
           + '<td style="' + td + 'color:var(--text-soft);">' + rsEscape(s.source || 'online') + '</td>'
           + '<td style="' + td + '">' + pill + '</td>'
-          + '<td style="' + td + 'color:var(--text-soft);">' + rsEscape(s.school || '—') + '</td>'
+          + '<td style="' + td + 'color:var(--text-soft);">' + rsEscape(s.school || s.location || (s.child || {}).school || '—') + '</td>'
           + '</tr>';
       });
       html += '</tbody></table></div>';
