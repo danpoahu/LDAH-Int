@@ -6067,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.88-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.89-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -23135,10 +23135,13 @@ window.openContactDetail = async function(contactId) {
             var _lt2 = '';
             if (/^vision$/i.test(_srp.screeningType || '')) {
               if (_lp.photo) _lt2 += _lTag('Photoscreener: ' + _lp.photo, _lp.photo === 'Refer');
-              if (_lp.chart) _lt2 += _lTag('Eye chart: ' + _lp.chart, _lp.chart === 'Refer');
+              if (_lp.chartR || _lp.chartL) {
+                if (_lp.chartR === _lp.chartL) _lt2 += _lTag('Eye chart: ' + _lp.chartR + ' both eyes', _lp.chartR === 'Refer');
+                else { if (_lp.chartR) _lt2 += _lTag('Eye chart right: ' + _lp.chartR, _lp.chartR === 'Refer'); if (_lp.chartL) _lt2 += _lTag('Eye chart left: ' + _lp.chartL, _lp.chartL === 'Refer'); }
+              } else if (_lp.chart) _lt2 += _lTag('Eye chart: ' + _lp.chart, _lp.chart === 'Refer');
               if (_lp.utt) _lt2 += _lTag('Unable to test', true);
               if (_lp.doctor) _lt2 += _lTag('See an eye doctor', true);
-              if (_lp.condition) _lt2 += _lNote('Possible ' + rsEscape(_lp.condition.replace(/\(OD, OS\)/, '(both eyes)').replace(/\(OD\)/, '(right eye)').replace(/\(OS\)/, '(left eye)')));
+              if (_lp.condition) _lt2 += _lp.condition.split(/,\s*(?![^()]*\))/).map(function (x) { return _lNote('Possible ' + rsEscape(x.trim().toLowerCase().replace(/\s*\(od, os\)/, ' (both eyes)').replace(/\s*\(od\)/, ' (right eye)').replace(/\s*\(os\)/, ' (left eye)'))); }).join('');
               if (_lp.glasses) _lt2 += _lNote('Wears glasses');
             } else if (_srp.hearingRecommendation) {
               _lt2 += _lNote('Lions recommendation ' + rsEscape(_srp.hearingRecommendation));
@@ -73648,6 +73651,7 @@ window.cmsBuildMembershipReport = async function() {
    free text. This pulls out the photoscreener numbers per eye and the boxes
    that matter; anything it can't read stays in the full notes. */
 /* Lions notes parser (draft for DAN). Returns {eyes:{R:{},L:{}}, gaze, hearing:{}, ok} */
+/* Lions notes parser (draft for DAN). Returns {eyes:{R:{},L:{}}, gaze, hearing:{}, ok} */
 window._lionsParse = function (t, type) {
   t=String(t||''); var out={eyes:{R:{},L:{}},gaze:'',hearing:{},n:0};
   var V='([+-]?\\d+(?:\\.\\d+)?|HYP|n/a)';
@@ -73661,11 +73665,15 @@ window._lionsParse = function (t, type) {
   // per-eye segments
   var seg=function(lbl){ var re=new RegExp('\\b'+lbl+'\\b[:\\s]([^;]*?(?:;[^;]*?)?)(?=\\bO[DS]\\b|Gaze|$)','i'); var m=re.exec(t); return m?m[1]:''; };
   [['R','OD'],['L','OS']].forEach(function(p){
+    // unlabelled run in label order: OS +0.50 dpt / +0.50 dpt / -0.50 dpt / 3° / 6.6 mm
+    var u=new RegExp('\\b'+p[1]+'\\s+'+V+'\\s*(?:dpt)?\\s*/\\s*'+V+'\\s*(?:dpt)?\\s*/\\s*'+V+'\\s*(?:dpt)?\\s*/\\s*'+V+'\\s*°?\\s*/\\s*'+V+'\\s*mm','i').exec(t);
+    if(u) M.forEach(function(k,i){ put(p[0],k,u[i+1]); });
     var s=seg(p[1]); if(!s) return;
     M.forEach(function(k){
       var a=new RegExp(k+'\\s*(?:Ø\\s*)?'+V,'i').exec(s) || new RegExp(V+'\\s*(?:dpt|mm|°)?\\s*'+k,'i').exec(s);
       if(a) put(p[0],k,a[1]);
     });
+
   });
   // autorefractor printout: OD(Right): +0.75 DS | -1.75 DC | @7° AX | 0.00 SE
   [['R','OD\\s*\\(Right\\)'],['L','OS\\s*\\(Left\\)']].forEach(function(p){
@@ -73675,8 +73683,10 @@ window._lionsParse = function (t, type) {
   var hy=/OD\s*(HYP|n\/a)\s*dpt\s*\/\s*OS\s*(HYP|n\/a)/i.exec(t); if(hy){put('R','SE',hy[1]);put('L','SE',hy[2]);}
   var pb=/Pupil\s*(?:Ø\s*)?([\d.]+)\s*mm\s*both/i.exec(t); if(pb){put('R','Pupil',pb[1]);put('L','Pupil',pb[1]);}
   var ps=/Pupil Size:?\s*\(\s*([\d.]+)\s*mm\s*OD,\s*([\d.]+)\s*mm\s*OS/i.exec(t); if(ps){put('R','Pupil',ps[1]);put('L','Pupil',ps[2]);}
-  var pc=/Potential Condition:\s*([^;"”]+?\))/i.exec(t); out.condition=pc?pc[1].trim():'';
+  var pc=/Potential Condition:\s*([^;"”]+?)\s*(?:;|Date\b|["”]|$)/i.exec(t); out.condition=pc?pc[1].trim():'';
   out.doctor=/see an Eye Doctor["”]?\s*(?:box\s*)?(?:is\s*)?(?:marked|checked)/i.test(t);
+  var cr=/Right eye(?: row)?\s*(?:marked\s*)?["“]?(X|\/)["”]?/i.exec(t), cl=/Left eye(?: row)?\s*(?:marked\s*)?["“]?(X|\/)["”]?/i.exec(t);
+  out.chartR=cr?(cr[1]==='/'?'Pass':'Refer'):''; out.chartL=cl?(cl[1]==='/'?'Pass':'Refer'):'';
   out.chart=/X(?:\s*marks?)?[^.]{0,60}(?:Right eye|rows)|large\s*["“]?X/i.test(t)?'Refer':(/["“]\/["”]\s*marks?|faint marks/i.test(t)?'Pass':'');
   out.glasses=/(?:Wears Glasses|Glasses On)[^.;]{0,40}checked/i.test(t) && !/not\s*(?:checked|marked)/i.test((/(?:Wears Glasses|Glasses On)[^.;]{0,60}/i.exec(t)||[''])[0]);
   var g=/Gaze asymmetry\s*(\d+(?:\.\d+)?)\s*°?/i.exec(t); if(g) out.gaze=g[1]+'°';
