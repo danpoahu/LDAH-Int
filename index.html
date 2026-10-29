@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.97</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.98</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -40274,27 +40274,43 @@ window.cmsOpenContactCaseSummary = async function(contactId) {
 function cmsCgUploadReqBtn(s, collection, eventId) {
   if (!s || !s.uploadAuthToken) return '';                 // defensive: no token, nothing to send
   if (s.connectGenDocumentsDestroyedAt || s.connectGenDisposition) return '';
-  return '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#0891B2;color:#fff;border:none;font-weight:600;" onclick="event.stopPropagation();cgResendUploadRequest(' +
+  return '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#0891B2;color:#fff;border:none;font-weight:600;" onclick="event.stopPropagation();cgResendUploadRequest(this,' +
     _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ',' + _jsArg(s.name || s.firstName || 'this family') +
     ')" title="Email this family their document-upload link">Email upload request</button>';
 }
-window.cgResendUploadRequest = async function(collection, eventId, signupId, who) {
-  if (!confirm('Email ' + (who || 'this family') + ' their document-upload link?\n\nThey get the standard "Upload your Connect-Gen documents" email with a working upload link.')) return;
+/* Confirm on the button itself (v153.98, Daniel 10-29: the browser's own
+   "danpoahu.github.io says" box read as an error). First click asks
+   "Send to X? Yes", a second click within 5 seconds sends. Problems show as a
+   red toast, not a browser pop-up. */
+window.cgResendUploadRequest = async function(el, collection, eventId, signupId, who) {
+  var name = who || 'this family';
+  var bad = function (m) { if (typeof _showToast === 'function') _showToast(m, '#DC2626'); };
+  var reset = function () { if (el && el.isConnected) { el.disabled = false; el.dataset.ask = ''; el.textContent = 'Email upload request'; el.style.background = '#0891B2'; } };
+  if (el && el.dataset.ask !== '1') {
+    el.dataset.ask = '1';
+    el.textContent = 'Send to ' + String(name).split(' ')[0] + '? Yes';
+    el.style.background = '#B45309';
+    el.title = 'Click again to email ' + name + ' the standard "Upload your Connect-Gen documents" email with a working upload link.';
+    setTimeout(function () { if (el.isConnected && el.dataset.ask === '1' && !el.disabled) reset(); }, 5000);
+    return;
+  }
+  if (el) { el.disabled = true; el.textContent = 'Sending\u2026'; }
   try {
     var snap = await db.collection(collection).doc(eventId).collection('signups').doc(signupId).get();
     var s = snap.exists ? snap.data() : null;
-    if (!s || !s.uploadAuthToken) { alert('No upload link on file for this family. One has to be minted before an upload request can be sent.'); return; }
+    if (!s || !s.uploadAuthToken) { reset(); bad('No upload link on file for this family. One has to be minted before an upload request can be sent.'); return; }
     var exp = (s.uploadAuthExpiresAt && s.uploadAuthExpiresAt.toMillis) ? s.uploadAuthExpiresAt.toMillis() : 0;
-    if (exp && exp < Date.now()) { alert('This family\'s upload link has expired. It needs to be re-minted before resending.'); return; }
+    if (exp && exp < Date.now()) { reset(); bad('This family\'s upload link has expired. It needs to be re-minted before resending.'); return; }
     var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendConnectGenUploadLaterEmail', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uploadAuthToken: s.uploadAuthToken })
     });
     var j = {}; try { j = await resp.json(); } catch (e) {}
-    if (!resp.ok || !j.ok) { alert(j.error || ('Could not send it — ' + resp.status)); return; }
+    if (!resp.ok || !j.ok) { reset(); bad(j.error || ('Could not send it \u2014 ' + resp.status)); return; }
     try { auditLog('Emailed Connect-Gen upload request', (who || signupId)); } catch (_) {}
-    if (typeof _showToast === 'function') _showToast('Upload link sent to ' + (who || 'the family') + '.', '#16A34A');
-  } catch (e) { alert('Could not send it: ' + e.message); }
+    if (el && el.isConnected) { el.textContent = 'Sent \u2713'; el.style.background = '#16A34A'; setTimeout(reset, 4000); }
+    if (typeof _showToast === 'function') _showToast('Upload link sent to ' + name + '.', '#16A34A');
+  } catch (e) { reset(); bad('Could not send it: ' + e.message); }
 };
 
 function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
