@@ -6067,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.96-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.97-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -22574,14 +22574,14 @@ var _photoPendingByIsland = {};
   // signed URL. Same handling as the Connect-Gen document vault.
   var _SC_CONSENT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.heic,.heif,application/pdf,image/jpeg,image/png,image/heic,image/heif';
 
-  window.ctScUploadConsent = function(contactId) {
+  window.ctScUploadConsent = function(contactId, childName, msgId) {
     var inp = document.createElement('input');
     inp.type = 'file';
     inp.accept = _SC_CONSENT_ACCEPT;
     inp.onchange = async function() {
       var file = inp.files && inp.files[0];
       if (!file) return;
-      var msg = document.getElementById('ctScUploadMsg_' + contactId);
+      var msg = document.getElementById(msgId || ('ctScUploadMsg_' + contactId));
       function say(t, colour) { if (msg) { msg.textContent = t; msg.style.color = colour || '#64748B'; } }
       if (file.size > 25 * 1024 * 1024) { say('That file is larger than 25 MB. Please choose a smaller one.', '#DC2626'); return; }
       say('Uploading ' + file.name + '…');
@@ -22602,7 +22602,7 @@ var _photoPendingByIsland = {};
         // only ever recorded once it actually landed in the bucket.
         var who = (window.currentUserData && window.currentUserData.displayName) || (firebase.auth().currentUser || {}).email || '';
         await db.collection('contacts').doc(contactId).update({
-          screeningConsentDocs: firebase.firestore.FieldValue.arrayUnion({
+          screeningConsentDocs: firebase.firestore.FieldValue.arrayUnion(Object.assign({
             name: file.name,
             storagePath: d1.storagePath,
             contentType: mime,
@@ -22611,9 +22611,9 @@ var _photoPendingByIsland = {};
             // serverTimestamp() is rejected inside an array element, so this is
             // a plain client date — same reason the children[] entries are.
             uploadedAt: firebase.firestore.Timestamp.now()
-          })
+          }, childName ? { childName: String(childName) } : {}))   /* uploaded from a child's card (v153.97) */
         });
-        if (typeof auditLog === 'function') auditLog('Screening consent uploaded', 'contact ' + contactId + ' — ' + file.name);
+        if (typeof auditLog === 'function') auditLog('Screening consent uploaded', 'contact ' + contactId + ' — ' + file.name + (childName ? ' (for ' + childName + ')' : ''));
         say('Uploaded.', '#059669');
         if (typeof openContactDetail === 'function') openContactDetail(contactId);
       } catch (e) {
@@ -22682,6 +22682,64 @@ var _photoPendingByIsland = {};
       return '<button type="button" style="' + st + '" title="Open the scanned screening form" onclick="event.stopPropagation();ctScViewConsent(' + _jsArg(contactId) + ',' + k + ')">'
         + (list.length > 1 ? 'Consent ' + (n + 1) : 'View Consent') + '</button>';
     }).join('');
+  };
+
+  /* Which child a consent file belongs to (v153.97): the child it was uploaded
+     for, else the child whose full name, then first name, is in the file name.
+     -1 = no match. names[] are the child-card names in card order. */
+  window._scDocChild = function(doc, names) {
+    var N = function (x) { return String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim(); };
+    var nm = (names || []).map(N);
+    if (doc && doc.childName) { var c = N(doc.childName), i = nm.indexOf(c); if (i !== -1) return i;
+      for (i = 0; i < nm.length; i++) if (nm[i].split(' ')[0] === c.split(' ')[0]) return i; }
+    var f = ' ' + N(doc && doc.name) + ' ', k;
+    for (k = 0; k < nm.length; k++) if (nm[k] && f.indexOf(' ' + nm[k] + ' ') !== -1) return k;
+    var hits = [];
+    for (k = 0; k < nm.length; k++) { var fn = nm[k].split(' ')[0]; if (fn.length > 1 && f.indexOf(' ' + fn + ' ') !== -1) hits.push(k); }
+    return hits.length === 1 ? hits[0] : -1;
+  };
+  /* One child's consent buttons, each with a Remove beside it (v153.97). */
+  window._scChildConsentHtml = function(contactId, docs, idxs, childName, msgId) {
+    var many = idxs.length > 1;
+    var h = idxs.map(function (k, n) {
+      return '<span style="display:inline-flex;align-items:center;gap:2px;margin:0 6px 4px 0;">' +
+        '<button type="button" style="background:#0891B2;color:#fff;font-size:.74rem;font-weight:600;border:none;border-radius:6px 0 0 6px;padding:5px 11px;cursor:pointer;" title="' + rsEscape((docs[k] || {}).name || 'Open the scanned screening form') + '" onclick="event.stopPropagation();ctScViewConsent(' + _jsArg(contactId) + ',' + k + ')">' + (many ? 'Consent ' + (n + 1) : 'View Consent') + '</button>' +
+        '<button type="button" style="background:#fff;color:#B91C1C;font-size:.72rem;font-weight:700;border:1px solid #FECACA;border-radius:0 6px 6px 0;padding:4px 8px;cursor:pointer;" title="Take this file off the card (wrong family or child). It can be put back." onclick="event.stopPropagation();ctScRemoveConsent(this,' + _jsArg(contactId) + ',' + k + ',' + _jsArg((docs[k] || {}).storagePath || '') + ')">Remove</button></span>';
+    }).join('');
+    h += '<button onclick="event.stopPropagation(); ctScUploadConsent(' + _jsArg(contactId) + ',' + _jsArg(childName || '') + ',' + _jsArg(msgId) + ')" style="font-size:.78rem;font-weight:600;color:#065F46;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:999px;padding:4px 12px;cursor:pointer;margin-bottom:4px;">&#43; Upload consent form</button>';
+    return '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed #A7F3D0;display:flex;flex-wrap:wrap;align-items:center;">' + h + '</div>' +
+      '<div id="' + msgId + '" style="font-size:.76rem;color:#64748B;margin-top:2px;"></div>';
+  };
+  /* Remove a wrong consent (v153.97). Two clicks: the button asks first. The
+     file stays in storage and the entry moves to screeningConsentDocsRemoved,
+     so it can be put back. Matched by storagePath, not position, so a change
+     made by someone else meanwhile can never remove the wrong file. */
+  window.ctScRemoveConsent = async function(el, contactId, idx, storagePath) {
+    if (el && el.dataset.ask !== '1') {
+      el.dataset.ask = '1'; el.textContent = 'Remove? Yes'; el.style.background = '#B91C1C'; el.style.color = '#fff';
+      setTimeout(function () { if (el.isConnected && el.dataset.ask === '1') { el.dataset.ask = ''; el.textContent = 'Remove'; el.style.background = '#fff'; el.style.color = '#B91C1C'; } }, 5000);
+      return;
+    }
+    if (el) { el.disabled = true; el.textContent = 'Removing\u2026'; }
+    try {
+      var ref = db.collection('contacts').doc(contactId), gone = null;
+      await db.runTransaction(async function (tx) {
+        var sn = await tx.get(ref);
+        var docs = ((sn.data() || {}).screeningConsentDocs || []).slice();
+        var at = -1; docs.forEach(function (d, k) { if (at < 0 && d && d.storagePath === storagePath) at = k; });
+        if (at < 0) throw new Error('That file is no longer on this card.');
+        gone = docs.splice(at, 1)[0];
+        var who = (window.currentUserData && window.currentUserData.displayName) || (firebase.auth().currentUser || {}).email || '';
+        tx.update(ref, { screeningConsentDocs: docs,
+          screeningConsentDocsRemoved: firebase.firestore.FieldValue.arrayUnion(Object.assign({}, gone, { removedBy: who, removedAt: firebase.firestore.Timestamp.now() })) });
+      });
+      if (typeof auditLog === 'function') auditLog('Screening consent removed', 'contact ' + contactId + ' — ' + ((gone && gone.name) || storagePath) + ' (kept in storage, restorable)');
+      if (typeof _showToast === 'function') _showToast('Consent removed from this card.', '#059669');
+      if (typeof openContactDetail === 'function') openContactDetail(contactId);
+    } catch (e) {
+      if (el) { el.disabled = false; el.dataset.ask = ''; el.textContent = 'Remove'; el.style.background = '#fff'; el.style.color = '#B91C1C'; }
+      if (typeof _showToast === 'function') _showToast(e.message || 'Could not remove it.', '#DC2626');
+    }
   };
 
   /* From a task or case card (v152.50): read the contact's pages, open the
@@ -23351,11 +23409,26 @@ window.openContactDetail = async function(contactId) {
         if (at < 0) _leftRows.push(r); else _cardRows[at].push(r);
       });
       var _footAt = -1;
-      if (_scFoot && !_leftRows.length && _cards.length) { _cardRows.forEach(function (rs, i) { if (_footAt < 0 && rs.length) _footAt = i; }); }
+      if (_scFoot && _cards.length) { _cardRows.forEach(function (rs, i) { if (_footAt < 0 && rs.length) _footAt = i; }); }
       if (_cards.length) {
         childSection += '<div class="ctd2-sec-label">' + (_cards.length > 1 ? 'Children' : 'Child') + '</div>';
         var single = _cards.length === 1;
-        childSection += _cards.map(function(child, idx) { return _ctd2ChildCard(child, idx, single, _cardRows[idx], idx === _footAt ? _scFoot : ''); }).join('');
+        /* Consents per child (v153.97): each screened child's card carries its own
+           consent buttons, Remove, and an Upload that files the form under that
+           child. A file that names no child stays with the first screened child,
+           with the ASQ line, as before. */
+        var _cNames = _cards.map(function (ch) { return ch.name || ''; });
+        var _docAt = _scDocs.map(function (d) { return (d && d.storagePath) ? window._scDocChild(d, _cNames) : -2; });
+        var _footFor = function (idx) {
+          if (!_scFoot) return '';
+          if (!_cardRows[idx].length && !(idx === _footAt)) return '';
+          var mine = [];
+          _docAt.forEach(function (a, k) { if (a === idx || (a === -1 && idx === _footAt) || (a >= 0 && !_cardRows[a].length && idx === _footAt)) mine.push(k); });
+          var h = window._scChildConsentHtml(contactId, _scDocs, mine, _cards[idx].name || '', 'ctScUploadMsg_' + contactId + '_' + idx);
+          if (idx === _footAt) h += '<div id="ctScUploadMsg_' + contactId + '"></div><div id="ctAsqRes_' + contactId + '" style="margin-top:4px;"></div>';
+          return h;
+        };
+        childSection += _cards.map(function(child, idx) { return _ctd2ChildCard(child, idx, single, _cardRows[idx], _footFor(idx)); }).join('');
       } else {
         childSection += '<div class="ctd2-sec-label">Child</div>';
         childSection += '<div class="ctd2-child empty">No child on file for this contact.</div>';
@@ -23364,7 +23437,7 @@ window.openContactDetail = async function(contactId) {
         scH = '<div class="ctd2-sec-label" style="color:#047857;">' + (_leftRows.length > 1 ? 'Screenings' : 'Screening') + '</div>' +
           '<div id="' + _scWrapId + '" style="border:2px solid #A7F3D0;background:linear-gradient(180deg,#F0FDF4,#fff);border-radius:11px;padding:10px 12px;margin-bottom:12px;">' +
           _leftRows.map(function (r, i) { return (i ? '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #BBF7D0;">' : '<div>') + r.html.replace('@@SCT@@', rsEscape(r.label || 'Screening')) + '</div>'; }).join('') +
-          _scFoot + '</div>';
+          (_footAt < 0 ? _scFoot : '') + '</div>';
       }
 
       // Latest-note callout — filled async after the timeline query.
