@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.89</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.90</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -63200,7 +63200,7 @@ window.ixArConfirmStart = async function(cid) {
    The other two exist so mis-stamped partner data can be found and cleaned up.
    Only partnerIsland marks a record as PIP; location, island and title say
    nothing about ownership. */
-var _pbState = { from: '', to: '', scope: 'ldah', view: 'board', partner: '' };
+var _pbState = { from: '', to: '', scope: 'ldah', view: 'board', partner: '', island: '' };
 var _pbCache = null;
 
 /* What the report SAYS it contains, in words, on screen and on paper. */
@@ -63221,8 +63221,49 @@ function _pbPartner() {
   return p;
 }
 function _pbScopeTag() {
-  var p = _pbPartner();
+  var p = _pbPartner() || _pbIslandLabel(_pbIsland());
   return (_PB_SCOPE_TAG[_pbState.scope] || 'LDAH only') + (p ? ' \u00b7 ' + p : '');
+}
+
+/* Island filter (v153.90-STAGE): one main Hawaiian island while LDAH is
+   showing, '' for all of them. Daniel 10-29: "like you do with PIP". Not saved,
+   for the same reason as the partner filter. Events have no island field, only
+   a typed location, so a session is placed by _pbTextIsland(location), then its
+   title. Sign-ups and evaluations follow their event, so a session's attendance
+   stays whole; contacts, children and interactions follow the family's own
+   island. Virtual sessions and ones with no place typed are left out of a
+   single island, and the scope line says how many. */
+var _PB_LDAH_ISLANDS = [['Oahu', 'O\u02bbahu'], ['Hawaii', 'Hawai\u02bbi'], ['Maui', 'Maui'],
+                        ['Kauai', 'Kaua\u02bbi'], ['Molokai', 'Moloka\u02bbi'], ['Lanai', 'L\u0101na\u02bbi']];
+function _pbIsland() {
+  var i = _pbState.island || '';
+  if (!i || _pbPipOnly() || _pbState.scope !== 'ldah') return '';
+  return i;
+}
+function _pbIslandLabel(i) {
+  for (var k = 0; k < _PB_LDAH_ISLANDS.length; k++) if (_PB_LDAH_ISLANDS[k][0] === i) return _PB_LDAH_ISLANDS[k][1];
+  return '';
+}
+function _pbTextIsland(t) {
+  var s = String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\u02bb\u2018\u2019'`]/g, '');
+  if (!s.trim()) return '';
+  /* The 22 Nov 2025 conference named its rooms after islands (Maui Room,
+     O'ahu Room, Pikake Room - O'ahu); the venue itself was on Oahu. */
+  if (/\b(maui|oahu|kauai|molokai|lanai|hawaii)\s+(ball)?room\b/.test(s)) return 'Oahu';
+  if (/molokai|kaunakakai/.test(s)) return 'Molokai';
+  if (/lanai/.test(s)) return 'Lanai';
+  if (/kauai|lihue|kapaa|kamakahelei|koloa|hanapepe/.test(s)) return 'Kauai';
+  if (/maui|\bhana\b|wailuku|kahului|kihei|lahaina|makawao|pukalani/.test(s)) return 'Maui';
+  if (/big island|hawaii island|\bhilo\b|\bkona\b|waikoloa|waikaloa|kamuela|waimea|\bkau\b|mountain view|pahoa|keaau|honokaa|county of hi\b|east hawaii|west hawaii/.test(s)) return 'Hawaii';
+  if (/oahu|honolulu|kailua|kaneohe|waianae|kapolei|\bewa\b|\beva\b|pearl|jbph|hickam|castle h|bishop museum|dole cannery|nuuanu|kukui|ala moana|convention center|manoa|uh campus|state capitol|pali view|central union|ldah office|wahiawa|waipahu|mililani|aiea|kalihi|kahuku|haleiwa|waimanalo|ka paalana|koolau|st\.? ann|kakaako|makiki|moiliili|palolo|kaimuki|hawaii kai/.test(s)) return 'Oahu';
+  if (/^\s*hawaii\s*$/.test(s)) return 'Hawaii';
+  if (/zoom|virtual|teams|facebook|online|webinar|youtube/.test(s)) return 'Virtual';
+  return '';
+}
+/* Location first; the title only when the location names no place at all. */
+function _pbEventIsland(loc, title) {
+  var i = _pbTextIsland(loc);
+  return i || _pbTextIsland(title);
 }
 
 function _pbScopeOk(v) { return (v === 'pip' || v === 'both') ? v : 'ldah'; }
@@ -63675,6 +63716,7 @@ async function _pbLoadAll() {
           sessionKey: k,
           flyer: (v.infoOnly === true || v.flyerOnly === true || String(v.eventType || '') === 'flyer'),
           pip: !!pIsland, pIsland: pIsland,
+          isl: _pbEventIsland(_pbSessionLocation(v, k), v.title),
           title: v.title || '(untitled)', date: _pbKeyDate(k) || v.eventDate || '',
           eventType: String(v.eventType || ''),   /* 524B 3.a reads it (v153.71-STAGE) */
           location: _pbSessionLocation(v, k), format: _pbFormat(v, k),
@@ -63695,6 +63737,7 @@ async function _pbLoadAll() {
         id: e.coll + '/' + e.id + '/_FLAT_', eventId: e.id, coll: e.coll,
         flyer: (v.infoOnly === true || v.flyerOnly === true || String(v.eventType || '') === 'flyer'),
         pip: !!pIsland, pIsland: pIsland,
+        isl: _pbEventIsland(_pbSessionLocation(v, ''), v.title),
         title: v.title || '(untitled)', date: v.eventDate || '',
         eventType: String(v.eventType || ''),
         location: _pbSessionLocation(v, ''), format: _pbFormat(v, ''),
@@ -63721,6 +63764,7 @@ async function _pbLoadAll() {
     su.forEach(function (sd) {
       var x = sd.data() || {};
       signups.push({ id: sd.id, eventId: e.id, coll: e.coll, pip: !!pIsland, pIsland: pIsland,
+                     evIsl: _pbEventIsland(v.location, v.title),
                      contactId: x.linkedContactId || x.contactId || '',
                      title: v.title || '(untitled)', date: _pbSignupDate(x, v), raw: x });
     });
@@ -63759,7 +63803,7 @@ async function _pbLoadAll() {
     contacts.push({
       id: d.id, pip: !!x.partnerIsland, pIsland: x.partnerIsland || '',
       name: nm,
-      island: x.island || '', source: x.source || '',
+      island: x.island || '', source: x.source || '', isl: x.island || '',
       date: _pbTsISO(x.createdAt), imported: imported,
       raw: x      /* the Parent Center Data Collection view reads type, phone, email, children (v151.63) */
     });
@@ -63769,7 +63813,7 @@ async function _pbLoadAll() {
       if (!ch) return;
       children.push({
         contactId: d.id, contactName: nm,
-        pip: !!x.partnerIsland, pIsland: x.partnerIsland || '',
+        pip: !!x.partnerIsland, pIsland: x.partnerIsland || '', isl: x.island || '',
         ageRange: String(_pbChildAgeRange(ch) || '').trim(),
         /* addedAt is when this child was put on the record, which is what
            places them in a reporting period; the contact's own createdAt is
@@ -63872,15 +63916,15 @@ async function _pbLoadAll() {
      survey measures. Scoped by the EVENT's partnerIsland, dated by the session
      the evaluation is for, else the day it was submitted. */
   var _evInfo = {};
-  evSnap.forEach(function (d) { var x = d.data() || {}; _evInfo[d.id] = { p: x.partnerIsland || '', t: x.title || '' }; });
-  recSnap.forEach(function (d) { var x = d.data() || {}; _evInfo[d.id] = { p: x.partnerIsland || '', t: x.title || '' }; });
+  evSnap.forEach(function (d) { var x = d.data() || {}; _evInfo[d.id] = { p: x.partnerIsland || '', t: x.title || '', i: _pbEventIsland(x.location, x.title) }; });
+  recSnap.forEach(function (d) { var x = d.data() || {}; _evInfo[d.id] = { p: x.partnerIsland || '', t: x.title || '', i: _pbEventIsland(x.location, x.title) }; });
   var feedback = [];
   fbSnap.forEach(function (d) {
     var x = d.data() || {};
     var k = (x.eventId || '') + '||' + String(x.sessionDate || '_FLAT_');
     _evalByKey[k] = (_evalByKey[k] || 0) + 1;
     var ev = _evInfo[x.eventId] || { p: '', t: '' };
-    feedback.push({ id: d.id, eventId: x.eventId || '', pip: !!ev.p, pIsland: ev.p, title: ev.t || '(unknown event)',
+    feedback.push({ id: d.id, eventId: x.eventId || '', pip: !!ev.p, pIsland: ev.p, isl: ev.i || '', title: ev.t || '(unknown event)',
                     date: (x.sessionDate ? _pbKeyDate(String(x.sessionDate)) : '') || _pbTsISO(x.submittedAt), raw: x });
   });
   sessions.forEach(function (r) {
@@ -63889,6 +63933,16 @@ async function _pbLoadAll() {
     /* Walk-ins recorded on the summary are attendance too, and they exist only
        there — no signup carries them. */
     r.manualCount = Array.isArray((r.s || {}).manualAttendees) ? r.s.manualAttendees.length : 0;
+  });
+
+  /* Island filter (v153.90-STAGE): interactions follow the family's island; a
+     sign-up follows its event, or the family when the event was virtual or
+     names no place. */
+  var _ctIsl = {};
+  contacts.forEach(function (c) { _ctIsl[c.id] = c.island || ''; });
+  interactions.forEach(function (x) { x.isl = _ctIsl[x.contactId] || ''; });
+  signups.forEach(function (s) {
+    s.isl = (s.evIsl && s.evIsl !== 'Virtual') ? s.evIsl : (_ctIsl[s.contactId] || '');
   });
 
   /* Super Partner (v151.0): drop every unstamped (LDAH) record at the load
@@ -63930,6 +63984,7 @@ window.cmsBuildPtiBoardReport = async function () {
   /* A Super Partner opens on PIP and stays there (v151.0). A cache built for
      another role in this tab is thrown away, so the PIP-only load step runs. */
   _pbState.partner = '';                         /* always opens on all partners */
+  _pbState.island = '';                          /* and on all islands */
   if (_pbPipOnly()) {
     if (_pbCache && !_pbCache._pipOnly) _pbCache = null;
     _pbState.scope = 'pip';
@@ -64015,6 +64070,14 @@ window.pbSetScope = function (s) {
   _pbRender();
 };
 
+/* Island filter (v153.90-STAGE). Re-renders from the cache, like the scope toggle. */
+window.pbSetIsland = function (i) {
+  var ok = _PB_LDAH_ISLANDS.some(function (x) { return x[0] === i; });
+  _pbState.island = ok ? i : '';
+  _pbRenderControls();
+  _pbRender();
+};
+
 /* Partner filter (v151.70). Re-renders from the cache, like the scope toggle. */
 window.pbSetPartner = function (p) {
   var list = window.PARTNER_ISLANDS_LIST || [];
@@ -64072,6 +64135,17 @@ function _pbRenderControls() {
               return '<button type="button" onclick="pbSetPartner(\'' + _pbEsc(p) + '\')" title="' +
                 (p ? 'Only ' + _pbEsc(p) + ' records. Every section, the PDF title and the footer say so.' : 'Every Pacific partner island together.') + '"' +
                 (on ? ' style="background:#7C3AED;color:#fff;"' : '') + '>' + (p ? _pbEsc(p) : 'All partners') + '</button>';
+            }).join('') +
+          '</div></div>'
+        : '') +
+      /* Island filter (v153.90-STAGE): LDAH view only. All islands, or one. */
+      ((!_pbPipOnly() && _pbState.scope === 'ldah')
+        ? '<div><label class="pb-lbl">Island</label><div class="pb-seg" style="flex-wrap:wrap;">' +
+            [['', 'All islands']].concat(_PB_LDAH_ISLANDS).map(function (p) {
+              var on = (_pbState.island || '') === p[0];
+              return '<button type="button" onclick="pbSetIsland(\'' + _pbEsc(p[0]) + '\')" title="' +
+                (p[0] ? 'Only ' + _pbEsc(p[1]) + ': sessions held there, and the families who live there. Virtual sessions are left out.' : 'Every island together.') + '"' +
+                (on ? ' style="background:#0891B2;color:#fff;"' : '') + '>' + _pbEsc(p[1]) + '</button>';
             }).join('') +
           '</div></div>'
         : '') +
@@ -64865,6 +64939,13 @@ function _pbStat(value, label, note) {
    way and a later re-filter inside a section cannot drift from it. r.pip is set
    at load time from partnerIsland and nothing else. */
 function _pbKeep(r) {
+  var _i = _pbIsland();                           /* one Hawaiian island, LDAH view only */
+  if (_i && !(r && r.isl === _i)) return false;
+  return _pbKeepScope(r);
+}
+/* The programme test alone, without the island filter, for the "left out"
+   counts that are about PIP records. */
+function _pbKeepScope(r) {
   var _pp = _pbPartner();                         /* one partner island, PIP view only */
   if (_pp) return !!(r && r.pip && r.pIsland === _pp);
   if (_pbPipOnly()) return !!(r && r.pip);       /* Super Partner: PIP only, always */
@@ -65438,6 +65519,15 @@ function _pbHeaderHtml(D, modes) {
     _line += _n
       ? ' ' + _pbFmt(_n) + ' Pacific partner (PIP) record' + _s + ' in this period ' + (_n === 1 ? 'was' : 'were') + ' left out of every figure below.'
       : ' No Pacific partner (PIP) records fall in this period.';
+    if (_pbIsland()) {
+      var _il = _pbIslandLabel(_pbIsland());
+      var _ldS = _pbCache.sessions.filter(function (r) { return !r.pip && !r.flyer && _pbInRange(r.date); });
+      var _virt = _ldS.filter(function (r) { return r.isl === 'Virtual'; }).length;
+      var _nop = _ldS.filter(function (r) { return !r.isl; }).length;
+      _line += ' <strong>' + _pbEsc(_il) + ' only:</strong> sessions held on ' + _pbEsc(_il) + ' and families who live there.' +
+        (_virt ? ' ' + _pbFmt(_virt) + ' virtual session' + (_virt === 1 ? '' : 's') + ' left out.' : '') +
+        (_nop ? ' ' + _pbFmt(_nop) + ' session' + (_nop === 1 ? '' : 's') + ' with no place in the location left out.' : '');
+    }
   } else if (_sc === 'pip') {
     _line += (_pbPartner() ? ' ' + _pbEsc(_pbPartner()) + ' only; the other partner islands are left out.' : '') +
              ' Every figure below is partner work only and is NOT a Hawaii PTI board figure.' +
@@ -65811,8 +65901,8 @@ function _pcCompute() {
     R.outMaterials += _pbMaterials(r.s || {}, 'materialsDisseminated').total;
     push('out', { d: r.date, w: r.title, n: _pbMaterials(r.s || {}, 'materialsDisseminated').total });
   });
-  R.pipLeftOut = C.sessions.filter(function (r) { return !hi(r) && inR(r.date); }).length +
-                 C.interactions.filter(function (x) { return !hi(x) && inR(x.date); }).length;
+  R.pipLeftOut = C.sessions.filter(function (r) { return !_pbKeepScope(r) && inR(r.date); }).length +
+                 C.interactions.filter(function (x) { return !_pbKeepScope(x) && inR(x.date); }).length;
   _pcLast = R;
   return R;
 }
@@ -65978,7 +66068,8 @@ function _pcHtml() {
          var sc = _pbPipOnly() ? 'pip' : _pbState.scope, pp = _pbPartner();
          if (sc === 'pip') return '<b style="color:#7C3AED;">Pacific partner (PIP) records only' + (pp ? ': ' + _pbEsc(pp) : '') + '</b>. Not a Hawaii PTI figure; ' + _pbFmt(R.pipLeftOut) + ' other records in this period are left out.';
          if (sc === 'both') return '<b style="color:#475569;">LDAH and Pacific partner records combined</b>. Not a Hawaii PTI figure.';
-         return '<b>Hawaii PTI only</b>: ' + _pbFmt(R.pipLeftOut) + ' Pacific partner records in this period are left out automatically.';
+         return '<b>Hawaii PTI only' + (_pbIsland() ? ': ' + _pbEsc(_pbIslandLabel(_pbIsland())) + ' only' : '') + '</b>: ' + _pbFmt(R.pipLeftOut) + ' Pacific partner records in this period are left out automatically.' +
+           (_pbIsland() ? ' Sessions held on ' + _pbEsc(_pbIslandLabel(_pbIsland())) + ' and the families who live there; virtual sessions are left out.' : '');
        })() + ' Transition age is <b>' + _PC_TA + ' and over</b>. Section numbers match the CPIR worksheet, so each box can be copied into the online form.</div>' +
        '<div style="margin-top:6px;font-size:.8rem;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' + _pcTag('auto') + ' counted ' + _pcTag('part') + ' counted, split approximately ' + _pcTag('type') + ' typed once and saved ' + _pcTag('newf') + ' needs a new question on a form</div></div>' +
        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
