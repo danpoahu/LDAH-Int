@@ -6034,7 +6034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v153.99</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.02</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -6851,6 +6851,16 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
               if(!signupId||!eventId)return;
               window.cmsCgSummaryOpen(collection,eventId,signupId);
             };
+            window.myDayOpenDocCheck = function(id){
+              var d=(window._myDayDocs||{})[id];
+              if(!d||!d.cgDocCheckSignupPath)return;
+              var parts=String(d.cgDocCheckSignupPath).split('/');
+              var signupId=parts[parts.length-1];
+              var collection=d.cgDocCheckCollection||parts[0]||'recurringEvents';
+              var eventId=d.cgDocCheckEventId||parts[1]||'';
+              if(!signupId||!eventId||typeof window.cmsCgDocOpen!=='function')return;
+              window.cmsCgDocOpen(collection,eventId,signupId);
+            };
             window.myDayOpenResource = function(id){
               var d=(window._myDayDocs||{})[id];
               if(!d||!d.workflowEventId)return;
@@ -7513,7 +7523,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                       // screen: Take Attendance opens the signups/attendance modal;
                       // Event Summary opens the summary editor. Open tasks only.
                       var actionBtn='';
-                      if(r.bucket!=='done'&&(d.workflowEventId||d.photoReleaseId||d.cgCaseReviewSignupPath)){
+                      if(r.bucket!=='done'&&(d.workflowEventId||d.photoReleaseId||d.cgCaseReviewSignupPath||d.cgDocCheckSignupPath)){
                         // Lifecycle/event tasks (gated on their workflowEventId).
                         // Workshop & Presentation form (v148.15). Three steps, three
                         // owners: Noe fills it, the ED approves travel in one click,
@@ -7584,6 +7594,12 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                         /* Case Review (2026-09-10). Purple to match the Case
                            Summary pill it opens, so the button and its destination
                            read as the same thing. */
+                        /* Document check (2026-10-30): the family's documents were
+                           out of date or the wrong type, or could not be read. Opens
+                           the same document viewer as the signup card, where the
+                           check result and the Documents accepted button sit. */
+                        else if(d.cgDocCheckSignupPath)
+                          actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#B45309;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenDocCheck(\''+d._id+'\')">Review documents &rarr;</button>';
                         else if(d.cgCaseReviewSignupPath)
                           actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#7C3AED;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayOpenCaseReview(\''+d._id+'\')">Open Case Review &rarr;</button>';
                         // Photo Release guardrail tasks (gated on photoReleaseId).
@@ -14934,7 +14950,11 @@ var _photoPendingByIsland = {};
     var run = {
       'signups': function() {
         var c = q.get('c') === 'recurringEvents' ? 'recurringEvents' : 'events';
-        _goOpenSignups(c, q.get('e') || '', q.get('k') || '');
+        var _sid = q.get('s') || '';
+        Promise.resolve(_goOpenSignups(c, q.get('e') || '', q.get('k') || '')).then(function() {
+          // s= names one family: open their documents (Connect-Gen document-check tasks).
+          if (_sid && q.get('e') && typeof window.cmsCgDocOpen === 'function') window.cmsCgDocOpen(c, q.get('e'), _sid);
+        });
       },
       'myday': function() {
         _goNav('dashboard');
@@ -40046,6 +40066,99 @@ window._cgDocList = function(connectGenDocuments, type) {
 // opts.assumeConnectGen lets a caller that already knows it is in a Connect-Gen
 // context (cmsIsConnectGenContext) get an answer even if the event doc has not
 // loaded / carries no zoomMode.
+// ── Document check (2026-10-30) — client mirror of evaluateDocuments() ─────
+// MIRRORS functions/cgDocCheck.js in W2. The server reads each uploaded file and
+// stores what it is under signup.cgDocChecks (keyed by a hash of the path; each
+// entry carries its storagePath). Only signups stamped cgDocCheckVersion are
+// held to it; families confirmed before it shipped are never re-judged. A
+// current IEP is dated within 12 months, evaluations within 3 years, measured
+// back from the later of today and the family's first session. A file counts by
+// what it is, not the slot it was put in. A check still running keeps Documents
+// outstanding; a file that could not be read (error/skipped) and staff uploads
+// count as given. cgDocsAcceptedAt (Documents accepted) overrides it.
+var CG_DOC_IEP_WINDOW_DAYS = 365, CG_DOC_EVAL_WINDOW_DAYS = 3 * 365 + 1;
+function _cgDocDayMs(k) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(k || ''))) return null;
+  var t = Date.parse(k + 'T00:00:00-10:00');
+  return isNaN(t) ? null : t;
+}
+function _cgDocFirstSessionKey(signup) {
+  var keys = [].concat(signup.selectedSessions || [], signup.selectedDates || [], signup.signupDates || []);
+  var out = [];
+  keys.forEach(function(k) { var m = String(k || '').match(/(\d{4}-\d{2}-\d{2})/); if (m) out.push(m[1]); });
+  out.sort();
+  return out[0] || '';
+}
+function _cgDocIsCurrent(docType, date, refMs) {
+  var d = _cgDocDayMs(date);
+  if (d === null) return false;
+  var days = docType === 'iep' ? CG_DOC_IEP_WINDOW_DAYS : CG_DOC_EVAL_WINDOW_DAYS;
+  return d >= refMs - days * 86400000;
+}
+window._cgDocCheckEval = function(signup, nowMs) {
+  var now = typeof nowMs === 'number' ? nowMs : Date.now();
+  var s0 = _cgDocDayMs(_cgDocFirstSessionKey(signup));
+  var refMs = (s0 !== null && s0 > now) ? s0 : now;
+  var byPath = {};
+  var checks = signup.cgDocChecks || {};
+  Object.keys(checks).forEach(function(k) { var c = checks[k]; if (c && c.storagePath) byPath[c.storagePath] = c; });
+  var files = [];
+  ['iep', 'evaluation'].forEach(function(slot) {
+    _cgDocList(signup.connectGenDocuments, slot).forEach(function(rec) {
+      files.push({ slot: slot, rec: rec, check: byPath[rec.storagePath] || null });
+    });
+  });
+  var hasIep = false, hasEval = false, pending = 0, unread = [];
+  files.forEach(function(f) {
+    var c = f.check;
+    if (f.rec.uploadedByStaff) { if (f.slot === 'iep') hasIep = true; else hasEval = true; return; }
+    if (!c || c.status === 'pending') { pending++; return; }
+    if (c.status === 'error' || c.status === 'skipped') {
+      if (f.slot === 'iep') hasIep = true; else hasEval = true;
+      if (c.status === 'error') unread.push(f.rec.originalFilename || 'Untitled file');
+      return;
+    }
+    if (c.docType === 'iep' && _cgDocIsCurrent('iep', c.documentDate, refMs)) hasIep = true;
+    if (c.docType === 'evaluation' && _cgDocIsCurrent('evaluation', c.documentDate, refMs)) hasEval = true;
+  });
+  var missing = [];
+  if (!hasIep) missing.push('iep');
+  if (!hasEval) missing.push('evaluation');
+  var problems = [];
+  files.forEach(function(f) {
+    var c = f.check;
+    if (!c || c.status !== 'done' || f.rec.uploadedByStaff) return;
+    if (!missing.some(function(m) { return f.slot === m || c.docType === m; })) return;
+    var why;
+    if (c.docType === 'other') why = 'other';
+    else if (!c.documentDate) why = 'undated';
+    else if (!_cgDocIsCurrent(c.docType, c.documentDate, refMs)) why = 'old';
+    else return;
+    problems.push({ name: f.rec.originalFilename || 'Untitled file', why: why, docType: c.docType,
+                    otherKind: c.otherKind || '', documentDate: c.documentDate || '' });
+  });
+  return { ok: missing.length === 0, pending: pending, missing: missing, problems: problems, unread: unread, fileCount: files.length };
+};
+// One plain line per problem file, for tooltips and the docs row.
+window._cgDocProblemLine = function(p) {
+  var when = '';
+  var t = _cgDocDayMs(p.documentDate);
+  if (t !== null) when = new Date(t).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'Pacific/Honolulu' });
+  if (p.why === 'other') return p.name + ': ' + (p.otherKind ? p.otherKind : 'not an IEP or evaluation');
+  if (p.why === 'undated') return p.name + ': no date found';
+  return p.name + ': ' + (p.docType === 'iep' ? 'IEP' : 'evaluation') + ' dated ' + when;
+};
+// Short state for the chip: 'checking' | 'notCurrent' | 'wrongType' | 'failed' | ''.
+window._cgDocCheckLabel = function(dc) {
+  if (!dc || dc.ok) return '';
+  if (dc.pending > 0) return 'checking';
+  var kinds = {};
+  dc.problems.forEach(function(p) { kinds[p.why === 'other' ? 'type' : 'date'] = true; });
+  if (kinds.type && !kinds.date) return 'wrongType';
+  if (kinds.date && !kinds.type) return 'notCurrent';
+  return 'failed';
+};
+
 window._cgSignupReadiness = function(signup, event, opts) {
   var o = opts || {};
   var isCg = !!(event && event.zoomMode === 'program') || !!o.assumeConnectGen;
@@ -40060,6 +40173,12 @@ window._cgSignupReadiness = function(signup, event, opts) {
   var hasConsent = !!signup.consentSignedAt;
   var hasDocs = _cgDocList(signup.connectGenDocuments, 'iep').length > 0
              && _cgDocList(signup.connectGenDocuments, 'evaluation').length > 0;
+  // Document check — see _cgDocCheckEval above. Mirrors _cgRequirements().
+  var docCheck = null;
+  if (signup.cgDocCheckVersion && !signup.cgDocsAcceptedAt) {
+    docCheck = _cgDocCheckEval(signup);
+    hasDocs = hasDocs && docCheck.ok;
+  }
   var ws = signup.parentWorksheet || {};
   var hasWorksheet = _cgWorksheetCompleteClient(ws.concerns);
 
@@ -40076,6 +40195,8 @@ window._cgSignupReadiness = function(signup, event, opts) {
     hasConsent: hasConsent,
     hasDocs: hasDocs,
     hasWorksheet: hasWorksheet,
+    docCheck: docCheck,
+    docsAccepted: !!signup.cgDocsAcceptedAt,
   };
 };
 
@@ -40119,6 +40240,23 @@ window._cgReadinessHidden = function(signup, sessionDateKey) {
    done or outstanding — there is no "not required" state left to render (the
    old single pill said "Waiting on: worksheet" and left staff guessing whether
    the other two were missing or irrelevant). */
+// The Documents chip. Without a document check it is the plain done/outstanding
+// chip; with one it says what the check found, with each file's reason on hover.
+function _cgDocsChipHtml(r, base, done, wait, chip) {
+  if (r.hasDocs) return chip('Documents', true, r.docsAccepted ? 'Documents accepted by staff as they are.' : 'IEP and Evaluation both on file.');
+  var dc = r.docCheck;
+  var lbl = dc && dc.fileCount ? _cgDocCheckLabel(dc) : '';
+  if (!lbl) return chip('Documents', false);
+  if (lbl === 'checking') {
+    return '<span style="' + base + 'background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE;" title="The system is reading the files the family sent. This usually takes a few minutes.">Documents &mdash; checking&hellip;</span>';
+  }
+  var text = lbl === 'wrongType' ? 'wrong type' : (lbl === 'notCurrent' ? 'not current' : 'not current / wrong type');
+  var tip = dc.problems.map(_cgDocProblemLine);
+  if (dc.missing.indexOf('iep') > -1) tip.push('Still needed: an IEP from the last 12 months');
+  if (dc.missing.indexOf('evaluation') > -1) tip.push('Still needed: evaluations from the last 3 years');
+  return '<span style="' + wait + '" title="' + rsEscape(tip.join('\n')) + '">Documents &mdash; ' + text + '</span>';
+}
+
 window._cgRequirementsRowHtml = function(signup, event, opts) {
   var r = _cgSignupReadiness(signup, event, opts);
   if (!r.isConnectGen) return '';
@@ -40136,7 +40274,7 @@ window._cgRequirementsRowHtml = function(signup, event, opts) {
   return '<span style="display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center;">' +
     chip('Worksheet', r.hasWorksheet, 'Parent Report Worksheet complete.') +
     chip('Consent', r.hasConsent, 'Consent signed.') +
-    chip('Documents', r.hasDocs, 'IEP and Evaluation both on file.') +
+    _cgDocsChipHtml(r, base, done, wait, chip) +
     (r.ready ? '<span style="' + base + 'background:#16A34A;color:#fff;" title="Consent, documents and worksheet are all done.">Ready</span>' : '') +
     '</span>';
 };
@@ -40369,9 +40507,63 @@ function cmsCgDocsButtonRow(s, collection, eventId, sessionDateKey) {
     '<span style="font-size:.78rem;font-weight:700;color:#0C4A6E;">Connect-Gen Documents</span>' +
     '<button class="btn btn-primary" style="font-size:.82rem;padding:5px 14px;background:#1a3c6e;color:#fff;border:1px solid #14305A;font-weight:600;" onclick="event.stopPropagation();cmsCgDocOpen(\'' + collection + '\',\'' + rsEscape(eventId) + '\',\'' + rsEscape(s.id) + '\')">' + rsEscape(label) + '</button>' +
     (disposition ? '<span style="font-size:.74rem;color:#475569;font-style:italic;">Marked: ' + rsEscape(disposition === 'noSupport' ? 'No Additional Support' : 'Case Advocacy') + '</span>' : '') +
-    cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + cmsCgUploadReqBtn(s, collection, eventId) + _cgPill +
-    '</div>';
+    cmsCgWorksheetBtn(s, collection, eventId) + cmsCgSummaryBtn(s, collection, eventId) + cmsCgUploadReqBtn(s, collection, eventId) + cmsCgDocsAcceptBtn(s, collection, eventId) + _cgPill +
+    '</div>' + cmsCgDocCheckNote(s);
 }
+
+// The check's findings under the docs row, only while the check has failed.
+function cmsCgDocCheckNote(s) {
+  if (!s || !s.cgDocCheckVersion || s.cgDocsAcceptedAt) {
+    if (s && s.cgDocsAcceptedAt) {
+      return '<div style="padding:4px 14px 8px;background:#F0F9FF;font-size:.74rem;color:#166534;">Documents accepted as they are' +
+        (s.cgDocsAcceptedBy ? ' by ' + rsEscape(s.cgDocsAcceptedBy) : '') + '.</div>';
+    }
+    return '';
+  }
+  var dc = _cgDocCheckEval(s);
+  if (dc.ok || dc.pending > 0 || !dc.problems.length && !dc.missing.length) return '';
+  var lines = dc.problems.map(_cgDocProblemLine);
+  if (dc.missing.indexOf('iep') > -1) lines.push('Still needed: an IEP from the last 12 months');
+  if (dc.missing.indexOf('evaluation') > -1) lines.push('Still needed: evaluations from the last 3 years');
+  return '<div style="padding:4px 14px 8px;background:#FFFBEB;border-top:1px solid #FDE68A;font-size:.74rem;color:#92400E;line-height:1.5;">' +
+    '<strong>Document check:</strong> ' + lines.map(rsEscape).join(' &middot; ') + '</div>';
+}
+
+// "Documents accepted" — staff accept the family's documents as they are (for
+// example the family has no newer IEP). Shown only after the check has finished
+// and failed. Writes cgDocsAcceptedAt/By; the server then confirms the family
+// once consent and worksheet are in too. Two clicks, like the upload request.
+function cmsCgDocsAcceptBtn(s, collection, eventId) {
+  if (!s || !s.cgDocCheckVersion || s.cgDocsAcceptedAt) return '';
+  if (s.connectGenDocumentsDestroyedAt || s.connectGenDisposition) return '';
+  var dc = _cgDocCheckEval(s);
+  if (dc.ok || dc.pending > 0 || !dc.fileCount) return '';
+  return '<button class="btn btn-primary" style="font-size:.8rem;padding:5px 14px;background:#B45309;color:#fff;border:none;font-weight:600;" onclick="event.stopPropagation();cgAcceptDocuments(this,' +
+    _jsArg(collection) + ',' + _jsArg(eventId) + ',' + _jsArg(s.id) + ')" title="Accept these documents as they are. Use this when the family has no newer IEP or evaluation.">Documents accepted</button>';
+}
+window.cgAcceptDocuments = async function(el, collection, eventId, signupId) {
+  var bad = function (m) { if (typeof _showToast === 'function') _showToast(m, '#DC2626'); };
+  if (el && el.dataset.ask !== '1') {
+    el.dataset.ask = '1';
+    el.textContent = 'Accept as they are? Yes';
+    setTimeout(function () { if (el.isConnected && el.dataset.ask === '1' && !el.disabled) { el.dataset.ask = ''; el.textContent = 'Documents accepted'; } }, 5000);
+    return;
+  }
+  if (el) { el.disabled = true; el.textContent = 'Saving\u2026'; }
+  try {
+    var who = (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'staff';
+    await db.collection(collection).doc(eventId).collection('signups').doc(signupId).update({
+      cgDocsAcceptedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      cgDocsAcceptedBy: who
+    });
+    try { auditLog('Accepted Connect-Gen documents as they are', signupId); } catch (_) {}
+    if (el && el.isConnected) { el.textContent = 'Accepted \u2713'; el.style.background = '#16A34A'; }
+    if (typeof _showToast === 'function') _showToast('Documents accepted. The family is confirmed once consent and worksheet are in too.', '#16A34A');
+  } catch (e) {
+    if (el && el.isConnected) { el.disabled = false; el.dataset.ask = ''; el.textContent = 'Documents accepted'; }
+    bad('Could not save: ' + e.message);
+  }
+};
 
 // Currently-open viewer state (so footer + body re-renders pick up changes).
 var _cmsCgDocViewer = { collection: '', eventId: '', signupId: '', signup: null };
