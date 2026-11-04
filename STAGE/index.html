@@ -6079,7 +6079,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.08-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.09-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -19212,9 +19212,13 @@ var _photoPendingByIsland = {};
        coming need no edit here. (v148.96-STAGE) */
     var _gs = (_lookupLists.grants || []).filter(Boolean);
     var _hint = _gs.length ? ('e.g. ' + _gs.slice(0, 3).join(' / ')) : 'Start typing…';
-    ['intGrant', 'ctGrant', 'editGrant', 'wpGrant', 'raDistGrant'].forEach(function(id) {
+    ['intGrant', 'ctGrant', 'editGrant', 'wpGrant', 'raDistGrant', 'oneOffGrant'].forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.setAttribute('placeholder', _hint);
+    });
+    // A chip row drawn before the list arrived is empty; redraw any already on screen.
+    document.querySelectorAll('.grant-chips[data-for]').forEach(function(box) {
+      if (window._grantChips) window._grantChips(box.getAttribute('data-for'));
     });
   }
 
@@ -20358,8 +20362,11 @@ var _photoPendingByIsland = {};
       renderLookupList(listKey); return;
     }
     var field = _LM_RECORD_FIELD[listKey];
-    var used = 0;
-    if (field) {
+    var used = 0, _grUse = null;
+    if (listKey === 'grants') {
+      _grUse = await _lmGrantDocs(oldVal);   // every collection, every grant slot (v154.09-STAGE)
+      used = _grUse.docs.length;
+    } else if (field) {
       try {
         var snap = await db.collection('interactions').where(field, '==', oldVal).get();
         used = snap.size;
@@ -20368,7 +20375,7 @@ var _photoPendingByIsland = {};
     var msg = 'Rename “' + oldVal + '” to “' + newVal + '”?';
     var alsoUpdate = false;
     if (used > 0) {
-      msg += '\n\n' + used + ' existing interaction' + (used === 1 ? '' : 's') +
+      msg += '\n\n' + used + ' existing ' + (_grUse ? 'record' : 'interaction') + (used === 1 ? '' : 's') +
              ' still say' + (used === 1 ? 's' : '') + ' “' + oldVal + '”.' +
              '\n\nOK  — rename the option AND update those ' + used + ' records.' +
              '\nCancel — stop, change nothing.';
@@ -20383,7 +20390,39 @@ var _photoPendingByIsland = {};
       return arr;
     });
 
-    if (alsoUpdate && field) {
+    if (alsoUpdate && _grUse) {
+      /* Grants (v154.09-STAGE): swap old for new inside grantPrograms (deduped,
+         order kept) and re-mirror grantProgram to the first value. Re-queried
+         rather than reusing the count, in case records changed during confirm.
+         Batches of 400, under Firestore's 500-write limit. */
+      try {
+        var _gr = await _lmGrantDocs(oldVal);
+        var _ups = _gr.docs.map(function(d) {
+          var seen = {}, list = [];
+          window._grantList(d.data()).forEach(function(g) {
+            var v = (g === oldVal) ? newVal : g;
+            if (!v || seen[v.toLowerCase()]) return;
+            seen[v.toLowerCase()] = 1; list.push(v);
+          });
+          return { ref: d.ref, u: { grantPrograms: list, grantProgram: list[0] || '',
+                                    updatedAt: firebase.firestore.FieldValue.serverTimestamp() } };
+        });
+        for (var _bi = 0; _bi < _ups.length; _bi += 400) {
+          var _gb = db.batch();
+          _ups.slice(_bi, _bi + 400).forEach(function(x) { _gb.update(x.ref, x.u); });
+          await _gb.commit();
+        }
+        var _gn = _ups.length;
+        if (_gr.failed.length) {
+          alert('Renamed, and updated ' + _gn + ' record' + (_gn === 1 ? '' : 's') + ', but these could not be searched, so any records there still say “' + oldVal + '”: ' + _gr.failed.join(', '));
+        } else {
+          _showToast('Renamed, and updated ' + _gn + ' record' + (_gn === 1 ? '' : 's') + '.', '#16A34A');
+        }
+        if (window.auditLog) window.auditLog('Renamed list item', listKey + ': "' + oldVal + '" -> "' + newVal + '" (' + _gn + ' records updated)');
+      } catch (e) {
+        alert('The option was renamed, but the existing records could not be updated: ' + e.message);
+      }
+    } else if (alsoUpdate && field) {
       try {
         var s2 = await db.collection('interactions').where(field, '==', oldVal).get();
         var batch = db.batch(), n = 0;
@@ -20406,6 +20445,29 @@ var _photoPendingByIsland = {};
 
   // Which interactions field each list feeds, for the rename backfill.
   var _LM_RECORD_FIELD = { channels: 'channel', interactionTypes: 'interactionType', grants: 'grantProgram' };
+
+  /* Grants live on more than interactions, and a record can hold several, so
+     the grants list counts and renames through this instead (v154.09-STAGE):
+     grantPrograms array-contains OR the legacy single grantProgram ==, across
+     every collection that carries a grant, deduped by document path. `failed`
+     names any query that could not run, so a rename never claims it got them all. */
+  var _LM_GRANT_COLLS = ['interactions', 'contacts', 'events', 'resourceActivity'];
+  async function _lmGrantDocs(val) {
+    var docs = new Map(), failed = [];
+    await Promise.all(_LM_GRANT_COLLS.reduce(function(qs, coll) {
+      qs.push([coll, db.collection(coll).where('grantPrograms', 'array-contains', val)]);
+      qs.push([coll, db.collection(coll).where('grantProgram', '==', val)]);
+      return qs;
+    }, []).map(function(q) {
+      return q[1].get().then(function(snap) {
+        snap.forEach(function(d) { docs.set(d.ref.path, d); });
+      }).catch(function(e) {
+        console.warn('grant usage query failed (' + q[0] + '):', e.message);
+        if (failed.indexOf(q[0]) < 0) failed.push(q[0]);
+      });
+    }));
+    return { docs: Array.from(docs.values()), failed: failed };
+  }
 
   /* v152.25: a Super Partner opens List Management to the Daily Report
      Recipients card only (Pacific Island Partners rows). The section gets
@@ -20637,14 +20699,16 @@ var _photoPendingByIsland = {};
       return;
     }
     var field = _LM_RECORD_FIELD[listKey];
-    var used = 0;
-    if (field) {
+    var used = 0, _isGr = (listKey === 'grants');
+    if (_isGr) {
+      used = (await _lmGrantDocs(item)).docs.length;   // all four collections, any grant slot (v154.09-STAGE)
+    } else if (field) {
       try { used = (await db.collection('interactions').where(field, '==', item).get()).size; }
       catch (e) { console.warn('usage count failed:', e.message); }
     }
     var msg = 'Remove "' + item + '" from the list?';
     if (used > 0) {
-      msg += '\n\n' + used + ' existing interaction' + (used === 1 ? '' : 's') + ' still use' +
+      msg += '\n\n' + used + ' existing ' + (_isGr ? 'record' : 'interaction') + (used === 1 ? '' : 's') + ' still use' +
              (used === 1 ? 's' : '') + ' it. Those records keep the value — it just stops being ' +
              'offered on new ones, and they will show a value that is no longer in the list.' +
              '\n\nTo change the wording instead, click the item and rename it.';
@@ -21257,7 +21321,7 @@ var _photoPendingByIsland = {};
           if ((c.type || '').toLowerCase().includes(searchVal)) return true;
           if ((c.organization || '').toLowerCase().includes(searchVal)) return true;
           if ((c.location || '').toLowerCase().includes(searchVal)) return true;
-          if ((c.grantProgram || '').toLowerCase().includes(searchVal)) return true;
+          if (window._grantText(c).toLowerCase().includes(searchVal)) return true;   // every grant (v154.09-STAGE)
           // Phone: compare digits only, so "808-555" matches "(808) 555-…".
           // Guarded on a non-empty digit string, or a text search (no digits)
           // would match every contact that has a phone number.
@@ -21387,7 +21451,7 @@ var _photoPendingByIsland = {};
                (c.type || '').toLowerCase().includes(searchVal) ||
                (c.organization || '').toLowerCase().includes(searchVal) ||
                (c.location || '').toLowerCase().includes(searchVal) ||
-               (c.grantProgram || '').toLowerCase().includes(searchVal);
+               window._grantText(c).toLowerCase().includes(searchVal);   // every grant (v154.09-STAGE)
       }
       return true;
     });
@@ -21397,7 +21461,7 @@ var _photoPendingByIsland = {};
     rows.forEach(function(c) {
       out.push([
         c.displayName || '', c.email || '', c.phone || '', c.type || '',
-        c.organization || '', c.location || '', c.grantProgram || '',
+        c.organization || '', c.location || '', window._grantText(c),   // all grants, "A, B" (v154.09-STAGE)
         c.marketingOptOut === true ? 'No' : 'Yes',
         (c.isMember === true || (c.membershipLevel && c.membershipLevel !== '')) ? 'Yes' : 'No',
         c.membershipLevel || '', c.membershipStatus || ''
@@ -25302,7 +25366,8 @@ window.openContactDetail = async function(contactId) {
       contactId: sourceData.contactId || '',
       contactName: sourceData.contactName || '',
       contactType: sourceData.contactType || '',
-      grantProgram: sourceData.grantProgram || '',
+      // Every grant on the source, not just the first (v154.09-STAGE).
+      ...window._grantWrite(window._grantText(sourceData)),
       summary: unassigned
         ? 'Case advocacy — assign a parent consultant for ' + (sourceData.contactName || 'contact')
         : 'Case advocacy — advocating for ' + (sourceData.contactName || 'contact'),
@@ -25859,6 +25924,13 @@ window.openContactDetail = async function(contactId) {
         var isActive = ov.classList.contains('active');
         if (isActive && !wasActive) {
           try { window._ixSyncAllChips(); } catch (e) { console.warn('chip sync failed', e); }
+          /* Grant chips (v154.09-STAGE). The only call that drew them was inside
+             resetInteractionModal, which openModal cannot see for the same
+             module-scope reason as the island picker below — so New Interaction
+             opened with a bare text box, one grant at a time, until a save had run
+             the reset once. Drawn from whatever the input holds, so a draft keeps
+             its grants. */
+          try { window._grantChips('intGrant'); } catch (e) { console.warn('grant chips failed', e); }
           // Super Partner island picker (v151.4). resetInteractionModal lives in a
           // module script, so openModal's typeof check never sees it and the picker
           // was never drawn. Keep any island already chosen for a draft.
@@ -26265,7 +26337,9 @@ window.openContactDetail = async function(contactId) {
 
     _wpSet('wpDateOfRequest', d.dateOfRequest || new Date().toISOString().slice(0, 10));
     _wpSet('wpTakenBy', d.takenBy || initials);
-    _wpSet('wpGrant', d.grant || '');
+    /* A form with no grant of its own starts from the event's grants, which
+       are already loaded in _wpEvent (v154.09-STAGE). */
+    _wpSet('wpGrant', d.grant || window._grantText(d) || window._grantText(_wpEvent || {}));
     window._grantChips('wpGrant');
     _wpSet('wpContactPerson', d.contactPerson || '');
     _wpRadio('wpIslandR', d.island || '');
@@ -26487,6 +26561,9 @@ window.openContactDetail = async function(contactId) {
       eventTitle: _wpEvent.title || '',
       eventDate: _wpEvent.startDate || _wpEvent.eventDate || '',
       dateOfRequest: g('wpDateOfRequest'), takenBy: g('wpTakenBy'), grant: g('wpGrant'),
+      // `grant` stays the text other code reads; the pair beside it is the list (v154.09-STAGE).
+      grantPrograms: window._grantWrite(g('wpGrant')).grantPrograms,
+      grantProgram: window._grantWrite(g('wpGrant')).grantProgram,
       contactPerson: g('wpContactPerson'), island: _wpGetRadio('wpIslandR'),
       rows: rows,
       screening: screening,
@@ -27911,7 +27988,7 @@ window.openContactDetail = async function(contactId) {
               (d.contactType ? ' <span style="font-size:.8rem;color:var(--text-soft);">(' + rsEscape(d.contactType) + ')</span>' : '') + '</div></div>' +
             '<div class="ct-info-field" id="ixViewEmail"><label>Email</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
             '<div class="ct-info-field" id="ixViewPhone"><label>Phone</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
-            '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(d.grantProgram || '—') + '</div></div>' +
+            '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(window._grantText(d) || '—') + '</div></div>' +
           '</div>';
 
         detailSection =
@@ -31462,7 +31539,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       contacts.forEach(function(c) {
         // Belt and braces: _allContacts is scoped where it is filled, but some fills predate that (v151.3-STAGE).
         if (!window._contactVisibleToMe(c)) return;
-        var s = [c.displayName, c.email, c.phone, c.organization, c.location, c.grantProgram, c.type, c.notes].join(' ').toLowerCase();
+        var s = [c.displayName, c.email, c.phone, c.organization, c.location, window._grantText(c), c.type, c.notes].join(' ').toLowerCase();   // every grant (v154.09-STAGE)
         var cHit = s.includes(q) || (window.LDAHFormat && LDAHFormat.gsPhoneMatch && LDAHFormat.gsPhoneMatch(query, [c.phone]));
         if (cHit && results.contacts.length < 5) {
           results.contacts.push({
@@ -31483,7 +31560,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         // dailyUser/dataUser only see own interactions
         if (!isAdmin && ix.ownerUid !== myUid) return;
         if (!window._partnerScopeOK(ix)) return;   // partners: the record's own partnerIsland (v151.3-STAGE)
-        var s = [ix.contactName, ix.summary, ix.notes, ix.channel, ix.interactionType, ix.grantProgram, ix.owner, ix.status].join(' ').toLowerCase();
+        var s = [ix.contactName, ix.summary, ix.notes, ix.channel, ix.interactionType, window._grantText(ix), ix.owner, ix.status].join(' ').toLowerCase();   // every grant (v154.09-STAGE)
         if (s.includes(q) && results.interactions.length < 5) {
           results.interactions.push({
             title: ix.summary || '(no summary)',
@@ -60225,6 +60302,9 @@ window.prExportCsv = function() {
     }
     document.getElementById('oneOffDescription').value = '';
     document.getElementById('oneOffPresenterComments').value = '';
+    /* Grant (v154.09-STAGE) — reset; the edit branch below refills it. */
+    var _ooGrEl = document.getElementById('oneOffGrant');
+    if (_ooGrEl) _ooGrEl.value = '';
     var dEl = document.getElementById('oneOffDate');
     var t = new Date();
     dEl.value = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
@@ -60305,6 +60385,8 @@ window.prExportCsv = function() {
           document.getElementById('oneOffTier').value = (d.summary && d.summary.tierModel) || '';
           _ooRenderM524(d.summary && d.summary.measure524);
           document.getElementById('oneOffDescription').value = d.description || '';
+          // Preload every grant so a save writes them back rather than wiping them (v154.09-STAGE).
+          if (_ooGrEl) _ooGrEl.value = window._grantText(d);
           document.getElementById('oneOffPresenterComments').value = (d.summary && d.summary.presenterComments) || '';
           if (d.eventDate) dEl.value = d.eventDate;
         }
@@ -60333,6 +60415,7 @@ window.prExportCsv = function() {
     }
     _ooRenderAttendees();
     _ooWireSearch();
+    if (_ooGrEl && window._grantChips) window._grantChips('oneOffGrant');
     if (ov) ov.style.display = 'flex';
     } finally { window._ldahBusy(false); }
   };
@@ -60384,6 +60467,10 @@ window.prExportCsv = function() {
     var description = (document.getElementById('oneOffDescription').value || '').trim();
     var mats = _ooMaterialsFromInputs();
     var comments = (document.getElementById('oneOffPresenterComments').value || '').trim();
+    /* Grant (v154.09-STAGE). null when the input is absent, so an edit never
+       touches the stored grants; otherwise {grantPrograms, grantProgram}. */
+    var _ooGrIn = document.getElementById('oneOffGrant');
+    var _ooGrant = _ooGrIn ? window._grantWrite(_ooGrIn.value) : null;
     /* Pacific partner (v149.46). null = untouched (leave any stamp alone),
        '' = deliberately set back to "Not a partner event" (clear it). */
     var _ooPartnerChange = (typeof window.partnerPickerChange === 'function')
@@ -60406,6 +60493,7 @@ window.prExportCsv = function() {
           isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.materialsOther': mats.other, 'summary.presenterComments': comments, feedbackEmails: _ooFeedbackOn(), updatedAt: ts()
         };
         if (m524) _ooUpd['summary.measure524'] = m524;
+        if (_ooGrant) Object.assign(_ooUpd, _ooGrant);   // (v154.09-STAGE)
         if (_ooPartnerChange !== null) {
           _ooUpd.partnerIsland = (_ooPartnerChange === '')
             ? firebase.firestore.FieldValue.delete()
@@ -60429,6 +60517,7 @@ window.prExportCsv = function() {
           archived: !_ooFutureMode, qrTableEvent: _ooFutureMode,
           createdAt: ts(), updatedAt: ts(), createdByUid: staffUid, createdByName: staffName
         });
+        if (_ooGrant) Object.assign(_ooNew, _ooGrant);   // (v154.09-STAGE)
         /* Staff entering a partner's event: partnerStamp is a no-op for them, so
            the picker is the only thing that can stamp it. A partner user never
            reaches this line with a value — partnerPickerChange returns null. */
@@ -61549,6 +61638,8 @@ window.prExportCsv = function() {
         if (Array.isArray(v)) { if (v.length) populated[f]++; }
         else if (v !== null && v !== undefined && v !== '' && !(typeof v === 'object' && Object.keys(v).length === 0)) populated[f]++;
       });
+      // A grant held only in grantPrograms still counts as a filled grant (v154.09-STAGE).
+      if (!_isSafeStr(x.grantProgram) && window._grantList(x).length) populated.grantProgram++;
 
       var rawCh = _isSafeStr(x.channel);
       var chLabel = (typeof _displayChannel === 'function') ? _displayChannel(rawCh) : rawCh;
@@ -61571,8 +61662,13 @@ window.prExportCsv = function() {
       var t = _isSafeStr(x.interactionType);
       if (t) _isBucketize(typeMap, t);
 
-      var gp = _isSafeStr(x.grantProgram);
-      if (gp) _isBucketize(grantMap, gp);
+      /* Every grant on the record, not just the first: a record with two grants
+         counts in full under each (v154.09-STAGE). The bars can therefore sum to
+         more than `total`, which stays docs.length — the unduplicated count. */
+      window._grantList(x).forEach(function(g) {
+        var gp = _isSafeStr(g);
+        if (gp) _isBucketize(grantMap, gp);
+      });
 
       var cn = _isSafeStr(x.contactName);
       if (cn) _isBucketize(contactMap, cn);
@@ -73144,6 +73240,12 @@ window.cmsBuildMembershipReport = async function() {
       </div>
       <!-- Pacific partner (v149.46). Staff only — partnerPickerInit hides this
            row for a partner user, whose events are stamped from their account. -->
+      <!-- Grant / Program (v154.09-STAGE). One-off and upcoming events were saved
+           with no grant at all; chips under the text input, same as New Interaction. -->
+      <div style="margin-bottom:12px;">
+        <label for="oneOffGrant" style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Grant / Program</label>
+        <input id="oneOffGrant" type="text" list="grantOptions" autocomplete="off" placeholder="Start typing…" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+      </div>
       <div id="oneOffM524" style="margin-bottom:12px;"></div>
       <div id="oneOffPartnerIslandRow" style="margin-bottom:12px;">
         <label for="oneOffPartnerIsland" style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">Pacific partner</label>
