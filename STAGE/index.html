@@ -1447,6 +1447,18 @@
     .pb-det { margin:6px 0; }
     .pb-det > summary { cursor:pointer; font-size:.76rem; font-weight:700; color:#0F766E; padding:3px 0; }
     .pb-det[open] > summary { margin-bottom:4px; }
+    /* Parent Center Data Collection: the records behind each section, behind a
+       play button that turns down when open (v154.11-STAGE). */
+    .pc-det { margin-top:8px; }
+    .pc-det > summary { cursor:pointer; list-style:none; font-size:.8rem; font-weight:700; color:#0F766E; display:inline-flex; align-items:center; gap:6px; padding:3px 0; }
+    .pc-det > summary::-webkit-details-marker { display:none; }
+    .pc-det .pc-tri { display:inline-block; font-size:.68rem; transition:transform .15s; }
+    .pc-det[open] > summary .pc-tri { transform:rotate(90deg); }
+    .pc-det-box { max-height:340px; overflow:auto; margin-top:6px; border:1px solid #E2E8F0; border-radius:6px; }
+    .pc-det-box .pb-tbl { font-size:.74rem; }
+    .pc-det-box .pb-tbl th { position:sticky; top:0; z-index:1; }
+    .pc-det-sub { font-size:.74rem; font-weight:800; color:var(--text-soft); margin:10px 0 2px; }
+    .pc-chk { font-size:.74rem; color:#B91C1C; font-weight:700; margin-top:6px; }
     .pb-foot { font-size:.74rem; color:var(--text-soft); padding:4px 2px 18px; }
 
     /* No print stylesheet for this report, deliberately. The one that used to
@@ -6079,7 +6091,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.10-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.11-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -66553,6 +66565,10 @@ function _pcCompute() {
   var R = { notes: {}, lists: {} };
   var push = function (k, row) { (R.lists[k] = R.lists[k] || []).push(row); };
   var zero = function () { return { pu: 0, pt: 0, prof: 0, stud: 0, youth: 0 }; };
+  /* The records behind each figure, pushed at the exact point the figure is
+     counted, so the lists under each section always match it (v154.11-STAGE). */
+  R.detail = {};
+  var det = function (k, row) { (R.detail[k] = R.detail[k] || []).push(row); };
 
   /* ── I.A Trainings: Tier 2 and Tier 3 sessions ── */
   var sigByEvent = {};
@@ -66572,10 +66588,15 @@ function _pcCompute() {
        attendees, and carry no tier -- the default made them Tier 2 and put
        27,000 "parents" into virtual training. They belong under V. (same flag
        the OSEP export uses) */
-    if (_pbIsDissemEvent(r)) { R.dissem += _pbNum(_pbRowAttendance(r)); R.dissemN++; return; }
+    if (_pbIsDissemEvent(r)) {
+      R.dissem += _pbNum(_pbRowAttendance(r)); R.dissemN++;
+      det('dissem', { d: r.date, w: r.title, n: _pbNum(_pbRowAttendance(r)) });   /* (v154.11-STAGE) */
+      if (r.tier === 'Tier 2' || r.tier === 'Tier 3') det('trainSkip', { d: r.date, w: r.title, tier: r.tier, why: 'Dissemination record: people reached, counted under V' });
+      return;
+    }
     if (r.tier !== 'Tier 2' && r.tier !== 'Tier 3') return;
     var att = _pbRowAttendance(r);
-    if (att == null) { R.notes.trainNoAtt++; push('trainNoAtt', { d: r.date, w: r.title }); return; }
+    if (att == null) { R.notes.trainNoAtt++; push('trainNoAtt', { d: r.date, w: r.title }); det('trainSkip', { d: r.date, w: r.title, tier: r.tier, why: 'No attendance recorded' }); return; }
     var f = r.format === 'Virtual' ? 'v' : 'p';
     if (!r.format) R.notes.trainFmtUnknown++;
     var named = zero(), namedTot = 0;
@@ -66595,6 +66616,7 @@ function _pcCompute() {
       trainPeople.push({ s: s, r: r });
       if (s.contactId) trainServed[s.contactId] = 1;
     });
+    var nm0 = {}; Object.keys(named).forEach(function (k) { nm0[k] = named[k]; });   /* named only, before the split (v154.11-STAGE) */
     var rem = Math.max(0, att - namedTot);
     var sm = r.s || {};
     var xProf = Math.min(rem, Math.max(0, _pbNum(sm.attendanceProfessionalOther) - named.prof));
@@ -66603,6 +66625,8 @@ function _pcCompute() {
     R.notes.trainInferred += rest;
     named.prof += xProf; named.youth += xYouth; named.pu += rest;
     Object.keys(named).forEach(function (k) { R.train[f][k] += named[k]; });
+    det('train', { d: r.date, w: r.title, f: f, fmtSet: !!r.format, tier: r.tier, att: att, named: nm0, split: named,
+                   namedTot: namedTot, fromSummary: xProf + xYouth, rest: rest });   /* (v154.11-STAGE) */
     push('train', { d: r.date, w: r.title + ' (' + (f === 'v' ? 'virtual' : 'in person') + ')', n: att });
   });
 
@@ -66613,11 +66637,13 @@ function _pcCompute() {
   ixs.forEach(function (ix) {
     if (ix.tier !== 'Tier 1') return;
     var ch = _PC_CHANNEL[String((ix.raw || {}).channel || '').trim().toLowerCase()] || '';
-    if (!ch) { R.notes.iaUnmapped++; push('iaUnmapped', { d: ix.date, w: (ix.contactName || '(no contact)') + ' — channel "' + ((ix.raw || {}).channel || 'none') + '"' }); return; }
+    if (!ch) { R.notes.iaUnmapped++; push('iaUnmapped', { d: ix.date, w: (ix.contactName || '(no contact)') + ' — channel "' + ((ix.raw || {}).channel || 'none') + '"' });
+               det('iaSkip', { d: ix.date, who: ix.contactName || '', ch: (ix.raw || {}).channel || '' }); return; }
     var ct = ix.contactId && byId[ix.contactId], a = { aud: 'pu', guessed: true };
     if (ct) a = _pcAudience(ct.raw); else R.notes.iaNoContact++;
     if (ct && a.guessed) R.notes.iaGuessed++;
     R.ia[ch][a.aud]++;
+    det('ia', { d: ix.date, who: ct ? ct.name : (ix.contactName || ''), linked: !!ct, ch: (ix.raw || {}).channel || '', box: ch, aud: a.aud, guessed: a.guessed });   /* (v154.11-STAGE) */
     if (ix.contactId) iaServed[ix.contactId] = 1;
   });
 
@@ -66626,12 +66652,14 @@ function _pcCompute() {
   Object.keys(iaServed).forEach(function (id) { served[id] = 1; });
   Object.keys(trainServed).forEach(function (id) { served[id] = 1; });
   R.undup = { pu: 0, pt: 0, youth: 0 }; R.notes.undupUnreachable = 0;
+  var via = function (id) { return iaServed[id] && trainServed[id] ? 'Both' : iaServed[id] ? 'Individual assistance' : 'Training'; };
   Object.keys(served).forEach(function (id) {
-    var ct = byId[id]; if (!ct || !hi(ct)) return;
+    var ct = byId[id]; if (!ct || !hi(ct)) { det('undupSkip', { who: ct ? ct.name : '', via: via(id), why: ct ? 'Outside the records this view covers' : 'Contact record not found' }); return; }
     var a = _pcAudience(ct.raw).aud;
-    if (a === 'prof') return;
-    if (!_pcReachable(ct.raw)) { R.notes.undupUnreachable++; return; }
+    if (a === 'prof') { det('undupSkip', { who: ct.name, via: via(id), why: 'Professional / other: not counted in II' }); return; }
+    if (!_pcReachable(ct.raw)) { R.notes.undupUnreachable++; det('undupSkip', { who: ct.name, via: via(id), why: 'No real phone number or email' }); return; }
     R.undup[a === 'stud' ? 'youth' : a]++;
+    det('undup', { who: ct.name, aud: a === 'stud' ? 'youth' : a, via: via(id) });   /* (v154.11-STAGE) */
   });
 
   /* ── Part 2 lists: served in the LAST SIX MONTHS of the period, reachable ── */
@@ -66657,26 +66685,37 @@ function _pcCompute() {
   R.dis = _PC_DIS.map(dz); R.age = { '0-2': dz(), '3-5': dz(), '6-12': dz(), 'twelve': dz(), 'ta': dz(), '': dz() };
   R.hisp = { yes: dz(), no: dz(), undisclosed: dz() }; R.race = {}; _PC_RACES.forEach(function (k) { R.race[k] = dz(); });
   R.notes.disOther = {};
-  var addChild = function (col, band, disList, eth) {
+  /* meta = { src, parent, child, w } for the list behind III.A-C (v154.11-STAGE) */
+  var addChild = function (col, band, disList, eth, meta) {
     var side = _pcAgeSide(band) || 'u';
     var c = col + side;
     var n = window._normalizeAgeRange ? window._normalizeAgeRange(band) : '';
-    R.age[n === '13-17' || n === 'Adult' ? 'ta' : (n || '')][c]++;
-    var rows = {}, any = false;
+    var ageKey = n === '13-17' || n === 'Adult' ? 'ta' : (n || '');
+    R.age[ageKey][c]++;
+    var rows = {}, any = false, disIdx = [], disOther = [];
     (disList || []).forEach(function (d) {
       var i = _pcDisRow(d);
-      if (i === -1) { R.notes.disOther[d] = (R.notes.disOther[d] || 0) + 1; return; }
-      if (!rows[i]) { rows[i] = 1; R.dis[i][c]++; any = true; }
+      if (i === -1) { R.notes.disOther[d] = (R.notes.disOther[d] || 0) + 1; disOther.push(d); return; }
+      if (!rows[i]) { rows[i] = 1; R.dis[i][c]++; any = true; disIdx.push(i); }
     });
-    if (!any && !(disList || []).length) R.dis[16][c]++;       /* nothing ticked = not disclosed */
+    if (!any && !(disList || []).length) { R.dis[16][c]++; disIdx.push(16); }      /* nothing ticked = not disclosed */
     var er = _pcEthRace(eth);
     R.hisp[er.hisp][c]++; R.race[er.race][c]++;
+    meta = meta || {};
+    det('kids', { src: meta.src || '', parent: meta.parent || '', child: meta.child || '', w: meta.w || '', band: n || '', ageKey: ageKey,
+                  col: col, side: side, sideSet: !!_pcAgeSide(band), dis: disIdx, disOther: disOther, eth: eth || '', hisp: er.hisp, race: er.race });
+  };
+  var kidName = function (k, self) {
+    if (!k) return '';
+    if (self) return String(k.childName || '').trim();
+    return String(k.name || [k.firstName, k.lastName].filter(Boolean).join(' ') || k.childName || '').trim();
   };
   Object.keys(iaServed).forEach(function (id) {
     var ct = byId[id]; if (!ct || !hi(ct)) return;
     var x = ct.raw || {};
     _pcKids(x).forEach(function (k) {
-      addChild('i', _pbChildAgeRange(k), Array.isArray(k.disabilityCategories) ? k.disabilityCategories : [], k.ethnicity || x.ethnicity || '');
+      addChild('i', _pbChildAgeRange(k), Array.isArray(k.disabilityCategories) ? k.disabilityCategories : [], k.ethnicity || x.ethnicity || '',
+               { src: 'Individual assistance', parent: ct.name, child: kidName(k, k === x) });
     });
   });
   var namedByEvent = {};
@@ -66684,9 +66723,12 @@ function _pcCompute() {
     var x = p.s.raw || {}, reg = _pbSignupReg(x);
     var kids = Array.isArray(reg.children) && reg.children.length ? reg.children : [reg];
     var eth = reg.primaryEthnicity || reg.ethnicity || x.ethnicity || '';
+    var pct = p.s.contactId && byId[p.s.contactId];
+    var pName = pct ? pct.name : (x.name || reg.parentName || [x.firstName, x.lastName].filter(Boolean).join(' ') || '');
     kids.forEach(function (k) {
       if (!k) return;
-      addChild('t', k.ageRange || k.childAgeRange || '', Array.isArray(k.disabilityCategories) ? k.disabilityCategories : [], k.ethnicity || eth);
+      addChild('t', k.ageRange || k.childAgeRange || '', Array.isArray(k.disabilityCategories) ? k.disabilityCategories : [], k.ethnicity || eth,
+               { src: 'Training', parent: pName, child: kidName(k, k === reg), w: p.r.title });
     });
     var nb = namedByEvent[p.r.eventId] = namedByEvent[p.r.eventId] || { age: {}, eth: {}, dis: {} };
     kids.forEach(function (k) {
@@ -66709,15 +66751,18 @@ function _pcCompute() {
       var n = Math.max(0, _pbNum(ao[k]) - (nb.age[k] || 0)); if (!n) return;
       var side = (k === '13-17' || k === 'Adult') ? 't' : 'u';
       R.age[side === 't' ? 'ta' : k] && (R.age[side === 't' ? 'ta' : k]['t' + side] += n); R.notes.topup += n;
+      if (R.age[side === 't' ? 'ta' : k]) det('kidsTop', { kind: 'age', d: r.date, w: r.title, key: k, ageKey: side === 't' ? 'ta' : k, col: 't' + side, n: n });   /* (v154.11-STAGE) */
     });
     Object.keys(eo).forEach(function (k) {
       var n = Math.max(0, _pbNum(eo[k]) - (nb.eth[k] || 0)); if (!n) return;
       var er = _pcEthRace(k); R.hisp[er.hisp].tu += n; R.race[er.race].tu += n; R.notes.topup += n;
+      det('kidsTop', { kind: 'eth', d: r.date, w: r.title, key: k, hisp: er.hisp, race: er.race, col: 'tu', n: n });
     });
     Object.keys(dov).forEach(function (k) {
       var n = Math.max(0, _pbNum(dov[k]) - (nb.dis[k] || 0)); if (!n) return;
       var i = _pcDisRow(k); if (i === -1) { R.notes.disOther[k] = (R.notes.disOther[k] || 0) + n; return; }
       R.dis[i].tu += n; R.notes.topup += n;
+      det('kidsTop', { kind: 'dis', d: r.date, w: r.title, key: k, i: i, col: 'tu', n: n });
     });
   });
 
@@ -66758,6 +66803,158 @@ function _pcIn(key) {
 }
 function _pcN(n) { return '<span style="font-weight:700;">' + _pbFmt(n) + '</span>'; }
 function _pcNote(s) { return '<div class="pb-note">' + s + '</div>'; }
+
+/* ── The records behind each section (v154.11-STAGE) ──────────────────────
+   Daniel 2026-11-04: "a play button to open all the details behind each
+   section so I can see if we got them all". Each list is R.detail, filled in
+   _pcCompute at the exact point the figure is counted. _pcChk adds each list
+   back up and puts a red line under the card if it ever differs from the
+   figure it explains. Collapsed by default; pcPrint prints only the open ones.
+   Names only: phones and emails stay in the private key download. */
+var _PC_AUD_SHORT = { pu: 'Parent &lt; TA', pt: 'Parent TA+', prof: 'Prof. / other', stud: 'Student &lt; TA', youth: 'Youth TA+' };
+var _PC_BOX = { phone: 'Phone calls', letter: 'Letters', email: 'Emails / texts / other electronic', inperson: 'In-person meetings' };
+var _PC_COLS = [['iu', 'Indiv. assist. &lt; TA'], ['it', 'Indiv. assist. TA+'], ['tu', 'Training &lt; TA'], ['tt', 'Training TA+']];
+var _PC_AGE_ROW = { '0-2': 'Birth up to age 3', '3-5': 'Ages 3 through 5', '6-12': 'Ages 6 through 11', 'twelve': 'Ages 12 to transition age', 'ta': 'Transition age and older', '': 'Age not recorded' };
+function _pcTd(v, cls) { return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</td>'; }
+function _pcDay(d) { return _pcTd(_pbEsc(d ? _pbDayLabel(d) : '—'), 'nw'); }
+function _pcName(v, none) { return v ? _pbEsc(v) : '<span style="color:var(--text-soft);">' + (none || '(no name)') + '</span>'; }
+function _pcSoft(s) { return '<span style="color:var(--text-soft);">' + s + '</span>'; }
+function _pcFlag(s) { return '<span style="color:#B45309;font-weight:700;">' + s + '</span>'; }
+function _pcByDate(a, b) { return (a.d || '') < (b.d || '') ? -1 : (a.d || '') > (b.d || '') ? 1 : 0; }
+function _pcByWho(a, b) { var x = String(a.who || a.parent || '').toLowerCase(), y = String(b.who || b.parent || '').toLowerCase(); return x < y ? -1 : x > y ? 1 : 0; }
+/* heads: a leading '#' marks a number column. rows: arrays of finished <td>s. */
+function _pcDetTbl(heads, rows) {
+  var tbl = !rows.length ? '<div class="pb-note" style="margin:6px 9px;">None.</div>' :
+    '<table class="pb-tbl"><thead><tr>' + heads.map(function (x) { return x.charAt(0) === '#' ? '<th class="num">' + x.slice(1) + '</th>' : '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    rows.map(function (r) { return '<tr>' + r.join('') + '</tr>'; }).join('') + '</tbody></table>';
+  return '<div class="pc-det-box">' + tbl + '</div>';
+}
+function _pcDetSub(s) { return '<div class="pc-det-sub">' + s + '</div>'; }
+function _pcDet(label, n, inner) {
+  return '<details class="pc-det"><summary><span class="pc-tri">&#9654;</span>' + label + ' (' + _pbFmt(n) + ')</summary>' + inner + '</details>';
+}
+/* pairs: [label, added up from the list, the figure shown]. */
+function _pcChk(pairs) {
+  var bad = pairs.filter(function (p) { return _pbNum(p[1]) !== _pbNum(p[2]); });
+  if (!bad.length) return '';
+  return '<div class="pc-chk">The records listed do not add up to the figure for ' +
+         bad.map(function (p) { return p[0] + ' (records ' + _pbFmt(p[1]) + ', figure ' + _pbFmt(p[2]) + ')'; }).join('; ') + '.</div>';
+}
+
+function _pcDetIA(R, tA) {
+  var rows = (R.detail.train || []).slice().sort(_pcByDate), skip = (R.detail.trainSkip || []).slice().sort(_pcByDate);
+  var sum = { p: {}, v: {} }, all = 0;
+  rows.forEach(function (r) { Object.keys(r.split).forEach(function (k) { sum[r.f][k] = (sum[r.f][k] || 0) + r.split[k]; all += r.split[k]; }); });
+  var pairs = [['all attendees', all, tA]];
+  ['p', 'v'].forEach(function (f) { _PC_AUDS.forEach(function (a) { pairs.push([(f === 'v' ? 'virtual, ' : 'in person, ') + _pbEsc(a[1]), sum[f][a[0]] || 0, R.train[f][a[0]]]); }); });
+  var tbl = _pcDetTbl(['Date', 'Session', 'Format', 'Tier', '#Recorded', '#Counted'].concat(_PC_AUDS.map(function (a) { return '#' + _PC_AUD_SHORT[a[0]]; })).concat(['#Named', '#From Event Summary', '#Unnamed, as parent &lt; TA']),
+    rows.map(function (r) {
+      var tot = 0; Object.keys(r.split).forEach(function (k) { tot += r.split[k]; });
+      return [_pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd((r.f === 'v' ? 'Virtual' : 'In person') + (r.fmtSet ? '' : ' ' + _pcFlag('(not marked)')), 'nw'), _pcTd(_pbEsc(r.tier), 'nw'),
+              _pcTd(_pbFmt(r.att), 'num'), _pcTd('<b>' + _pbFmt(tot) + '</b>', 'num')]
+        .concat(_PC_AUDS.map(function (a) { var k = a[0]; return _pcTd(_pbFmt(r.split[k]) + (r.named[k] ? ' ' + _pcSoft('(' + r.named[k] + ' named)') : ''), 'num'); }))
+        .concat([_pcTd(_pbFmt(r.namedTot), 'num'), _pcTd(_pbFmt(r.fromSummary), 'num'), _pcTd(_pbFmt(r.rest), 'num')]);
+    }));
+  var skipTbl = _pcDetTbl(['Date', 'Session', 'Tier', 'Why not counted'], skip.map(function (r) { return [_pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(_pbEsc(r.tier), 'nw'), _pcTd(_pbEsc(r.why))]; }));
+  return _pcChk(pairs) + _pcDet('Show the sessions behind these figures', rows.length,
+    _pcNote('Counted = the people placed in the boxes above: everyone named on an attended signup, plus the rest of the recorded attendance. When more people are named than the attendance recorded, the named people are counted.') + tbl +
+    _pcDetSub('Tier 2 / Tier 3 sessions not counted (' + skip.length + ')') + skipTbl);
+}
+
+function _pcDetIB(R, tB) {
+  var rows = (R.detail.ia || []).slice().sort(_pcByDate), skip = (R.detail.iaSkip || []).slice().sort(_pcByDate);
+  var sum = {}; rows.forEach(function (r) { var k = r.box + '.' + r.aud; sum[k] = (sum[k] || 0) + 1; });
+  var pairs = [['all contacts', rows.length, tB]];
+  Object.keys(_PC_BOX).forEach(function (b) { _PC_AUDS.forEach(function (a) { pairs.push([_PC_BOX[b] + ', ' + _pbEsc(a[1]), sum[b + '.' + a[0]] || 0, R.ia[b][a[0]]]); }); });
+  var tbl = _pcDetTbl(['Date', 'Contact', 'Channel recorded', 'Counted in', 'Audience', 'Note'], rows.map(function (r) {
+    var note = !r.linked ? _pcFlag('No contact linked: counted as parent &lt; TA') : r.guessed ? _pcFlag('No child age on file: audience guessed') : '';
+    if (r.box === 'letter') note += (note ? '<br>' : '') + _pcFlag('Letters is a typed-in box; this record is in the total only');
+    return [_pcDay(r.d), _pcTd(_pcName(r.who)), _pcTd(_pbEsc(r.ch), 'nw'), _pcTd(_PC_BOX[r.box], 'nw'), _pcTd(_PC_AUD_SHORT[r.aud], 'nw'), _pcTd(note)];
+  }));
+  var skipTbl = _pcDetTbl(['Date', 'Contact', 'Channel recorded', 'Why not counted'], skip.map(function (r) {
+    return [_pcDay(r.d), _pcTd(_pcName(r.who)), _pcTd(r.ch ? _pbEsc(r.ch) : _pcSoft('none'), 'nw'), _pcTd('The worksheet has no box for this channel')];
+  }));
+  return _pcChk(pairs) + _pcDet('Show the interactions behind these figures', rows.length, tbl + _pcDetSub('Tier 1 interactions not counted (' + skip.length + ')') + skipTbl);
+}
+
+function _pcDetII(R) {
+  var rows = (R.detail.undup || []).slice().sort(_pcByWho), skip = (R.detail.undupSkip || []).slice().sort(_pcByWho);
+  var sum = { pu: 0, pt: 0, youth: 0 }; rows.forEach(function (r) { sum[r.aud]++; });
+  var pairs = [['all people', rows.length, R.undup.pu + R.undup.pt + R.undup.youth],
+               ['parents under transition age', sum.pu, R.undup.pu], ['parents of transition-age youth', sum.pt, R.undup.pt], ['youth and young adults', sum.youth, R.undup.youth]];
+  var tbl = _pcDetTbl(['Name', 'Counted as', 'Reached through'], rows.map(function (r) {
+    return [_pcTd(_pcName(r.who)), _pcTd(r.aud === 'youth' ? 'Youth and young adults' : _PC_AUD_SHORT[r.aud], 'nw'), _pcTd(_pbEsc(r.via), 'nw')];
+  }));
+  var skipTbl = _pcDetTbl(['Name', 'Reached through', 'Why not counted'], skip.map(function (r) {
+    return [_pcTd(_pcName(r.who, '(record not found)')), _pcTd(_pbEsc(r.via), 'nw'), _pcTd(_pbEsc(r.why))];
+  }));
+  return _pcChk(pairs) + _pcDet('Show the people behind these figures', rows.length, tbl + _pcDetSub('People served but not counted here (' + skip.length + ')') + skipTbl);
+}
+
+/* III.A / III.B / III.C share one list of children; each card shows the
+   columns its own figures come from, and checks its own boxes. */
+function _pcDetIII(R, part) {
+  var kids = (R.detail.kids || []).slice().sort(function (a, b) { return a.src < b.src ? -1 : a.src > b.src ? 1 : _pcByWho(a, b); });
+  var tops = (R.detail.kidsTop || []).filter(function (t) { return t.kind === part; }).sort(_pcByDate);
+  var pairs = [], tot = 0, fig = 0;
+  if (part === 'dis') {
+    var agg = _PC_DIS.map(function () { return { iu: 0, it: 0, tu: 0, tt: 0 }; });
+    kids.forEach(function (k) { k.dis.forEach(function (i) { agg[i][k.col + k.side]++; }); });
+    tops.forEach(function (t) { agg[t.i][t.col] += t.n; });
+    _PC_DIS.forEach(function (d, i) { if (i === 14) return; _PC_COLS.forEach(function (c) { tot += agg[i][c[0]]; fig += R.dis[i][c[0]]; pairs.push([(i + 1) + '. ' + _pbEsc(d[0]) + ', ' + c[1], agg[i][c[0]], R.dis[i][c[0]]]); }); });
+  } else if (part === 'age') {
+    var ag = {}; Object.keys(R.age).forEach(function (k) { ag[k] = { i: 0, t: 0 }; });
+    kids.forEach(function (k) { ag[k.ageKey][k.col]++; });
+    tops.forEach(function (t) { ag[t.ageKey].t += t.n; });
+    Object.keys(R.age).forEach(function (k) { var r = R.age[k];
+      tot += ag[k].i + ag[k].t; fig += r.iu + r.it + r.tu + r.tt;
+      pairs.push([_PC_AGE_ROW[k] + ', individual assistance', ag[k].i, r.iu + r.it], [_PC_AGE_ROW[k] + ', trainings', ag[k].t, r.tu + r.tt]); });
+  } else {
+    var hs = {}, rs = {}; ['yes', 'no', 'undisclosed'].forEach(function (k) { hs[k] = { iu: 0, it: 0, tu: 0, tt: 0 }; }); _PC_RACES.forEach(function (k) { rs[k] = { iu: 0, it: 0, tu: 0, tt: 0 }; });
+    kids.forEach(function (k) { hs[k.hisp][k.col + k.side]++; rs[k.race][k.col + k.side]++; });
+    tops.forEach(function (t) { hs[t.hisp][t.col] += t.n; rs[t.race][t.col] += t.n; });
+    var HL = { yes: 'Hispanic or Latino', no: 'Not Hispanic or Latino', undisclosed: 'Ethnicity undisclosed' };
+    Object.keys(hs).forEach(function (k) { _PC_COLS.forEach(function (c) { tot += hs[k][c[0]]; fig += R.hisp[k][c[0]]; pairs.push([HL[k] + ', ' + c[1], hs[k][c[0]], R.hisp[k][c[0]]]); }); });
+    _PC_RACES.forEach(function (k) { _PC_COLS.forEach(function (c) { pairs.push([_pbEsc(k) + ', ' + c[1], rs[k][c[0]], R.race[k][c[0]]]); }); });
+  }
+  pairs.unshift(['all boxes', tot, fig]);
+  var heads = ['Source', 'Parent', 'Child', 'Age range', 'Side'];
+  heads = heads.concat(part === 'dis' ? ['Counted as'] : part === 'age' ? ['Counted in row'] : ['Ethnicity recorded', 'Hispanic or Latino', 'Race counted']);
+  var tbl = _pcDetTbl(heads, kids.map(function (k) {
+    var row = [_pcTd(_pbEsc(k.src) + (k.w ? '<br>' + _pcSoft(_pbEsc(k.w)) : '')), _pcTd(_pcName(k.parent)), _pcTd(k.child ? _pbEsc(k.child) : _pcSoft('not named')),
+               _pcTd(k.band ? _pbEsc(k.band) : _pcSoft('not recorded'), 'nw'), _pcTd((k.side === 't' ? 'TA+' : '&lt; TA') + (k.sideSet ? '' : ' ' + _pcFlag('(no age)')), 'nw')];
+    if (part === 'dis') row.push(_pcTd(k.dis.map(function (i) { return _pbEsc(_PC_DIS[i][0]); }).join('; ') +
+                                       (k.disOther.length ? (k.dis.length ? '<br>' : '') + _pcFlag('Not placed: ' + _pbEsc(k.disOther.join(', '))) : '')));
+    else if (part === 'age') row.push(_pcTd(_PC_AGE_ROW[k.ageKey], 'nw'));
+    else row.push(_pcTd(k.eth ? _pbEsc(k.eth) : _pcSoft('not recorded')), _pcTd(({ yes: 'Yes', no: 'No', undisclosed: 'Undisclosed' })[k.hisp], 'nw'), _pcTd(_pbEsc(k.race), 'nw'));
+    return row;
+  }));
+  var topTbl = _pcDetTbl(['Date', 'Session', 'Figure typed', '#Added'], tops.map(function (t) {
+    var what = part === 'dis' ? _pbEsc(t.key) + ' &rarr; ' + _pbEsc(_PC_DIS[t.i][0]) : part === 'age' ? 'Age ' + _pbEsc(t.key) + ' &rarr; ' + _PC_AGE_ROW[t.ageKey] : _pbEsc(t.key) + ' &rarr; ' + _pbEsc(t.race);
+    return [_pcDay(t.d), _pcTd(_pbEsc(t.w)), _pcTd(what), _pcTd(_pbFmt(t.n), 'num')];
+  }));
+  return _pcChk(pairs) + _pcDet('Show the children behind these figures', kids.length,
+    tbl + _pcDetSub('Added from figures typed on Event Attendance cards, above the children already named (' + tops.length + ')') + topTbl);
+}
+
+function _pcDetV(R) {
+  var out = (R.lists.out || []).slice().sort(_pcByDate), dis = (R.detail.dissem || []).slice().sort(_pcByDate);
+  if (!out.length && !dis.length) return '';
+  var mat = 0; out.forEach(function (r) { mat += _pbNum(r.n); });
+  var reach = 0; dis.forEach(function (r) { reach += _pbNum(r.n); });
+  var pairs = [['events attended', out.length, R.outEvents], ['materials disseminated', mat, R.outMaterials], ['Dissemination records', dis.length, R.dissemN], ['people reached on Dissemination records', reach, R.dissem]];
+  return _pcChk(pairs) + _pcDet('Show the records behind these figures', out.length + dis.length,
+    _pcDetSub('Tier 4 outreach events (' + out.length + ')') +
+    _pcDetTbl(['Date', 'Event', '#Materials disseminated'], out.map(function (r) { return [_pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(_pbFmt(r.n), 'num')]; })) +
+    _pcDetSub('Dissemination records, for reference on Social media (' + dis.length + ')') +
+    _pcDetTbl(['Date', 'Record', '#Reached'], dis.map(function (r) { return [_pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(_pbFmt(r.n), 'num')]; })));
+}
+
+function _pcDetP2(R) {
+  var rows = [];
+  ['FC', 'FT', 'Y'].forEach(function (k) { R.p2[k].forEach(function (x) { rows.push([_pcTd(_pbEsc(x.code), 'nw'), _pcTd(k, 'nw'), _pcTd(_pcName(x.name))]); }); });
+  return _pcDet('Show the people on these lists', rows.length, _pcDetTbl(['Code', 'List', 'Name'], rows));
+}
 
 /* Online dissemination for Section V (2026-10-14, Daniel). Read from
    siteAnalytics for the date range:
@@ -66833,7 +67030,9 @@ function _pcWebLoad() {
   if (_pcWebKey === key) return Promise.resolve(false);
   _pcWebKey = key; _pcWeb = null;
   return Promise.all([
-    db.collection('siteAnalytics').get(),
+    /* From the server (v154.11-STAGE): a plain get() was sometimes answered by the
+       live listener on the last few days, so V read 3 days and estimated the rest. */
+    db.collection('siteAnalytics').get({ source: 'server' }),
     db.collection('events').get(), db.collection('recurringEvents').get(), db.collection('resources').get(),
     /* Flyers sent in announcement emails, per HST day, kept by the
        tallyEmailFlyerDissemination Cloud Function (back-filled from the email log). */
@@ -66920,7 +67119,7 @@ function _pcHtml() {
   h += '</tbody></table></div>' + _pcNote('Tier 2 and Tier 3 sessions in the period (Workshops, Learning Labs, Parent Talk Cafe, Connect-Gen). Each person counts once per session, as the worksheet asks. ' +
        'People named on a signup are placed by their role and their child&rsquo;s age. The rest of each session&rsquo;s attendance is split using the Professional/Other and Youth figures on the Event Summary; <b>' + _pbFmt(R.notes.trainInferred) + '</b> unnamed attendees are counted as parents of children under transition age.' +
        (R.notes.trainNoAtt ? ' <b>' + R.notes.trainNoAtt + '</b> session(s) have no attendance recorded and are not counted.' : '') +
-       (R.notes.trainFmtUnknown ? ' ' + R.notes.trainFmtUnknown + ' session(s) are not marked virtual or in person and are counted as in person.' : '')) + '</div>';
+       (R.notes.trainFmtUnknown ? ' ' + R.notes.trainFmtUnknown + ' session(s) are not marked virtual or in person and are counted as in person.' : '')) + _pcDetIA(R, tA) + '</div>';
 
   /* I.B */
   var tB = 0; Object.keys(R.ia).forEach(function (c) { Object.keys(R.ia[c]).forEach(function (k) { tB += R.ia[c][k]; }); });
@@ -66936,7 +67135,7 @@ function _pcHtml() {
   h += '</tbody></table></div>' + _pcNote('Tier 1 interactions in the period, placed by the contact&rsquo;s type and their children&rsquo;s ages.' +
        (R.notes.iaNoContact ? ' ' + R.notes.iaNoContact + ' have no contact linked and are counted as parents under transition age.' : '') +
        (R.notes.iaGuessed ? ' ' + R.notes.iaGuessed + ' are with parents who have no child age on file, also counted under transition age.' : '') +
-       (R.notes.iaUnmapped ? ' <b>' + R.notes.iaUnmapped + '</b> use a channel the worksheet has no box for (Other, Event Feedback) and are not counted.' : '')) + '</div>';
+       (R.notes.iaUnmapped ? ' <b>' + R.notes.iaUnmapped + '</b> use a channel the worksheet has no box for (Other, Event Feedback) and are not counted.' : '')) + _pcDetIB(R, tB) + '</div>';
 
   /* II */
   h += '<div class="pb-card"><h3 class="pb-h">II &nbsp;Unduplicated number served</h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Reached through individual assistance, support at meetings, and trainings</th><th class="num">Number</th><th></th></tr></thead><tbody>' +
@@ -66945,7 +67144,7 @@ function _pcHtml() {
        '<tr><td>Youth and young adults</td><td class="num">' + _pcN(R.undup.youth) + '</td><td>' + _pcTag('auto') + '</td></tr>' +
        '</tbody></table></div>' + _pcNote('Each person once, however many times they were helped. Only people with a real phone number or email count, as the worksheet requires' +
        (R.notes.undupUnreachable ? ' &mdash; <b>' + R.notes.undupUnreachable + '</b> people served have neither and are left out.' : '.') +
-       ' Unnamed training attendees cannot be counted here, because nobody knows who they were.') + '</div>';
+       ' Unnamed training attendees cannot be counted here, because nobody knows who they were.') + _pcDetII(R) + '</div>';
 
   /* III.A */
   h += '<div class="pb-card"><h3 class="pb-h">III.A &nbsp;Federal disability categories</h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Category</th><th class="num">Indiv. assist. &lt; TA</th><th class="num">Indiv. assist. TA+</th><th class="num">Training &lt; TA</th><th class="num">Training TA+</th><th></th></tr></thead><tbody>';
@@ -66959,7 +67158,7 @@ function _pcHtml() {
   var other = Object.keys(R.notes.disOther);
   h += '</tbody></table></div>' + _pcNote('Individual assistance = each child of a family helped one-to-one in the period, counted once. Training = children named on attended signups, plus figures typed on the Event Attendance card. ' +
        'Our choices map to the federal list like this, <b>for Noe to confirm</b>: Deaf/Hard of Hearing is one choice for us, so it is all reported as Hearing Impairment and Deafness reads 0; ADD-ADHD is counted as Other Health Impairment; Gifted, No IDEA Disability and nothing ticked are counted as Not disclosed. A child with two categories ticked counts in both.' +
-       (other.length ? ' Not placed: ' + other.map(function (k) { return _pbEsc(k) + ' (' + R.notes.disOther[k] + ')'; }).join(', ') + '.' : '')) + '</div>';
+       (other.length ? ' Not placed: ' + other.map(function (k) { return _pbEsc(k) + ' (' + R.notes.disOther[k] + ')'; }).join(', ') + '.' : '')) + _pcDetIII(R, 'dis') + '</div>';
 
   /* III.B */
   var ageRows = [['0-2', 'Birth up to age 3', 'auto'], ['3-5', 'Ages 3 through 5', 'auto'], ['6-12', 'Ages 6 through 11', 'part'], ['twelve', 'Ages 12 to transition age', 'part'], ['ta', 'Youth who are of transition age and older', 'part'], ['', 'Age not recorded', 'auto']];
@@ -66969,7 +67168,7 @@ function _pcHtml() {
     h += '<tr><td>' + a[1] + '</td><td class="num">' + _pcN(r.iu + r.it) + '</td><td class="num">' + _pcN(r.tu + r.tt) + '</td><td>' + _pcTag(a[2]) + '</td></tr>';
   });
   h += '</tbody></table></div>' + _pcNote('Our age ranges are Birth-2, 3-5, 6-12, 13-17 and Adult. So 12-year-olds are counted in &ldquo;6 through 11&rdquo;, and 13-17 is counted as transition age (' + _PC_TA + '+), which puts 13-year-olds one row late. &ldquo;12 to transition age&rdquo; stays 0 until the child&rsquo;s birth year is recorded.' +
-       (R.notes.topup ? ' Includes ' + _pbFmt(R.notes.topup) + ' figures typed on Event Attendance cards across sections III.A-C.' : '')) + '</div>';
+       (R.notes.topup ? ' Includes ' + _pbFmt(R.notes.topup) + ' figures typed on Event Attendance cards across sections III.A-C.' : '')) + _pcDetIII(R, 'age') + '</div>';
 
   /* III.C */
   var ec = function (r) { return '<td class="num">' + _pcN(r.iu) + '</td><td class="num">' + _pcN(r.it) + '</td><td class="num">' + _pcN(r.tu) + '</td><td class="num">' + _pcN(r.tt) + '</td>'; };
@@ -66980,7 +67179,7 @@ function _pcHtml() {
        '<tr><td>Undisclosed</td>' + ec(R.hisp.undisclosed) + '<td>' + _pcTag('auto') + '</td></tr>' +
        '<tr><td colspan="6" style="font-weight:800;background:#F8FAFC;">Race</td></tr>';
   _PC_RACES.forEach(function (k) { h += '<tr><td>' + _pbEsc(k) + '</td>' + ec(R.race[k]) + '<td>' + _pcTag(k === 'Asian' || k === 'Two or more races' || k === 'Undisclosed' ? 'part' : 'auto') + '</td></tr>'; });
-  h += '</tbody></table></div>' + _pcNote('Our forms ask one ethnicity question. Anyone who answered with a race is counted as Not Hispanic; anyone who answered Hispanic has no race recorded, so their race is Undisclosed. Filipino is counted as Asian; Hawaiian/Part Hawaiian and Pacific Islander as Native Hawaiian/Pacific Islander; &ldquo;Other&rdquo; as Two or more races. Nobody is recorded as American Indian or Alaska Native, because the forms do not offer it.') + '</div>';
+  h += '</tbody></table></div>' + _pcNote('Our forms ask one ethnicity question. Anyone who answered with a race is counted as Not Hispanic; anyone who answered Hispanic has no race recorded, so their race is Undisclosed. Filipino is counted as Asian; Hawaiian/Part Hawaiian and Pacific Islander as Native Hawaiian/Pacific Islander; &ldquo;Other&rdquo; as Two or more races. Nobody is recorded as American Indian or Alaska Native, because the forms do not offer it.') + _pcDetIII(R, 'eth') + '</div>';
 
   /* III.D */
   h += '<div class="pb-card"><h3 class="pb-h">III.D &nbsp;Primary language spoken by parent(s) ' + _pcTag('newf') + '</h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Language</th><th class="num">Indiv. assist. &lt; TA</th><th class="num">Indiv. assist. TA+</th><th class="num">Training &lt; TA</th><th class="num">Training TA+</th></tr></thead><tbody>';
@@ -67003,9 +67202,14 @@ function _pcHtml() {
   });
   h += '</tbody></table></div>' + _pcNote('Each &ldquo;Out of office meeting&rdquo; now asks what kind of meeting it was, and the Logged column counts those answers. ' +
        (mtUnsorted ? '<b>' + _pbFmt(mtUnsorted) + '</b> of the <b>' + _pbFmt(R.meetings.length) + '</b> meetings in the period have no meeting type yet. Open each one in Interactions and pick its Meeting type, or type the figures in.' : 'Every meeting in the period has a meeting type.')) +
-       (R.meetings.length ? '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:.8rem;font-weight:700;color:#0F766E;">Show the ' + R.meetings.length + ' meetings</summary><div class="pb-scroll"><table class="pb-tbl"><tbody>' +
-         R.meetings.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (m) { var tl = (m.raw || {}).meetingType === 'none' ? 'Not one of these' : (window._ixMeetingTypeLabel ? window._ixMeetingTypeLabel((m.raw || {}).meetingType) : ''); return '<tr><td class="nw">' + _pbEsc(_pbDayLabel(m.date)) + '</td><td>' + _pbEsc(m.contactName || '') + '</td><td>' + _pbEsc(m.summary || '') + '</td><td class="nw">' + (tl ? _pbEsc(tl) : '<span style="color:#B45309;font-weight:700;">No type yet</span>') + '</td></tr>'; }).join('') +
-         '</tbody></table></div></details>' : '') + '</div>';
+       /* Same play button as every other section (v154.11-STAGE); the Logged
+          column is checked against the meetings listed, type by type. */
+       (R.meetings.length ? (function () {
+         var byT = {}; R.meetings.forEach(function (x) { var k = (x.raw || {}).meetingType; if (k) byT[k] = (byT[k] || 0) + 1; });
+         return _pcChk([['meetings logged', R.meetings.length, R.meetings.length]].concat(mt.map(function (m) { return [m[1], byT[m[0]] || 0, R.mtgCount[m[0]] || 0]; }))) +
+           _pcDet('Show the meetings behind these figures', R.meetings.length, _pcDetTbl(['Date', 'Contact', 'Summary', 'Meeting type'],
+             R.meetings.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (m) { var tl = (m.raw || {}).meetingType === 'none' ? 'Not one of these' : (window._ixMeetingTypeLabel ? window._ixMeetingTypeLabel((m.raw || {}).meetingType) : ''); return [_pcDay(m.date), _pcTd(_pbEsc(m.contactName || '')), _pcTd(_pbEsc(m.summary || '')), _pcTd(tl ? _pbEsc(tl) : _pcFlag('No type yet'), 'nw')]; })));
+       })() : '') + '</div>';
 
   /* IV.B */
   var sb = [['local', 'Local / community-level systems meetings'], ['state', 'State-level systems meetings'], ['national', 'National / federal-level systems meetings'], ['youth', '&hellip; of those, related to systems serving youth / young adults']];
@@ -67022,7 +67226,7 @@ function _pcHtml() {
        '<tr><td>Website &mdash; number of page views<div style="font-size:.7rem;color:var(--text-soft);">website and app, from Web/App Analytics</div></td><td class="num" id="pcWebPv">' + WC.pv + '</td><td>' + _pcTag('auto') + '</td></tr>' +
        '<tr><td>Website and app &mdash; materials disseminated online<div id="pcWebNote" style="font-size:.7rem;color:var(--text-soft);">' + WC.note + '</div></td><td class="num" id="pcWebDis">' + WC.dis + '</td><td>' + _pcTag('auto') + '</td></tr>' +
        '<tr><td>Media events &mdash; number held</td><td class="num">' + _pcIn('out.media') + '</td><td>' + _pcTag('type') + '</td></tr>' +
-       '</tbody></table></div></div>';
+       '</tbody></table></div>' + _pcDetV(R) + '</div>';
 
   /* Part 2 lists */
   h += '<div class="pb-card"><h3 class="pb-h">Part 2 &nbsp;Lists of contacts for the Program Measures Survey</h3>' +
@@ -67031,7 +67235,7 @@ function _pcHtml() {
        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' +
          '<button class="btn" style="font-size:.8rem;padding:6px 12px;background:#0F766E;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;" onclick="pcExportLists()" title="The Excel file CPIR asks for: three sheets named FC, FT and Y, codes only, no names.">Download lists for CPIR (.xlsx)</button>' +
          '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pcExportKey()" title="PRIVATE. The same codes with names, phones and emails, so staff know who to call when CPIR sends back the random order. Never send this file to CPIR.">Private key with names (.csv)</button>' +
-       '</div>' + _pcNote('The CPIR file carries codes only. The private key is for LDAH and must never be sent. ' + (R.p2.Y.length < 2 ? '<b>The Y list has fewer than 2 people</b>; CPIR needs at least 2.' : '')) + '</div>';
+       '</div>' + _pcNote('The CPIR file carries codes only. The private key is for LDAH and must never be sent. ' + (R.p2.Y.length < 2 ? '<b>The Y list has fewer than 2 people</b>; CPIR needs at least 2.' : '')) + _pcDetP2(R) + '</div>';
 
   h += '<div class="pb-foot">Figures are recomputed from live records each time. Typed figures are saved per date range (' + _pbEsc(_pcDocId()) + ').</div>';
   return h;
@@ -67133,11 +67337,16 @@ window.pcPrint = function () {
   var clone = body.cloneNode(true);
   clone.querySelectorAll('input[data-pc]').forEach(function (i) { var s = document.createElement('b'); s.textContent = i.value === '' ? '—' : Number(i.value).toLocaleString(); i.replaceWith(s); });
   clone.querySelectorAll('button').forEach(function (b) { b.remove(); });
-  clone.querySelectorAll('details').forEach(function (d) { d.remove(); });
+  /* A list left open prints in full; a closed one does not print (v154.11-STAGE). */
+  clone.querySelectorAll('details').forEach(function (d) {
+    if (!d.open) { d.remove(); return; }
+    var card = d.closest('.pb-card'); if (card) card.style.breakInside = 'auto';
+  });
   var w = window.open('', '_blank');
   if (!w) { if (typeof _showToast === 'function') _showToast('Your browser blocked the print window. Allow pop-ups for this site and try again.', '#B45309'); return; }
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Parent Center Data Collection ' + _pbEsc(_pbState.from) + ' to ' + _pbEsc(_pbState.to) + '</title><style>' + _pbPdfCss() +
     '.pb-h{font-size:13px;font-weight:800;color:#0F766E;margin:0 0 6px;} .pb-tbl{width:100%;border-collapse:collapse;font-size:10.5px;} .pb-tbl th,.pb-tbl td{padding:3px 6px;border-bottom:1px solid #E2E8F0;text-align:left;} .pb-tbl td.num,.pb-tbl th.num{text-align:right;} .pb-note{font-size:9.5px;color:#475569;margin-top:4px;} .pb-count{font-weight:600;color:#64748B;font-size:11px;margin-left:6px;} .pb-card{break-inside:avoid;}' +
+    '.pc-det>summary{list-style:none;font-size:10.5px;font-weight:700;color:#0F766E;margin-top:6px;} .pc-det>summary::-webkit-details-marker{display:none;} .pc-det .pc-tri{display:inline-block;margin-right:5px;transform:rotate(90deg);} .pc-det-box{max-height:none;overflow:visible;} .pc-det-box .pb-tbl{font-size:9px;} .pc-det-box tr{break-inside:avoid;} .pc-det-sub{font-size:9.5px;font-weight:800;color:#475569;margin:6px 0 2px;} .pc-chk{font-size:9.5px;color:#B91C1C;font-weight:700;margin-top:4px;}' +
     '</style></head><body>' + clone.innerHTML + '</body></html>');
   w.document.close(); setTimeout(function () { try { w.focus(); w.print(); } catch (e) {} }, 400);
 };
@@ -70199,7 +70408,8 @@ window.cmsBuildMembershipReport = async function() {
     try {
       // Full collection — "since tracking began". Daily docs are small and
       // few (one per active day), so an unfiltered get() is cheap.
-      var snap = await db.collection('siteAnalytics').get();
+      // From the server (v154.11-STAGE), not a live listener's recent days.
+      var snap = await db.collection('siteAnalytics').get({ source: 'server' });
       var allDocs = [];
       snap.forEach(function(d){ allDocs.push(Object.assign({ id:d.id }, d.data() || {})); });
 
