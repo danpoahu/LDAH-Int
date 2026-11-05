@@ -6060,7 +6060,11 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
+<<<<<<< ours
         <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.17</span>
+=======
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.18-STAGE</span>
+>>>>>>> theirs
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -24987,6 +24991,46 @@ window.openContactDetail = async function(contactId) {
   // after that, so a re-tick, a reassignment or a second click cannot mail a
   // family twice. Never blocks or fails the advocacy save — a letter that did
   // not go out is reported in a toast, not by losing the case.
+  /* Aloha Packet email (v154.18-STAGE). Sent by the sendAlohaPacketEmail CF so
+     it lands in emailLog; signed by whoever presses the button. */
+  window._ixAlohaFill = function(c) {
+    var btn = document.getElementById('ixAlohaBtn'), msg = document.getElementById('ixAlohaMsg');
+    if (!btn || !msg) return;
+    if (!c || !c.email) { btn.disabled = true; btn.style.opacity = '.5'; msg.textContent = 'No email address on file.'; return; }
+    btn.disabled = false; btn.style.opacity = '';
+    var t = c.alohaPacketEmailSentAt && c.alohaPacketEmailSentAt.toDate ? c.alohaPacketEmailSentAt.toDate() : null;
+    msg.textContent = t ? 'Last sent ' + t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+      (c.alohaPacketEmailSentBy ? ' by ' + c.alohaPacketEmailSentBy : '') : 'Sends a link to the Packet and the LDAH app.';
+  };
+  window._ixEmailAlohaPacket = async function(contactId, interactionId, force) {
+    var btn = document.getElementById('ixAlohaBtn'), msg = document.getElementById('ixAlohaMsg');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+    var done = function() { if (btn) { btn.disabled = false; btn.textContent = 'Email Aloha Packet'; } };
+    try {
+      var idToken = await firebase.auth().currentUser.getIdToken();
+      var payload = { idToken: idToken, contactId: contactId, interactionId: interactionId || '' };
+      if (force) payload.force = true;
+      var res = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendAlohaPacketEmail', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      var j = {}; try { j = await res.json(); } catch (_) {}
+      done();
+      if (!res.ok) { _showToast(j.error || ('Aloha Packet NOT sent (HTTP ' + res.status + ').'), '#DC2626'); return; }
+      if (j.skipped === 'recently-sent') {
+        var when = j.sentAt ? new Date(j.sentAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'recently';
+        if (confirm('The Aloha Packet was already emailed to this family ' + when + (j.sentBy ? ' by ' + j.sentBy : '') + '. Send it again?')) {
+          return window._ixEmailAlohaPacket(contactId, interactionId, true);
+        }
+        return;
+      }
+      var to = (j.sentTo || []).join(', ');
+      _showToast('Aloha Packet emailed to ' + (to || 'the family') + '.', '#16A34A');
+      if (msg) msg.textContent = 'Sent just now to ' + (to || 'the family') + '.';
+    } catch (e) {
+      done();
+      _showToast('Aloha Packet NOT sent: ' + e.message, '#DC2626');
+    }
+  };
   window._caSendOpeningLetter = async function(contactId, advocateName, opts) {
     opts = opts || {};
     if (!contactId) return null;
@@ -28049,6 +28093,13 @@ window.openContactDetail = async function(contactId) {
               (d.contactType ? ' <span style="font-size:.8rem;color:var(--text-soft);">(' + rsEscape(d.contactType) + ')</span>' : '') + '</div></div>' +
             '<div class="ct-info-field" id="ixViewEmail"><label>Email</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
             '<div class="ct-info-field" id="ixViewPhone"><label>Phone</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
+            // Email the family the Aloha Packet (v154.18-STAGE). Filled after the contact read.
+            ((contactLookupId && !(window.isPartnerUser && window.isPartnerUser()))
+              ? '<div class="ct-info-field" id="ixAlohaRow" style="grid-column:span 2;"><label>Aloha Packet</label><div class="val" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+                  '<button type="button" id="ixAlohaBtn" disabled onclick="_ixEmailAlohaPacket(' + _jsArg(contactLookupId) + ',' + _jsArg(docId) + ')" style="font-size:.82rem;padding:7px 14px;background:#1F6874;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;">Email Aloha Packet</button>' +
+                  '<span id="ixAlohaMsg" style="font-size:.8rem;color:var(--text-soft);"></span>' +
+                '</div></div>'
+              : '') +
             // v154.15-STAGE: editors change the grant on the card above.
             (canChangeStatus ? '' : '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(window._grantText(d) || '—') + '</div></div>') +
           '</div>';
@@ -28267,6 +28318,7 @@ window.openContactDetail = async function(contactId) {
             if (phoneEl && c.phone) {
               phoneEl.innerHTML = '<label>Phone</label><div class="val"><a href="tel:' + rsEscape(c.phone) + '" style="color:var(--ocean-deep);font-weight:700;">' + rsEscape(window.ldahFormatPhone(c.phone)) + '</a></div>';
             }
+            window._ixAlohaFill(c);
           }
         }).catch(function() {});
       }
