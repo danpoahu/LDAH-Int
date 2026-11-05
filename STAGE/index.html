@@ -6093,7 +6093,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.18-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.19-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -12267,6 +12267,8 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                 <input type="checkbox" id="intScreening" onchange="_ixSyncPills()">
                 Screening
               </label>
+              <!-- v154.19-STAGE: emails the packet now and fills in the 7 brochures below. -->
+              <button type="button" class="ix-pill" id="intAlohaBtn" onclick="_intEmailAlohaPacket()" data-tip="Emails this family the Aloha Packet now, signed by you, and records the 7 brochures under Materials distributed." style="font:inherit;cursor:pointer;">Email Aloha Packet</button>
             </div>
           </div>
         </div>
@@ -25005,10 +25007,12 @@ window.openContactDetail = async function(contactId) {
     msg.textContent = t ? 'Last sent ' + t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
       (c.alohaPacketEmailSentBy ? ' by ' + c.alohaPacketEmailSentBy : '') : 'Sends a link to the Packet and the LDAH app.';
   };
-  window._ixEmailAlohaPacket = async function(contactId, interactionId, force) {
-    var btn = document.getElementById('ixAlohaBtn'), msg = document.getElementById('ixAlohaMsg');
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
-    var done = function() { if (btn) { btn.disabled = false; btn.textContent = 'Email Aloha Packet'; } };
+  // The 7 packet brochures, as named in lookupLists/materials (v154.19-STAGE).
+  // Same list as ALOHA_PACKET_MATERIALS in the sendAlohaPacketEmail CF.
+  window._ALOHA_PACKET_MATERIALS = ['Agency Brochure', 'School Readiness Brochure', 'Education & Training Brochure',
+    'Understanding ADHD Brochure', 'Understanding Autism', 'Understanding Dyslexia Brochure', 'What is a Learning Disability Brochure'];
+  // Sends through the CF; asks before a repeat inside 24 hours. Returns the reply, or null.
+  window._alohaPacketSend = async function(contactId, interactionId, force) {
     try {
       var idToken = await firebase.auth().currentUser.getIdToken();
       var payload = { idToken: idToken, contactId: contactId, interactionId: interactionId || '' };
@@ -25017,22 +25021,69 @@ window.openContactDetail = async function(contactId) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
       var j = {}; try { j = await res.json(); } catch (_) {}
-      done();
-      if (!res.ok) { _showToast(j.error || ('Aloha Packet NOT sent (HTTP ' + res.status + ').'), '#DC2626'); return; }
+      if (!res.ok) { _showToast(j.error || ('Aloha Packet NOT sent (HTTP ' + res.status + ').'), '#DC2626'); return null; }
       if (j.skipped === 'recently-sent') {
         var when = j.sentAt ? new Date(j.sentAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'recently';
         if (confirm('The Aloha Packet was already emailed to this family ' + when + (j.sentBy ? ' by ' + j.sentBy : '') + '. Send it again?')) {
-          return window._ixEmailAlohaPacket(contactId, interactionId, true);
+          return window._alohaPacketSend(contactId, interactionId, true);
         }
-        return;
+        return null;
       }
-      var to = (j.sentTo || []).join(', ');
-      _showToast('Aloha Packet emailed to ' + (to || 'the family') + '.', '#16A34A');
-      if (msg) msg.textContent = 'Sent just now to ' + (to || 'the family') + '.';
+      _showToast('Aloha Packet emailed to ' + ((j.sentTo || []).join(', ') || 'the family') + '.', '#16A34A');
+      return j;
     } catch (e) {
-      done();
       _showToast('Aloha Packet NOT sent: ' + e.message, '#DC2626');
+      return null;
     }
+  };
+  // Materials distributed, read-only, for the interaction detail view.
+  window._ixMaterialsText = function(md, mo) {
+    var bySlug = {};
+    (Array.isArray(_lookupLists.materials) ? _lookupLists.materials : []).forEach(function(l) { bySlug[LDAHFormat.materialSlug(l)] = l; });
+    var out = [];
+    Object.keys(md || {}).forEach(function(k) { if (md[k]) out.push((bySlug[k] || k.replace(/_/g, ' ')) + ' (' + md[k] + ')'); });
+    (Array.isArray(mo) ? mo : []).forEach(function(o) { if (o && o.name && o.count) out.push(o.name + ' (' + o.count + ')'); });
+    return out.join('\n');
+  };
+  // Existing interaction: the CF records the brochures on the record itself.
+  window._ixEmailAlohaPacket = async function(contactId, interactionId) {
+    var btn = document.getElementById('ixAlohaBtn'), msg = document.getElementById('ixAlohaMsg');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+    var j = await window._alohaPacketSend(contactId, interactionId);
+    if (btn) { btn.disabled = false; btn.textContent = 'Email Aloha Packet'; }
+    if (!j) return;
+    var to = (j.sentTo || []).join(', ');
+    if (msg) msg.textContent = 'Sent just now to ' + (to || 'the family') + '.' +
+      (j.materialsRecorded ? ' The 7 brochures are recorded under Materials distributed.' : '');
+    if (j.materialsRecorded && interactionId) {
+      try {
+        var fresh = (await db.collection('interactions').doc(interactionId).get()).data() || {};
+        var box = document.getElementById('ixMatDisplay');
+        if (box) { box.textContent = window._ixMaterialsText(fresh.materialsDistributed, fresh.materialsOther) || '—'; box.parentElement.style.display = ''; }
+      } catch (_) {}
+    }
+  };
+  // New Interaction (intake): send now, then tick Materials distributed with the
+  // 7 brochures so they save with the record.
+  window._intEmailAlohaPacket = async function() {
+    var name = ((document.getElementById('intContact') || {}).value || '').trim();
+    var c = name ? _allContacts.find(function(x) { return (x.displayName || '').toLowerCase() === name.toLowerCase(); }) : null;
+    if (!c) { _showToast('Pick the family in Client / Entity first.', '#D97706'); return; }
+    if (!c.email) { _showToast((c.displayName || 'This contact') + ' has no email address on file.', '#D97706'); return; }
+    var btn = document.getElementById('intAlohaBtn');
+    if (btn) { btn.classList.remove('on'); btn.textContent = 'Sending...'; btn.disabled = true; }
+    var j = await window._alohaPacketSend(c.id, '');
+    if (btn) { btn.disabled = false; btn.textContent = j ? 'Aloha Packet sent' : 'Email Aloha Packet'; if (j) btn.classList.add('on'); }
+    if (!j) return;
+    var cb = document.getElementById('intMaterials');
+    if (cb && !cb.checked) cb.checked = true;
+    _toggleMaterialsPicker('int');
+    var labels = j.materials || window._ALOHA_PACKET_MATERIALS;
+    labels.forEach(function(label) {
+      var el = Array.prototype.find.call(document.querySelectorAll('#intMaterialsList .intMatDistrib'), function(x) { return x.getAttribute('data-label') === label; });
+      if (el && !(Number(el.value) >= 1)) el.value = 1;
+    });
+    _ixSyncPills();
   };
   window._caSendOpeningLetter = async function(contactId, advocateName, opts) {
     opts = opts || {};
@@ -27088,6 +27139,8 @@ window.openContactDetail = async function(contactId) {
     if (matPicker) matPicker.style.display = 'none';
     var matList = document.getElementById('intMaterialsList');
     if (matList) { matList.innerHTML = ''; matList.removeAttribute('data-rendered'); }
+    var alohaBtn = document.getElementById('intAlohaBtn');
+    if (alohaBtn) { alohaBtn.classList.remove('on'); alohaBtn.textContent = 'Email Aloha Packet'; alohaBtn.disabled = false; }
     // School meeting outcome (v150.40-STAGE); visibility follows _intRefreshCaFlag below.
     document.querySelectorAll('input[name="intMeetingOutcome"], input[name="intMeetingType"]').forEach(function(r) { r.checked = false; });
     var _mpl = document.getElementById('intMeetingParentLed');
@@ -28111,6 +28164,9 @@ window.openContactDetail = async function(contactId) {
           '<div class="ct-detail-section-label">📋 Details</div>' +
           // v154.15-STAGE: editors change the summary on the card above.
           (canChangeStatus ? '' : '<div class="ix-view-field"><label>SUMMARY</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(d.summary || '—') + '</div></div>') +
+          // Materials distributed, read-only (v154.19-STAGE); filled in after an Aloha Packet send.
+          (function() { var t = window._ixMaterialsText(d.materialsDistributed, d.materialsOther);
+            return '<div class="ix-view-field"' + (t ? '' : ' style="display:none;"') + '><label>MATERIALS DISTRIBUTED</label><div class="val" id="ixMatDisplay" style="white-space:pre-wrap;">' + rsEscape(t) + '</div></div>'; })() +
           '<div class="ix-view-field"><label>NOTES</label><div id="ixNotesDisplay">' + notesHtml + '</div></div>' +
           '<div id="ixChangeRequestsArea"></div>';
       }
