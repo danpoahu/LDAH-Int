@@ -6060,7 +6060,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.13</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.14</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -36145,16 +36145,33 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       return;
     }
     resultEl.innerHTML = '<span style="color:#64748B;">Sending — this can take up to a minute for 50 recipients...</span>';
-    try {
-      var resp = await fetch(endpoint, {
+    /* Repeat-send guard (v154.14-STAGE): the server leaves out anyone emailed
+       this announcement in the last 12 hours unless a repeat is confirmed, and
+       refuses a second send while one is still going out. */
+    var _annSend = async function (allowRepeat) {
+      return fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await _annIdToken()) },
-        body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, audienceFilter: _annAudience, recipientIds: _selIds, sessionDate: _annSessionDate })
+        body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, audienceFilter: _annAudience, recipientIds: _selIds, sessionDate: _annSessionDate, allowRepeat: !!allowRepeat })
       });
+    };
+    try {
+      var resp = await _annSend(false);
       var result = await resp.json();
+      if (resp.status === 409 && result.alreadySentRecently) {
+        var when = result.lastSentAt ? new Date(result.lastSentAt).toLocaleString('en-US', { timeZone: 'Pacific/Honolulu', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+        if (confirm('Already sent.\n\n' + result.alreadySentRecently + ' of these people got this announcement' + (when ? ' at ' + when : '') + '.\n\nSend it to them AGAIN? Press Cancel to leave it.')) {
+          resp = await _annSend(true); result = await resp.json();
+        } else {
+          resultEl.innerHTML = '<span style="color:#92400E;">Not sent again: ' + result.alreadySentRecently + ' people already got it' + (when ? ' at ' + when : '') + '.</span>';
+          sendBtn.disabled = false; sendBtn.textContent = 'Send Blast';
+          return;
+        }
+      }
       if (resp.ok) {
         var audienceLabel = _annAudience === 'parents' ? ' (Parents only)' : '';
-        resultEl.innerHTML = '<span style="color:#059669;">Sent to ' + result.sent + audienceLabel + '. Failed: ' + result.failed + '. Queued for tomorrow: ' + result.queued + '.</span>';
+        resultEl.innerHTML = '<span style="color:#059669;">Sent to ' + result.sent + audienceLabel + '. Failed: ' + result.failed + '. Queued for tomorrow: ' + result.queued + '.' +
+          (result.skippedRecent ? ' Left out ' + result.skippedRecent + ' who already got it.' : '') + '</span>';
         _showToast('Announcement sent to ' + result.sent + ' contacts' + audienceLabel, '#059669');
         setTimeout(function() {
           closeModal();
@@ -36168,9 +36185,10 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
         sendBtn.textContent = 'Send Blast';
       }
     } catch (err) {
-      resultEl.innerHTML = '<span style="color:#DC2626;">Send error: ' + err.message + '</span>';
-      sendBtn.disabled = false;
-      sendBtn.textContent = 'Send Blast';
+      /* A dropped connection ("Load failed") does not mean nothing went out:
+         the server keeps sending. Say so, and keep Send locked. */
+      resultEl.innerHTML = '<span style="color:#DC2626;">The connection dropped (' + rsEscape(err.message) + '), but the emails may still be going out. Do not press Send again. Close this window, wait a minute, then reopen Announce: anyone already emailed shows &ldquo;already emailed&rdquo;.</span>';
+      sendBtn.textContent = 'Check before resending';
     }
   });
 };
