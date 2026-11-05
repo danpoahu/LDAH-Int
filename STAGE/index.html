@@ -6093,7 +6093,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.14-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.15-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -20896,6 +20896,13 @@ var _photoPendingByIsland = {};
     var box = document.getElementById('editMeetingFields');
     var ch = (document.getElementById('editChannel') || {}).value || '';
     if (box) box.style.display = (ch === window._IX_MEETING_CHANNEL && box.getAttribute('data-adv') === '1') ? '' : 'none';
+    var tr = document.getElementById('editMeetingTypeRow');   // v154.15-STAGE
+    if (tr) tr.style.display = ch === window._IX_MEETING_CHANNEL ? '' : 'none';
+  };
+  // Detail card Channel select (v154.15-STAGE): show Meeting type with the meeting channel.
+  window._ixChannelChanged = function(sel) {
+    var tr = document.getElementById('ixMeetingTypeRow');
+    if (tr) tr.style.display = (sel && sel.value === window._IX_MEETING_CHANNEL) ? '' : 'none';
   };
   // What the fields hold now, or null when the block is absent or hidden.
   window._ixMeetingRead = function(prefix) {
@@ -27790,20 +27797,39 @@ window.openContactDetail = async function(contactId) {
 
       var infoCard, contactSection, detailSection;
 
+      /* Channel / Type choices, shared by both modes (v154.15-STAGE). Same lists
+         as New Interaction. A stored value that is no longer on the list (renamed
+         or legacy) is kept as an option, and a blank one gets a "Choose" row --
+         otherwise the <select> silently shows the FIRST choice and a save
+         rewrites the record to it. */
+      var _ixChList = ((_lookupLists && _lookupLists.channels && _lookupLists.channels.length) ? _lookupLists.channels : ['Email','Phone','In Person','Virtual','Other']).slice();
+      var _ixTyList = ((_lookupLists && _lookupLists.interactionTypes && _lookupLists.interactionTypes.length) ? _lookupLists.interactionTypes : ['General','Follow-Up','Intake','Referral']).slice();
+      var _ixCurCh = d.channel || '';
+      var _ixCurTy = d.interactionType || d.type || '';
+      var _ixOptsHtml = function(list, cur) {
+        if (cur && list.indexOf(cur) < 0) list = list.concat([cur]);
+        return (cur ? '' : '<option value="" selected>&mdash; Choose &mdash;</option>') +
+          list.map(function(o) {
+            return '<option value="' + rsEscape(o) + '"' + (o === cur ? ' selected' : '') + '>' + rsEscape(o) + '</option>';
+          }).join('');
+      };
+      // Who last changed it (v154.15-STAGE) -- shown in both modes.
+      var _ixLastEdit = '';
+      if (d.lastEditedBy) {
+        var _leTs = (d.lastEditedAt && d.lastEditedAt.toDate) ? d.lastEditedAt.toDate() : null;
+        _ixLastEdit = '<div class="ct-info-field" style="grid-column:span 2;"><div class="val" style="font-size:.74rem;color:var(--text-soft);font-weight:600;">Last edited by ' +
+          rsEscape(d.lastEditedBy) + (_leTs ? ' on ' + _leTs.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '') + '</div></div>';
+      }
+
       if (isEditMode) {
         // ── EDIT MODE ──
-        var channels = (_lookupLists && _lookupLists.channels.length) ? _lookupLists.channels : ['Email','Phone','In Person','Virtual','Other'];
-        var types = (_lookupLists && _lookupLists.interactionTypes.length) ? _lookupLists.interactionTypes : ['General','Follow-Up','Intake','Referral'];
-
-        var channelOpts = channels.map(function(c) {
-          return '<option' + (c === d.channel ? ' selected' : '') + '>' + rsEscape(c) + '</option>';
-        }).join('');
-        var typeOpts = types.map(function(t) {
-          return '<option' + (t === (d.interactionType || d.type) ? ' selected' : '') + '>' + rsEscape(t) + '</option>';
-        }).join('');
+        var channelOpts = _ixOptsHtml(_ixChList, _ixCurCh);   // v154.15-STAGE: keeps an off-list value
+        var typeOpts = _ixOptsHtml(_ixTyList, _ixCurTy);
 
         infoCard =
-          '<div class="ix-edit-banner">✏️ One-time edit mode — make your changes and save</div>' +
+          '<div class="ix-edit-banner">' + (editNotifId
+            ? '✏️ One-time edit mode — make your changes and save'
+            : '✏️ Admin edit — every field can be changed; Save writes them all at once') + '</div>' +
           '<div class="ct-info-card">' +
             '<div class="ct-info-field"><label>Date</label><div class="val">' + dateStr + '</div></div>' +
             '<div class="ct-info-field"><label>Channel</label><div class="val"><select id="editChannel" class="ix-edit-input" onchange="window._ixEditMeetingRefresh&&window._ixEditMeetingRefresh()">' + channelOpts + '</select></div></div>' +
@@ -27811,6 +27837,11 @@ window.openContactDetail = async function(contactId) {
             statusFieldHtml + presenterFieldHtml +
             '<div class="ct-info-field"><label>Owner</label><div class="val">' + rsEscape(ownerShort) + '</div></div>' +
             '<div class="ct-info-field"><label>Follow-Up Date</label><div class="val"><input type="date" id="editFollowUp" class="ix-edit-input" value="' + rsEscape(d.followUpDate || '') + '"></div></div>' +
+            // Meeting type in edit mode too (v154.15-STAGE); shown only while the
+            // channel is "Out of office meeting", toggled by _ixEditMeetingRefresh.
+            '<div class="ct-info-field" id="editMeetingTypeRow" style="grid-column:span 2;' + (_ixCurCh === window._IX_MEETING_CHANNEL ? '' : 'display:none;') + '"><label>Meeting type</label><div class="val">' +
+              window._ixMeetingTypeHtml('edit', d.meetingType || '') + '</div></div>' +
+            _ixLastEdit +
             // Case advocacy is now handled by the always-available inline control in
             // the read-only view modal (saveInteractionDetail), not edit mode. (v134.0.0)
           '</div>';
@@ -27943,8 +27974,17 @@ window.openContactDetail = async function(contactId) {
         infoCard =
           '<div class="ct-info-card">' +
             '<div class="ct-info-field"><label>Date</label>' + _dateCell + '</div>' +
-            '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
-            '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>' +
+            /* Channel, Type, Grant and Summary are editable in place (v154.15-STAGE),
+               for the same people who could already change Status, Owner, Date
+               and Follow-up here (owner, admins, Super Partner on its islands).
+               Before, they were read-only and changeable only through the admin
+               Edit or an approved change request. Contact and the full notes text
+               stay behind that edit; notes here are add-only (Add a Note). */
+            (canChangeStatus
+              ? '<div class="ct-info-field"><label>Channel</label><div class="val"><select id="ixChannelSelect" class="ix-edit-input" data-current="' + rsEscape(_ixCurCh) + '" onchange="window._ixChannelChanged&&window._ixChannelChanged(this)">' + _ixOptsHtml(_ixChList, _ixCurCh) + '</select></div></div>' +
+                '<div class="ct-info-field"><label>Type</label><div class="val"><select id="ixTypeSelect" class="ix-edit-input" data-current="' + rsEscape(_ixCurTy) + '">' + _ixOptsHtml(_ixTyList, _ixCurTy) + '</select></div></div>'
+              : '<div class="ct-info-field"><label>Channel</label><div class="val">' + rsEscape(d.channel || '—') + '</div></div>' +
+                '<div class="ct-info-field"><label>Type</label><div class="val">' + rsEscape(d.interactionType || d.type || '—') + '</div></div>') +
             statusFieldHtml + presenterFieldHtml +
             ownerFieldHtml +
             // v148.8: editable in place. It used to be read-only text here and
@@ -27962,8 +28002,11 @@ window.openContactDetail = async function(contactId) {
             caseAdvocacyFieldHtml +
             // Meeting type (2026-10-14): set or change it on any "Out of office
             // meeting", so older ones can be sorted for the IV.A report.
-            (d.channel === window._IX_MEETING_CHANNEL
-              ? '<div class="ct-info-field" style="grid-column:span 2;"><label>Meeting type</label><div class="val">' +
+            // v154.15-STAGE: for editors the row is always built and shown/hidden
+            // with the Channel select, so switching to the meeting channel can
+            // record the type in the same Save.
+            ((d.channel === window._IX_MEETING_CHANNEL || canChangeStatus)
+              ? '<div class="ct-info-field" id="ixMeetingTypeRow" style="grid-column:span 2;' + (d.channel === window._IX_MEETING_CHANNEL ? '' : 'display:none;') + '"><label>Meeting type</label><div class="val">' +
                   (canChangeStatus
                     ? window._ixMeetingTypeHtml('ix', d.meetingType || '')
                     : rsEscape(window._ixMeetingTypeLabel(d.meetingType) || 'Not recorded')) +
@@ -27979,6 +28022,17 @@ window.openContactDetail = async function(contactId) {
                       (d.meetingParentLed ? ' &middot; Parent led it' : '')) +
                 '</div></div>'
               : '') +
+            // Grant / Program chips + Summary, editable in place (v154.15-STAGE).
+            (canChangeStatus
+              ? '<div class="ct-info-field" style="grid-column:span 2;"><label>Grant / Program</label><div class="val">' +
+                  '<input id="ixGrant" class="ix-edit-input" value="' + rsEscape(window._grantText(d)) + '" data-current="' + rsEscape(window._grantText(d)) + '" list="grantOptions" autocomplete="off" title="Pick every grant or program this counts toward; type one that is not listed yet.">' +
+                '</div></div>' +
+                '<div class="ct-info-field" style="grid-column:span 2;"><label>Summary</label><div class="val">' +
+                  '<input id="ixSummary" class="ix-edit-input" value="' + rsEscape(d.summary || '') + '" data-current="' + rsEscape(d.summary || '') + '" title="One short line that shows in the interactions list.">' +
+                '</div></div>'
+              : '') +
+            (d.screening === true ? '<div class="ct-info-field"><label>Screening</label><div class="val">Yes</div></div>' : '') +
+            _ixLastEdit +
             // One Save for the whole card (v146.4.25). Replaces the three separate
             // per-field Save buttons; saveInteractionDetail() validates everything
             // first and writes nothing unless it all passes.
@@ -28002,12 +28056,14 @@ window.openContactDetail = async function(contactId) {
               (d.contactType ? ' <span style="font-size:.8rem;color:var(--text-soft);">(' + rsEscape(d.contactType) + ')</span>' : '') + '</div></div>' +
             '<div class="ct-info-field" id="ixViewEmail"><label>Email</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
             '<div class="ct-info-field" id="ixViewPhone"><label>Phone</label><div class="val" style="color:var(--text-soft);">—</div></div>' +
-            '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(window._grantText(d) || '—') + '</div></div>' +
+            // v154.15-STAGE: editors change the grant on the card above.
+            (canChangeStatus ? '' : '<div class="ct-info-field"><label>Grant / Program</label><div class="val">' + rsEscape(window._grantText(d) || '—') + '</div></div>') +
           '</div>';
 
         detailSection =
           '<div class="ct-detail-section-label">📋 Details</div>' +
-          '<div class="ix-view-field"><label>SUMMARY</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(d.summary || '—') + '</div></div>' +
+          // v154.15-STAGE: editors change the summary on the card above.
+          (canChangeStatus ? '' : '<div class="ix-view-field"><label>SUMMARY</label><div class="val" style="white-space:pre-wrap;">' + rsEscape(d.summary || '—') + '</div></div>') +
           '<div class="ix-view-field"><label>NOTES</label><div id="ixNotesDisplay">' + notesHtml + '</div></div>' +
           '<div id="ixChangeRequestsArea"></div>';
       }
@@ -28084,6 +28140,7 @@ window.openContactDetail = async function(contactId) {
     // The edit panel is built as a string, so its chips can only be drawn
     // once it is actually in the DOM.
     window._grantChips('editGrant');
+    window._grantChips('ixGrant');   // in-place grant chips (v154.15-STAGE)
 
       // Populate the owner picker if it was rendered (read-only mode + canChangeStatus).
       if (typeof _populateOwnerSelect === 'function') _populateOwnerSelect();
@@ -28169,7 +28226,7 @@ window.openContactDetail = async function(contactId) {
         if (crStaticArea) crStaticArea.style.display = 'none';
       } else {
         if (actionsArea) actionsArea.innerHTML =
-          (isAdmin ? '<button onclick="viewInteraction(\'' + docId + '\',{adminEdit:true})" style="padding:8px 16px;border-radius:8px;border:1px solid var(--ocean-deep);background:white;color:var(--ocean-deep);cursor:pointer;font-weight:700;margin-right:8px;">&#9998; Edit</button>' : '') +
+          (isAdmin ? '<button onclick="viewInteraction(\'' + docId + '\',{adminEdit:true})" style="padding:8px 16px;border-radius:8px;border:1px solid var(--ocean-deep);background:white;color:var(--ocean-deep);cursor:pointer;font-weight:700;margin-right:8px;" title="Opens every field of this interaction for editing, including the contact and the full notes.">&#9998; Edit all fields</button>' : '') +
           '<button onclick="closeIxView()">Close</button>';
         if (appendArea) appendArea.style.display = '';
         if (crStaticArea) crStaticArea.style.display = '';
@@ -28929,10 +28986,27 @@ window.openContactDetail = async function(contactId) {
     // School meeting outcome (v150.40-STAGE).
     var mtg          = window._ixMeetingRead ? window._ixMeetingRead('ix') : null;
     var mtgDirty     = !!mtg && (mtg.outcome !== mtg.wasOutcome || mtg.led !== mtg.wasLed);
+    // Channel / Type / Grant / Summary in place (v154.15-STAGE).
+    var chSel        = document.getElementById('ixChannelSelect');
+    var tySel        = document.getElementById('ixTypeSelect');
+    var grIn         = document.getElementById('ixGrant');
+    var smIn         = document.getElementById('ixSummary');
+    var newChannel   = chSel ? chSel.value : '';
+    var chDirty      = !!chSel && newChannel !== (chSel.getAttribute('data-current') || '');
+    var newType      = tySel ? tySel.value : '';
+    var tyDirty      = !!tySel && newType !== (tySel.getAttribute('data-current') || '');
+    var _grKey       = function(v) { return window._grantParse(v).map(function(x) { return x.toLowerCase(); }).join('|'); };
+    var grDirty      = !!grIn && _grKey(grIn.value) !== _grKey(grIn.getAttribute('data-current') || '');
+    var newSummary   = smIn ? smIn.value.trim() : '';
+    var smDirty      = !!smIn && newSummary !== (smIn.getAttribute('data-current') || '').trim();
     var mty          = window._ixMeetingTypeRead ? window._ixMeetingTypeRead('ix') : null;
-    var mtyDirty     = !!mty && !!mty.type && mty.type !== mty.was;
+    // Only while the channel (as it will be saved) is the meeting channel (v154.15-STAGE).
+    var _effChannel  = chSel ? newChannel : null;
+    var mtyDirty     = !!mty && !!mty.type && mty.type !== mty.was &&
+                       (_effChannel === null || _effChannel === window._IX_MEETING_CHANNEL);
 
-    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty && !svcDirty && !mtgDirty && !mtyDirty) {
+    if (!statusDirty && !presDirty && !ownerDirty && !advDirty && !fuDirty && !svcDirty && !mtgDirty && !mtyDirty &&
+        !chDirty && !tyDirty && !grDirty && !smDirty) {
       if (msg) { msg.className = ''; msg.textContent = 'No changes.'; }
       setTimeout(function() { if (msg) msg.textContent = ''; }, 2000);
       return;
@@ -28962,6 +29036,10 @@ window.openContactDetail = async function(contactId) {
         fail('Add a follow-up date — an interaction left Open needs one, or set it to Closed.');
         return;
       }
+      if (smDirty && !newSummary) {   // same rule as New Interaction (v154.15-STAGE)
+        fail('The summary cannot be empty.');
+        return;
+      }
       if (advDirty && advWantOn) {
         if (!data.contactId) {
           _showToast('Attach a contact before turning on case advocacy.', '#D97706');
@@ -28989,6 +29067,25 @@ window.openContactDetail = async function(contactId) {
       window._ixAdvocacyCloseOkFor = null;
 
       // ── Apply only what changed ──
+      /* Channel / Type / Grant / Summary: one write, stamped, and one audit line
+         naming each field with its before and after (v154.15-STAGE). No Cloud
+         Function watches these fields -- the only interactions trigger
+         (onInteractionUpdatedLifecycle) acts on a status change to Closed. */
+      if (chDirty || tyDirty || grDirty || smDirty) {
+        var _cUpd = {
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          lastEditedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          lastEditedBy: (window.currentUserData && window.currentUserData.displayName) || ''
+        };
+        var _cLog = [];
+        if (chDirty) { _cUpd.channel = newChannel; _cLog.push('Channel: ' + (data.channel || '(none)') + ' → ' + newChannel); }
+        if (tyDirty) { _cUpd.interactionType = newType; _cLog.push('Type: ' + (data.interactionType || data.type || '(none)') + ' → ' + (newType || '(none)')); }
+        if (grDirty) { Object.assign(_cUpd, window._grantWrite(grIn.value)); _cLog.push('Grant: ' + (window._grantText(data) || '(none)') + ' → ' + (window._grantParse(grIn.value).join(', ') || '(none)')); }
+        if (smDirty) { _cUpd.summary = newSummary; _cLog.push('Summary: "' + String(data.summary || '').slice(0, 80) + '" → "' + newSummary.slice(0, 80) + '"'); }
+        await db.collection('interactions').doc(_ixViewDocId).update(_cUpd);
+        if (window.auditLog) window.auditLog('Edited interaction', (data.contactName || 'No contact') + ' -- ' + _cLog.join('; ') + ' [' + _ixViewDocId + ']');
+      }
+
       if (ownerDirty) await window._applyOwnerChange(ownerUid);
 
       if (statusDirty && newStatus === 'Closed') {
@@ -29394,6 +29491,25 @@ window.openContactDetail = async function(contactId) {
         if (_mt.outcome) updateData.meetingOutcome = _mt.outcome;
         updateData.meetingParentLed = _mt.led;
       }
+      // Meeting type (v154.15-STAGE) — only for the meeting channel, and only when picked.
+      var _mty = window._ixMeetingTypeRead && window._ixMeetingTypeRead('edit');
+      if (_mty && _mty.type && channel && channel.value === window._IX_MEETING_CHANNEL) updateData.meetingType = _mty.type;
+
+      /* Which fields actually changed, for the audit log (v154.15-STAGE). Read
+         fresh so the line names the real before values. A failed read only
+         loses the field list, never the save. */
+      var _before = {};
+      try { var _bs = await db.collection('interactions').doc(docId).get(); _before = (_bs.exists && _bs.data()) || {}; } catch (e) {}
+      var _chg = [];
+      if ('channel' in updateData && updateData.channel !== (_before.channel || '')) _chg.push('Channel: ' + (_before.channel || '(none)') + ' → ' + updateData.channel);
+      if ('interactionType' in updateData && updateData.interactionType !== (_before.interactionType || _before.type || '')) _chg.push('Type: ' + (_before.interactionType || _before.type || '(none)') + ' → ' + updateData.interactionType);
+      if ('contactName' in updateData && updateData.contactName !== (_before.contactName || _before.clientName || '')) _chg.push('Contact: ' + (_before.contactName || '(none)') + ' → ' + updateData.contactName);
+      if ('grantPrograms' in updateData && updateData.grantPrograms.join(', ') !== window._grantText(_before)) _chg.push('Grant: ' + (window._grantText(_before) || '(none)') + ' → ' + (updateData.grantPrograms.join(', ') || '(none)'));
+      if ('summary' in updateData && updateData.summary !== (_before.summary || '')) _chg.push('Summary');
+      if ('followUpDate' in updateData && updateData.followUpDate !== (_before.followUpDate || '')) _chg.push('Follow-up: ' + (_before.followUpDate || '(none)') + ' → ' + (updateData.followUpDate || '(cleared)'));
+      if ('status' in updateData && updateData.status !== (_before.status || '')) _chg.push('Status: ' + (_before.status || '(none)') + ' → ' + updateData.status);
+      if ('meetingType' in updateData && updateData.meetingType !== (_before.meetingType || '')) _chg.push('Meeting type: ' + window._ixMeetingTypeLabel(updateData.meetingType));
+      if (notes && notes.value !== (_before.notes || '')) _chg.push('Notes');
 
       // Auto-append audit note
       var existingNotes = notes ? notes.value : '';
@@ -29404,9 +29520,13 @@ window.openContactDetail = async function(contactId) {
       updateData.notes = existingNotes + '\n---\n[' + stamp + ' — ' + (currentUserData.displayName || '') + ']\n' + auditNote;
       updateData.lastEditedAt = firebase.firestore.FieldValue.serverTimestamp();
       updateData.lastEditedBy = currentUserData.displayName || '';
+      updateData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();   // v154.15-STAGE
 
       // 1. Update the interaction
       await db.collection('interactions').doc(docId).update(updateData);
+      if (window.auditLog) window.auditLog('Edited interaction',
+        (updateData.contactName || _before.contactName || 'No contact') + ' -- ' + (_chg.join('; ') || 'no field changes') +
+        ' (' + auditNote.toLowerCase() + ') [' + docId + ']');
 
       // 1b. Case advocacy is handled by the always-available inline control in the
       //     read-only view modal (saveInteractionDetail) — no edit-mode toggle. (v134.0.0)
