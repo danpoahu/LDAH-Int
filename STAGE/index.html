@@ -3284,6 +3284,14 @@
 #edStaffOverlay input, #edStaffOverlay textarea{ width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #CBD5E1; border-radius:8px; font:inherit; }
 #edStaffOverlay .ed-st-row{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
 @media(max-width:600px){ #edStaffOverlay .ed-st-row{ grid-template-columns:1fr; } }
+#edStaffOverlay select{ width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #CBD5E1; border-radius:8px; font:inherit; background:#fff; }
+#edStaffOverlay .ed-st-rep{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+#edStaffOverlay .ed-st-hint{ font-size:.76rem; color:#64748B; margin-top:4px; }
+#edStaffOverlay .ed-st-series{ font-size:.8rem; color:#991B1B; background:#FEF2F2; border-radius:8px; padding:6px 10px; margin-top:10px; }
+#edStaffOverlay .ed-st-delbtn{ background:#fff; color:#DC2626; border:1px solid #FCA5A5; border-radius:8px; padding:7px 12px; font-weight:700; font-size:.82rem; cursor:pointer; }
+#edStaffOverlay .ed-st-delbtn:hover{ background:#FEF2F2; }
+#edStaffOverlay .ed-st-delbtn[data-armed="1"]{ background:#DC2626; color:#fff; border-color:#DC2626; }
+@media(max-width:600px){ #edStaffOverlay .ed-st-rep{ grid-template-columns:1fr; } }
 .ed-grid-wrap{ overflow-x:auto; }
 .ed-grid{ display:grid; grid-template-columns:repeat(7,minmax(140px,1fr)); gap:1px; background:#E2E8F0; border:1px solid #E2E8F0; border-radius:10px; overflow:hidden; }
 .ed-dow{ background:#F8FAFC; padding:7px 8px; font-size:.7rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#64748B; text-align:center; }
@@ -6133,7 +6141,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.33-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.34-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16537,13 +16545,15 @@ var _photoPendingByIsland = {};
         });
         if (results[2]) {
           var _stFrom = new Date(now); _stFrom.setDate(_stFrom.getDate() - 1);
+          var _stTo = new Date(now); _stTo.setDate(_stTo.getDate() + 90);
           results[2].docs.forEach(function(doc) {
             var x = doc.data() || {};
-            if (!x.title || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) return;
-            var p = x.date.split('-').map(Number), dt = new Date(p[0], p[1] - 1, p[2]);
-            if (dt < _stFrom) return;
-            merged.push({ id: doc.id, title: x.title, date: dt, sessionLabel: '', location: x.location || '',
-                          description: x.notes || '', isRecurring: false, partnerIsland: '', staffCal: true });
+            if (!x.title) return;
+            window._staffCalDates(x, window._staffCalIso(_stFrom), window._staffCalIso(_stTo)).forEach(function(iso) {
+              var p = iso.split('-').map(Number), dt = new Date(p[0], p[1] - 1, p[2]);
+              merged.push({ id: doc.id, title: x.title, date: dt, occ: iso, sessionLabel: '', location: x.location || '',
+                            description: x.notes || '', isRecurring: false, partnerIsland: '', staffCal: true });
+            });
           });
         }
         merged.sort(function(a, b) { return a.date - b.date; });
@@ -16747,7 +16757,7 @@ var _photoPendingByIsland = {};
     var html = '';
     filtered.forEach(function(ev) {
       var locText = ev.location ? '<span style="margin-left:6px;">' + ev.location + '</span>' : '';
-      var clickAction = ev.staffCal ? 'edOpenStaffEntry(\'' + ev.id.replace(/'/g, "\\'") + '\')'
+      var clickAction = ev.staffCal ? 'edOpenStaffEntry(\'' + ev.id.replace(/'/g, "\\'") + '\',\'\',false,\'' + (ev.occ || '') + '\')'
         : 'cmsViewSignups(\'' + ev.id.replace(/'/g, "\\'") + '\',' + (ev.isRecurring ? 'true' : 'false') + ',\'' + (ev.title || '').replace(/'/g, "\\'") + '\')';
       html += '<div class="dash-event-item" style="cursor:pointer;' + (ev.staffCal ? 'border-left:4px solid #DC2626;' : '') + '" onclick="' + clickAction + '" onmouseover="this.style.background=\'rgba(8,145,178,.04)\'" onmouseout="this.style.background=\'transparent\'">' +
         '<div class="dash-event-date-badge"><div class="month">' + monthNames[ev.date.getMonth()] + '</div><div class="day">' + ev.date.getDate() + '</div></div>' +
@@ -37852,17 +37862,67 @@ function _edStaffWhen(x) {
 }
 /* Staff Calendar only entries in [from, to]. A failed read (rules not yet out,
    offline) leaves the calendar working without them. */
+/* Repeating entries (Daniel 2026-11-06: "leadership is every Wed, put it in
+   once"). One doc holds the first date plus repeat ('weekly', 'biweekly' or
+   'monthly' = the same weekday of the month, e.g. 2nd Wednesday), an optional
+   repeatUntil, and skipDates for single dates deleted from the series. Returns
+   every date of the entry inside [fromIso, toIso]. */
+window._staffCalIso = _staffCalIso;
+function _staffCalIso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+window._staffCalDates = function(x, fromIso, toIso) {
+  if (!x || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) return [];
+  var rep = x.repeat || '';
+  var until = /^\d{4}-\d{2}-\d{2}$/.test(x.repeatUntil || '') ? x.repeatUntil : '';
+  var end = until && until < toIso ? until : toIso;
+  var skip = {}; (Array.isArray(x.skipDates) ? x.skipDates : []).forEach(function(k) { skip[k] = 1; });
+  var out = [];
+  if (!rep) { if (x.date >= fromIso && x.date <= toIso) out.push(x.date); return out; }
+  var p = x.date.split('-').map(Number), first = new Date(p[0], p[1] - 1, p[2]);
+  if (rep === 'monthly') {
+    var nth = Math.ceil(first.getDate() / 7), wd = first.getDay();
+    for (var m = 0; m < 240; m++) {
+      var d1 = new Date(first.getFullYear(), first.getMonth() + m, 1);
+      var off = (wd - d1.getDay() + 7) % 7, day = 1 + off + (nth - 1) * 7;
+      var dt = new Date(d1.getFullYear(), d1.getMonth(), day);
+      if (dt.getMonth() !== d1.getMonth()) continue;        /* no 5th Wednesday this month */
+      var iso = _staffCalIso(dt);
+      if (iso > end) break;
+      if (iso >= fromIso && !skip[iso]) out.push(iso);
+    }
+    return out;
+  }
+  var step = rep === 'biweekly' ? 14 : 7;
+  for (var i = 0; i < 1500; i++) {
+    var dw = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i * step);
+    var iso2 = _staffCalIso(dw);
+    if (iso2 > end) break;
+    if (iso2 >= fromIso && !skip[iso2]) out.push(iso2);
+  }
+  return out;
+};
+window._staffCalRepeatText = function(x) {
+  if (!x || !x.repeat || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) return '';
+  var p = x.date.split('-').map(Number), d = new Date(p[0], p[1] - 1, p[2]);
+  var wd = d.toLocaleDateString('en-US', { weekday: 'long' });
+  var t = x.repeat === 'weekly' ? 'Every ' + wd : x.repeat === 'biweekly' ? 'Every other ' + wd
+        : 'Every month on the ' + ['1st', '2nd', '3rd', '4th', '5th'][Math.ceil(d.getDate() / 7) - 1] + ' ' + wd;
+  if (x.repeatUntil) { var q = x.repeatUntil.split('-').map(Number); t += ' until ' + new Date(q[0], q[1] - 1, q[2]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+  return t;
+};
 async function _edLoadStaffCal(fromIso, toIso) {
   var out = [];
   if (!_edStaffCalAllowed()) return out;
   try {
-    var snap = await db.collection('staffCalendar').where('date', '>=', fromIso).where('date', '<=', toIso).get();
+    /* The whole collection: a weekly entry started months ago has a first date
+       outside the range. Staff-only and small. */
+    var snap = await db.collection('staffCalendar').where('date', '<=', toIso).get();
     snap.forEach(function(d) {
       var x = d.data() || {};
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) return;
-      out.push({ coll: 'staffCalendar', id: d.id, staff: true, title: x.title || 'Staff calendar', date: x.date, key: '',
-                 when: _edStaffWhen(x), sortTime: x.startTime || '', where: x.location || '', notes: x.notes || '',
-                 presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false });
+      window._staffCalDates(x, fromIso, toIso).forEach(function(iso) {
+        out.push({ coll: 'staffCalendar', id: d.id, staff: true, title: x.title || 'Staff calendar', date: iso, key: '',
+                   when: _edStaffWhen(x), sortTime: x.startTime || '', where: x.location || '', notes: x.notes || '',
+                   repeats: !!x.repeat, presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false });
+      });
     });
   } catch (e) { console.warn('Staff calendar entries not loaded:', e && e.message); }
   return out;
@@ -37889,11 +37949,21 @@ function _edStaffEnsureForm() {
           '<div><label for="edStStart">Start time</label><input id="edStStart" type="time"></div>' +
           '<div><label for="edStEnd">End time</label><input id="edStEnd" type="time"></div>' +
         '</div>' +
+        '<div class="ed-st-rep">' +
+          '<div><label for="edStRepeat">Repeats</label><select id="edStRepeat" onchange="edStaffRepeatChanged()">' +
+            '<option value="">Does not repeat</option><option value="weekly">Every week</option>' +
+            '<option value="biweekly">Every 2 weeks</option><option value="monthly">Every month, same weekday</option></select></div>' +
+          '<div id="edStUntilWrap"><label for="edStUntil">Until</label><input id="edStUntil" type="date">' +
+            '<div class="ed-st-hint">Leave blank to keep going.</div></div>' +
+        '</div>' +
+        '<div id="edStRepText" class="ed-st-hint"></div>' +
         '<label for="edStWhere">Place</label><input id="edStWhere" type="text" maxlength="160">' +
         '<label for="edStNotes">Notes</label><textarea id="edStNotes" rows="3" maxlength="2000"></textarea>' +
+        '<div id="edStSeries" class="ed-st-series" style="display:none;"></div>' +
         '<div id="edStMsg" style="min-height:18px;font-size:.82rem;font-weight:700;margin-top:8px;"></div>' +
-        '<div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
-          '<button type="button" class="btn btn-ghost" id="edStDel" style="color:#DC2626;" onclick="edDeleteStaffEntry(this)">Delete</button>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
+          '<button type="button" class="ed-st-delbtn" id="edStDelOne" onclick="edDeleteStaffEntry(this,true)">Delete this date only</button>' +
+          '<button type="button" class="ed-st-delbtn" id="edStDel" onclick="edDeleteStaffEntry(this)">Delete</button>' +
           '<span style="flex:1"></span>' +
           '<button type="button" class="btn btn-ghost" onclick="edCloseStaffEntry()">Cancel</button>' +
           '<button type="button" class="btn" id="edStSave" style="background:#DC2626;color:#fff;border:none;" onclick="edSaveStaffEntry()">Save</button>' +
@@ -37902,10 +37972,12 @@ function _edStaffEnsureForm() {
     '</div>';
   document.body.appendChild(ov);
 }
-window.edOpenStaffEntry = async function(id, seedDate, fromFunnel) {
+var _edStaffOcc = '';
+/* id + occ: occ is the date that was clicked, for "Delete this date only". */
+window.edOpenStaffEntry = async function(id, seedDate, fromFunnel, occ) {
   if (!_edStaffCalAllowed()) return;
   _edStaffEnsureForm();
-  _edStaffId = id || ''; _edStaffFromFunnel = !!fromFunnel;
+  _edStaffId = id || ''; _edStaffFromFunnel = !!fromFunnel; _edStaffOcc = (id && occ) || '';
   var x = {};
   if (_edStaffId) {
     try { var d = await db.collection('staffCalendar').doc(_edStaffId).get(); x = d.exists ? (d.data() || {}) : {}; }
@@ -37914,11 +37986,30 @@ window.edOpenStaffEntry = async function(id, seedDate, fromFunnel) {
   var set = function(k, v) { var el = document.getElementById(k); if (el) el.value = v || ''; };
   set('edStTitle', x.title); set('edStDate', x.date || seedDate || _localToday());
   set('edStStart', x.startTime); set('edStEnd', x.endTime); set('edStWhere', x.location); set('edStNotes', x.notes);
+  set('edStRepeat', x.repeat); set('edStUntil', x.repeatUntil);
+  edStaffRepeatChanged();
   document.getElementById('edStaffTitle').textContent = _edStaffId ? 'Staff Calendar only entry' : 'Add to the staff calendar';
-  var del = document.getElementById('edStDel'); del.style.visibility = _edStaffId ? 'visible' : 'hidden'; del.textContent = 'Delete'; del.dataset.armed = '';
+  var series = document.getElementById('edStSeries');
+  if (_edStaffId && x.repeat) {
+    series.style.display = '';
+    series.textContent = 'This entry repeats. Saving changes every date. The date above is the first one.';
+  } else series.style.display = 'none';
+  var del = document.getElementById('edStDel'), one = document.getElementById('edStDelOne');
+  del.style.display = _edStaffId ? '' : 'none'; del.dataset.armed = '';
+  del.textContent = x.repeat ? 'Delete every date' : 'Delete';
+  var _occTxt = '';
+  if (_edStaffOcc) { var q = _edStaffOcc.split('-').map(Number); _occTxt = new Date(q[0], q[1] - 1, q[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+  one.style.display = (_edStaffId && x.repeat && _edStaffOcc) ? '' : 'none'; one.dataset.armed = '';
+  one.textContent = 'Delete ' + (_occTxt || 'this date') + ' only'; one.dataset.label = one.textContent; del.dataset.label = del.textContent;
   document.getElementById('edStMsg').textContent = '';
   document.getElementById('edStaffOverlay').classList.add('active');
   setTimeout(function() { var t = document.getElementById('edStTitle'); if (t) t.focus(); }, 60);
+};
+window.edStaffRepeatChanged = function() {
+  var r = (document.getElementById('edStRepeat') || {}).value || '';
+  var w = document.getElementById('edStUntilWrap'); if (w) w.style.visibility = r ? 'visible' : 'hidden';
+  var t = document.getElementById('edStRepText');
+  if (t) t.textContent = r ? window._staffCalRepeatText({ repeat: r, date: (document.getElementById('edStDate') || {}).value || '', repeatUntil: (document.getElementById('edStUntil') || {}).value || '' }) : '';
 };
 window.edCloseStaffEntry = function() {
   var ov = document.getElementById('edStaffOverlay'); if (ov) ov.classList.remove('active');
@@ -37935,8 +38026,9 @@ window.edSaveStaffEntry = async function() {
   var g = function(k) { return String((document.getElementById(k) || {}).value || '').trim(); };
   var msg = document.getElementById('edStMsg');
   var rec = { title: g('edStTitle'), date: g('edStDate'), startTime: g('edStStart'), endTime: g('edStEnd'),
-              location: g('edStWhere'), notes: g('edStNotes') };
+              location: g('edStWhere'), notes: g('edStNotes'), repeat: g('edStRepeat'), repeatUntil: g('edStRepeat') ? g('edStUntil') : '' };
   if (!rec.title || !/^\d{4}-\d{2}-\d{2}$/.test(rec.date)) { msg.style.color = '#DC2626'; msg.textContent = 'A title and a date are needed.'; return; }
+  if (rec.repeatUntil && rec.repeatUntil < rec.date) { msg.style.color = '#DC2626'; msg.textContent = 'The Until date is before the first date.'; return; }
   if (rec.startTime && rec.endTime && rec.endTime < rec.startTime) { msg.style.color = '#DC2626'; msg.textContent = 'The end time is before the start time.'; return; }
   var me = window.currentUserData || {};
   var FV = firebase.firestore.FieldValue;
@@ -37948,18 +38040,24 @@ window.edSaveStaffEntry = async function() {
       rec.createdAt = FV.serverTimestamp(); rec.createdByUid = me.uid || ''; rec.createdByName = me.displayName || me.email || '';
       var ref = await db.collection('staffCalendar').add(rec); _edStaffId = ref.id;
     }
-    if (typeof window.auditLog === 'function') window.auditLog('Saved staff calendar entry', rec.title + ' (' + rec.date + ') [' + _edStaffId + ']');
+    if (typeof window.auditLog === 'function') window.auditLog('Saved staff calendar entry', rec.title + ' (' + rec.date + (rec.repeat ? ', ' + window._staffCalRepeatText(rec) : '') + ') [' + _edStaffId + ']');
     _edStaffAfterSave();
   } catch (e) {
     msg.style.color = '#DC2626'; msg.textContent = 'Not saved: ' + (e && e.message || e);
   } finally { btn.disabled = false; }
 };
 /* Two clicks to delete, no browser pop-up: the first click arms the button. */
-window.edDeleteStaffEntry = async function(btn) {
+window.edDeleteStaffEntry = async function(btn, oneDate) {
   if (!_edStaffId) return;
+  ['edStDel', 'edStDelOne'].forEach(function(k) { var b = document.getElementById(k); if (b && b !== btn && b.dataset.armed === '1') { b.dataset.armed = ''; b.textContent = b.dataset.label || 'Delete'; } });
   if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = 'Click again to delete'; return; }
   try {
     var t = String((document.getElementById('edStTitle') || {}).value || '');
+    if (oneDate && _edStaffOcc) {
+      await db.collection('staffCalendar').doc(_edStaffId).update({ skipDates: firebase.firestore.FieldValue.arrayUnion(_edStaffOcc) });
+      if (typeof window.auditLog === 'function') window.auditLog('Deleted one date of a staff calendar entry', t + ' (' + _edStaffOcc + ') [' + _edStaffId + ']');
+      _edStaffAfterSave(); return;
+    }
     await db.collection('staffCalendar').doc(_edStaffId).delete();
     if (typeof window.auditLog === 'function') window.auditLog('Deleted staff calendar entry', t + ' [' + _edStaffId + ']');
     _edStaffAfterSave();
@@ -38342,7 +38440,7 @@ window.edRender = async function() {
            no signups, no workshop form. */
         if (ev.staff) {
           var _sMeta = [ev.when, ev.where].filter(Boolean).join(' \u00b7 ');
-          html += '<div class="ed-ev staff" style="border-left:4px solid ' + ED_STAFF_META.color + ';" title="' + rsEscape(ev.title + (_sMeta ? ' \u2014 ' + _sMeta : '') + ' \u2014 Staff Calendar only. Click to change it.') + '" onclick="edOpenStaffEntry(\'' + _attrJsArg(ev.id) + '\')">';
+          html += '<div class="ed-ev staff" style="border-left:4px solid ' + ED_STAFF_META.color + ';" title="' + rsEscape(ev.title + (_sMeta ? ' \u2014 ' + _sMeta : '') + ' \u2014 Staff Calendar only. Click to change it.') + '" onclick="edOpenStaffEntry(\'' + _attrJsArg(ev.id) + '\',\'\',false,\'' + ev.date + '\')">';
           if (_edView === 'day') html += '<span class="ed-type" style="color:' + ED_STAFF_META.color + ';background:' + ED_STAFF_META.color + '1A;">' + rsEscape(ED_STAFF_META.label) + '</span>';
           html += '<div class="ed-ev-t">' + rsEscape(_edView === 'day' ? ev.title : String(ev.title).slice(0, 46)) + '</div>';
           if (_sMeta) html += '<div class="ed-ev-m">' + rsEscape(_sMeta) + '</div>';
