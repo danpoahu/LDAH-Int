@@ -3248,6 +3248,24 @@
 .ed-today:hover{ background:#F1F5F9; }
 .ed-legend{ display:flex; gap:14px; flex-wrap:wrap; font-size:.76rem; color:var(--text-soft); margin:0 0 12px; }
 .ed-legend i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+/* Day / Week / Month (v154.29-STAGE, Daniel 2026-11-06) */
+.ed-views{ display:inline-flex; border:1px solid #CBD5E1; border-radius:8px; overflow:hidden; margin-right:4px; }
+.ed-views button{ border:0; background:#fff; padding:6px 12px; font-weight:700; font-size:.8rem; color:#475569; cursor:pointer; }
+.ed-views button + button{ border-left:1px solid #CBD5E1; }
+.ed-views button.on{ background:#0F766E; color:#fff; }
+.ed-grid.week .ed-cell{ min-height:62vh; }
+.ed-grid.day{ grid-template-columns:1fr; }
+.ed-grid.day .ed-cell{ min-height:62vh; padding:12px 16px; }
+.ed-grid.day .ed-ev{ padding:8px 12px; margin-bottom:8px; }
+.ed-grid.day .ed-ev-t{ font-size:.95rem; white-space:normal; }
+.ed-nopres{ display:inline-block; font-size:.66rem; font-weight:800; color:#B45309; background:#FEF3C7; border-radius:8px; padding:1px 6px; margin:2px 0; }
+.ed-ev.staff{ background:#FDF2F8; cursor:pointer; }
+.ed-ev.staff:hover{ background:#FCE7F3; }
+.ed-ev-n{ font-size:.74rem; color:#475569; white-space:pre-wrap; margin-top:3px; }
+#edStaffOverlay label{ display:block; font-size:.8rem; font-weight:700; color:#334155; margin:10px 0 4px; }
+#edStaffOverlay input, #edStaffOverlay textarea{ width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #CBD5E1; border-radius:8px; font:inherit; }
+#edStaffOverlay .ed-st-row{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+@media(max-width:600px){ #edStaffOverlay .ed-st-row{ grid-template-columns:1fr; } }
 .ed-grid-wrap{ overflow-x:auto; }
 .ed-grid{ display:grid; grid-template-columns:repeat(7,minmax(140px,1fr)); gap:1px; background:#E2E8F0; border:1px solid #E2E8F0; border-radius:10px; overflow:hidden; }
 .ed-dow{ background:#F8FAFC; padding:7px 8px; font-size:.7rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#64748B; text-align:center; }
@@ -6097,7 +6115,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.27-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.29-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9366,9 +9384,10 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
             <div class="ed-sub">Who is presenting what. Pick a presenter on any session to assign or change it.</div>
           </div>
           <div class="ed-nav">
-            <button class="ed-arrow" onclick="edShiftMonth(-1)" title="Previous month">&#8249;</button>
+            <div class="ed-views" id="edViews"><button type="button" data-v="day" onclick="edSetView('day')">Day</button><button type="button" data-v="week" onclick="edSetView('week')">Week</button><button type="button" data-v="month" class="on" onclick="edSetView('month')">Month</button></div>
+            <button class="ed-arrow" onclick="edShiftMonth(-1)" title="Previous">&#8249;</button>
             <div class="ed-month" id="edMonthLabel">&nbsp;</div>
-            <button class="ed-arrow" onclick="edShiftMonth(1)" title="Next month">&#8250;</button>
+            <button class="ed-arrow" onclick="edShiftMonth(1)" title="Next">&#8250;</button>
             <button class="ed-today" onclick="edToday()">Today</button>
           </div>
         </div>
@@ -16391,6 +16410,10 @@ var _photoPendingByIsland = {};
           db.collection('recurringEvents').where('active', '==', true).get()
         ])
       ).then(function(results) {
+        /* Staff Calendar only entries (v154.29-STAGE): staff only, never partners. */
+        if (!_edStaffCalAllowed()) return results;
+        return db.collection('staffCalendar').get().then(function(st) { return results.concat([st]); }, function(e) { console.warn('Staff calendar not loaded:', e && e.message); return results; });
+      }).then(function(results) {
         var eventsSnap = results[0], recurSnap = results[1];
         var merged = [];
         var now = new Date(); now.setHours(0,0,0,0);
@@ -16494,6 +16517,17 @@ var _photoPendingByIsland = {};
             });
           });
         });
+        if (results[2]) {
+          var _stFrom = new Date(now); _stFrom.setDate(_stFrom.getDate() - 1);
+          results[2].docs.forEach(function(doc) {
+            var x = doc.data() || {};
+            if (!x.title || !/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) return;
+            var p = x.date.split('-').map(Number), dt = new Date(p[0], p[1] - 1, p[2]);
+            if (dt < _stFrom) return;
+            merged.push({ id: doc.id, title: x.title, date: dt, sessionLabel: '', location: x.location || '',
+                          description: x.notes || '', isRecurring: false, partnerIsland: '', staffCal: true });
+          });
+        }
         merged.sort(function(a, b) { return a.date - b.date; });
         /* Every row survived _partnerScopeOK above; the flag lets global
            search tell a partner-built cache from a staff-built one. */
@@ -16695,8 +16729,9 @@ var _photoPendingByIsland = {};
     var html = '';
     filtered.forEach(function(ev) {
       var locText = ev.location ? '<span style="margin-left:6px;">' + ev.location + '</span>' : '';
-      var clickAction = 'cmsViewSignups(\'' + ev.id.replace(/'/g, "\\'") + '\',' + (ev.isRecurring ? 'true' : 'false') + ',\'' + (ev.title || '').replace(/'/g, "\\'") + '\')';
-      html += '<div class="dash-event-item" style="cursor:pointer;" onclick="' + clickAction + '" onmouseover="this.style.background=\'rgba(8,145,178,.04)\'" onmouseout="this.style.background=\'transparent\'">' +
+      var clickAction = ev.staffCal ? 'edOpenStaffEntry(\'' + ev.id.replace(/'/g, "\\'") + '\')'
+        : 'cmsViewSignups(\'' + ev.id.replace(/'/g, "\\'") + '\',' + (ev.isRecurring ? 'true' : 'false') + ',\'' + (ev.title || '').replace(/'/g, "\\'") + '\')';
+      html += '<div class="dash-event-item" style="cursor:pointer;' + (ev.staffCal ? 'border-left:4px solid #EC4899;' : '') + '" onclick="' + clickAction + '" onmouseover="this.style.background=\'rgba(8,145,178,.04)\'" onmouseout="this.style.background=\'transparent\'">' +
         '<div class="dash-event-date-badge"><div class="month">' + monthNames[ev.date.getMonth()] + '</div><div class="day">' + ev.date.getDate() + '</div></div>' +
         '<div class="dash-event-info"><p class="title">' + (ev.sessionLabel || ev.title) + '</p>' +
         '<p class="meta">' + ev.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + locText + '</p>' +
@@ -35390,6 +35425,16 @@ var _CMS_FUNNEL_ORDER = ['learning_labs','parent_talk_cafe','connect_gen','scree
 /* The event types a Super Partner may create (v151.11). Connect-Gen, Screening
    and Outreach Booth are LDAH programmes. */
 var _CMS_SP_TYPES = ['learning_labs','parent_talk_cafe','remote_signup','flyer'];
+/* Staff Calendar only (v154.29-STAGE, Daniel 2026-11-06): a meeting, training or
+   day off that belongs on the staff calendars in DAN and nowhere else. It is
+   NOT an event doc: it lives in staffCalendar, which only staff can read, so
+   the website, the app and every event email never see it. */
+var ED_STAFF_META = { label: 'Staff Calendar only', color: '#EC4899',
+  desc: 'Shows on the DAN calendars only. Never on the website or the app. No signups.',
+  icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>' };
+function _edStaffCalAllowed() {
+  return !(window.isPartnerUser && window.isPartnerUser()) && !(window.isSuperPartner && window.isSuperPartner());
+}
 function cmsFunnelRenderTypeCards() {
   var host = document.getElementById('cmsFunnelTypeCards'); if (!host) return;
   var order = _cmsFunnelAllowed
@@ -35405,9 +35450,21 @@ function cmsFunnelRenderTypeCards() {
       '<div style="font-weight:700;color:#0f172a;margin-top:6px;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + m.color + ';margin-right:6px;vertical-align:middle;"></span>' + m.label + '</div>' +
       '<div style="font-size:.76rem;color:#64748b;margin-top:3px;line-height:1.35;">' + (m.desc || '') + '</div>' +
     '</button>';
-  }).join('');
+  }).join('') + ((!_cmsFunnelAllowed || _cmsFunnelAllowed.indexOf('staff_calendar') !== -1) && _edStaffCalAllowed()
+    ? '<button type="button" onclick="cmsFunnelPickType(\'staff_calendar\')" style="text-align:left;border:2px solid ' + ED_STAFF_META.color + ';border-radius:12px;padding:12px;background:#FDF2F8;cursor:pointer;">' +
+        '<div style="line-height:1;">' + ED_STAFF_META.icon + '</div>' +
+        '<div style="font-weight:700;color:#0f172a;margin-top:6px;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + ED_STAFF_META.color + ';margin-right:6px;vertical-align:middle;"></span>' + ED_STAFF_META.label + '</div>' +
+        '<div style="font-size:.76rem;color:#64748b;margin-top:3px;line-height:1.35;">' + ED_STAFF_META.desc + '</div>' +
+      '</button>'
+    : '');
 }
 window.cmsFunnelPickType = function(t) {
+  if (t === 'staff_calendar') {
+    if (!_edStaffCalAllowed()) return;
+    cmsCloseFunnel();
+    edOpenStaffEntry('', _cmsFunnelSeedDate, true);
+    return;
+  }
   if (window.isSuperPartner && window.isSuperPartner() && _CMS_SP_TYPES.indexOf(t) === -1) return;   // v151.11
   if (_CMS_TYPE_META[t]) { _cmsFunnelType = t; _cmsFunnelGoto(3); }
 };
@@ -36829,7 +36886,7 @@ window._cmsApplyRemoteVisibility = _cmsApplyRemoteVisibility;
    calendar is scheduling something that happens on a day at a place — a booth,
    a table, an off-site signup — not a Zoom programme or a flyer, so the picker
    is narrowed to those three. Everything else is still added from CMS Events. */
-var ED_ADD_TYPES = ['screening', 'remote_signup', 'outreach_booth'];
+var ED_ADD_TYPES = ['screening', 'remote_signup', 'outreach_booth', 'staff_calendar'];
 
 /* Add an event straight from a calendar cell on the Events Dashboard.
    The dashboard lives under Admin and the event modal under CMS Events, so we
@@ -37616,11 +37673,31 @@ function edIso(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
+/* Day / Week / Month (v154.29-STAGE). _edCursor is the day in view; the month
+   view still runs off _edMonth. The choice is remembered per browser. */
+var _edView = 'month', _edCursor = null;
+try { var _edV0 = localStorage.getItem('edView'); if (['day','week','month'].indexOf(_edV0) !== -1) _edView = _edV0; } catch (e) {}
+function _edDay(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setHours(0,0,0,0); return x; }
 window.edShiftMonth = function(delta) {
-  _edMonth = new Date(_edMonth.getFullYear(), _edMonth.getMonth() + delta, 1);
+  var c = _edCursor || _edDay(new Date());
+  if (_edView === 'day') c = new Date(c.getFullYear(), c.getMonth(), c.getDate() + delta);
+  else if (_edView === 'week') c = new Date(c.getFullYear(), c.getMonth(), c.getDate() + 7 * delta);
+  else c = new Date(c.getFullYear(), c.getMonth() + delta, 1);
+  _edCursor = c; _edMonth = edMonthStart(c);
   edRender();
 };
-window.edToday = function() { _edMonth = edMonthStart(new Date()); edRender(); };
+window.edToday = function() { _edCursor = _edDay(new Date()); _edMonth = edMonthStart(_edCursor); edRender(); };
+window.edSetView = function(v) {
+  if (['day','week','month'].indexOf(v) === -1) return;
+  /* Month to week or day lands on today when today is in that month, else the 1st. */
+  if (_edView === 'month' && v !== 'month' && _edMonth) {
+    var t = _edDay(new Date());
+    _edCursor = (t.getFullYear() === _edMonth.getFullYear() && t.getMonth() === _edMonth.getMonth()) ? t : new Date(_edMonth);
+  }
+  _edView = v;
+  try { localStorage.setItem('edView', v); } catch (e) {}
+  edRender();
+};
 
 // Presenters come from the same presenterStaff list the Event Summary uses, so
 // the two can never offer different names.
@@ -37694,7 +37771,7 @@ async function edLoadEvents(fromIso, toIso) {
         date: sess.date, key: key,
         when: cmsFmt12(sess.startTime), where: sess.location || '',
         presenter: sess.cancelled ? '' : (summ.presenter || ''), single: false,
-        eventType: e.eventType || '',
+        eventType: e.eventType || '', typeKey: _edTypeKey(e, 'recurringEvents'),
         cancelled: !!sess.cancelled, cancelReason: sess.cancelReason || ''
       });
     });
@@ -37720,7 +37797,7 @@ async function edLoadEvents(fromIso, toIso) {
         var summ = (e.sessionSummaries && e.sessionSummaries[lbl]) || (e.sessionSummaries && e.sessionSummaries[k]) || {};
         list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: k, key: lbl,
                     when: '', where: e.location || '', presenter: summ.presenter || '',
-                    single: false, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '' });
+                    single: false, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '', typeKey: _edTypeKey(e, 'events') });
       });
     } else {
       var d = String(e.eventDate || '').slice(0,10);
@@ -37728,13 +37805,150 @@ async function edLoadEvents(fromIso, toIso) {
       list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: d, key: '',
                   when: e.time || '', where: e.location || '',
                   presenter: (e.summary && e.summary.presenter) || '',
-                  single: true, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '' });
+                  single: true, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '', typeKey: _edTypeKey(e, 'events') });
     }
   });
 
+  (await _edLoadStaffCal(fromIso, toIso)).forEach(function(x) { list.push(x); });
   list.sort(function(a,b){ return a.date.localeCompare(b.date) || String(a.when).localeCompare(String(b.when)); });
   return list;
 }
+
+/* The colour key for a calendar card: the event's type (stored eventType, else
+   worked out the same way everywhere else does). Colour only; eventType on the
+   row is left exactly as it was, because the booth and signup rules read it. */
+function _edTypeKey(e, coll) {
+  try { return (window._cmsDeriveEventType ? window._cmsDeriveEventType(e, coll) : (e.eventType || '')) || ''; } catch (x) { return e.eventType || ''; }
+}
+function _edTypeColor(k) {
+  if (k === 'staff_calendar') return ED_STAFF_META.color;
+  return (typeof _CMS_TYPE_META !== 'undefined' && _CMS_TYPE_META[k] && _CMS_TYPE_META[k].color) || '#94A3B8';
+}
+function _edTypeLabel(k) {
+  if (k === 'staff_calendar') return ED_STAFF_META.label;
+  return (typeof _CMS_TYPE_META !== 'undefined' && _CMS_TYPE_META[k] && _CMS_TYPE_META[k].label) || 'Event';
+}
+function _edStaffWhen(x) {
+  var a = x.startTime ? cmsFmt12(x.startTime) : '', b = x.endTime ? cmsFmt12(x.endTime) : '';
+  return a && b ? a + ' – ' + b : (a || (x.allDay === false ? '' : 'All day'));
+}
+/* Staff Calendar only entries in [from, to]. A failed read (rules not yet out,
+   offline) leaves the calendar working without them. */
+async function _edLoadStaffCal(fromIso, toIso) {
+  var out = [];
+  if (!_edStaffCalAllowed()) return out;
+  try {
+    var snap = await db.collection('staffCalendar').where('date', '>=', fromIso).where('date', '<=', toIso).get();
+    snap.forEach(function(d) {
+      var x = d.data() || {};
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) return;
+      out.push({ coll: 'staffCalendar', id: d.id, staff: true, title: x.title || 'Staff calendar', date: x.date, key: '',
+                 when: _edStaffWhen(x), sortTime: x.startTime || '', where: x.location || '', notes: x.notes || '',
+                 presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false });
+    });
+  } catch (e) { console.warn('Staff calendar entries not loaded:', e && e.message); }
+  return out;
+}
+
+/* Add or edit one Staff Calendar only entry. The form is built once and added to
+   the page body, so it opens over whichever screen called it. */
+var _edStaffId = '', _edStaffFromFunnel = false;
+function _edStaffEnsureForm() {
+  if (document.getElementById('edStaffOverlay')) return;
+  var ov = document.createElement('div');
+  ov.className = 'overlay'; ov.id = 'edStaffOverlay';
+  ov.innerHTML =
+    '<div class="modal" style="max-width:540px;">' +
+      '<div class="modal-header" style="background:#EC4899;">' +
+        '<div class="left"><img src="logo_transparent.png" alt="LDAH logo"/><div id="edStaffTitle">Staff Calendar only</div></div>' +
+        '<button class="close" type="button" onclick="edCloseStaffEntry()">&times;</button>' +
+      '</div>' +
+      '<div class="modal-body">' +
+        '<div style="font-size:.84rem;color:#9D174D;background:#FDF2F8;border-radius:8px;padding:8px 10px;">Shows on the DAN calendars only. It never appears on the website or the app, and nobody is emailed.</div>' +
+        '<label for="edStTitle">Title *</label><input id="edStTitle" type="text" maxlength="140">' +
+        '<div class="ed-st-row">' +
+          '<div><label for="edStDate">Date *</label><input id="edStDate" type="date"></div>' +
+          '<div><label for="edStStart">Start time</label><input id="edStStart" type="time"></div>' +
+          '<div><label for="edStEnd">End time</label><input id="edStEnd" type="time"></div>' +
+        '</div>' +
+        '<label for="edStWhere">Place</label><input id="edStWhere" type="text" maxlength="160">' +
+        '<label for="edStNotes">Notes</label><textarea id="edStNotes" rows="3" maxlength="2000"></textarea>' +
+        '<div id="edStMsg" style="min-height:18px;font-size:.82rem;font-weight:700;margin-top:8px;"></div>' +
+        '<div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">' +
+          '<button type="button" class="btn btn-ghost" id="edStDel" style="color:#DC2626;" onclick="edDeleteStaffEntry(this)">Delete</button>' +
+          '<span style="flex:1"></span>' +
+          '<button type="button" class="btn btn-ghost" onclick="edCloseStaffEntry()">Cancel</button>' +
+          '<button type="button" class="btn" id="edStSave" style="background:#EC4899;color:#fff;border:none;" onclick="edSaveStaffEntry()">Save</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+}
+window.edOpenStaffEntry = async function(id, seedDate, fromFunnel) {
+  if (!_edStaffCalAllowed()) return;
+  _edStaffEnsureForm();
+  _edStaffId = id || ''; _edStaffFromFunnel = !!fromFunnel;
+  var x = {};
+  if (_edStaffId) {
+    try { var d = await db.collection('staffCalendar').doc(_edStaffId).get(); x = d.exists ? (d.data() || {}) : {}; }
+    catch (e) { if (typeof _showToast === 'function') _showToast('Could not open that entry: ' + e.message, '#DC2626'); return; }
+  }
+  var set = function(k, v) { var el = document.getElementById(k); if (el) el.value = v || ''; };
+  set('edStTitle', x.title); set('edStDate', x.date || seedDate || _localToday());
+  set('edStStart', x.startTime); set('edStEnd', x.endTime); set('edStWhere', x.location); set('edStNotes', x.notes);
+  document.getElementById('edStaffTitle').textContent = _edStaffId ? 'Staff Calendar only entry' : 'Add to the staff calendar';
+  var del = document.getElementById('edStDel'); del.style.visibility = _edStaffId ? 'visible' : 'hidden'; del.textContent = 'Delete'; del.dataset.armed = '';
+  document.getElementById('edStMsg').textContent = '';
+  document.getElementById('edStaffOverlay').classList.add('active');
+  setTimeout(function() { var t = document.getElementById('edStTitle'); if (t) t.focus(); }, 60);
+};
+window.edCloseStaffEntry = function() {
+  var ov = document.getElementById('edStaffOverlay'); if (ov) ov.classList.remove('active');
+};
+function _edStaffAfterSave() {
+  edCloseStaffEntry();
+  var sec = document.getElementById('eventsDashboardSection');
+  if (sec && sec.style.display !== 'none') { edRender(); return; }
+  /* Added from a calendar day: that switched to CMS Events to show the picker,
+     so go back to the calendar. */
+  if (_edStaffFromFunnel) { var nav = document.querySelector('[data-section="eventsdashboard"]'); if (nav) nav.click(); }
+}
+window.edSaveStaffEntry = async function() {
+  var g = function(k) { return String((document.getElementById(k) || {}).value || '').trim(); };
+  var msg = document.getElementById('edStMsg');
+  var rec = { title: g('edStTitle'), date: g('edStDate'), startTime: g('edStStart'), endTime: g('edStEnd'),
+              location: g('edStWhere'), notes: g('edStNotes') };
+  if (!rec.title || !/^\d{4}-\d{2}-\d{2}$/.test(rec.date)) { msg.style.color = '#DC2626'; msg.textContent = 'A title and a date are needed.'; return; }
+  if (rec.startTime && rec.endTime && rec.endTime < rec.startTime) { msg.style.color = '#DC2626'; msg.textContent = 'The end time is before the start time.'; return; }
+  var me = window.currentUserData || {};
+  var FV = firebase.firestore.FieldValue;
+  rec.updatedAt = FV.serverTimestamp(); rec.updatedByUid = me.uid || ''; rec.updatedByName = me.displayName || me.email || '';
+  var btn = document.getElementById('edStSave'); btn.disabled = true;
+  try {
+    if (_edStaffId) await db.collection('staffCalendar').doc(_edStaffId).set(rec, { merge: true });
+    else {
+      rec.createdAt = FV.serverTimestamp(); rec.createdByUid = me.uid || ''; rec.createdByName = me.displayName || me.email || '';
+      var ref = await db.collection('staffCalendar').add(rec); _edStaffId = ref.id;
+    }
+    if (typeof window.auditLog === 'function') window.auditLog('Saved staff calendar entry', rec.title + ' (' + rec.date + ') [' + _edStaffId + ']');
+    _edStaffAfterSave();
+  } catch (e) {
+    msg.style.color = '#DC2626'; msg.textContent = 'Not saved: ' + (e && e.message || e);
+  } finally { btn.disabled = false; }
+};
+/* Two clicks to delete, no browser pop-up: the first click arms the button. */
+window.edDeleteStaffEntry = async function(btn) {
+  if (!_edStaffId) return;
+  if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = 'Click again to delete'; return; }
+  try {
+    var t = String((document.getElementById('edStTitle') || {}).value || '');
+    await db.collection('staffCalendar').doc(_edStaffId).delete();
+    if (typeof window.auditLog === 'function') window.auditLog('Deleted staff calendar entry', t + ' [' + _edStaffId + ']');
+    _edStaffAfterSave();
+  } catch (e) {
+    var msg = document.getElementById('edStMsg'); msg.style.color = '#DC2626'; msg.textContent = 'Not deleted: ' + (e && e.message || e);
+  }
+};
 
 window.edSetPresenter = async function(sel, idx) {
   /* idx is normally one index. For an outreach booth it is an ARRAY of every
@@ -37895,7 +38109,7 @@ function _edSlotLabel(ev) {
 var _ED_NO_COUNT_TYPES = ['learning_labs', 'parent_talk_cafe'];
 function _edCountsSignups(ev) {
   // A cancelled session takes no signups: no pill, and no subcollection read.
-  return !!ev && !ev.cancelled && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
+  return !!ev && !ev.cancelled && !ev.staff && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
 }
 
 // A signup stores its session as "YYYY-MM-DD|Location – Venue|H:MM AM – H:MM PM",
@@ -37987,15 +38201,24 @@ window.edRender = async function() {
   var grid = document.getElementById('edGrid');
   if (!grid) return;
   if (!_edMonth) _edMonth = edMonthStart(new Date());
+  if (!_edCursor) _edCursor = _edDay(new Date());
+  if (_edView === 'month') _edCursor = (_edCursor.getFullYear() === _edMonth.getFullYear() && _edCursor.getMonth() === _edMonth.getMonth()) ? _edCursor : new Date(_edMonth);
+  document.querySelectorAll('#edViews button').forEach(function(b) { b.classList.toggle('on', b.getAttribute('data-v') === _edView); });
+  var _wkStart = new Date(_edCursor.getFullYear(), _edCursor.getMonth(), _edCursor.getDate() - _edCursor.getDay());
+  var _wkEnd = new Date(_wkStart.getFullYear(), _wkStart.getMonth(), _wkStart.getDate() + 6);
   var label = document.getElementById('edMonthLabel');
-  if (label) label.textContent = _edMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  if (label) label.textContent = _edView === 'day'
+    ? _edCursor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    : _edView === 'week'
+      ? _wkStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' – ' + _wkEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : _edMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   grid.innerHTML = '<div class="cms-empty"><p>Loading…</p></div>';
   try {
     if (!_edPresenters.length) _edPresenters = await edLoadPresenters();
 
-    var first = _edMonth;
-    var last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    var first = _edView === 'day' ? _edCursor : _edView === 'week' ? _wkStart : _edMonth;
+    var last = _edView === 'day' ? _edCursor : _edView === 'week' ? _wkEnd : new Date(first.getFullYear(), first.getMonth() + 1, 0);
     _edEvents = await edLoadEvents(edIso(first), edIso(last));
 
     /* Every workshop form in one read, keyed by event id. There are a handful
@@ -38017,21 +38240,25 @@ window.edRender = async function() {
     var byDate = {};
     _edEvents.forEach(function(ev, i) { (byDate[ev.date] = byDate[ev.date] || []).push(i); });
 
-    var lead = first.getDay();
+    var lead = _edView === 'month' ? first.getDay() : 0;
     var cells = [];
-    for (var i = 0; i < lead; i++) {
+    if (_edView !== 'month') {
+      for (var _dd = new Date(first); _dd <= last; _dd = new Date(_dd.getFullYear(), _dd.getMonth(), _dd.getDate() + 1)) cells.push({ d: _dd, out: false });
+    }
+    else for (var i = 0; i < lead; i++) {
       var d0 = new Date(first); d0.setDate(d0.getDate() - (lead - i));
       cells.push({ d: d0, out: true });
     }
-    for (var day = 1; day <= last.getDate(); day++) cells.push({ d: new Date(first.getFullYear(), first.getMonth(), day), out: false });
-    while (cells.length % 7 !== 0) {
+    if (_edView === 'month') for (var day = 1; day <= last.getDate(); day++) cells.push({ d: new Date(first.getFullYear(), first.getMonth(), day), out: false });
+    while (_edView !== 'day' && cells.length % 7 !== 0) {
       var dn = new Date(cells[cells.length-1].d); dn.setDate(dn.getDate()+1);
       cells.push({ d: dn, out: true });
     }
 
     var todayIso = _localToday();
-    var html = '<div class="ed-grid">';
-    ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(function(n){ html += '<div class="ed-dow">' + n + '</div>'; });
+    var html = '<div class="ed-grid ' + _edView + '">';
+    if (_edView === 'week') cells.forEach(function(c){ html += '<div class="ed-dow">' + c.d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + '</div>'; });
+    else if (_edView === 'month') ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(function(n){ html += '<div class="ed-dow">' + n + '</div>'; });
 
     cells.forEach(function(c) {
       var iso = edIso(c.d);
@@ -38086,6 +38313,17 @@ window.edRender = async function() {
            the HOST event's agenda — presentations, a legislators' Q&A — and LDAH
            is staffing a table through the day. One person is in charge of the
            booth, so one dropdown, not one per talk. (Daniel, 2026-09-04) */
+        /* Staff Calendar only: one pink card, opens its form. No presenter,
+           no signups, no workshop form. */
+        if (ev.staff) {
+          var _sMeta = [ev.when, ev.where].filter(Boolean).join(' \u00b7 ');
+          html += '<div class="ed-ev staff" style="border-left:4px solid ' + ED_STAFF_META.color + ';" title="' + rsEscape(ev.title + (_sMeta ? ' \u2014 ' + _sMeta : '') + ' \u2014 Staff Calendar only. Click to change it.') + '" onclick="edOpenStaffEntry(\'' + _attrJsArg(ev.id) + '\')">';
+          html += '<div class="ed-ev-t">' + rsEscape(_edView === 'day' ? ev.title : String(ev.title).slice(0, 46)) + '</div>';
+          if (_sMeta) html += '<div class="ed-ev-m">' + rsEscape(_sMeta) + '</div>';
+          if (ev.notes && _edView !== 'month') html += '<div class="ed-ev-n">' + rsEscape(_edView === 'day' ? ev.notes : String(ev.notes).slice(0, 120)) + '</div>';
+          html += '</div>';
+          return;
+        }
         var booth = String(ev.eventType || '') === 'outreach_booth';
         var multi = idxs.length > 1 && !booth;
         /* Teal only when EVERY session that day has someone. One assigned talk
@@ -38103,8 +38341,11 @@ window.edRender = async function() {
         var meta = multi
           ? (idxs.length + ' sessions · ' + _wheres.join(' / '))
           : (booth ? (ev.where || '') : [ev.when, ev.where].filter(Boolean).join(' · '));
-        html += '<div class="ed-ev" style="border-left-color:' + (_allAssigned ? '#0d9488' : '#F59E0B') + ';">';
-        html += '<div class="ed-ev-t" title="' + rsEscape(ev.title) + '">' + rsEscape(String(ev.title).slice(0, 46)) + '</div>';
+        /* The colour stripe is the event type (Daniel 2026-11-06); a missing
+           presenter is the small tag instead of an amber stripe. */
+        html += '<div class="ed-ev" style="border-left:4px solid ' + _edTypeColor(ev.typeKey) + ';">';
+        html += '<div class="ed-ev-t" title="' + rsEscape(ev.title + ' \u2014 ' + _edTypeLabel(ev.typeKey)) + '">' + rsEscape(_edView === 'day' ? ev.title : String(ev.title).slice(0, 46)) + '</div>';
+        if (!_allAssigned) html += '<span class="ed-nopres">No presenter</span>';
         /* The count shares the meta row, so a counted card gains no height. It
            renders as a placeholder and _edFillSignupCounts() fills it in. */
         if (meta || _edCountsSignups(ev)) {
@@ -38175,13 +38416,19 @@ window.edRender = async function() {
 
     /* Cancelled sessions are in _edEvents now so the grid can show them, but
        they are not work: they must not inflate "needs a presenter". */
-    var _live = _edEvents.filter(function(e){ return !e.cancelled; });
-    var _cancelledN = _edEvents.length - _live.length;
+    var _live = _edEvents.filter(function(e){ return !e.cancelled && !e.staff; });
+    var _cancelledN = _edEvents.filter(function(e){ return e.cancelled; }).length;
     var assigned = _live.filter(function(e){ return !!e.presenter; }).length;
+    var _tyN = {};
+    _edEvents.forEach(function(e){ if (!e.cancelled) _tyN[e.typeKey || ''] = (_tyN[e.typeKey || ''] || 0) + 1; });
+    var _tyOrder = (typeof _CMS_FUNNEL_ORDER !== 'undefined' ? _CMS_FUNNEL_ORDER : []).concat(['staff_calendar']);
+    Object.keys(_tyN).forEach(function(k){ if (_tyOrder.indexOf(k) === -1) _tyOrder.push(k); });
     var lg = document.getElementById('edLegend');
     if (lg) lg.innerHTML =
-      '<span><i style="background:#0d9488;"></i>Presenter assigned (' + assigned + ')</span>' +
-      '<span><i style="background:#F59E0B;"></i>Needs a presenter (' + (_live.length - assigned) + ')</span>' +
+      _tyOrder.filter(function(k){ return _tyN[k]; }).map(function(k){
+        return '<span><i style="background:' + _edTypeColor(k) + ';"></i>' + rsEscape(_edTypeLabel(k)) + ' (' + _tyN[k] + ')</span>';
+      }).join('') +
+      '<span><span class="ed-nopres" style="margin:0 5px 0 0;">No presenter</span>' + (_live.length - assigned) + ' of ' + _live.length + '</span>' +
       (_cancelledN ? '<span><i style="background:#CBD5E1;"></i>Cancelled (' + _cancelledN + ')</span>' : '') +
       '<span><i style="background:#7C3AED;"></i>Signups taken (not shown for Learning Labs or Parent Talk Cafe)</span>' +
       '<span>Presenters come from List Management &rarr; Presenters.</span>';
@@ -64770,7 +65017,8 @@ async function _pbLoadAll() {
    Rows are built the way the PTI Report builds them, so a session here is a
    session there; the PTI cache is dropped after every save. */
 // Sandy added 11-04 (Daniel) to fix her own PIP entries; she opens on PIP (v154.10-STAGE).
-var TF_EDITORS = ['YmGV2TlBGqR01dVdxZ0rtFLEFCG3', 'lwn8EWt6XEbCg5rhM0f8OSy8nTj2', 'xxApwGPzZafLhmfrGll6gwylknJ3', 'B9iq7O46KJabCE3Skke4HXy8RV43', 'bV93v0vIb8hYRPGucXP5V78bJoF3'];
+// IT_Help added 11-06 (Daniel).
+var TF_EDITORS = ['YmGV2TlBGqR01dVdxZ0rtFLEFCG3', 'lwn8EWt6XEbCg5rhM0f8OSy8nTj2', 'xxApwGPzZafLhmfrGll6gwylknJ3', 'B9iq7O46KJabCE3Skke4HXy8RV43', 'bV93v0vIb8hYRPGucXP5V78bJoF3', 'Lwz0SNVIRAcC68tVQdzE2BBCapt1'];
 window._tfCanView = function () {
   var me = window.currentUserData || {};
   return !!me.uid && TF_EDITORS.indexOf(me.uid) !== -1;
