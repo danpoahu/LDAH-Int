@@ -5568,6 +5568,13 @@ body.with-stage-banner .sidebar { top: 22px; height: calc(100vh - 22px); }
 .my-day-card .case.mgmt { border-color:rgba(67,56,202,.2); border-left-color:#4338CA; }
 .my-day-card .case.mgmt:hover { background:#F5F7FF; }
 .my-day-card .case.mgmt .who { color:#3730A3; background:#E0E7FF; }
+.my-day-card .case .md-resend{ display:inline-flex; align-items:center; gap:6px; margin-left:8px; vertical-align:middle; }
+.my-day-card .case .md-resend button{ font-size:.7rem; font-weight:800; color:#fff; background:#DC2626; border:none; border-radius:6px; padding:4px 10px; cursor:pointer; animation:mdResendPulse 1.8s ease-in-out infinite; }
+.my-day-card .case .md-resend button:disabled{ animation:none; opacity:.7; cursor:progress; }
+.my-day-card .case .md-resend button.sent{ animation:none; background:#16A34A; }
+.my-day-card .case .md-resend small{ font-size:.68rem; font-weight:700; color:#991B1B; white-space:nowrap; }
+@keyframes mdResendPulse{ 0%,100%{ filter:brightness(1); box-shadow:0 0 0 0 rgba(220,38,38,0); } 50%{ filter:brightness(1.35); box-shadow:0 0 0 4px rgba(220,38,38,.25); } }
+@media (prefers-reduced-motion: reduce){ .my-day-card .case .md-resend button{ animation:none; } }
 .my-day-card .case .cm-tag { display:inline-block; font-size:.62rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#3730A3; background:#E0E7FF; border:1px solid #C7D2FE; border-radius:20px; padding:2px 8px; margin-left:6px; vertical-align:middle; }
 .my-day-card .case .rbrow{width:300px;margin:0}
 .my-day-card .case .rbrow .next{font-size:.7rem;color:#64748B;margin-top:3px}
@@ -6169,7 +6176,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.35-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.36-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7462,7 +7469,8 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                   }
                   var _mg=d.serviceLevel==='management';
                   return '<div class="case'+(d._unassigned?' unassigned':'')+(_mg?' mgmt':'')+'" onclick="viewInteraction(\''+esc(d._id)+'\')">'
-                    +'<div><div class="ttl">'+esc(d.contactName||'(no contact)')+(_mg?'<span class="cm-tag">Case management</span><span id="mdCaseCt'+_ri+'"></span>':'')+due+'</div>'
+                    +'<div><div class="ttl">'+esc(d.contactName||'(no contact)')+(_mg?'<span class="cm-tag">Case management</span><span id="mdCaseCt'+_ri+'"></span>':'')
+                      +((!_mg&&d.contactId&&!d.partnerIsland)?'<span class="md-resend" id="mdCaseRs'+_ri+'" onclick="event.stopPropagation();"></span>':'')+due+'</div>'
                     +'<div class="sub">'+sub.join(' &middot; ')+'</div>'+_cmPick
                     +((d.contactId&&(_mg||(d.screeningReferrals||[]).length||d.caseAdvocacySource==='lions-screening'))?'<div style="margin-top:6px;" onclick="event.stopPropagation();">'+'<button type="button" style="background:#0891B2;color:#fff;font-size:.72rem;font-weight:700;border:none;border-radius:6px;padding:5px 11px;cursor:pointer;" onclick="event.stopPropagation();scOpenFormsFor(this,'+_jsArg(d.contactId)+')">View Consent</button>'+'</div>':'')
                     +'<div class="case-note" id="mdCaseNote'+_ri+'">Do not close until case '+(_mg?'management':'advocacy')+' is DONE</div></div>'
@@ -7470,6 +7478,31 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                     +'<div class="who">'+who+'</div></div>';
                 };
                 box.innerHTML=rows.map(_caseRow).join('');
+                /* Resend consent (v154.36-STAGE, Daniel 2026-11-06): an advocacy
+                   case whose parent has not signed the case advocacy consent gets
+                   a pulsing Resend button by the name, with the date the last
+                   letter went out. Same rule as the Case Advocacy report: not
+                   case management, not PIP, has an email, opened on or after the
+                   consent went live (2026-08-12). Paper consent counts as signed. */
+                (function(){
+                  var want=[]; rows.forEach(function(d,i){ if(document.getElementById('mdCaseRs'+i)) want.push({i:i,d:d}); });
+                  if(!want.length) return;
+                  var ids=[]; want.forEach(function(w){ if(ids.indexOf(w.d.contactId)===-1) ids.push(w.d.contactId); });
+                  var chunks=[]; for(var k=0;k<ids.length;k+=30) chunks.push(ids.slice(k,k+30));
+                  Promise.all(chunks.map(function(c){ return db.collection('contacts').where(firebase.firestore.FieldPath.documentId(),'in',c).get(); })).then(function(snaps){
+                    var byId={}; snaps.forEach(function(sn){ sn.forEach(function(doc){ byId[doc.id]=doc.data()||{}; }); });
+                    want.forEach(function(w){
+                      var c=byId[w.d.contactId], slot=document.getElementById('mdCaseRs'+w.i);
+                      if(!c||!slot||c.caseAdvocacyAuthorization||!String(c.email||'').trim()) return;
+                      var ca=w.d.createdAt&&w.d.createdAt.toDate?w.d.createdAt.toDate():null;
+                      if(ca&&(ca.getFullYear()+'-'+String(ca.getMonth()+1).padStart(2,'0')+'-'+String(ca.getDate()).padStart(2,'0'))<'2026-08-12') return;
+                      var sent=c.caseAdvocacyOpeningEmailSentAt&&c.caseAdvocacyOpeningEmailSentAt.toDate?c.caseAdvocacyOpeningEmailSentAt.toDate():null;
+                      var busy=window._mdResending&&window._mdResending[w.d.contactId];
+                      slot.innerHTML='<button type="button"'+(busy?' disabled':'')+' title="Email the case opening letter again so the parent can sign the consent" onclick="event.stopPropagation();myDayResendConsent(this,'+_jsArg(w.d.contactId)+','+_jsArg(w.d.caseAdvocateName||'')+')">'+(busy?'Sending&hellip;':'Resend consent')+'</button>'
+                        +'<small>'+(sent?'Last sent '+sent.toLocaleDateString('en-US',{month:'short',day:'numeric'}):'Never sent')+'</small>';
+                    });
+                  }).catch(function(e){ console.warn('Resend consent check:',e&&e.message); });
+                })();
                 /* Group by school (v153.47-STAGE, Daniel 10-17): advocacy cases stay
                    as their own rows; EVERY case management case folds into a card
                    for its school, and the cards sit right after the advocacy rows.
@@ -25249,6 +25282,24 @@ window.openContactDetail = async function(contactId) {
       _showToast('Case opening letter NOT sent: ' + e.message, '#DC2626');
       return null;
     }
+  };
+  /* My open cases: Resend consent (v154.36-STAGE). One send per click; the
+     list re-renders live, so the in-flight family is remembered and its button
+     stays disabled until the send finishes. */
+  window._mdResending = window._mdResending || {};
+  window.myDayResendConsent = async function(btn, contactId, advocateName) {
+    if (!contactId || window._mdResending[contactId]) return;
+    window._mdResending[contactId] = true;
+    btn.disabled = true; btn.textContent = 'Sending\u2026';
+    var j = await window._caSendOpeningLetter(contactId, advocateName, { force: true });
+    delete window._mdResending[contactId];
+    var ok = j && !j.error && !j.skipped;
+    var b = document.querySelector('.md-resend button[onclick*="' + encodeURIComponent(contactId).replace(/'/g, '%27') + '"]') || btn;
+    if (ok) {
+      b.disabled = true; b.className = 'sent'; b.textContent = 'Sent';
+      var sm = b.parentNode && b.parentNode.querySelector('small');
+      if (sm) sm.textContent = 'Last sent ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } else { b.disabled = false; b.textContent = 'Resend consent'; }
   };
   window.spawnOrReassignCaseAdvocacy = async function(sourceData, sourceId, advocateName, wantOn) {
     sourceData = sourceData || {};
