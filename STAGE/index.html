@@ -3346,6 +3346,7 @@
 .os-acts{ margin-top:9px; display:flex; gap:6px; flex-wrap:wrap; }
 .os-pill{ display:inline-block; font-size:.68rem; font-weight:800; border-radius:999px; padding:2px 8px; vertical-align:middle; white-space:nowrap; }
 .os-pill.green{ background:#DCFCE7; color:#166534; } .os-pill.amber{ background:#FEF3C7; color:#92400E; }
+.os-res{ white-space:nowrap; } .os-res .os-pill + .os-pill, .os-res .os-pill + .os-muted, .os-res .os-muted + .os-pill{ margin-left:4px; }
 .os-pill.red{ background:#FEE2E2; color:#991B1B; } .os-pill.vio{ background:#EDE9FE; color:#5B21B6; } .os-pill.grey{ background:#F1F5F9; color:#475569; }
 .os-empty{ background:#fff; border:1px dashed #C4B5FD; border-radius:12px; padding:22px; color:#475569; font-size:.9rem; }
 .os-muted{ font-size:.82rem; color:#94A3B8; }
@@ -6240,7 +6241,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.38-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.39-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -38732,7 +38733,58 @@ window.osLoadSection = async function() {
   _os.openDate = _os.pendingDate || '';
   _os.pendingDate = '';
   await osRender(true);
+  _osLiveStart();
 };
+/* Live (Daniel 2026-11-06: the list showed a booking that had been deleted and
+   missed a new one). Days and bookings re-render as they change; the open day's
+   families are watched too, so results entered on the phone page show at once.
+   Everything stops when the page is left. */
+var _osLive = { unsub: [], kidUnsub: [], kidIds: '', t: 0 };
+function _osSectionVisible() { var sec = document.getElementById('officeScreeningsSection'); return !!(sec && sec.style.display !== 'none' && sec.offsetParent !== null); }
+function _osLiveStop() {
+  _osLive.unsub.concat(_osLive.kidUnsub).forEach(function(u) { try { u(); } catch (e) {} });
+  _osLive.unsub = []; _osLive.kidUnsub = []; _osLive.kidIds = '';
+}
+function _osLiveRender() {
+  clearTimeout(_osLive.t);
+  _osLive.t = setTimeout(function() {
+    if (!_osSectionVisible()) { _osLiveStop(); return; }
+    osRender(false);
+  }, 250);
+}
+function _osLiveStart() {
+  _osLiveStop();
+  var today = _localToday(), from = today;
+  if (_os.showPast) { var d = new Date(); d.setDate(d.getDate() - 120); from = _staffCalIso(d); }
+  var first = 2;
+  _osLive.unsub.push(db.collection('officeScreeningDays').where('date', '>=', from).onSnapshot(function(snap) {
+    var days = []; snap.forEach(function(d) { var x = d.data() || {}; x.date = x.date || d.id; days.push(x); });
+    days.sort(function(a, b) { return a.date.localeCompare(b.date); });
+    _os.days = days.filter(function(x) { return x.date >= today; });
+    _os.past = days.filter(function(x) { return x.date < today; }).reverse();
+    if (first > 0) first--; else _osLiveRender();
+  }, function(e) { console.warn('office days live:', e && e.message); }));
+  _osLive.unsub.push(db.collection('officeScreeningBookings').where('date', '>=', from).onSnapshot(function(snap) {
+    var byDate = {}; snap.forEach(function(d) { var b = d.data() || {}; b.id = d.id; (byDate[b.date] = byDate[b.date] || []).push(b); });
+    _os.byDate = byDate;
+    if (first > 0) first--; else _osLiveRender();
+  }, function(e) { console.warn('office bookings live:', e && e.message); }));
+}
+/* Watch the families on the open day, so a result saved on the phone shows here. */
+function _osWatchKids(list) {
+  var ids = {}; list.forEach(function(b) { if (b.contactId && b.status !== 'cancelled') ids[b.contactId] = 1; });
+  var key = Object.keys(ids).sort().join(',');
+  if (key === _osLive.kidIds) return;
+  _osLive.kidUnsub.forEach(function(u) { try { u(); } catch (e) {} });
+  _osLive.kidUnsub = []; _osLive.kidIds = key;
+  Object.keys(ids).forEach(function(id) {
+    var firstSnap = true;
+    _osLive.kidUnsub.push(db.collection('contacts').doc(id).onSnapshot(function() {
+      if (firstSnap) { firstSnap = false; return; }
+      _osLiveRender();
+    }, function() {}));
+  });
+}
 window.osShowDay = function(date) {
   if (!_edStaffCalAllowed()) return;
   _os.pendingDate = date || '';
@@ -38826,6 +38878,19 @@ function _osConsent(b, k) {
   if (b.source === 'staff') return '<span class="os-pill amber">Sign on the day</span>';
   return '<span class="os-pill green">Signed</span>';
 }
+/* Vision / Hearing result for the bookings list: Pass, Fail, Absent or a dash. */
+function _osPart(s, part) {
+  var ab = s && s.absent && s.absent[part];
+  var r = s && s.results && s.results[part];
+  var txt = r ? JSON.stringify(r) : '';
+  if (txt && /"(right|left)":"[^"]+"/.test(txt)) {
+    if (/Fail|Refer/i.test(txt)) return '<span class="os-pill red">' + (part === 'vision' ? 'Vision' : 'Hearing') + ' fail</span>';
+    if (/Could not test/i.test(txt) && !/Pass/i.test(txt)) return '<span class="os-pill amber">' + (part === 'vision' ? 'Vision' : 'Hearing') + ' not tested</span>';
+    return '<span class="os-pill green">' + (part === 'vision' ? 'Vision' : 'Hearing') + ' pass</span>';
+  }
+  if (ab) return '<span class="os-pill grey">' + (part === 'vision' ? 'Vision' : 'Hearing') + ' absent</span>';
+  return '<span class="os-muted">' + (part === 'vision' ? 'Vision' : 'Hearing') + ' &ndash;</span>';
+}
 function _osRow(b, day) {
   var k = _os.kids[b.id] || {}, s = k.s || {}, st = _osStatus(b, k);
   var child = ((b.childFirstName || '') + ' ' + (b.childLastName || '')).trim() || ((s.child && ((s.child.firstName || '') + ' ' + (s.child.lastName || '')).trim()) || '');
@@ -38843,15 +38908,17 @@ function _osRow(b, day) {
     '<td>' + rsEscape(parent) + (b.source === 'staff' ? ' <span class="os-src">by phone</span>' : '') + '</td>' +
     '<td>' + (b.status === 'cancelled' ? '' : _osConsent(b, k)) + '</td>' +
     '<td><span class="os-pill ' + st[1] + '">' + st[0] + '</span></td>' +
+    '<td class="os-res">' + (b.status === 'cancelled' || b.status === 'held' ? '' : _osPart(s, 'vision') + ' ' + _osPart(s, 'hearing')) + '</td>' +
     '<td class="os-actcell">' + act + '</td></tr>';
 }
 async function _osRenderBookings(host) {
   var day = _osDay(_os.openDate);
   if (!day) { host.innerHTML = '<button type="button" class="os-link" onclick="osBackToDays()">&larr; All days</button><div class="os-empty">No office day on ' + rsEscape(_osDate(_os.openDate)) + '.</div>'; return; }
   var list = (_os.byDate[day.date] || []).slice();
-  host.innerHTML = '<div class="os-muted" style="padding:20px 0;">Loading bookings…</div>';
+  if (!host.querySelector('.os-tbl')) host.innerHTML = '<div class="os-muted" style="padding:20px 0;">Loading bookings…</div>';
   try { await _osLoadKids(list); } catch (e) { console.warn('office screening contacts not read:', e && e.message); }
   if (_os.openDate !== day.date) return;   // moved on while reading
+  if (_osLive.unsub.length) _osWatchKids(list);
   var c = _osCounts(day), past = day.date < _localToday();
   var h = '<button type="button" class="os-link" onclick="osBackToDays()">&larr; All days</button>';
   h += '<div class="os-bhead"><div><h3>' + rsEscape(_osDate(day.date)) + ' &middot; ' + c.booked + ' of ' + c.times + ' booked</h3>' +
@@ -38870,11 +38937,11 @@ async function _osRenderBookings(host) {
   var all = _osAllTimes(day.start, day.end, day.slotMinutes), closed = Array.isArray(day.closedTimes) ? day.closedTimes : [];
   Object.keys(active).forEach(function(t) { if (all.indexOf(t) === -1) all.push(t); });
   all.sort();
-  h += '<div class="os-tblwrap"><table class="os-tbl"><thead><tr><th>Time</th><th>Child</th><th>Parent</th><th>Consent</th><th>Status</th><th></th></tr></thead><tbody>';
+  h += '<div class="os-tblwrap"><table class="os-tbl"><thead><tr><th>Time</th><th>Child</th><th>Parent</th><th>Consent</th><th>Status</th><th>Results</th><th></th></tr></thead><tbody>';
   all.forEach(function(t) {
     if (active[t]) { h += _osRow(active[t], day); return; }
     var isClosed = closed.indexOf(t) !== -1;
-    h += '<tr><td class="t">' + rsEscape(_osShort(t)) + '</td><td colspan="5" class="os-free">' + (isClosed ? 'Closed' : 'Open') + '</td></tr>';
+    h += '<tr><td class="t">' + rsEscape(_osShort(t)) + '</td><td colspan="6" class="os-free">' + (isClosed ? 'Closed' : 'Open') + '</td></tr>';
   });
   extra.concat(cancelled).sort(function(a, b) { return String(a.time).localeCompare(String(b.time)); }).forEach(function(b) { h += _osRow(b, day); });
   h += '</tbody></table></div>';
