@@ -6176,7 +6176,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.36-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.37-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7482,19 +7482,26 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                    case whose parent has not signed the case advocacy consent gets
                    a pulsing Resend button by the name, with the date the last
                    letter went out. Same rule as the Case Advocacy report: not
-                   case management, not PIP, has an email, opened on or after the
-                   consent went live (2026-08-12). Paper consent counts as signed. */
+                   case management, not PIP, has an email, and the family's FIRST
+                   case file opened on or after the consent went live (2026-08-12),
+                   so a family reopened after that date is still legacy (11-06,
+                   a July case reopened 8-13). Paper consent counts as signed. */
                 (function(){
                   var want=[]; rows.forEach(function(d,i){ if(document.getElementById('mdCaseRs'+i)) want.push({i:i,d:d}); });
                   if(!want.length) return;
                   var ids=[]; want.forEach(function(w){ if(ids.indexOf(w.d.contactId)===-1) ids.push(w.d.contactId); });
                   var chunks=[]; for(var k=0;k<ids.length;k+=30) chunks.push(ids.slice(k,k+30));
-                  Promise.all(chunks.map(function(c){ return db.collection('contacts').where(firebase.firestore.FieldPath.documentId(),'in',c).get(); })).then(function(snaps){
-                    var byId={}; snaps.forEach(function(sn){ sn.forEach(function(doc){ byId[doc.id]=doc.data()||{}; }); });
+                  var _first={};
+                  Promise.all(chunks.map(function(c){ return db.collection('contacts').where(firebase.firestore.FieldPath.documentId(),'in',c).get(); })
+                    .concat(chunks.map(function(c){ return db.collection('interactions').where('contactId','in',c).get().then(function(sn){
+                      sn.forEach(function(doc){ var x=doc.data()||{}; if(x.workflowStep!=='caseAdvocacy') return;
+                        var t=x.createdAt&&x.createdAt.toDate?x.createdAt.toDate():null; if(t&&(!_first[x.contactId]||t<_first[x.contactId])) _first[x.contactId]=t; });
+                      return null; }); }))).then(function(snaps){
+                    var byId={}; snaps.forEach(function(sn){ if(sn) sn.forEach(function(doc){ byId[doc.id]=doc.data()||{}; }); });
                     want.forEach(function(w){
                       var c=byId[w.d.contactId], slot=document.getElementById('mdCaseRs'+w.i);
                       if(!c||!slot||c.caseAdvocacyAuthorization||!String(c.email||'').trim()) return;
-                      var ca=w.d.createdAt&&w.d.createdAt.toDate?w.d.createdAt.toDate():null;
+                      var ca=_first[w.d.contactId]||(w.d.createdAt&&w.d.createdAt.toDate?w.d.createdAt.toDate():null);
                       if(ca&&(ca.getFullYear()+'-'+String(ca.getMonth()+1).padStart(2,'0')+'-'+String(ca.getDate()).padStart(2,'0'))<'2026-08-12') return;
                       var sent=c.caseAdvocacyOpeningEmailSentAt&&c.caseAdvocacyOpeningEmailSentAt.toDate?c.caseAdvocacyOpeningEmailSentAt.toDate():null;
                       var busy=window._mdResending&&window._mdResending[w.d.contactId];
