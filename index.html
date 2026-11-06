@@ -6143,7 +6143,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.32</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.33</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -37969,10 +37969,18 @@ async function _edLoadStaffCal(fromIso, toIso) {
       window._staffCalDates(x, fromIso, toIso).forEach(function(iso) {
         out.push({ coll: 'staffCalendar', id: d.id, staff: true, title: x.title || 'Staff calendar', date: iso, key: '',
                    when: _edStaffWhen(x), sortTime: x.startTime || '', where: x.location || '', notes: x.notes || '',
-                   repeats: !!x.repeat, agendaOn: !!x.agendaOn,
-                   agendaN: ((((x.agendas || {})[iso]) || {}).items || []).length, presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false });
+                   repeats: !!x.repeat, agendaOn: !!x.agendaOn && _edAgIsMember(x),
+                   agendaN: 0, presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false });
       });
     });
+    /* Item counts for the meetings I am in, from the private agenda docs. */
+    var _ids = {}; out.forEach(function(r) { if (r.agendaOn) _ids[r.id] = 1; });
+    await Promise.all(Object.keys(_ids).map(function(id) {
+      return db.collection('staffCalendar').doc(id).collection('agendas').where('date', '>=', fromIso).where('date', '<=', toIso).get().then(function(as) {
+        var n = {}; as.forEach(function(a) { var v = a.data() || {}; n[a.id] = (v.items || []).length; });
+        out.forEach(function(r) { if (r.id === id && n[r.date]) r.agendaN = n[r.date]; });
+      }, function() {});
+    }));
   } catch (e) { console.warn('Staff calendar entries not loaded:', e && e.message); }
   return out;
 }
@@ -38042,6 +38050,10 @@ window.edOpenStaffEntry = async function(id, seedDate, fromFunnel, occ) {
     try { var d = await db.collection('staffCalendar').doc(_edStaffId).get(); x = d.exists ? (d.data() || {}) : {}; }
     catch (e) { if (typeof _showToast === 'function') _showToast('Could not open that entry: ' + e.message, '#DC2626'); return; }
   }
+  if (_edStaffId && x.agendaOn && !_edAgIsMember(x)) {
+    if (typeof _showToast === 'function') _showToast('Only the people in this meeting can change it.', '#B45309');
+    return;
+  }
   var set = function(k, v) { var el = document.getElementById(k); if (el) el.value = v || ''; };
   set('edStTitle', x.title); set('edStDate', x.date || seedDate || _localToday());
   set('edStStart', x.startTime); set('edStEnd', x.endTime); set('edStWhere', x.location); set('edStNotes', x.notes);
@@ -38096,6 +38108,7 @@ window.edSaveStaffEntry = async function() {
   rec.agendaOn = !!document.getElementById('edStAgOn').checked;
   if (rec.agendaOn) {
     rec.participants = Object.keys(_edAgPicked).map(function(u) { return { uid: u, name: _edAgPicked[u] }; });
+    rec.participantUids = rec.participants.map(function(p) { return p.uid; });
     if (!rec.participants.length) { msg.style.color = '#DC2626'; msg.textContent = 'Pick at least one participant.'; return; }
     var _to = (_edAgStaff || []).filter(function(p) { return p.uid === g('edStAgTo'); })[0];
     rec.agendaToUid = g('edStAgTo') || ED_AG_DEFAULT_TO; rec.agendaToName = _to ? _to.name : (rec.agendaToUid === ED_AG_DEFAULT_TO ? 'Rosie Rowe' : '');
@@ -38209,24 +38222,41 @@ function _edAgEnsure() {
   document.body.appendChild(ov);
 }
 function _edAgMe() { var me = window.currentUserData || {}; return { uid: me.uid || '', name: me.displayName || me.email || '' }; }
-function _edAgCanAdd(entry) {
-  var me = _edAgMe(); if (!me.uid) return false;
-  if ((window.currentUserData || {}).role === 'superAdmin') return true;
+/* The agenda is private to the meeting (Daniel 2026-11-06): only the ticked
+   participants and the finished-agenda person. Being a super admin does NOT
+   open it. The rules enforce the same list on staffCalendar/{id}/agendas. */
+function _edAgIsMember(entry) {
+  var me = _edAgMe(); if (!me.uid || !entry) return false;
   if (entry.agendaToUid === me.uid) return true;
+  if (Array.isArray(entry.participantUids) && entry.participantUids.indexOf(me.uid) !== -1) return true;
   return (entry.participants || []).some(function(p) { return p && p.uid === me.uid; });
 }
+function _edAgCanAdd(entry) { return _edAgIsMember(entry); }
 window.edOpenAgenda = async function(id, date) {
   if (!_edStaffCalAllowed() || !id || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return;
   _edAgEnsure();
   if (_edAg.unsub) { _edAg.unsub(); _edAg.unsub = null; }
-  _edAg.id = id; _edAg.date = date; _edAg.entry = null;
+  _edAg.id = id; _edAg.date = date; _edAg.entry = null; _edAg.agenda = {};
+  var ent;
+  try { var es = await db.collection('staffCalendar').doc(id).get(); ent = es.exists ? (es.data() || {}) : null; }
+  catch (e) { ent = null; }
+  if (!ent || !_edAgIsMember(ent)) {
+    if (typeof _showToast === 'function') _showToast('This agenda is only for the people in the meeting.', '#B45309');
+    return;
+  }
+  _edAg.entry = ent;
   document.getElementById('agBody').innerHTML = '<div class="ag-muted">Loading…</div>';
   document.getElementById('edAgendaOverlay').classList.add('active');
-  _edAg.unsub = db.collection('staffCalendar').doc(id).onSnapshot(function(d) {
+  var u1 = db.collection('staffCalendar').doc(id).onSnapshot(function(d) {
     if (!d.exists) { document.getElementById('agBody').innerHTML = '<div class="ag-muted">This meeting was deleted.</div>'; return; }
     _edAg.entry = d.data() || {};
     _edAgRender();
+  }, function() {});
+  var u2 = _edAgRef().onSnapshot(function(d) {
+    _edAg.agenda = d.exists ? (d.data() || {}) : {};
+    _edAgRender();
   }, function(e) { document.getElementById('agBody').innerHTML = '<div style="color:#DC2626;">Could not open: ' + rsEscape(e.message) + '</div>'; });
+  _edAg.unsub = function() { u1(); u2(); };
 };
 window.edCloseAgenda = function() {
   if (_edAg.unsub) { _edAg.unsub(); _edAg.unsub = null; }
@@ -38234,8 +38264,8 @@ window.edCloseAgenda = function() {
   var sec = document.getElementById('eventsDashboardSection');
   if (sec && sec.style.display !== 'none' && typeof edRender === 'function') edRender();
 };
-function _edAgOf() { return ((_edAg.entry || {}).agendas || {})[_edAg.date] || {}; }
-function _edAgPath(f) { return new firebase.firestore.FieldPath('agendas', _edAg.date, f); }
+function _edAgOf() { return _edAg.agenda || {}; }
+function _edAgRef() { return db.collection('staffCalendar').doc(_edAg.id).collection('agendas').doc(_edAg.date); }
 function _edAgRender() {
   var e = _edAg.entry || {}, a = _edAgOf(), me = _edAgMe(), admin = (window.currentUserData || {}).role === 'superAdmin';
   var q = _edAg.date.split('-').map(Number), dt = new Date(q[0], q[1] - 1, q[2]);
@@ -38283,22 +38313,22 @@ window.edAgAddItem = async function(btn) {
   btn.disabled = true;
   try {
     ta.value = '';
-    await db.collection('staffCalendar').doc(_edAg.id).update(_edAgPath('items'), firebase.firestore.FieldValue.arrayUnion(item));
-    if (typeof window.auditLog === 'function') window.auditLog('Added meeting agenda item', (_edAg.entry.title || '') + ' ' + _edAg.date + ': ' + t.slice(0, 120));
+    await _edAgRef().set({ items: firebase.firestore.FieldValue.arrayUnion(item), date: _edAg.date }, { merge: true });
+    if (typeof window.auditLog === 'function') window.auditLog('Added meeting agenda item', (_edAg.entry.title || '') + ' ' + _edAg.date);
   } catch (e) { ta.value = t; _edAgErr('Not added: ' + e.message); }
   finally { btn.disabled = false; }
 };
 window.edAgRemoveItem = async function(id) {
   id = decodeURIComponent(id);
   var it = (_edAgOf().items || []).filter(function(x) { return x.id === id; })[0]; if (!it) return;
-  try { await db.collection('staffCalendar').doc(_edAg.id).update(_edAgPath('items'), firebase.firestore.FieldValue.arrayRemove(it)); }
+  try { await _edAgRef().set({ items: firebase.firestore.FieldValue.arrayRemove(it) }, { merge: true }); }
   catch (e) { _edAgErr('Not removed: ' + e.message); }
 };
 window.edAgSaveNotes = async function(btn) {
   var v = String((document.getElementById('agNotes') || {}).value || ''), me = _edAgMe();
   btn.disabled = true;
   try {
-    await db.collection('staffCalendar').doc(_edAg.id).update(_edAgPath('notes'), v, _edAgPath('notesByName'), me.name, _edAgPath('notesByUid'), me.uid, _edAgPath('notesAt'), Date.now());
+    await _edAgRef().set({ notes: v, notesByName: me.name, notesByUid: me.uid, notesAt: Date.now(), date: _edAg.date }, { merge: true });
     var m = document.getElementById('agNotesMsg'); if (m) m.textContent = 'Saved.';
     if (typeof window.auditLog === 'function') window.auditLog('Saved meeting notes', (_edAg.entry.title || '') + ' ' + _edAg.date);
   } catch (e) { _edAgErr('Notes not saved: ' + e.message); }
@@ -38321,9 +38351,9 @@ window.edAgUpload = async function(input) {
     var up = await fetch(j.uploadUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: file });
     if (!up.ok) throw new Error('Upload failed (' + up.status + ')');
     var me = _edAgMe();
-    await db.collection('staffCalendar').doc(_edAg.id).update(_edAgPath('files'), firebase.firestore.FieldValue.arrayUnion(
-      { name: file.name, path: j.storagePath, type: mime, size: file.size, byUid: me.uid, byName: me.name, at: Date.now() }));
-    if (typeof window.auditLog === 'function') window.auditLog('Uploaded base agenda', (_edAg.entry.title || '') + ' ' + _edAg.date + ': ' + file.name);
+    await _edAgRef().set({ date: _edAg.date, files: firebase.firestore.FieldValue.arrayUnion(
+      { name: file.name, path: j.storagePath, type: mime, size: file.size, byUid: me.uid, byName: me.name, at: Date.now() }) }, { merge: true });
+    if (typeof window.auditLog === 'function') window.auditLog('Uploaded base agenda', (_edAg.entry.title || '') + ' ' + _edAg.date);
   } catch (e) { _edAgErr('Not uploaded: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = 'Upload base agenda'; } }
 };
 async function _edAgFileCall(path, action) {
@@ -38345,7 +38375,7 @@ window.edAgRemoveFile = async function(i, btn) {
   if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = 'Remove?'; btn.style.color = '#DC2626'; btn.style.fontSize = '.75rem'; btn.style.fontWeight = '800'; return; }
   try {
     try { await _edAgFileCall(f.path, 'delete'); } catch (e) { if (!/no longer there/i.test(e.message)) throw e; }
-    await db.collection('staffCalendar').doc(_edAg.id).update(_edAgPath('files'), firebase.firestore.FieldValue.arrayRemove(f));
+    await _edAgRef().set({ files: firebase.firestore.FieldValue.arrayRemove(f) }, { merge: true });
   } catch (e) { _edAgErr('Not removed: ' + e.message); }
 };
 
