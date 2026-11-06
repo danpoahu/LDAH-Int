@@ -6143,7 +6143,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.30</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.31</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7448,21 +7448,32 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                 /* Resend consent (v154.36-STAGE, Daniel 2026-11-06): an advocacy
                    case whose parent has not signed the case advocacy consent gets
                    a pulsing Resend button by the name, with the date the last
-                   letter went out. Same rule as the Case Advocacy report: not
-                   case management, not PIP, has an email, opened on or after the
-                   consent went live (2026-08-12). Paper consent counts as signed. */
+                   letter went out. The Case Advocacy report's rule exactly
+                   (Daniel 11-06): the start is the family's OLDEST case file
+                   (caseAdvocacyStartedAt, else createdAt), legacy = no consent
+                   and that start (UTC day) before CAR_AUTH_LIVE_FROM 2026-08-12,
+                   PIP out by the case's or the family's island, needs an email.
+                   Case management is left out too: the letter function never
+                   sends it. Paper consent counts as signed. */
                 (function(){
                   var want=[]; rows.forEach(function(d,i){ if(document.getElementById('mdCaseRs'+i)) want.push({i:i,d:d}); });
                   if(!want.length) return;
                   var ids=[]; want.forEach(function(w){ if(ids.indexOf(w.d.contactId)===-1) ids.push(w.d.contactId); });
                   var chunks=[]; for(var k=0;k<ids.length;k+=30) chunks.push(ids.slice(k,k+30));
-                  Promise.all(chunks.map(function(c){ return db.collection('contacts').where(firebase.firestore.FieldPath.documentId(),'in',c).get(); })).then(function(snaps){
-                    var byId={}; snaps.forEach(function(sn){ sn.forEach(function(doc){ byId[doc.id]=doc.data()||{}; }); });
+                  var _first={};
+                  Promise.all(chunks.map(function(c){ return db.collection('contacts').where(firebase.firestore.FieldPath.documentId(),'in',c).get(); })
+                    .concat(chunks.map(function(c){ return db.collection('interactions').where('contactId','in',c).get().then(function(sn){
+                      var _ts=function(v){ return v&&v.toDate?v.toDate():(v&&v.seconds?new Date(v.seconds*1000):null); };
+                      sn.forEach(function(doc){ var x=doc.data()||{}; if(x.workflowStep!=='caseAdvocacy') return;
+                        var t=_ts(x.createdAt), cur=_first[x.contactId];
+                        if(!cur||(t&&cur.c&&t<cur.c)) _first[x.contactId]={c:t,s:_ts(x.caseAdvocacyStartedAt)||t}; });
+                      return null; }); }))).then(function(snaps){
+                    var byId={}; snaps.forEach(function(sn){ if(sn) sn.forEach(function(doc){ byId[doc.id]=doc.data()||{}; }); });
                     want.forEach(function(w){
                       var c=byId[w.d.contactId], slot=document.getElementById('mdCaseRs'+w.i);
-                      if(!c||!slot||c.caseAdvocacyAuthorization||!String(c.email||'').trim()) return;
-                      var ca=w.d.createdAt&&w.d.createdAt.toDate?w.d.createdAt.toDate():null;
-                      if(ca&&(ca.getFullYear()+'-'+String(ca.getMonth()+1).padStart(2,'0')+'-'+String(ca.getDate()).padStart(2,'0'))<'2026-08-12') return;
+                      if(!c||!slot||c.caseAdvocacyAuthorization||!String(c.email||'').trim()||c.partnerIsland) return;
+                      var ca=(_first[w.d.contactId]&&_first[w.d.contactId].s)||(w.d.createdAt&&w.d.createdAt.toDate?w.d.createdAt.toDate():null);
+                      if(ca&&ca.toISOString().slice(0,10)<'2026-08-12') return;
                       var sent=c.caseAdvocacyOpeningEmailSentAt&&c.caseAdvocacyOpeningEmailSentAt.toDate?c.caseAdvocacyOpeningEmailSentAt.toDate():null;
                       var busy=window._mdResending&&window._mdResending[w.d.contactId];
                       slot.innerHTML='<button type="button"'+(busy?' disabled':'')+' title="Email the case opening letter again so the parent can sign the consent" onclick="event.stopPropagation();myDayResendConsent(this,'+_jsArg(w.d.contactId)+','+_jsArg(w.d.caseAdvocateName||'')+')">'+(busy?'Sending&hellip;':'Resend consent')+'</button>'
