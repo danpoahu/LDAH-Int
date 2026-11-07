@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Island Clean-up</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+html{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#FFFBEB;color:#1E293B;font:15px/1.5 'Source Sans 3',system-ui,sans-serif}
+.w{max-width:1100px;margin:0 auto;padding:24px 16px 80px}
+h1{font:800 1.8rem Outfit,sans-serif;color:#1a3c6e;margin:0}
+.sub{color:#64748B;margin:4px 0 0}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:18px 0 10px;position:sticky;top:0;background:#FFFBEB;padding:10px 0;z-index:5;border-bottom:1px solid #FDE68A}
+.count{font:800 1.05rem Outfit;color:#0F172A}
+.count small{font:600 .85rem 'Source Sans 3';color:#64748B}
+.bar label{font-size:.88rem;font-weight:600;color:#334155;display:flex;align-items:center;gap:6px;cursor:pointer}
+.bar input[type=search]{border:1px solid #CBD5E1;border-radius:8px;padding:7px 10px;font:inherit;min-width:220px;background:#fff}
+.bar select{border:1px solid #CBD5E1;border-radius:8px;padding:7px 10px;font:inherit;background:#fff}
+.msg{background:#fff;border-left:4px solid #0891B2;border-radius:8px;padding:14px 16px;box-shadow:0 2px 10px rgba(15,23,42,.06);margin-top:16px}
+.msg.err{border-left-color:#DC2626}
+.card{background:#fff;border-radius:12px;box-shadow:0 2px 10px rgba(15,23,42,.06);border-left:5px solid #CBD5E1;padding:14px 16px;margin-top:12px}
+.card.done{border-left-color:#16A34A;background:#F0FDF4}
+.top{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline}
+.nm{font:700 1.08rem Outfit;color:#0F172A}
+.pill{display:inline-block;font:700 .7rem Outfit;border-radius:999px;padding:2px 8px;background:#F1F5F9;color:#475569;margin-right:4px}
+.pill.no{background:#FEF3C7;color:#92400E}
+.meta{font-size:.86rem;color:#475569;margin-top:4px}
+.meta b{color:#0F172A}
+.clue{display:inline-block;background:#ECFEFF;border:1px solid #A5F3FC;color:#0E7490;border-radius:8px;padding:2px 8px;font-weight:700;font-size:.82rem;margin-left:4px}
+.act{margin-top:8px;font-size:.86rem}
+.act h4{margin:6px 0 2px;font:700 .74rem Outfit;color:#0E7490;text-transform:uppercase;letter-spacing:.05em}
+.act ul{margin:0;padding-left:18px}
+.act li{margin:2px 0}
+.none{color:#94A3B8;font-style:italic}
+.isl{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+.isl button{border:1px solid #CBD5E1;background:#fff;color:#334155;border-radius:999px;padding:6px 12px;font:700 .82rem Outfit;cursor:pointer}
+.isl button:hover{border-color:#0891B2;color:#0E7490}
+.isl button.on{background:#16A34A;border-color:#16A34A;color:#fff}
+.isl select{border:1px solid #CBD5E1;border-radius:999px;padding:6px 10px;font:700 .82rem Outfit;color:#334155;background:#fff}
+.saved{font-weight:700;color:#166534;font-size:.86rem}
+.undo{border:none;background:none;color:#0E7490;text-decoration:underline;cursor:pointer;font:inherit;font-size:.86rem}
+a{color:#0E7490}
+</style>
+</head>
+<body>
+<div class="w">
+  <h1>Island Clean-up</h1>
+  <p class="sub">Families in DAN with no island. Pick the island on each one and it saves straight away. Clues: who entered them, what they signed up for, and their phone area code.</p>
+  <div id="app"><div class="msg">Loading&hellip;</div></div>
+</div>
+<script>
+(function () {
+  var FB = { apiKey: 'AIzaSyAU3CQ07bCVKlJ1qGak-150kaJEyPKldLk', authDomain: 'ldah-932d5.firebaseapp.com', projectId: 'ldah-932d5',
+             storageBucket: 'ldah-932d5.firebasestorage.app', messagingSenderId: '662130454003', appId: '1:662130454003:web:437576d5a5811ecd8df686' };
+  firebase.initializeApp(FB);
+  var db = firebase.firestore(), app = document.getElementById('app');
+  var ISLANDS = ['Oahu', 'Hawaii', 'Maui', 'Kauai', 'Molokai', 'Lanai'];
+  var LABEL = { Oahu: 'Oʻahu', Hawaii: 'Hawaiʻi Island', Maui: 'Maui', Kauai: 'Kauaʻi', Molokai: 'Molokaʻi', Lanai: 'Lānaʻi' };
+  var OTHERS = ['American Samoa', 'Guam', 'CNMI', 'Palau', 'Micronesia', 'Marshall Islands', 'Other'];
+  /* Phone area codes that point somewhere (808 is all of Hawaiʻi, so it says nothing about the island). */
+  var AREA = { '684': 'American Samoa', '671': 'Guam', '670': 'CNMI', '680': 'Palau', '691': 'Micronesia', '692': 'Marshall Islands' };
+  var SOURCE = {
+    'event-signup': 'Signed up for an event on the website or app', 'quick-add from interaction form': 'Added by staff from an interaction',
+    'one-off gathering quick-add': 'Added by staff at a one-off gathering', 'event-summary-walkin': 'Walk-in added on an event summary',
+    'web-membership': 'Joined as a member online', 'readiness-kiosk': 'Screening consent at a kiosk', 'lions-screening': 'Lions screening form',
+    'cross-platform card from User Roles': 'Staff contact card'
+  };
+  var me = null, rows = [], staffIsl = {}, staffName = {}, filt = { q: '', mk: true, by: '' };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var day = function (t) { var d = t && t.toDate ? t.toDate() : (t ? new Date(t) : null); return d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
+
+  firebase.auth().onAuthStateChanged(async function (u) {
+    if (!u) { app.innerHTML = '<div class="msg err">Sign in to <a href="../index.html">DAN</a> in this browser first, then come back to this page.</div>'; return; }
+    try {
+      var r = await db.collection('userRoles').doc(u.uid).get();
+      var role = r.exists ? (r.data().role || '') : '';
+      if (role !== 'superAdmin' && role !== 'admin') { app.innerHTML = '<div class="msg err">This page is for LDAH admins.</div>'; return; }
+      me = { uid: u.uid, email: u.email || '', name: (r.data().displayName || u.email || ''), role: role };
+      await load();
+    } catch (e) { app.innerHTML = '<div class="msg err">Could not load: ' + esc(e.message) + '</div>'; }
+  });
+
+  async function load() {
+    app.innerHTML = '<div class="msg">Loading families&hellip;</div>';
+    var ur = await db.collection('userRoles').get();
+    ur.forEach(function (d) { var x = d.data() || {}; staffName[d.id] = x.displayName || x.email || ''; staffIsl[d.id] = x.location || ''; if (x.displayName) staffIsl['n:' + x.displayName] = x.location || ''; });
+    var snap = await db.collection('contacts').where('island', '==', 'Unknown').get();
+    rows = [];
+    snap.forEach(function (d) { var c = d.data() || {}; if (c.archived === true || c.isArchived === true) return; rows.push({ id: d.id, c: c, sign: [], ix: [], saved: '' }); });
+    app.innerHTML = '<div class="msg">Loading what ' + rows.length + ' families signed up for and did with us&hellip;</div>';
+    var ids = rows.map(function (r) { return r.id; }), byId = {};
+    rows.forEach(function (r) { byId[r.id] = r; });
+    var jobs = [];
+    for (var k = 0; k < ids.length; k += 30) {
+      (function (chunk) {
+        jobs.push(db.collectionGroup('signups').where('linkedContactId', 'in', chunk).get().then(function (s) {
+          s.forEach(function (d) { var x = d.data() || {}; var r = byId[x.linkedContactId]; if (r) r.sign.push(x); });
+        }).catch(function () {}));
+        jobs.push(db.collection('interactions').where('contactId', 'in', chunk).get().then(function (s) {
+          s.forEach(function (d) { var x = d.data() || {}; var r = byId[x.contactId]; if (r) r.ix.push(x); });
+        }).catch(function () {}));
+      })(ids.slice(k, k + 30));
+    }
+    await Promise.all(jobs);
+    render();
+  }
+
+  function enteredBy(c) {
+    var uid = c.createdByUid || c.createdBy || '';
+    var name = c.createdByName || (uid && staffName[uid]) || '';
+    if (/^system$/i.test(name)) name = '';
+    if (!name) return { text: SOURCE[c.source] || (c.source ? c.source : 'Not recorded'), isl: '' };
+    var isl = staffIsl[uid] || staffIsl['n:' + name] || '';
+    return { text: name, isl: isl, staff: true };
+  }
+  function areaClue(c) { var p = String(c.phone || '').replace(/\D/g, ''); if (p.length === 11 && p[0] === '1') p = p.slice(1); return AREA[p.slice(0, 3)] || ''; }
+
+  function cardHtml(r) {
+    var c = r.c, by = enteredBy(c), ac = areaClue(c);
+    var nm = c.displayName || ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || '(no name)';
+    var h = '<div class="card' + (r.saved ? ' done' : '') + '" id="c_' + r.id + '"><div class="top"><span class="nm">' + esc(nm) + '</span>';
+    if (c.type) h += '<span class="pill">' + esc(c.type) + '</span>';
+    if (c.marketingOptOut === true) h += '<span class="pill no">No announcements</span>';
+    h += '</div><div class="meta">Entered by <b>' + esc(by.text) + '</b>' + (by.isl ? '<span class="clue">their island: ' + esc(LABEL[by.isl] || by.isl) + '</span>' : '') +
+         (c.createdAt ? ' &middot; added ' + esc(day(c.createdAt)) : '') + '</div>';
+    h += '<div class="meta">' + (c.email ? esc(c.email) : '<span class="none">no email</span>') + ' &middot; ' + (c.phone ? esc(c.phone) : '<span class="none">no phone</span>') +
+         (ac ? '<span class="clue">area code: ' + esc(ac) + '</span>' : '') + '</div>';
+    h += '<div class="act"><h4>Signed up for</h4>';
+    if (r.sign.length) h += '<ul>' + r.sign.slice(0, 8).map(function (s) {
+      var when = (s.selectedDates || s.selectedSessions || []).slice(0, 2).join('; ');
+      return '<li>' + esc(s.eventTitle || s.programTitle || 'An event') + (when ? ' <span class="none">(' + esc(String(when).replace(/\|/g, ' · ')) + ')</span>' : '') + (s.status === 'cancelled' ? ' <span class="none">cancelled</span>' : '') + '</li>';
+    }).join('') + (r.sign.length > 8 ? '<li class="none">and ' + (r.sign.length - 8) + ' more</li>' : '') + '</ul>';
+    else h += '<div class="none">Nothing found</div>';
+    h += '<h4>With LDAH</h4>';
+    if (r.ix.length) h += '<ul>' + r.ix.slice(0, 6).map(function (x) {
+      return '<li>' + esc(x.interactionType || x.channel || 'Interaction') + (x.summary ? ': ' + esc(String(x.summary).slice(0, 110)) : '') +
+        (x.owner ? ' <span class="none">(' + esc(x.owner) + (x.createdAt ? ', ' + esc(day(x.createdAt)) : '') + ')</span>' : '') + '</li>';
+    }).join('') + (r.ix.length > 6 ? '<li class="none">and ' + (r.ix.length - 6) + ' more</li>' : '') + '</ul>';
+    else h += '<div class="none">Nothing found</div>';
+    h += '</div><div class="isl">';
+    if (r.saved) {
+      h += '<span class="saved">Saved: ' + esc(LABEL[r.saved] || r.saved) + '</span> <button type="button" class="undo" data-undo="' + r.id + '">Undo</button>';
+    } else {
+      h += ISLANDS.map(function (i) { return '<button type="button" data-id="' + r.id + '" data-isl="' + i + '">' + esc(LABEL[i]) + '</button>'; }).join('');
+      h += '<select data-id="' + r.id + '"><option value="">Somewhere else&hellip;</option>' + OTHERS.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select>';
+    }
+    return h + '</div></div>';
+  }
+
+  function render() {
+    var bys = {}; rows.forEach(function (r) { bys[enteredBy(r.c).text] = 1; });
+    var list = rows.filter(function (r) {
+      if (filt.mk && r.c.marketingOptOut === true && !r.saved) return false;
+      if (filt.by && enteredBy(r.c).text !== filt.by) return false;
+      if (filt.q) { var t = ((r.c.displayName || '') + ' ' + (r.c.firstName || '') + ' ' + (r.c.lastName || '') + ' ' + (r.c.email || '')).toLowerCase(); if (t.indexOf(filt.q) === -1) return false; }
+      return true;
+    }).sort(function (a, b) { return enteredBy(a.c).text.localeCompare(enteredBy(b.c).text) || String(a.c.displayName || '').localeCompare(String(b.c.displayName || '')); });
+    var left = rows.filter(function (r) { return !r.saved && !(filt.mk && r.c.marketingOptOut === true); }).length;
+    var h = '<div class="bar"><span class="count">' + left + ' <small>left to do</small></span>' +
+      '<label><input type="checkbox" id="fMk"' + (filt.mk ? ' checked' : '') + '> Only families who get announcements</label>' +
+      '<select id="fBy"><option value="">Everyone who entered them</option>' + Object.keys(bys).sort().map(function (b) { return '<option' + (b === filt.by ? ' selected' : '') + '>' + esc(b) + '</option>'; }).join('') + '</select>' +
+      '<input type="search" id="fQ" placeholder="Search a name or email" value="' + esc(filt.q) + '"></div>';
+    h += list.length ? list.map(cardHtml).join('') : '<div class="msg">Nothing left here.</div>';
+    app.innerHTML = h;
+    var q = document.getElementById('fQ'); q.oninput = function () { filt.q = q.value.trim().toLowerCase(); var pos = q.selectionStart; render(); var n = document.getElementById('fQ'); n.focus(); n.setSelectionRange(pos, pos); };
+    document.getElementById('fMk').onchange = function (e) { filt.mk = e.target.checked; render(); };
+    document.getElementById('fBy').onchange = function (e) { filt.by = e.target.value; render(); };
+  }
+
+  async function save(id, isl) {
+    var r = rows.filter(function (x) { return x.id === id; })[0]; if (!r) return;
+    try {
+      await db.collection('contacts').doc(id).update({ island: isl, islandSource: 'manual', islandSetByName: me.name, islandSetAt: firebase.firestore.FieldValue.serverTimestamp() });
+      r.saved = isl;
+      db.collection('auditLog').add({ timestamp: firebase.firestore.FieldValue.serverTimestamp(), action: 'Set contact island',
+        details: (r.c.displayName || id) + ': ' + isl + ' (Island Clean-up) [' + id + ']', performedBy: me.email, performedByRole: me.role }).catch(function () {});
+      var el = document.getElementById('c_' + id); if (el) el.outerHTML = cardHtml(r);
+      var cnt = document.querySelector('.count'); if (cnt) cnt.innerHTML = rows.filter(function (x) { return !x.saved && !(filt.mk && x.c.marketingOptOut === true); }).length + ' <small>left to do</small>';
+    } catch (e) { alertBox(id, 'Not saved: ' + e.message); }
+  }
+  async function undo(id) {
+    var r = rows.filter(function (x) { return x.id === id; })[0]; if (!r) return;
+    try {
+      await db.collection('contacts').doc(id).update({ island: 'Unknown', islandSource: r.c.islandSource || 'nothing on file' });
+      db.collection('auditLog').add({ timestamp: firebase.firestore.FieldValue.serverTimestamp(), action: 'Set contact island',
+        details: (r.c.displayName || id) + ': back to Unknown (Island Clean-up undo) [' + id + ']', performedBy: me.email, performedByRole: me.role }).catch(function () {});
+      r.saved = '';
+      var el = document.getElementById('c_' + id); if (el) el.outerHTML = cardHtml(r);
+    } catch (e) { alertBox(id, 'Not undone: ' + e.message); }
+  }
+  function alertBox(id, t) { var el = document.querySelector('#c_' + id + ' .isl'); if (el) el.insertAdjacentHTML('beforeend', '<span style="color:#DC2626;font-weight:700;">' + esc(t) + '</span>'); }
+
+  app.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.isl) { b.disabled = true; save(b.dataset.id, b.dataset.isl); }
+    else if (b.dataset.undo) undo(b.dataset.undo);
+  });
+  app.addEventListener('change', function (e) {
+    var s = e.target; if (s.tagName === 'SELECT' && s.dataset.id && s.value) save(s.dataset.id, s.value);
+  });
+})();
+</script>
+</body>
+</html>
