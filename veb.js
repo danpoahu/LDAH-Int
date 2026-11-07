@@ -29,10 +29,14 @@
   function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
   function addDays(s, n) { var p = s.split('-').map(Number); var d = new Date(p[0], p[1]-1, p[2] + n); return ymd(d); }
   function wednesdays(y, m) { var out = []; for (var d = 1; d <= 31; d++) { var x = new Date(y, m-1, d); if (x.getMonth() !== m-1) break; if (x.getDay() === 3) out.push(ymd(x)); } return out; }
+  function theme(series, m) { return F().themeFor ? F().themeFor(series, m) : F().themes[m]; }
+  function isPtc(series) { return series === 'Parent Talk Café'; }
+  // PTC is usually one session on the 3rd Wednesday; Learning Labs the 2nd and 4th.
+  function defaultDates(series, y, m) { var w = wednesdays(y, m); return isPtc(series) ? [w[2]] : [w[1], w[3] || w[2]]; }
   function isSuper() { return ((window.currentUserData || {}).role) === 'superAdmin'; }
   function fresh() {
     var now = new Date(), m = now.getMonth() + 2, y = now.getFullYear(); if (m > 12) { m -= 12; y++; }
-    if (!F().themes[m]) { m = 1; y = now.getFullYear() + 1; }
+    if (!theme('Learning Labs', m)) { m = 1; y = now.getFullYear() + 1; }
     var w = wednesdays(y, m);
     return { id: null, active: false, series: 'Learning Labs', month: m, year: y, presenter: '', grant: '', sponsors: ['IDEAs that Work'], partnerPages: true, autoDates: true,
       sessions: [{ date: w[1], start: '17:00', end: '18:00', lesson: '', desc: '' }, { date: w[3] || w[2], start: '17:00', end: '18:00', lesson: '', desc: '' }] };
@@ -126,7 +130,7 @@
   }
   function problems() {
     var p = [];
-    if (!F().themes[S.month]) p.push('There is no flyer design for ' + MONTHS[S.month-1] + ' yet. Pick another month.');
+    if (!theme(S.series, S.month)) p.push('There is no ' + S.series + ' flyer design for ' + MONTHS[S.month-1] + ' yet.');
     if (!S.sessions.length) p.push('Add at least one session.');
     S.sessions.forEach(function (s, i) {
       if (!s.date || !s.start || !s.end || !s.lesson) p.push('Session ' + (i+1) + ' needs a date, start, end and lesson.');
@@ -135,7 +139,7 @@
     return p;
   }
   function spec() {
-    return { series: S.series, month: S.month, year: S.year, sponsors: S.sponsors, sessions: S.sessions,
+    return { series: S.series, month: S.month, year: S.year, sponsors: S.sponsors, sessions: S.sessions, presenter: S.presenter,
       logoUrl: 'https://www.ldahawaii.org/logo_blue.png', pipUrl: 'https://www.ldahawaii.org/assets/images/wp/Pacific-Island-Partners-Logo.png',
       qrHst: window._cmsQRPngForUrl('https://www.ldahawaii.org/events.html?eventId=' + S.id + '&autoOpen=1&src=flyer-qr'),
       qrPartner: window._cmsQRPngForUrl('https://www.ldahawaii.org/events.html?eventId=' + S.id + '&autoOpen=1&src=flyer-partner') };
@@ -143,11 +147,11 @@
   function markDirty() { dirty = true; var b = document.getElementById('vebFlyerNote'); if (b && Object.keys(images).length) b.textContent = 'You changed the form. Make the flyers again before saving.'; }
   function onMonthChange() {
     readForm();
-    var t = F().themes[S.month];
+    var t = theme(S.series, S.month);
     document.getElementById('vebTheme').textContent = t ? t.name : 'No design for this month yet';
     if (S.autoDates) {
-      var w = wednesdays(S.year, S.month);
-      document.querySelectorAll('.veb-sess .vs-date').forEach(function (inp, i) { inp.value = (i === 0 ? w[1] : (w[3] || w[2])) || ''; });
+      var dd = defaultDates(S.series, S.year, S.month);
+      document.querySelectorAll('.veb-sess .vs-date').forEach(function (inp, i) { inp.value = dd[i] || dd[dd.length - 1] || ''; });
       readForm();
     }
     tzTable(); markDirty();
@@ -170,15 +174,15 @@
   }
   function render() {
     var body = document.getElementById('vebBody'); if (!body) return;
-    var mOpts = MONTHS.map(function (m, i) { var has = !!F().themes[i+1]; return '<option value="' + (i+1) + '"' + (S.month === i+1 ? ' selected' : '') + (has ? '' : ' disabled') + '>' + m + (has ? '' : ' (no design yet)') + '</option>'; }).join('');
+    var mOpts = MONTHS.map(function (m, i) { var has = !!theme(S.series, i+1); return '<option value="' + (i+1) + '"' + (S.month === i+1 ? ' selected' : '') + (has ? '' : ' disabled') + '>' + m + (has ? '' : ' (no design yet)') + '</option>'; }).join('');
     var spons = ['IDEAs that Work', 'Ke Ola Mamo'].map(function (x) { return '<label class="veb-chk"><input type="checkbox" class="veb-sponsor" value="' + esc(x) + '"' + (S.sponsors.indexOf(x) >= 0 ? ' checked' : '') + ' onchange="VEB.changed()"> ' + esc(x) + '</label>'; }).join('');
     body.innerHTML =
       '<div class="veb-wrap"><div class="veb-form">'
       + (S.id ? '<div class="veb-editing">Editing: ' + esc(S.title || 'saved event') + ' <span class="veb-pill ' + (S.active ? 'live' : '') + '">' + (S.active ? 'On the website' : 'Hidden draft') + '</span> <a href="javascript:void(0)" onclick="VEB.newEvent()">Start a new event</a></div>' : '')
-      + '<div class="veb-row3"><label>Series *<select id="vebSeries" onchange="VEB.changed()"><option' + (S.series === 'Learning Labs' ? ' selected' : '') + '>Learning Labs</option><option' + (S.series === 'Parent Talk Café' ? ' selected' : '') + '>Parent Talk Café</option></select></label>'
+      + '<div class="veb-row3"><label>Series *<select id="vebSeries" onchange="VEB.seriesChanged()"><option' + (S.series === 'Learning Labs' ? ' selected' : '') + '>Learning Labs</option><option' + (S.series === 'Parent Talk Café' ? ' selected' : '') + '>Parent Talk Café</option></select></label>'
       + '<label>Month *<select id="vebMonth" onchange="VEB.monthChanged()">' + mOpts + '</select></label>'
       + '<label>Year *<input type="number" id="vebYear" min="2026" max="2035" value="' + S.year + '" onchange="VEB.monthChanged()"></label></div>'
-      + '<div class="veb-theme">Flyer theme: <b id="vebTheme">' + esc((F().themes[S.month] || {}).name || 'No design for this month yet') + '</b></div>'
+      + '<div class="veb-theme">Flyer theme: <b id="vebTheme">' + esc((theme(S.series, S.month) || {}).name || 'No design for this month yet') + '</b></div>'
       + '<div id="vebSessions">' + S.sessions.map(sessRow).join('') + '</div>'
       + (S.sessions.length < 2 ? '<button class="btn btn-ghost veb-small" onclick="VEB.addSession()">Add a session</button>' : '')
       + '<datalist id="vebLessons">' + LESSONS.map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist>'
@@ -227,14 +231,14 @@
     var ss = S.sessions.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
     var first = ss[0], last = ss[ss.length - 1], month = MONTHS[S.month-1];
     var signupDates = ss.map(function (s) { return longDate(s.date) + ', ' + t12(s.start) + ' - ' + t12(s.end) + ' - ' + s.lesson; });
-    var desc = (ss.length > 1 ? ss.length + ' sessions' : 'A session') + ' on Zoom for parents and families:\n' + ss.map(function (s) {
+    var desc = (ss.length > 1 ? ss.length + ' sessions' : 'A session') + (isPtc(S.series) ? ', recorded and posted on Facebook @ Parent Talk Café, for parents and families:\n' : ' on Zoom for parents and families:\n') + ss.map(function (s) {
       var d = longDate(s.date); return '• ' + d.replace(/, \d{4}$/, '') + ', ' + t12(s.start) + '–' + t12(s.end) + ' HST: ' + s.lesson + (s.desc ? '. ' + s.desc : ''); }).join('\n')
       + (S.presenter ? '\nPresented by ' + S.presenter + '.' : '');
     var pl = {
       title: S.series + ' — ' + month + ' ' + S.year, description: desc,
       zoomMode: S.series === 'Parent Talk Café' ? 'parent_talk_cafe' : 'event',
       eventType: S.series === 'Parent Talk Café' ? 'parent_talk_cafe' : 'learning_labs',
-      location: 'Virtual (Zoom)', eventDate: first.date, time: t12(first.start) + ' - ' + t12(first.end) + ' HST',
+      location: isPtc(S.series) ? 'Virtual (Facebook: Parent Talk Café)' : 'Virtual (Zoom)', eventDate: first.date, time: t12(first.start) + ' - ' + t12(first.end) + ' HST',
       startDate: ymd(new Date()), moveToPastDate: addDays(last.date, 1), removeDate: addDays(last.date, 30),
       signupDates: signupDates, customQuestions: [], showGroupField: false, infoOnly: false, archived: false,
       partnerPages: S.partnerPages ? PARTNER_PAGES.slice() : [], sponsors: S.sponsors, presenterName: S.presenter,
@@ -341,6 +345,13 @@
     changed: function () { readForm(); tzTable(); markDirty(); },
     datesTouched: function () { S.autoDates = false; VEB.changed(); },
     monthChanged: onMonthChange,
+    // Switching series swaps the design set and, while dates are untouched, the default sessions.
+    seriesChanged: function () {
+      readForm();
+      if (S.autoDates) { var dd = defaultDates(S.series, S.year, S.month);
+        S.sessions = dd.map(function (d, i) { var o = S.sessions[i] || { start: '17:00', end: '18:00', lesson: '', desc: '' }; return { date: d, start: o.start, end: o.end, lesson: o.lesson, desc: o.desc }; }); }
+      render(); markDirty();
+    },
     addSession: function () { readForm(); var w = wednesdays(S.year, S.month); S.sessions.push({ date: w[3] || w[2] || '', start: '17:00', end: '18:00', lesson: '', desc: '' }); render(); markDirty(); },
     removeSession: function (i) { readForm(); S.sessions.splice(i, 1); render(); markDirty(); },
     makeFlyers: makeFlyers, save: save, unpublish: unpublish, edit: edit,

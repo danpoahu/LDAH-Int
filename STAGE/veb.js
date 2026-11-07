@@ -193,7 +193,7 @@
       + '<div class="veb-btns"><button class="btn" onclick="VEB.makeFlyers()">Make flyers</button>'
       + '<button class="btn btn-ghost" onclick="VEB.save(false)">Save as hidden draft</button>'
       + (S.id && S.active ? '<button class="btn btn-ghost" onclick="VEB.unpublish()">Hide from website</button>' : '<button class="btn btn-ghost veb-pub" onclick="VEB.save(true)">Publish to website…</button>') + '</div>'
-      + '<p class="veb-muted">Saving keeps the event hidden from ldahawaii.org. Publish puts it on the live website straight away, because STAGE and live share one database.</p>'
+      + '<p class="veb-muted">Saving keeps the event hidden from ldahawaii.org. Publish puts it on the website straight away.</p>'
       + '</div><div class="veb-side"><div class="veb-lbl">Each island\'s local time</div><div id="vebTz"></div></div></div>'
       + '<div class="veb-lbl" style="margin-top:18px">Flyers</div><p id="vebFlyerNote" class="veb-muted">Click Make flyers to draw all four.</p><div id="vebFlyers" class="veb-flyers"></div>'
       + '<div class="veb-lbl" style="margin-top:22px">Events made with the builder</div><div id="vebList" class="veb-muted">Loading…</div>';
@@ -286,7 +286,7 @@
     if (!publish) return doSave(false);
     if (typeof window.showConfirmModal !== 'function') return doSave(true);
     window.showConfirmModal({ title: 'Publish to the website?', subtitle: S.series + ' — ' + MONTHS[S.month-1] + ' ' + S.year,
-      body: 'This puts the event and its Hawaiʻi flyer on ldahawaii.org right away, with Register open. STAGE and live share one database, so this is live even from STAGE.',
+      body: 'This puts the event and its Hawaiʻi flyer on ldahawaii.org right away, with Register open.',
       confirmLabel: 'Publish', cancelLabel: 'Cancel', onConfirm: function () { doSave(true); } });
   }
   async function unpublish() {
