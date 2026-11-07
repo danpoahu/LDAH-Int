@@ -6227,7 +6227,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.38</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.39</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8532,11 +8532,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
               <div style="font-weight:700;font-size:.92rem;">Staff Activity</div>
               <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Follow-up interactions grouped by staff member, then by family. Includes update timeline.</div>
             </div>
-            <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin" onclick="cmsBuildNHSurveyReport()" title="Every answer given to the Native Hawaiian family survey, added up across all submissions.">
-              <div style="font-size:1.4rem;margin-bottom:6px;">🌺</div>
-              <div style="font-weight:700;font-size:.92rem;">Native Hawaiian Family Survey</div>
-              <div style="font-size:.78rem;color:var(--text-soft);margin-top:4px;">Cumulative results across all submissions.</div>
-            </div>
+            <!-- Native Hawaiian Family Survey report archived 2026-11-06 (Daniel); code kept, tile removed. -->
             <div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:20px;cursor:pointer;border:2px solid #1a3c6e;" data-roles="superAdmin,admin,webAdmin,appAdmin,partner" onclick="cmsBuildWebsiteAppAnalyticsReport()" title="Website and app visits, popular pages and file downloads, written up for funders.">
               <div style="font-size:1.4rem;margin-bottom:6px;">🌐</div>
               <div style="font-weight:700;font-size:.92rem;">Website & App Analytics</div>
@@ -21898,10 +21894,14 @@ var _photoPendingByIsland = {};
     document.getElementById('ctZipCode').value = '';
     document.getElementById('ctIsland').value = '';
     window._ctIslandTouched = false;
-    /* A one-island partner's contacts default to their own island (v151.28). */
+    /* How the island in the box got there: '' | 'zip' | 'partner' | the stored
+       source on an edit. Only a real change of the dropdown is 'manual' (v154.39). */
+    window._ctIslandSrc = '';
+    /* A one-island partner's contacts default to their own island (v151.28).
+       A default, not a staff pick, so it is not saved as 'manual' (v154.39). */
     if (window.isPartnerUser && window.isPartnerUser() && window.currentPartnerIsland && window.currentPartnerIsland()) {
       document.getElementById('ctIsland').value = window.currentPartnerIsland();
-      window._ctIslandTouched = true;
+      window._ctIslandSrc = 'partner';
     }
     ctIslandHint('');
     document.querySelectorAll('input[name="ctMilitaryStatus"]').forEach(function(r) { r.checked = r.value === 'Not military'; });
@@ -21967,8 +21967,13 @@ var _photoPendingByIsland = {};
             var _pipIsl = ['American Samoa', 'Guam', 'CNMI', 'Micronesia', 'Marshall Islands', 'Palau'];
             if (_pipIsl.indexOf(_isl) === -1) _isl = (_pipIsl.indexOf(d.partnerIsland) !== -1) ? d.partnerIsland : '';
           }
-          document.getElementById('ctIsland').value = _isl;
-          window._ctIslandTouched = !!_isl;
+          if (_isl && window.ldahSetIslandSelect) window.ldahSetIslandSelect(document.getElementById('ctIsland'), _isl);
+          else document.getElementById('ctIsland').value = _isl;
+          /* v154.39: only a stored hand pick counts as touched. Opening a card used
+             to mark every island as touched, so every edit saved 'manual' and a
+             corrected zip could never fix the island again. */
+          window._ctIslandTouched = (d.islandSource === 'manual');
+          window._ctIslandSrc = (_isl && _isl !== d.island && _isl === d.partnerIsland) ? 'partner' : String(d.islandSource || '');
           ctIslandHint(_isl ? '' : (d.island === 'Unknown' ? 'This contact has no island on file — please pick one.' : ''));
           // Normalize legacy military values for editing (v120.1.0).
           var milVal = (typeof _normMilitaryStatus === 'function') ? (_normMilitaryStatus(d.militaryStatus) || 'Not military') : (d.militaryStatus || 'Not military');
@@ -22092,6 +22097,16 @@ var _photoPendingByIsland = {};
     Molokai:['96729','96742','96748','96757','96770'],
     Lanai:  ['96763']
   };
+  // Partner jurisdictions (v154.39). Same table and names as LDAH_PARTNER_ZIPS on
+  // the server, so a Pacific zip names the jurisdiction instead of 'Other'.
+  window.LDAH_PARTNER_ZIPS = {
+    'American Samoa':   ['96799'],
+    'Guam':             ['96910','96912','96913','96915','96916','96917','96919','96921','96923','96928','96929','96931','96932'],
+    'CNMI':             ['96950','96951','96952'],
+    'Palau':            ['96939','96940'],
+    'Micronesia':       ['96941','96942','96943','96944'],
+    'Marshall Islands': ['96960','96970']
+  };
 
   // Returns 'Oahu' | 'Hawaii' | ... | 'Other' | '' ('' = cannot tell, ask).
   // A well-formed 5-digit zip that is NOT a Hawaii zip is genuinely somewhere
@@ -22102,7 +22117,21 @@ var _photoPendingByIsland = {};
     for (var isl in window.LDAH_ISLAND_ZIPS) {
       if (window.LDAH_ISLAND_ZIPS[isl].indexOf(z) !== -1) return isl;
     }
+    // Partner jurisdictions before the catch-all, or Guam reads as 'Other' (v154.39).
+    for (var j in window.LDAH_PARTNER_ZIPS) {
+      if (window.LDAH_PARTNER_ZIPS[j].indexOf(z) !== -1) return j;
+    }
     return 'Other';
+  };
+
+  // Sets an island <select>. The staff list has no Pacific islands, so a zip
+  // that names one adds that option first rather than leaving the box blank.
+  window.ldahSetIslandSelect = function(sel, isl) {
+    if (!sel || !isl) return;
+    if (![].some.call(sel.options, function(o) { return o.value === isl; })) {
+      var o = document.createElement('option'); o.value = isl; o.textContent = isl; sel.appendChild(o);
+    }
+    sel.value = isl;
   };
 
   window.ctIslandHint = function(msg) {
@@ -22115,7 +22144,7 @@ var _photoPendingByIsland = {};
   // A staff member's choice always wins — once they pick, typing a zip must not
   // silently overwrite them.
   window.ctIslandTouched = function() {
-    window._ctIslandTouched = true; ctIslandHint('');
+    window._ctIslandTouched = true; window._ctIslandSrc = 'manual'; ctIslandHint('');
     /* A Super Partner answering Island has also answered "Which island is
        this for?" -- fill that in if it is still blank (v151.28). */
     try {
@@ -22129,11 +22158,19 @@ var _photoPendingByIsland = {};
   window.ctIslandFromZip = function() {
     var sel = document.getElementById('ctIsland');
     if (!sel || window._ctIslandTouched) return;
-    if (window.isPartnerUser && window.isPartnerUser()) return;   // Hawaiʻi zips only; partners pick a Pacific island (v151.28)
     var zip = (document.getElementById('ctZipCode') || {}).value || '';
     var isl = window.ldahIslandFromZip(zip);
+    /* Partners pick from the six Pacific islands (v151.28); a zip fills the box
+       only when it names one of them (v154.39). */
+    if (window.isPartnerUser && window.isPartnerUser()) {
+      if (isl && [].some.call(sel.options, function(o) { return o.value === isl; })) {
+        sel.value = isl; window._ctIslandSrc = 'zip'; ctIslandHint('');
+      }
+      return;
+    }
     if (isl) {
-      sel.value = isl;
+      window.ldahSetIslandSelect(sel, isl);
+      window._ctIslandSrc = 'zip';
       ctIslandHint('');
     } else if (String(zip).trim().length >= 5) {
       sel.value = '';
@@ -22346,7 +22383,8 @@ var _photoPendingByIsland = {};
       island: _islandVal,
       // How the island was decided, so a bad guess is traceable later. A staff
       // member touching the dropdown counts as 'manual' and outranks the zip.
-      islandSource: window._ctIslandTouched ? 'manual' : 'zip',
+      // v154.39: untouched keeps how it got there (stored source, 'zip', 'partner').
+      islandSource: window._ctIslandTouched ? 'manual' : (window._ctIslandSrc || 'zip'),
       ...window._grantWrite(document.getElementById('ctGrant').value),
       notes: document.getElementById('ctNotes').value.trim(),
       // Demographics
@@ -22366,6 +22404,9 @@ var _photoPendingByIsland = {};
     };
 
     var editId = document.getElementById('ctEditId').value;
+    /* v154.39: an edit that never touched the island, on a card with no stored
+       source, leaves islandSource alone rather than inventing one. */
+    if (editId && !window._ctIslandTouched && !window._ctIslandSrc) delete data.islandSource;
 
     // Second parent / guardian — optional, additive; never touches the primary
     // email write above. Written only when its email is non-empty; on an EDIT a
@@ -27280,6 +27321,7 @@ window.openContactDetail = async function(contactId) {
     document.getElementById('qcType').value = 'Parent/Guardian';
     document.getElementById('qcEmail').value = '';
     document.getElementById('qcPhone').value = '';
+    var _qcZipEl = document.getElementById('qcZip'); if (_qcZipEl) _qcZipEl.value = '';
     // Super Partner island (v151.0) -- starts on the interaction's island.
     if (window.spPickerRender) window.spPickerRender('qcSpIslandHost', window.spPickerValue ? window.spPickerValue('intSpIslandHost') : '');
     var overlay = document.getElementById('quickContactOverlay');
@@ -27306,6 +27348,7 @@ window.openContactDetail = async function(contactId) {
     var type = document.getElementById('qcType').value || 'Parent/Guardian';
     var email = (document.getElementById('qcEmail').value || '').trim().toLowerCase();
     var phone = (document.getElementById('qcPhone').value || '').trim();
+    var _qcZip = ((document.getElementById('qcZip') || {}).value || '').trim();
     var parts = full.split(/\s+/);
     var firstName = parts[0] || '';
     var lastName = parts.slice(1).join(' ') || '';
@@ -27352,6 +27395,13 @@ window.openContactDetail = async function(contactId) {
       };
       /* Super Partner only (v151.0). A one-island partner's quick-add is left
          exactly as it was -- see the v151.0 report: it has never stamped. */
+      /* Zip (v154.39): the island follows from it. No zip, no island: the
+         server fills it in. */
+      if (_qcZip) {
+        doc.zipCode = _qcZip;
+        var _qcIsl = window.ldahIslandFromZip ? window.ldahIslandFromZip(_qcZip) : '';
+        if (_qcIsl) { doc.island = _qcIsl; doc.islandSource = 'zip'; }
+      }
       window.partnerStamp(doc, _qcSpIsland);   // both partner roles; a no-op for staff. A one-island partner's quick-add was unstamped and vanished from their list (v151.9)
       var ref = await db.collection('contacts').add(doc);
 
@@ -27367,6 +27417,8 @@ window.openContactDetail = async function(contactId) {
         phone: phone,
         type: type,
         partnerIsland: doc.partnerIsland || '',
+        zipCode: doc.zipCode || '',
+        island: doc.island || '',
       });
 
       // Update the interaction form's Client field + hide the warning.
@@ -36249,18 +36301,8 @@ function cmsRenderEventCard(ev, collection, isRecurring, isExpired, isPast) {
    LDAH_W2/functions/audit-contact-islands-2026-08-17.js): hawaii 302, oahu 86,
    molokai 8, kauai 4, maui 4, lanai 1, no location 117. Zero city names were
    ambiguous and zero ZIPs disagreed with their city. */
-var CMS_ISLAND_ZIPS = {
-  hawaii:  ['96704','96710','96718','96719','96720','96721','96725','96726','96727','96728',
-    '96737','96738','96739','96740','96743','96745','96749','96750','96755','96760','96764','96771','96772',
-    '96773','96774','96776','96777','96778','96780','96781','96783','96785'],
-  maui:    ['96708','96713','96732','96733','96753','96761','96767','96768','96779','96784','96788','96790','96793'],
-  molokai: ['96729','96742','96748','96757','96770'],
-  lanai:   ['96763'],
-  kauai:   ['96703','96705','96714','96715','96716','96722','96741','96746','96747','96751','96752','96754',
-    '96756','96765','96766','96769','96796'],
-  oahu:    ['96701','96706','96707','96709','96712','96717','96730','96731','96734','96744','96759','96762',
-    '96782','96786','96789','96791','96792','96795','96797']
-};
+/* CMS_ISLAND_ZIPS removed (v154.39): it had no Honolulu 968xx zips. ZIPs now
+   resolve through window.ldahIslandFromZip, the contact form's full table. */
 var CMS_ISLAND_CITY = {
   hawaii:  /\b(hilo|kailua[- ]?kona|kona|kea.?au|kamuela|honoka.?a|pahoa|volcano|na.?alehu|captain cook|kealakekua|holualoa|honaunau|waikoloa|hawi|kapaau|papaikou|pepeekeo|mountain view|kurtistown|laupahoehoe|ookala|paauilo|pahala|ocean view|hakalau|ninole|honomu|papaaloa|keauhou)\b/i,
   maui:    /\b(kahului|wailuku|kihei|lahaina|kaanapali|napili|makawao|pukalani|kula|paia|haiku|hana|puunene|wailea|maui)\b/i,
@@ -36294,11 +36336,13 @@ function cmsRecipIsland(r) {
 function cmsIslandOf(city, zip) {
   var z = String(zip || '').trim().slice(0, 5);
   if (/^\d{5}$/.test(z)) {
+    /* One zip table for the whole app (v154.39). Only a Hawaiian island counts
+       here; 'Other' and a Pacific jurisdiction fall through to the city check
+       below, as an unrecognised zip always has. */
+    var _zi = (typeof window.ldahIslandFromZip === 'function') ? window.ldahIslandFromZip(z) : '';
+    var _zk = (_zi && _zi !== 'Other') ? (CMS_ISLAND_FROM_FIELD[_zi] || '') : '';
+    if (_zk) return _zk;
     if (z.indexOf('968') === 0) return 'oahu';        // Honolulu + Oʻahu military
-    for (var i = 0; i < CMS_ISLAND_ORDER.length; i++) {
-      var k = CMS_ISLAND_ORDER[i];
-      if (CMS_ISLAND_ZIPS[k].indexOf(z) !== -1) return k;
-    }
     // Unrecognised ZIP: fall through to city rather than give up. One real
     // contact reads "Ewa beach 97706" (96706 mistyped) -- the city is plainly
     // right and dropping her would exclude her from every island send. A
@@ -39253,6 +39297,7 @@ window.osOpenBook = function(date) {
   h += '<div class="os-row2"><div><label for="osBkEm">Email</label><input id="osBkEm" type="email" maxlength="120"></div>' +
        '<div><label for="osBkPh">Phone</label><input id="osBkPh" type="tel" maxlength="30"></div></div>';
   h += '<div class="os-hint">An email or a phone number is needed. With an email the family gets the confirmation email.</div>';
+  h += '<label for="osBkZip">Zip code</label><input id="osBkZip" type="text" inputmode="numeric" maxlength="10" style="max-width:140px;">';
   h += '<label for="osBkRel">Relationship to the child *</label><select id="osBkRel" onchange="osBookRel()">' + rel + '</select>' +
        '<input id="osBkRelO" type="text" maxlength="60" placeholder="Please specify" style="display:none;margin-top:6px;">';
   h += '<div class="os-row3"><div><label for="osBkCF">Child first name *</label><input id="osBkCF" type="text" maxlength="60"></div>' +
@@ -39290,6 +39335,10 @@ window.osBookGo = async function() {
     child: { firstName: g('osBkCF'), lastName: g('osBkCL'), birthday: g('osBkBd') },
     signedName: ''
   };
+  /* Zip (v154.39): goes on the screening address and from there onto a blank card. */
+  var zip = g('osBkZip');
+  if (zip && !/^\d{5}(-\d{4})?$/.test(zip)) { _osMsg('osActMsg', 'That zip code does not look right.'); return; }
+  if (zip) form.zipCode = zip.slice(0, 5);
   var btn = document.getElementById('osActGo'); btn.disabled = true; btn.textContent = 'Booking…';
   try {
     var j = await _osCall('staffBookOfficeScreening', { date: _osA.date, time: _osA.time, form: form, source: 'staff', consentOnTheDay: true });
@@ -45915,6 +45964,7 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   html += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">';
   html += '<input type="text" id="esManualName" placeholder="Name" onkeydown="if(event.key===\'Enter\'){event.preventDefault();cmsAddManualAttendee();}" style="flex:1;min-width:140px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;">';
   html += '<input type="email" id="esManualEmail" placeholder="Email (optional)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();cmsAddManualAttendee();}" style="flex:1;min-width:160px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;">';
+  html += '<input type="text" id="esManualZip" inputmode="numeric" maxlength="10" placeholder="Zip code" onkeydown="if(event.key===\'Enter\'){event.preventDefault();cmsAddManualAttendee();}" style="width:100px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.88rem;">';
   html += '<button type="button" onclick="cmsAddManualAttendee()" style="padding:6px 16px;border:none;background:#0EA5E9;color:#fff;border-radius:6px;font-size:.88rem;font-weight:600;cursor:pointer;">Add</button>';
   html += '</div>';
   html += '<div id="esManualList" style="margin-bottom:0;">' + cmsManualAttendeeListHtml() + '</div>';
@@ -46373,7 +46423,7 @@ window.cmsManualAttendeeListHtml = function() {
     var emailTxt = a.email ? rsEscape(a.email) : '<span style="color:#9CA3AF;">(no email)</span>';
     var badge = a.interactionLogged ? '<span title="Saved to contacts" style="margin-left:6px;font-size:.68rem;color:#166534;">&#10003; contact</span>' : '';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:#fff;border:1px solid #FCE7F3;border-radius:6px;">';
-    h += '<div style="font-size:.86rem;"><strong>' + rsEscape(a.name || '') + '</strong> <span style="color:var(--text-soft);">' + emailTxt + '</span>' + badge + '</div>';
+    h += '<div style="font-size:.86rem;"><strong>' + rsEscape(a.name || '') + '</strong> <span style="color:var(--text-soft);">' + emailTxt + '</span>' + (a.zipCode ? ' <span style="color:var(--text-soft);">' + rsEscape(a.zipCode) + '</span>' : '') + badge + '</div>';
     h += '<button type="button" onclick="cmsRemoveManualAttendee(' + i + ')" title="Remove" style="border:none;background:transparent;color:#DC2626;font-size:1.1rem;cursor:pointer;line-height:1;">&times;</button>';
     h += '</div>';
   });
@@ -46390,14 +46440,17 @@ window.cmsAddManualAttendee = function() {
   var emailEl = document.getElementById('esManualEmail');
   var name = nameEl ? nameEl.value.trim() : '';
   var email = emailEl ? emailEl.value.trim() : '';
+  var zipEl = document.getElementById('esManualZip');
+  var zip = zipEl ? zipEl.value.trim() : '';
   if (!name) {
     if (typeof _showToast === 'function') _showToast('Enter a name to add a walk-in.', '#DC2626'); else alert('Enter a name.');
     return;
   }
   if (!_cmsEventSummaryData.manualAttendees) _cmsEventSummaryData.manualAttendees = [];
-  _cmsEventSummaryData.manualAttendees.push({ name: name, email: email, contactId: '', interactionLogged: false });
+  _cmsEventSummaryData.manualAttendees.push({ name: name, email: email, zipCode: zip, contactId: '', interactionLogged: false });
   if (nameEl) nameEl.value = '';
   if (emailEl) emailEl.value = '';
+  if (zipEl) zipEl.value = '';
   cmsRenderManualAttendees();
   if (nameEl) nameEl.focus();
 };
@@ -46637,7 +46690,7 @@ window.cmsSaveEventSummary = async function() {
         if (_existing) {
           _cid = _existing.id;
         } else {
-          var _cRef = await db.collection('contacts').add({
+          var _wiDoc = {
             displayName: _a.name,
             email: _aEmail,
             type: 'Parent/Guardian',
@@ -46645,7 +46698,17 @@ window.cmsSaveEventSummary = async function() {
             createdByName: (currentUserData && currentUserData.displayName) || '',
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             source: 'event-summary-walkin'
-          });
+          };
+          /* Zip + island (v154.39). No zip: the server fills the island. */
+          var _wiZip = String(_a.zipCode || '').trim();
+          if (_wiZip) {
+            _wiDoc.zipCode = _wiZip;
+            var _wiIsl = window.ldahIslandFromZip ? window.ldahIslandFromZip(_wiZip) : '';
+            if (_wiIsl) { _wiDoc.island = _wiIsl; _wiDoc.islandSource = 'zip'; }
+          }
+          // Partners stamp their island like every other create path (a no-op for staff).
+          if (typeof window.partnerStamp === 'function') window.partnerStamp(_wiDoc, (evDoc && evDoc.partnerIsland) || '');
+          var _cRef = await db.collection('contacts').add(_wiDoc);
           _cid = _cRef.id;
           try { if (typeof _allContacts !== 'undefined' && Array.isArray(_allContacts)) _allContacts.push({ id: _cid, displayName: _a.name, email: _aEmail, type: 'Parent/Guardian' }); } catch (e) {}
         }
@@ -46674,7 +46737,7 @@ window.cmsSaveEventSummary = async function() {
   }
   // Strip to plain stored shape (no stray keys) for the summary doc.
   var _manualToStore = manualAttendees.map(function(a) {
-    return { name: a.name || '', email: a.email || '', contactId: a.contactId || '', interactionLogged: !!a.interactionLogged };
+    return { name: a.name || '', email: a.email || '', zipCode: a.zipCode || '', contactId: a.contactId || '', interactionLogged: !!a.interactionLogged };
   });
 
   var summaryData = {
@@ -49380,12 +49443,21 @@ window._cmsVolFindOrCreateContact = async function(part) {
     try { var q2 = await db.collection('contacts').where('displayName', '==', name).limit(1).get(); if (!q2.empty) return q2.docs[0].id; } catch (e) {}
   }
   var parts = name.split(/\s+/);
-  var ref = await db.collection('contacts').add({
+  /* No hard-coded island (v154.39): it filed every volunteer under "All Other
+     Locations". The server sets the island from the zip/city, or marks it for
+     staff to pick. Any city/zip on the volunteer record goes on the card. */
+  var cdoc = {
     displayName: name || email, firstName: parts[0] || '', lastName: parts.slice(1).join(' '),
-    email: email, type: 'Volunteer', source: 'volunteer-attendance', island: 'Other',
+    email: email, type: 'Volunteer', source: 'volunteer-attendance',
     createdBy: (currentUserData || {}).uid || '', createdByName: (currentUserData || {}).displayName || '',
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
-  });
+  };
+  var _vApp = ((typeof _cmsVolunteerApps !== 'undefined' && _cmsVolunteerApps) || []).find(function(a) { return a.id === (part.volunteerId || part.id); }) || {};
+  var _vZip = String(part.zipCode || part.zip || _vApp.zipCode || _vApp.zip || '').trim();
+  var _vCity = String(part.city || _vApp.city || '').trim();
+  if (_vZip) cdoc.zipCode = _vZip;
+  if (_vCity) cdoc.city = _vCity;
+  var ref = await db.collection('contacts').add(cdoc);
   return ref.id;
 };
 
@@ -61610,6 +61682,17 @@ window.prExportCsv = function() {
     dst.innerHTML = src ? src.innerHTML : '<option value="">-- Select --</option>';
     dst.value = '';
   }
+  /* Zip fills the island box unless staff picked one by hand (v154.39). The
+     select carries data-touched / data-src so Save knows how it got its value. */
+  window._ooZipFillIsland = function(zipId, islId) {
+    var zEl = document.getElementById(zipId), sel = document.getElementById(islId);
+    if (!zEl || !sel || sel.dataset.touched === '1' || sel.style.display === 'none') return;
+    var isl = window.ldahIslandFromZip ? window.ldahIslandFromZip(zEl.value) : '';
+    if (!isl) return;
+    if (window.isPartnerUser && window.isPartnerUser() && ![].some.call(sel.options, function(o) { return o.value === isl; })) return;
+    window.ldahSetIslandSelect(sel, isl);
+    sel.dataset.src = 'zip';
+  };
   function _ooPrepDetails() {
     _ooCloneOptions('ctEthnicity', 'ooNewEthnicity');
     _ooCloneOptions('ctChildAgeRange', 'ooNewAgeRange');
@@ -61646,6 +61729,12 @@ window.prExportCsv = function() {
       return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="ooNewDisabCb" value="' + _esc(d) + '"><span>' + _esc(d) + '</span></label>';
     }).join('');
     var z = document.getElementById('ooNewZip'); if (z) z.value = '';
+    if (isl) {
+      isl.dataset.touched = '';
+      isl.dataset.src = (window.isPartnerUser() && isl.value) ? 'partner' : '';
+      isl.onchange = function() { isl.dataset.touched = '1'; isl.dataset.src = 'manual'; };
+    }
+    if (z) z.oninput = function() { window._ooZipFillIsland('ooNewZip', 'ooNewIsland'); };
   }
 
   /* ── Update an attendee already on the list (v150.11) ─────────────────
@@ -61681,7 +61770,8 @@ window.prExportCsv = function() {
       + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">';
     _ooEdFields.forEach(function(f) { h += '<select id="' + f[1] + '" title="' + f[3] + '" style="' + IN + 'background:#fff;"></select>'; });
     h += '<select id="ooEdMilitary" title="Military status" style="' + IN + 'background:#fff;"></select>'
-      + '<input id="ooEdZip" type="text" inputmode="numeric" placeholder="Zip code" style="' + IN + '"></div>'
+      + '<input id="ooEdZip" type="text" inputmode="numeric" placeholder="Zip code" oninput="_ooZipFillIsland(\'ooEdZip\', \'ooEdIsland\')" style="' + IN + '">'
+      + '<input id="ooEdCity" type="text" placeholder="City" style="' + IN + '"></div>'
       + '<div style="font-size:.76rem;font-weight:600;color:#475569;margin-bottom:4px;">Child&rsquo;s disability categories</div>'
       + '<div id="ooEdDisab" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:2px 10px;font-size:.78rem;margin-bottom:10px;"></div>'
       + '<button type="button" id="ooEdSaveBtn" onclick="cmsOoSaveAttendeeEdit(' + i + ')" style="font-size:.82rem;background:#16A34A;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:600;">Save to contact</button>'
@@ -61701,6 +61791,12 @@ window.prExportCsv = function() {
     });
     var isl = document.getElementById('ooEdIsland');
     if (isl) isl.style.display = window.isPartnerUser() ? 'none' : '';
+    /* v154.39: a stored hand pick is never overwritten by a typed zip. */
+    if (isl) {
+      isl.dataset.touched = (c.islandSource === 'manual') ? '1' : '';
+      isl.dataset.src = '';
+      isl.onchange = function() { isl.dataset.touched = '1'; isl.dataset.src = 'manual'; };
+    }
     var mil = document.getElementById('ooEdMilitary');
     var mh = '<option value="">\u2014 Military status \u2014</option>';
     document.querySelectorAll('input[name="ctMilitaryStatus"]').forEach(function(r) { mh += '<option value="' + _esc(r.value) + '">' + _esc(r.value) + '</option>'; });
@@ -61708,6 +61804,7 @@ window.prExportCsv = function() {
     document.getElementById('ooEdPhone').value = c.phone || '';
     document.getElementById('ooEdEmail').value = c.email || '';
     document.getElementById('ooEdZip').value = c.zipCode || '';
+    document.getElementById('ooEdCity').value = c.city || '';
     var _c0b = (Array.isArray(c.children) && c.children[0]) || {};
     document.getElementById('ooEdChildName').value = _c0b.name || c.childName || '';
     _ooEdContact = c;   // kept so Save can update the child record without losing anything
@@ -61729,10 +61826,19 @@ window.prExportCsv = function() {
     var upd = { phone: phone, email: email, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
     _ooEdFields.forEach(function(f) {
       if (f[0] === 'island' && window.isPartnerUser()) return;   // partner contacts keep island 'Other'
-      var el = document.getElementById(f[1]); upd[f[0]] = el ? String(el.value || '') : '';
+      var el = document.getElementById(f[1]);
+      if (f[0] === 'island') {
+        /* v154.39: never write a blank island; write one only when staff picked
+           it ('manual') or the zip filled it ('zip'). Untouched keeps what is stored. */
+        var _iv = el ? String(el.value || '') : '', _is = el ? String(el.dataset.src || '') : '';
+        if (_iv && _is) { upd.island = _iv; upd.islandSource = _is; }
+        return;
+      }
+      upd[f[0]] = el ? String(el.value || '') : '';
     });
     upd.militaryStatus = String(document.getElementById('ooEdMilitary').value || '');
     upd.zipCode = (document.getElementById('ooEdZip').value || '').trim();
+    upd.city = ((document.getElementById('ooEdCity') || {}).value || '').trim();
     var dis = []; document.querySelectorAll('.ooEdDisabCb:checked').forEach(function(cb) { dis.push(cb.value); });
     upd.disabilityCategories = dis;
     var _childName = (document.getElementById('ooEdChildName').value || '').trim();
@@ -61897,8 +62003,14 @@ window.prExportCsv = function() {
      ['militaryStatus', 'ooNewMilitary'], ['howHeard', 'ooNewHowHeard'], ['zipCode', 'ooNewZip']].forEach(function(p) {
       var v = _ooVal(p[1]); if (v) details[p[0]] = v;
     });
-    var _isl = _ooVal('ooNewIsland') || (window.isPartnerUser() ? (window.currentPartnerIsland() || 'Other') : '');
-    if (_isl) details.island = _isl;
+    var _islPicked = _ooVal('ooNewIsland');
+    var _isl = _islPicked || (window.isPartnerUser() ? (window.currentPartnerIsland() || 'Other') : '');
+    if (_isl) {
+      details.island = _isl;
+      /* v154.39: 'manual' when picked by hand, 'zip' when the zip filled it. */
+      var _islEl = document.getElementById('ooNewIsland');
+      details.islandSource = _islPicked ? ((_islEl && _islEl.dataset.src) || 'manual') : 'partner';
+    }
     var _dis = [];
     document.querySelectorAll('.ooNewDisabCb:checked').forEach(function(cb) { _dis.push(cb.value); });
     if (_dis.length) details.disabilityCategories = _dis;
@@ -75165,7 +75277,12 @@ window.cmsBuildMembershipReport = async function() {
               var scr = (Array.isArray(cur.screenings) ? cur.screenings : []).concat(pending.map(function (r) { return _srcScreening(r, who, nowIso); }));
               var upd = { children: kidsArr, screenings: scr, hasScreenings: true };
               var pf = pending[0].fields;
-              if (!cur.streetAddress && pf.address) { upd.streetAddress = pf.address || ''; upd.city = pf.city || ''; upd.zipCode = pf.zip || ''; }
+              /* v154.39: each address field fills only if the card's is blank, so a
+                 card with a street but no zip still gets the zip, and a card's own
+                 zip/city is never overwritten. */
+              if (!cur.streetAddress && pf.address) upd.streetAddress = pf.address;
+              if (!cur.city && pf.city) upd.city = pf.city;
+              if (!cur.zipCode && pf.zip) upd.zipCode = pf.zip;
               tx.update(ref, upd);
             });
           } else {
@@ -75260,6 +75377,8 @@ window.cmsBuildMembershipReport = async function() {
     </div>
     <label for="qcEmail">Email</label>
     <input id="qcEmail" type="email" placeholder="parent@example.com" />
+    <label for="qcZip">Zip code</label>
+    <input id="qcZip" type="text" inputmode="numeric" maxlength="10" placeholder="96813" />
     <!-- Super Partner island picker (v151.0); hidden for everyone else. -->
     <div id="qcSpIslandHost" style="display:none;margin-top:10px;"></div>
     <div class="qc-actions">
