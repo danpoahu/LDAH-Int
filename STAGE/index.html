@@ -6261,7 +6261,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.2-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.3-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -36375,6 +36375,9 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   // Audience filter state — persisted across dry-runs in this modal session.
   // v122.5.0: 'all' = current behavior; 'parents' = contact.type === 'Parent/Guardian'.
   var _annAudience = 'all';
+  // LDAH = Hawaii families (and anyone not on a partner island), PIP = the six partner islands.
+  // Each family still gets the flyer for where they live; the server decides that.
+  var _annRegion = 'ldah';
 
   // Multi-date events: target a specific session date so we skip only people
   // signed up FOR that date and show that date in the email. Single-date or
@@ -36399,7 +36402,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
     var resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await _annIdToken()) },
-      body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, dryRun: true, audienceFilter: audience, sessionDate: _annSessionDate })
+      body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, dryRun: true, audienceFilter: audience, audienceRegion: _annRegion, sessionDate: _annSessionDate })
     });
     if (!resp.ok) {
       var txt = await resp.text();
@@ -36495,6 +36498,13 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
             '<div style="font-size:.78rem;color:#475569;margin-top:6px;">Only people <strong>not</strong> already signed up for this date will be offered.</div>' +
           '</div>'
         ) : '') +
+        // LDAH or PIP (v155.3). The server picks each family's flyer from their island.
+        '<div style="background:#ECFEFF;border:1px solid #A5F3FC;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:.88rem;">' +
+          '<div style="font-weight:700;color:#0E7490;margin-bottom:6px;">Send to</div>' +
+          '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0;"><input type="radio" name="cmsAnnRegion" value="ldah" checked> <span><strong>LDAH</strong> &mdash; Hawai&#699;i families</span></label>' +
+          '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0;"><input type="radio" name="cmsAnnRegion" value="pip"> <span><strong>PIP</strong> &mdash; Pacific Island Partner families</span></label>' +
+          '<div style="font-size:.78rem;color:#475569;margin-top:6px;">Each family gets the flyer for where they live: the Hawai&#699;i flyer, or the Partner flyer with their own island&#39;s time. A test send shows the version for the group picked here.</div>' +
+        '</div>' +
         // Audience filter (v122.5.0)
         '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:.88rem;">' +
           '<div style="font-weight:700;color:#004E7C;margin-bottom:6px;">Recipients</div>' +
@@ -36660,6 +36670,24 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   if (_applyBtn) _applyBtn.addEventListener('click', _annFilterApply);
   _annFilterRefresh();
 
+  // LDAH / PIP radio: refresh counts and roster for that group (v155.3). The Hawaii
+  // island filter only applies to LDAH, so it is hidden for PIP.
+  Array.prototype.forEach.call(overlay.querySelectorAll('input[name="cmsAnnRegion"]'), function(radio) {
+    radio.addEventListener('change', async function() {
+      _annRegion = radio.value === 'pip' ? 'pip' : 'ldah';
+      var islSel = document.getElementById('cmsAnnFilterIsland');
+      if (islSel) { islSel.value = ''; islSel.parentElement.style.display = _annRegion === 'pip' ? 'none' : ''; }
+      var elWillSend = document.getElementById('cmsAnnCountWillSend'); if (elWillSend) elWillSend.textContent = '…';
+      try {
+        var c = await _annDryRun(_annAudience);
+        document.getElementById('cmsAnnCountEligible').textContent = c.totalEligible;
+        document.getElementById('cmsAnnCountSent').textContent = c.alreadySent;
+        document.getElementById('cmsAnnCountSignedUp').textContent = c.alreadySignedUp || 0;
+        _annRenderRecipientList(c.recipients);
+      } catch (err) { if (elWillSend) elWillSend.textContent = '!'; _showToast('Count refresh failed: ' + err.message, '#DC2626'); }
+    });
+  });
+
   // Audience radio — live-refresh recipient counts on change (v122.5.0)
   Array.prototype.forEach.call(
     overlay.querySelectorAll('input[name="cmsAnnAudience"]'),
@@ -36715,7 +36743,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       var resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await _annIdToken()) },
-        body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, testMode: true, testEmail: testEmail, audienceFilter: _annAudience, sessionDate: _annSessionDate })
+        body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, testMode: true, testEmail: testEmail, audienceFilter: _annAudience, audienceRegion: _annRegion, sessionDate: _annSessionDate })
       });
       var result = await resp.json();
       if (resp.ok && result.sent > 0) {
@@ -36763,7 +36791,7 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       return fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await _annIdToken()) },
-        body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, audienceFilter: _annAudience, recipientIds: _selIds, sessionDate: _annSessionDate, allowRepeat: !!allowRepeat })
+        body: JSON.stringify({ idToken: await _annIdToken(), eventId: eventId, collection: collection, audienceFilter: _annAudience, audienceRegion: _annRegion, recipientIds: _selIds, sessionDate: _annSessionDate, allowRepeat: !!allowRepeat })
       });
     };
     try {
@@ -77050,7 +77078,7 @@ window.ldahIssueContext = function () {
 <script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
 window.vebOpen = function () {
-  var V = '155.2-STAGE';
+  var V = '155.3-STAGE';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
   if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEB ? null : add('veb.js'); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
