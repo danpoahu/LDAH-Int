@@ -168,7 +168,8 @@
     '.fm.sq .fm-h{top:52cqw;font-size:4.4cqw}.fm.sq .coin{width:13cqw;height:13cqw;padding:.8cqw}.fm.sq .coin .i{font-size:1.6cqw}.fm.sq .coin .d{font-size:1.25cqw}.fm.sq .coin .t{font-size:2.1cqw}'
   ].join('\n');
 
-  var helpers = { esc: esc, sessInfo: sessInfo, zoneRows: zoneRows, seriesTitle: seriesTitle, badges: badges, qrImg: qrImg, phone: phone, MONTHS: MONTHS, MON3: MON3, DOW: DOW };
+  var PTC_WHERE = 'Recorded and posted on Facebook @ Parent Talk Café';
+  var helpers = { PTC_WHERE: PTC_WHERE, esc: esc, sessInfo: sessInfo, zoneRows: zoneRows, seriesTitle: seriesTitle, badges: badges, qrImg: qrImg, phone: phone, MONTHS: MONTHS, MON3: MON3, DOW: DOW };
   window.VEBFlyers = {
     themes: { 1: { name: 'New Year (midnight sky, fireworks)', fn: jan }, 2: { name: 'Valentine card (hearts, love letters)', fn: feb }, 3: { name: 'Spring + St. Patrick\'s (rainbow, seed packets)', fn: mar } },
     css: A.jan.css + '\n' + A.feb.css + '\n' + A.mar.css + '\n' + EXTRA,
@@ -177,20 +178,22 @@
     helpers: helpers,
     zoneRows: zoneRows,
     /* A month file calls this: registerTheme(4, { name, css, fonts: 'family=Foo:wght@400;700&family=Bar', fn: function (spec, partner, sq, H) { return html; } }) */
-    registerTheme: function (month, t) {
-      var self = this;
-      this.themes[month] = { name: t.name, fn: function (spec, partner, sq) { return t.fn(spec, partner, sq, helpers); } };
+    /* series: omit for Learning Labs; 'ptc' for Parent Talk Café designs (kept apart from LL). */
+    registerTheme: function (month, t, series) {
+      var self = this, key = series === 'ptc' ? 'ptc' + month : month;
+      this.themes[key] = { name: t.name, fn: function (spec, partner, sq) { return t.fn(spec, partner, sq, helpers); } };
       if (t.css) this.css += '\n' + t.css;
       if (t.fonts) t.fonts.split('&').forEach(function (f) { if (f && self.fontsHref.indexOf(f.split(':')[0]) < 0) self.fontsHref = self.fontsHref.replace('&display=swap', '&' + f + '&display=swap'); });
     },
+    themeFor: function (series, month) { return series === 'Parent Talk Café' ? this.themes['ptc' + month] : this.themes[month]; },
     build: function (spec, variant) { // variant: hst|partner|hstSq|partnerSq
-      var t = this.themes[spec.month]; if (!t) return null;
+      var t = this.themeFor(spec.series, spec.month); if (!t) return null;
       return t.fn(spec, variant.indexOf('partner') === 0, /Sq$/.test(variant));
     }
   };
 })();
 
-/* ---- month 04 ---- */
+/* ---- LL month 04 ---- */
 VEBFlyers.registerTheme(4, (function () {
   /* April: "April showers" - a yellow umbrella holds the title, sessions are big raindrops dripping off it,
      a rain-cloud footer carries the registration. All geometry in flyer units (1 unit = 1cqw). */
@@ -403,7 +406,7 @@ VEBFlyers.registerTheme(4, (function () {
   return { name: 'April showers (umbrella, raindrops, spring blossoms)', fonts: 'family=Baloo+2:wght@500;700;800&family=Nunito:wght@600;700;800;900', css: css, fn: fn };
 })());
 
-/* ---- month 05 ---- */
+/* ---- LL month 05 ---- */
 VEBFlyers.registerTheme(5, (function () {
   /* May: "May flowers" - a round flower lei frames the title, sessions are hand-tied gift tags hanging from the lei's bow,
      partner times sit in the centers of blossoms on a garland vine, footer is a leaf-green band edged with plumeria. */
@@ -628,7 +631,7 @@ VEBFlyers.registerTheme(5, (function () {
   return { name: 'May flowers (flower lei, hand-tied tags, blossom garland)', fonts: 'family=Fraunces:wght@600;800&family=Dancing+Script:wght@700&family=Quicksand:wght@500;600;700', css: css, fn: fn };
 })());
 
-/* ---- month 06 ---- */
+/* ---- LL month 06 ---- */
 VEBFlyers.registerTheme(6, (function () {
   /* June: "Summer at the beach" - sky + sun, rolling surf, sessions written on tall surfboards standing in the sand,
      partner times on beach balls along the shoreline, footer is a striped beach towel. */
@@ -863,7 +866,7 @@ VEBFlyers.registerTheme(6, (function () {
   return { name: 'Summer at the beach (surfboards, beach balls, towel)', fonts: 'family=Luckiest+Guy&family=Nunito:wght@600;700;800;900', css: css, fn: fn };
 })());
 
-/* ---- month 07 ---- */
+/* ---- LL month 07 ---- */
 VEBFlyers.registerTheme(7, {
   name: 'Summer picnic + Fourth of July (bunting, gingham blanket, picnic baskets, star constellation)',
   fonts: 'family=Alfa+Slab+One&family=Yellowtail&family=Nunito:wght@600;700;800;900',
@@ -1013,7 +1016,7 @@ VEBFlyers.registerTheme(7, {
   }
 });
 
-/* ---- month 08 ---- */
+/* ---- LL month 08 ---- */
 VEBFlyers.registerTheme(8, {
   name: 'Back to school (chalkboard, notebook pages, pencils, apple tree)',
   fonts: 'family=Cabin+Sketch:wght@700&family=Schoolbell&family=Lexend:wght@400;600;700;800',
@@ -1182,7 +1185,7 @@ VEBFlyers.registerTheme(8, {
   }
 });
 
-/* ---- month 09 ---- */
+/* ---- LL month 09 ---- */
 VEBFlyers.registerTheme(9, {
   name: 'Bulletin board / new routines (cork board, taped poster, polaroids, sticky notes)',
   fonts: 'family=Permanent+Marker&family=Kalam:wght@400;700&family=Outfit:wght@500;600;700;800;900',
@@ -1319,7 +1322,7 @@ VEBFlyers.registerTheme(9, {
   }
 });
 
-/* ---- month 10 ---- */
+/* ---- LL month 10 ---- */
 VEBFlyers.registerTheme(10, (function () {
   /* October: friendly Halloween night over a pumpkin patch. Big glowing moon holds the title,
      sessions are trick-or-treat bags, partner times are carved into smiling jack-o'-lanterns. */
@@ -1556,7 +1559,7 @@ VEBFlyers.registerTheme(10, (function () {
   };
 })());
 
-/* ---- month 11 ---- */
+/* ---- LL month 11 ---- */
 VEBFlyers.registerTheme(11, (function () {
   /* November: Thanksgiving gratitude. Warm cream paper, a gratitude tree in harvest colors,
      sessions as handwritten recipe cards on a wooden harvest table, partner times on drifting leaves. */
@@ -1764,7 +1767,7 @@ VEBFlyers.registerTheme(11, (function () {
   };
 })());
 
-/* ---- month 12 ---- */
+/* ---- LL month 12 ---- */
 VEBFlyers.registerTheme(12, (function () {
   /* December: Happy Holidays gift wrap. Snowy white paper, an evergreen garland across the top,
      wrapped presents with bows (one in hibiscus paper), sessions as gift tags tied to the presents,
@@ -2017,3 +2020,3133 @@ VEBFlyers.registerTheme(12, (function () {
     fn: fn
   };
 })());
+
+/* ---- PTC month 01 ---- */
+VEBFlyers.registerTheme(1, (function () {
+  /* Parent Talk Café, January: "Cozy winter café". Cream walls under a teal striped awning, a chalk
+     menu-board easel carries the topic, a big teal mug of cocoa with marshmallows steams beside it,
+     partner times ride on the kraft sleeves of to-go cups lined up on the counter. 1 unit = 1cqw. */
+  function rng(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function at(l, t, w, h) { return 'left:' + f(l) + 'cqw;top:' + f(t) + 'cqw' + (w != null ? ';width:' + f(w) + 'cqw' : '') + (h != null ? ';height:' + f(h) + 'cqw' : ''); }
+  var C = { cream: '#f7eedf', cocoa: '#4a2c1e', cocoa2: '#6b3f27', teal: '#3f8f8a', teal2: '#2d6d69', tealLt: '#a9dcd5', copper: '#c87533', copperLt: '#f0b27a', slate: '#2b3634', kraft: '#c99a68' };
+  var DOW = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+
+  /* ---- shared series mark ---- */
+  function badge(id, c) {
+    var top = 'M16 50 A34 34 0 0 1 84 50', bot = 'M10 50 A40 40 0 0 0 90 50';
+    return '<svg viewBox="0 0 100 100" style="width:100%;height:100%;display:block;overflow:visible">'
+      + '<defs><path id="' + id + '-t" d="' + top + '"/><path id="' + id + '-b" d="' + bot + '"/></defs>'
+      + '<circle cx="50" cy="51.5" r="48" fill="rgba(0,0,0,.18)"/>'
+      + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/>'
+      + '<circle cx="50" cy="50" r="45.2" fill="none" stroke="' + c.ink + '" stroke-width=".7" stroke-dasharray="1.4 1.6" opacity=".7"/>'
+      + '<circle cx="50" cy="50" r="30" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="30" fill="none" stroke="' + c.accent + '" stroke-width="1.4"/>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="1.2" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-t" startOffset="50%">PARENT TALK</textPath></text>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="2.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-b" startOffset="50%">CAFÉ</textPath></text>'
+      + '<circle cx="11.5" cy="54" r="1.6" fill="' + c.accent + '"/><circle cx="88.5" cy="54" r="1.6" fill="' + c.accent + '"/>'
+      + '<g fill="none" stroke="' + c.steam + '" stroke-width="2" stroke-linecap="round">'
+      + '<path d="M43 44 C40 40 46 37 43 32 C41 29 44 26 43 24"/><path d="M50 43 C47 38 53 35 50 30 C48 27 51 24 50 22"/><path d="M57 44 C54 40 60 37 57 32 C55 29 58 26 57 24"/></g>'
+      + '<ellipse cx="50" cy="69" rx="19" ry="3.6" fill="' + c.cupDark + '"/><ellipse cx="50" cy="68" rx="19" ry="3.4" fill="' + c.cup + '" stroke="' + c.accent + '" stroke-width=".8"/>'
+      + '<path d="M64 52 C71 51 72 61 63 63" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+      + '<path d="M35 47 H65 L63 60 C62 66 57 68 50 68 C43 68 38 66 37 60 Z" fill="' + c.cup + '"/>'
+      + '<path d="M58 48 L60 48 L58.4 60 C57.8 64 55.6 66 53 66.6 C56 64 57 61 57.3 58Z" fill="' + c.cupDark + '" opacity=".55"/>'
+      + '<ellipse cx="50" cy="47" rx="15" ry="2.6" fill="' + c.cupDark + '"/>'
+      + '<ellipse cx="50" cy="47.3" rx="12.6" ry="1.8" fill="' + c.coffee + '"/>'
+      + '<path d="M40 54 H60" stroke="' + c.accent + '" stroke-width="1.6" stroke-linecap="round"/>'
+      + '</svg>';
+  }
+  var BADGE = { ring: C.cocoa, face: '#fbf4e8', ink: '#fbf4e8', cup: C.teal, cupDark: C.teal2, coffee: C.cocoa2, steam: C.copper, accent: C.copper };
+
+  /* ---- SVG scenery ---- */
+  function awning(h) { // striped café awning, scalloped edge at y=h
+    var s = '<rect x="0" y="0" width="100" height="' + f(h) + '" fill="' + C.teal + '"/>', n = 12, w = 100 / n, i;
+    for (i = 0; i < n; i += 2) s += '<rect x="' + f(i * w) + '" y="0" width="' + f(w) + '" height="' + f(h) + '" fill="#fbf4e8"/>';
+    for (i = 0; i < n; i++) s += '<path d="M' + f(i * w) + ' ' + f(h) + ' A' + f(w / 2) + ' ' + f(w * .42) + ' 0 0 0 ' + f((i + 1) * w) + ' ' + f(h) + 'Z" fill="' + (i % 2 ? C.teal : '#fbf4e8') + '"/>';
+    s += '<path d="M0 ' + f(h) + ' ' + Array.apply(null, Array(n)).map(function (_, k) { return 'A' + f(w / 2) + ' ' + f(w * .42) + ' 0 0 0 ' + f((k + 1) * w) + ' ' + f(h); }).join(' ') + '" fill="none" stroke="' + C.teal2 + '" stroke-width=".35"/>';
+    s += '<rect x="0" y="0" width="100" height="1.2" fill="' + C.copper + '"/><rect x="0" y="' + f(h * .62) + '" width="100" height=".25" fill="rgba(0,0,0,.08)"/>';
+    return s;
+  }
+  function flake(x, y, r, c, op) {
+    var s = '<g transform="translate(' + f(x) + ' ' + f(y) + ')" stroke="' + c + '" stroke-width="' + f(r * .12) + '" stroke-linecap="round" opacity="' + op + '">';
+    for (var k = 0; k < 6; k++) {
+      s += '<g transform="rotate(' + (k * 60) + ')"><path d="M0 0 V' + f(-r) + '"/><path d="M0 ' + f(-r * .55) + ' L' + f(r * .25) + ' ' + f(-r * .8) + ' M0 ' + f(-r * .55) + ' L' + f(-r * .25) + ' ' + f(-r * .8) + '"/></g>';
+    }
+    return s + '</g>';
+  }
+  function easel(x0, y0, x1, y1, foot) { // chalkboard with wooden frame on an A-frame easel
+    var cx = (x0 + x1) / 2, s = '';
+    s += '<path d="M' + f(cx) + ' ' + f(y0 - 2.6) + ' L' + f(cx) + ' ' + f(foot - 1.5) + '" stroke="#7a4a2a" stroke-width="1.3" stroke-linecap="round"/>';
+    s += '<path d="M' + f(cx - 1.2) + ' ' + f(y0 - 2.6) + ' L' + f(x0 + 3) + ' ' + f(foot) + ' M' + f(cx + 1.2) + ' ' + f(y0 - 2.6) + ' L' + f(x1 - 3) + ' ' + f(foot) + '" stroke="#8d5a34" stroke-width="1.7" stroke-linecap="round"/>';
+    s += '<rect x="' + f(x0 - .6) + '" y="' + f(y0 - .2) + '" width="' + f(x1 - x0 + 1.2) + '" height="' + f(y1 - y0 + 1.6) + '" rx="1.4" fill="rgba(40,22,10,.25)"/>';
+    s += '<rect x="' + f(x0) + '" y="' + f(y0) + '" width="' + f(x1 - x0) + '" height="' + f(y1 - y0) + '" rx="1.2" fill="#9a6338"/>';
+    s += '<rect x="' + f(x0 + 1.5) + '" y="' + f(y0 + 1.5) + '" width="' + f(x1 - x0 - 3) + '" height="' + f(y1 - y0 - 3) + '" rx=".5" fill="' + C.slate + '"/>';
+    s += '<rect x="' + f(x0 - 1) + '" y="' + f(y1 - .4) + '" width="' + f(x1 - x0 + 2) + '" height="1.5" rx=".5" fill="#7a4a2a"/>';
+    s += '<rect x="' + f(x0 + 6) + '" y="' + f(y1 - 1.2) + '" width="3" height=".9" rx=".4" fill="#f4efe6"/><rect x="' + f(x0 + 10) + '" y="' + f(y1 - 1.1) + '" width="2.2" height=".8" rx=".4" fill="' + C.copperLt + '"/>';
+    s += '<circle cx="' + f(cx) + '" cy="' + f(y0 - 2.6) + '" r=".9" fill="' + C.copper + '"/>';
+    return s;
+  }
+  function mug(cx, top, w, h) { // big mug of cocoa; top = rim line
+    var l = cx - w / 2, r = cx + w / 2, b = top + h, rx = w / 2, ry = w * .11, s = '', i;
+    s += '<ellipse cx="' + f(cx + w * .08) + '" cy="' + f(b + ry * .4) + '" rx="' + f(w * .78) + '" ry="' + f(ry * 1.25) + '" fill="rgba(60,30,15,.18)"/>';
+    s += '<ellipse cx="' + f(cx + w * .06) + '" cy="' + f(b) + '" rx="' + f(w * .72) + '" ry="' + f(ry * 1.05) + '" fill="#e6d6bf"/><ellipse cx="' + f(cx + w * .06) + '" cy="' + f(b - ry * .2) + '" rx="' + f(w * .55) + '" ry="' + f(ry * .7) + '" fill="#f6ecdc"/>';
+    s += '<path d="M' + f(r - w * .02) + ' ' + f(top + h * .2) + ' C' + f(r + w * .34) + ' ' + f(top + h * .14) + ' ' + f(r + w * .34) + ' ' + f(top + h * .78) + ' ' + f(r - w * .04) + ' ' + f(top + h * .74) + '" fill="none" stroke="' + C.teal2 + '" stroke-width="' + f(w * .1) + '" stroke-linecap="round"/>';
+    s += '<path d="M' + f(r - w * .02) + ' ' + f(top + h * .2) + ' C' + f(r + w * .3) + ' ' + f(top + h * .15) + ' ' + f(r + w * .3) + ' ' + f(top + h * .76) + ' ' + f(r - w * .04) + ' ' + f(top + h * .72) + '" fill="none" stroke="' + C.teal + '" stroke-width="' + f(w * .07) + '" stroke-linecap="round"/>';
+    s += '<path d="M' + f(l) + ' ' + f(top) + ' L' + f(l + w * .03) + ' ' + f(b - ry) + ' A' + f(rx * .97) + ' ' + f(ry) + ' 0 0 0 ' + f(r - w * .03) + ' ' + f(b - ry) + ' L' + f(r) + ' ' + f(top) + 'Z" fill="' + C.teal + '"/>';
+    s += '<path d="M' + f(r - w * .2) + ' ' + f(top + ry) + ' L' + f(r - w * .05) + ' ' + f(top + ry) + ' L' + f(r - w * .07) + ' ' + f(b - ry * 1.2) + ' Q' + f(r - w * .14) + ' ' + f(b - ry * .4) + ' ' + f(r - w * .26) + ' ' + f(b - ry * .25) + ' Q' + f(r - w * .17) + ' ' + f(b - h * .3) + ' ' + f(r - w * .2) + ' ' + f(top + ry) + 'Z" fill="' + C.teal2 + '" opacity=".55"/>';
+    s += '<path d="M' + f(l + w * .1) + ' ' + f(top + h * .16) + ' Q' + f(l + w * .08) + ' ' + f(top + h * .5) + ' ' + f(l + w * .14) + ' ' + f(top + h * .8) + '" stroke="#fff" stroke-width="' + f(w * .035) + '" fill="none" stroke-linecap="round" opacity=".35"/>';
+    /* knitted-pattern band with snowflakes */
+    s += '<rect x="' + f(l + w * .03) + '" y="' + f(top + h * .42) + '" width="' + f(w * .94) + '" height="' + f(h * .2) + '" fill="#fbf4e8" opacity=".95"/>';
+    for (i = 0; i < 4; i++) s += flake(l + w * (.17 + i * .22), top + h * .52, h * .07, C.teal2, 1);
+    s += '<path d="M' + f(l + w * .03) + ' ' + f(top + h * .42) + ' H' + f(r - w * .03) + ' M' + f(l + w * .03) + ' ' + f(top + h * .62) + ' H' + f(r - w * .03) + '" stroke="' + C.copper + '" stroke-width="' + f(h * .02) + '"/>';
+    /* rim + cocoa + marshmallows */
+    s += '<ellipse cx="' + f(cx) + '" cy="' + f(top) + '" rx="' + f(rx) + '" ry="' + f(ry) + '" fill="' + C.teal2 + '"/>';
+    s += '<ellipse cx="' + f(cx) + '" cy="' + f(top + ry * .1) + '" rx="' + f(rx * .88) + '" ry="' + f(ry * .78) + '" fill="#6b3a22"/>';
+    s += '<ellipse cx="' + f(cx - w * .1) + '" cy="' + f(top) + '" rx="' + f(rx * .45) + '" ry="' + f(ry * .3) + '" fill="#8a5232" opacity=".7"/>';
+    var mm = [[-.26, -.02, -12], [-.08, -.12, 8], [.12, -.04, -4], [.28, -.1, 14], [.02, .08, 20], [-.18, .1, -18], [.24, .08, 6]];
+    mm.forEach(function (m) {
+      var mx = cx + m[0] * w, my = top + m[1] * w * .3, mw = w * .13, mh = w * .1;
+      s += '<g transform="rotate(' + m[2] + ' ' + f(mx) + ' ' + f(my) + ')"><rect x="' + f(mx - mw / 2) + '" y="' + f(my - mh * .8) + '" width="' + f(mw) + '" height="' + f(mh) + '" rx="' + f(mw * .3) + '" fill="#f1e2d6"/>'
+        + '<rect x="' + f(mx - mw / 2) + '" y="' + f(my - mh * .8) + '" width="' + f(mw) + '" height="' + f(mh * .55) + '" rx="' + f(mw * .3) + '" fill="#fffaf4"/></g>';
+    });
+    return s;
+  }
+  function steam(cx, y0, y1, w) {
+    var s = '<g fill="none" stroke="#c9a585" stroke-linecap="round" opacity=".8">', h = y0 - y1;
+    [-1, 0, 1].forEach(function (k) {
+      var x = cx + k * w * .28, d = 'M' + f(x) + ' ' + f(y0) + ' C' + f(x - w * .12) + ' ' + f(y0 - h * .25) + ' ' + f(x + w * .12) + ' ' + f(y0 - h * .45) + ' ' + f(x) + ' ' + f(y0 - h * .65) + ' S' + f(x + w * .06) + ' ' + f(y1 + h * .08) + ' ' + f(x - w * .02) + ' ' + f(y1 + (k ? h * .12 : 0));
+      s += '<path d="' + d + '" stroke-width="' + f(w * .05) + '"/>';
+    });
+    return s + '</g>';
+  }
+  function cookies(x, y, s) { // little plate of gingerbread-ish cookies
+    var o = '<ellipse cx="' + f(x) + '" cy="' + f(y + .5) + '" rx="' + f(s * 1.15) + '" ry="' + f(s * .3) + '" fill="rgba(60,30,15,.15)"/><ellipse cx="' + f(x) + '" cy="' + f(y) + '" rx="' + f(s) + '" ry="' + f(s * .26) + '" fill="#fbf4e8" stroke="' + C.copper + '" stroke-width=".3"/>';
+    [[-.35, -.18], [.3, -.2], [0, -.34]].forEach(function (p) {
+      var cx = x + p[0] * s, cy = y + p[1] * s;
+      o += '<ellipse cx="' + f(cx) + '" cy="' + f(cy) + '" rx="' + f(s * .36) + '" ry="' + f(s * .17) + '" fill="#b06a35"/><ellipse cx="' + f(cx) + '" cy="' + f(cy - s * .02) + '" rx="' + f(s * .25) + '" ry="' + f(s * .09) + '" fill="none" stroke="#fbf4e8" stroke-width=".25" stroke-dasharray=".5 .4"/>';
+    });
+    return o;
+  }
+  function counter(y, h) {
+    return '<rect x="0" y="' + f(y) + '" width="100" height="' + f(h) + '" fill="#9a6338"/><rect x="0" y="' + f(y) + '" width="100" height="' + f(h * .3) + '" fill="#b27646"/>'
+      + '<path d="M0 ' + f(y + h * .65) + ' C30 ' + f(y + h * .55) + ' 60 ' + f(y + h * .8) + ' 100 ' + f(y + h * .62) + '" stroke="#7a4a2a" stroke-width=".2" fill="none"/>';
+  }
+  function scene(H, o) {
+    var r = rng(o.seed), s = '<svg class="p01-bg" viewBox="0 0 100 ' + f(H) + '" preserveAspectRatio="none"><rect width="100" height="' + f(H) + '" fill="' + C.cream + '"/>';
+    for (var i = 0; i < 70; i++) s += '<circle cx="' + f(r() * 100) + '" cy="' + f(r() * H) + '" r="' + f(.15 + r() * .2) + '" fill="#d6c3a6" opacity=".5"/>';
+    (o.flakes || []).forEach(function (p) { s += flake(p[0], p[1], p[2], C.teal, .22); });
+    s += awning(o.aw);
+    if (o.counter) s += counter(o.counter[0], o.counter[1]);
+    (o.shelves || []).forEach(function (y) { s += '<rect x="1.5" y="' + f(y + .5) + '" width="97" height="1.6" rx=".4" fill="rgba(60,30,15,.18)"/><rect x="1.5" y="' + f(y) + '" width="97" height="1.5" rx=".4" fill="#9a6338"/><rect x="1.5" y="' + f(y) + '" width="97" height=".45" rx=".2" fill="#b27646"/>'
+      + '<path d="M8 ' + f(y + 1.5) + ' v2.2 h2.2 M92 ' + f(y + 1.5) + ' v2.2 h-2.2" stroke="' + C.copper + '" stroke-width=".5" fill="none"/>'; });
+    if (o.easel) s += easel.apply(null, o.easel);
+    if (o.cookies) s += cookies.apply(null, o.cookies);
+    if (o.mug) { s += steam(o.mug[0], o.mug[1] - o.mug[2] * .16, o.mug[1] - o.mug[2] * .16 - o.steamH, o.mug[2]); s += mug.apply(null, o.mug); }
+    return s + '</svg>';
+  }
+
+  /* ---- text blocks ---- */
+  function head(H, spec, partner, l, t, w, fs) {
+    return '<div class="p01-head" style="' + at(l, t, w) + '"><div class="k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="mo" style="font-size:' + f(fs) + 'cqw">' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</div><div class="zm">LIVE on Zoom</div></div>';
+  }
+  function title(H, spec, l, t, w, max) {
+    var s = H.esc(spec.series || 'Parent Talk Café'), fs = Math.min(max, w / (s.length * .56));
+    return '<div class="p01-title" style="' + at(l, t, w) + ';font-size:' + f(fs) + 'cqw">' + s + '</div>';
+  }
+  function where(H, l, t, w, fs) {
+    return '<div class="p01-where" style="' + at(l, t, w) + ';font-size:' + f(fs) + 'cqw"><i></i>' + H.esc(H.PTC_WHERE) + '</div>';
+  }
+  function presenter(H, spec) { return spec.presenter ? '<div class="pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : ''; }
+  function board(H, spec, S, box, opt) { // text that sits on the chalkboard
+    var one = S.length === 1, html = '<div class="hd">' + (one ? 'Today\'s Special' : 'On the Menu') + '</div><i class="sw"></i>';
+    S.forEach(function (s, i) {
+      html += '<div class="it' + (i ? ' it2' : '') + '"><div class="tp" style="font-size:' + f(one ? opt.tp1 : opt.tp2) + 'cqw">' + s.lesson + '</div>'
+        + (s.desc && opt.desc ? '<div class="ds">' + s.desc + '</div>' : '')
+        + (opt.times ? (one ? '<div class="dt">' + DOW[s.dow] + ', ' + s.monFull + ' ' + s.day + '</div><div class="tm">' + s.time + '</div>'
+          : '<div class="dl">' + s.dow + ', ' + s.mon + ' ' + s.day + ' <span>' + s.time + '</span></div>') : '') + '</div>';
+    });
+    html += presenter(H, spec);
+    return '<div class="p01-board' + (opt.cls ? ' ' + opt.cls : '') + '" style="' + at(box[0], box[1], box[2], box[3]) + '">' + html + '</div>';
+  }
+  function cups(rows, pos, w, h, sq) {
+    return rows.map(function (r, i) {
+      var p = pos[i], tl = r.time.replace(/ \/ /g, '<br>'), fsT = r.time.length > 12 ? .82 : 1;
+      var sleeve = r.home ? C.teal : C.kraft, sleeveDk = r.home ? C.teal2 : '#a97c4f';
+      return '<div class="p01-cup' + (r.home ? ' h' : '') + (sq ? ' cs' : '') + '" style="' + at(p[0], p[1], w, h) + '"><svg viewBox="0 0 100 100" preserveAspectRatio="none">'
+        + '<ellipse cx="50" cy="98" rx="42" ry="2.2" fill="rgba(60,30,15,.2)"/>'
+        + '<path d="M9 13 L91 13 L81 97 Q50 100 19 97 Z" fill="#fffaf2" stroke="#e2d2bb" stroke-width="1"/>'
+        + '<rect x="4" y="4" width="92" height="10" rx="4" fill="' + (r.home ? C.copper : C.cocoa) + '"/><rect x="14" y="0" width="72" height="6" rx="3" fill="' + (r.home ? C.copperLt : C.cocoa2) + '"/>'
+        + '<path d="M8 22 L92 22 L85 84 L15 84 Z" fill="' + sleeve + '"/>'
+        + '<path d="M8 22 L92 22 L91.4 26 L8.6 26 Z M15 84 L85 84 L85.5 80 L14.5 80 Z" fill="' + sleeveDk + '"/>'
+        + '</svg><div class="tx"><div class="i">' + r.label + '</div><div class="d">' + r.days + '</div><div class="t" style="font-size:' + fsT + 'em">' + tl + '</div></div></div>';
+    }).join('');
+  }
+  function footer(spec, partner, H, top, h, sq) {
+    return '<div class="p01-foot' + (sq ? ' fs' : '') + '" style="top:' + f(top) + 'cqw;height:' + f(h) + 'cqw"><div class="rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link, scan the QR code,<br>or call ' + H.phone(partner) + '</div>'
+      + '<div class="p01-qr">' + H.qrImg(spec, partner) + '</div><div class="p01-bd">' + H.badges(spec, partner) + '</div></div>';
+  }
+
+  var css = [
+    '.p01{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(74,44,30,.3);background:' + C.cream + ';font-family:Nunito,Poppins,sans-serif;color:' + C.cocoa + '}',
+    '.p01.sq{aspect-ratio:1/1}',
+    '.p01>div{position:absolute;z-index:2}',
+    '.p01 .p01-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.p01 .p01-logo{width:14cqw;height:14cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 .6cqw ' + C.teal + ',0 .5cqw 1.4cqw rgba(74,44,30,.25)}',
+    '.p01 .p01-logo img{width:11cqw;height:auto}',
+    '.p01 .p01-logo.pip{width:19cqw;height:11.3cqw;border-radius:1.6cqw}.p01 .p01-logo.pip img{width:17cqw}',
+    '.p01 .p01-badge{width:20cqw;height:20cqw}',
+    '.p01 .p01-head .k{font-weight:900;font-size:1.5cqw;letter-spacing:.3cqw;color:' + C.teal2 + ';white-space:nowrap}',
+    '.p01 .p01-head .mo{font-family:"Yeseva One",serif;color:' + C.copper + ';line-height:1.05;margin:.8cqw 0 .9cqw}',
+    '.p01 .p01-head .zm{display:inline-block;background:' + C.cocoa + ';color:#fbf4e8;font-weight:900;font-size:1.6cqw;letter-spacing:.25cqw;padding:.6cqw 2.2cqw;border-radius:5cqw}',
+    '.p01 .p01-title{font-family:"Yeseva One",serif;line-height:1;color:' + C.cocoa + ';white-space:nowrap;text-shadow:.35cqw .35cqw 0 rgba(200,117,51,.25)}',
+    '.p01 .p01-where{font-weight:800;color:' + C.teal2 + ';display:flex;align-items:center;gap:1cqw;line-height:1.2}',
+    '.p01 .p01-where i{flex:none;width:1.1em;height:1.1em;border-radius:50%;background:' + C.copper + ';position:relative}',
+    '.p01 .p01-where i:after{content:"";position:absolute;left:.42em;top:.3em;border-left:.4em solid #fff;border-top:.25em solid transparent;border-bottom:.25em solid transparent}',
+    /* chalkboard */
+    '.p01 .p01-board{display:flex;flex-direction:column;justify-content:center;color:#f4efe6;font-family:"Patrick Hand",cursive;text-align:center}',
+    '.p01 .p01-board .hd{font-family:"Cabin Sketch",cursive;font-weight:700;font-size:3cqw;color:' + C.copperLt + ';letter-spacing:.15cqw;line-height:1}',
+    '.p01 .p01-board .sw{display:block;height:.9cqw;margin:.6cqw auto 1.4cqw;width:60%;border-bottom:.3cqw solid rgba(244,239,230,.55);border-radius:0 0 50% 50%}',
+    '.p01 .p01-board .tp{font-family:"Cabin Sketch",cursive;font-weight:700;line-height:1.08;color:#fffaf0}',
+    '.p01 .p01-board .ds{font-size:2.3cqw;color:' + C.tealLt + ';line-height:1.15;margin-top:.8cqw}',
+    '.p01 .p01-board .dt{font-size:3cqw;line-height:1.1;margin-top:1.8cqw;padding-top:1.4cqw;border-top:.25cqw dashed rgba(244,239,230,.4)}',
+    '.p01 .p01-board .tm{font-family:"Cabin Sketch",cursive;font-weight:700;font-size:3.3cqw;color:' + C.copperLt + ';line-height:1.15}',
+    '.p01 .p01-board .dl{font-size:2.8cqw;line-height:1.15;margin-top:.6cqw}.p01 .p01-board .dl span{color:' + C.copperLt + '}',
+    '.p01 .p01-board .it2{margin-top:1.4cqw;padding-top:1.4cqw;border-top:.25cqw dashed rgba(244,239,230,.4)}',
+    '.p01 .p01-board .pr{font-size:2.4cqw;line-height:1.15;margin-top:1.4cqw;color:' + C.tealLt + '}.p01 .p01-board .pr b{font-weight:400;color:#fffaf0}',
+    '.p01 .p01-board.bs .hd{font-size:2.4cqw}.p01 .p01-board.bs .sw{margin:.3cqw auto .8cqw}.p01 .p01-board.bs .ds{font-size:1.9cqw;margin-top:.4cqw}.p01 .p01-board.bs .dt{font-size:2.4cqw;margin-top:1cqw;padding-top:.8cqw}.p01 .p01-board.bs .tm{font-size:2.6cqw}.p01 .p01-board.bs .dl{font-size:2.3cqw;margin-top:.3cqw}.p01 .p01-board.bs .it2{margin-top:.8cqw;padding-top:.8cqw}.p01 .p01-board.bs .pr{font-size:2cqw;margin-top:.8cqw}',
+    /* menu strip (partner) */
+    '.p01 .p01-strip{text-align:center}',
+    '.p01 .p01-strip .dot{display:none}.p01 .p01-strip .tp+.dot+.tp{margin-top:.5cqw;padding-top:.5cqw;border-top:.2cqw dashed rgba(244,239,230,.4)}',
+    '.p01 .p01-hd2{font-family:"Yeseva One",serif;color:' + C.cocoa + ';line-height:1;text-align:center}',
+    '.p01 .p01-sub{font-weight:900;font-size:1.35cqw;letter-spacing:.3cqw;color:' + C.copper + ';text-align:center}',
+    /* to-go cups */
+    '.p01 .p01-cup svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}',
+    '.p01 .p01-cup .tx{position:absolute;left:14%;right:14%;top:24%;height:56%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:' + C.cocoa + ';font-size:2.35cqw}',
+    '.p01 .p01-cup .i{font-weight:900;font-size:.78em;line-height:1.05}',
+    '.p01 .p01-cup .d{font-weight:700;font-size:.66em;line-height:1.2;margin:.15em 0}',
+    '.p01 .p01-cup .t{font-family:"Yeseva One",serif;line-height:1.05}',
+    '.p01 .p01-cup.h .tx{color:#fff}',
+    '.p01 .p01-cup.cs .tx{font-size:1.95cqw}',
+    /* footer */
+    '.p01 .p01-foot{left:0;right:0;background:' + C.cocoa + ';color:#f7eedf;display:flex;align-items:center;gap:2.4cqw;padding:0 4.5cqw;box-sizing:border-box;border-top:.8cqw solid ' + C.copper + '}',
+    '.p01 .p01-foot .rg{flex:1;font-size:1.75cqw;font-weight:700;line-height:1.35}',
+    '.p01 .p01-foot .rg b{display:block;font-family:"Yeseva One",serif;font-weight:400;font-size:3.3cqw;line-height:1.1;margin-bottom:.4cqw;color:#fff}',
+    '.p01 .p01-foot .rg b span{color:' + C.copperLt + '}',
+    '.p01 .p01-qr{width:11cqw;height:11cqw;flex:none;background:#fff;border-radius:.8cqw;padding:.5cqw;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:2cqw;color:' + C.cocoa + '}',
+    '.p01 .p01-qr img{width:100%;height:100%;display:block}',
+    '.p01 .p01-bd{display:flex;flex-direction:column;gap:.6cqw;width:20cqw}',
+    '.p01 .p01-bd span{display:block;text-align:center;font-weight:900;font-size:1.3cqw;padding:.55cqw .8cqw;border-radius:5cqw;background:#f7eedf;color:' + C.cocoa + '}',
+    '.p01 .p01-bd span:nth-child(2){background:' + C.teal + ';color:#fff}.p01 .p01-bd span:nth-child(3){background:' + C.copper + ';color:#fff}',
+    '.p01 .p01-foot.fs{gap:2cqw;padding:0 4cqw}.p01 .p01-foot.fs .rg{font-size:1.55cqw}.p01 .p01-foot.fs .rg b{font-size:2.9cqw}.p01 .p01-foot.fs .p01-qr{width:9.6cqw;height:9.6cqw}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), rows = partner ? H.zoneRows(spec.sessions) : null, out;
+    var logo = function (l, t) { return partner ? '<div class="p01-logo pip" style="' + at(l, t) + '"><img src="' + spec.pipUrl + '" alt=""></div>' : '<div class="p01-logo" style="' + at(l, t) + '"><img src="' + spec.logoUrl + '" alt=""></div>'; };
+    var bdg = function (l, t, w) { return '<div class="p01-badge" style="' + at(l, t, w, w) + '">' + badge('p01-bdg', BADGE) + '</div>'; };
+    var root = '<div class="p01' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">';
+    if (!partner && !sq) {
+      out = scene(129.4, { seed: 11, aw: 8, flakes: [[62, 50, 2.4], [56, 60, 1.6], [96, 47, 1.8], [90, 58, 1.2]], counter: [100, 10], easel: [4, 48, 55, 97, 109.5],
+          mug: [75.5, 72, 28, 26], steamH: 13, cookies: [91, 101.5, 5.5] })
+        + logo(5, 12.5) + bdg(75, 11, 20)
+        + head(H, spec, false, 22, 14, 50, 5.2)
+        + title(H, spec, 5, 31, 90, 10.6)
+        + where(H, 5.3, 42.6, 90, 1.95)
+        + board(H, spec, S, [8, 51, 43, 43], { tp1: 4.6, tp2: 4.3, desc: true, times: true })
+        + footer(spec, false, H, 110, 19.4, false);
+    } else if (!partner && sq) {
+      out = scene(100, { seed: 12, aw: 6.5, flakes: [[64, 40, 1.8], [94, 38, 1.4]], counter: [80, 6.5], easel: [4, 34, 57, 81.5, 85.5],
+          mug: [74.5, 59, 22, 20.5], steamH: 10, cookies: [92, 81.5, 4.2] })
+        + logo(4, 9.5) + bdg(80, 8.5, 16.5)
+        + '<div class="p01-head" style="' + at(20.5, 10, 58) + '"><div class="k" style="font-size:1.35cqw">PARENT TRAINING &amp; INFORMATION CENTER</div></div>'
+        + title(H, spec, 20.5, 13.6, 57, 6.6)
+        + '<div class="p01-head" style="' + at(20.5, 21.2, 58) + '"><div class="mo" style="font-size:3.4cqw;margin:0;display:inline-block;vertical-align:middle">' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</div> <div class="zm" style="vertical-align:middle;margin-left:1.2cqw;font-size:1.35cqw">LIVE on Zoom</div></div>'
+        + where(H, 20.5, 28.2, 60, 1.55)
+        + board(H, spec, S, [6.8, 36.3, 47.4, 42.3], { tp1: 4.3, tp2: 3.9, desc: S.length === 1, times: true, cls: 'bs' })
+        + footer(spec, false, H, 86.5, 13.5, true);
+    } else if (!sq) {
+      var pos = [[3.5, 72.4], [27.5, 72.4], [51.5, 72.4], [75.5, 72.4], [15.5, 92.4], [39.5, 92.4], [63.5, 92.4]];
+      out = scene(129.4, { seed: 13, aw: 8, flakes: [[96, 50, 1.6], [3, 112, 1.4]], easel: [4, 48, 66, 69.5, 72.5],
+          mug: [83, 57.5, 17, 13.5], steamH: 8, shelves: [90.9, 110.9] })
+        + logo(5, 12.5) + bdg(75, 11, 20)
+        + head(H, spec, true, 26.5, 14, 46, 5.2)
+        + title(H, spec, 5, 31, 90, 10.6)
+        + where(H, 5.3, 42.6, 90, 1.95)
+        + board(H, spec, S, [7.5, 50.2, 55, 17.6], { tp1: 3.9, tp2: 2.9, desc: S.length === 1, times: false, cls: 'bs' })
+        + cups(rows, pos, 21, 18.6, false)
+        + footer(spec, true, H, 113, 16.4, false);
+    } else {
+      var pos2 = [[3.5, 47.2], [27.5, 47.2], [51.5, 47.2], [75.5, 47.2], [15.5, 66.2], [39.5, 66.2], [63.5, 66.2]];
+      out = scene(100, { seed: 14, aw: 6.5, easel: [4, 33, 96, 46, 47], shelves: [63.6, 82.6] })
+        + logo(4, 9.5) + bdg(80, 8.5, 16.5)
+        + '<div class="p01-head" style="' + at(24.5, 10, 54) + '"><div class="k" style="font-size:1.35cqw">FOR FAMILIES ACROSS THE PACIFIC</div></div>'
+        + title(H, spec, 24.5, 13.6, 53, 6.2)
+        + '<div class="p01-head" style="' + at(24.5, 21.2, 54) + '"><div class="mo" style="font-size:3.2cqw;margin:0;display:inline-block;vertical-align:middle">' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</div> <div class="zm" style="vertical-align:middle;margin-left:1.2cqw;font-size:1.3cqw">LIVE on Zoom</div></div>'
+        + where(H, 24.5, 28, 56, 1.45)
+        + '<div class="p01-board bs p01-strip" style="' + at(7, 34.3, 86, 10.4) + '">' + S.map(function (s) { return '<div class="tp" style="font-size:' + (S.length > 1 ? 2.3 : 2.9) + 'cqw">' + s.lesson + '</div>'; }).join('<i class="dot">&#8226;</i>')
+          + (spec.presenter ? '<div class="pr" style="margin-top:.3cqw;font-size:1.7cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '') + '</div>'
+        + cups(rows, pos2, 21, 16.6, true)
+        + footer(spec, true, H, 86.5, 13.5, true);
+    }
+    return root + out + '</div>';
+  }
+
+  return {
+    name: 'PTC: Cozy winter café (cocoa mug, chalk easel, to-go cups)',
+    fonts: 'family=Yeseva+One&family=Nunito:wght@600;700;800;900&family=Cabin+Sketch:wght@700&family=Patrick+Hand',
+    css: css,
+    fn: fn
+  };
+})(), 'ptc');
+
+/* ---- PTC month 02 ---- */
+VEBFlyers.registerTheme(2, (function () {
+  /* Parent Talk Café, February: "Latte-art date". A deep wine café wall, a top-down latte with a heart
+     poured in the foam on a saucer with a rose-gold spoon, the topic on a latte-beige menu card,
+     partner local times on chocolate squares (Hawaiʻi = a white sugar cube). */
+  function rng(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function at(l, t, w, h) { return 'left:' + f(l) + 'cqw;top:' + f(t) + 'cqw' + (w != null ? ';width:' + f(w) + 'cqw' : '') + (h != null ? ';height:' + f(h) + 'cqw' : ''); }
+  var DOWF = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+
+  /* Shared PTC series mark (copied verbatim from ptc-badge-snippet.js) */
+  function badge(id, c) {
+    var top = 'M16 50 A34 34 0 0 1 84 50', bot = 'M10 50 A40 40 0 0 0 90 50';
+    return '<svg viewBox="0 0 100 100" style="width:100%;height:100%;display:block;overflow:visible">'
+      + '<defs><path id="' + id + '-t" d="' + top + '"/><path id="' + id + '-b" d="' + bot + '"/></defs>'
+      + '<circle cx="50" cy="51.5" r="48" fill="rgba(0,0,0,.18)"/>'
+      + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/>'
+      + '<circle cx="50" cy="50" r="45.2" fill="none" stroke="' + c.ink + '" stroke-width=".7" stroke-dasharray="1.4 1.6" opacity=".7"/>'
+      + '<circle cx="50" cy="50" r="30" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="30" fill="none" stroke="' + c.accent + '" stroke-width="1.4"/>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="1.2" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-t" startOffset="50%">PARENT TALK</textPath></text>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="2.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-b" startOffset="50%">CAFÉ</textPath></text>'
+      + '<circle cx="11.5" cy="54" r="1.6" fill="' + c.accent + '"/><circle cx="88.5" cy="54" r="1.6" fill="' + c.accent + '"/>'
+      /* steam */
+      + '<g fill="none" stroke="' + c.steam + '" stroke-width="2" stroke-linecap="round">'
+      + '<path d="M43 44 C40 40 46 37 43 32 C41 29 44 26 43 24"/><path d="M50 43 C47 38 53 35 50 30 C48 27 51 24 50 22"/><path d="M57 44 C54 40 60 37 57 32 C55 29 58 26 57 24"/></g>'
+      /* saucer */
+      + '<ellipse cx="50" cy="69" rx="19" ry="3.6" fill="' + c.cupDark + '"/><ellipse cx="50" cy="68" rx="19" ry="3.4" fill="' + c.cup + '" stroke="' + c.accent + '" stroke-width=".8"/>'
+      /* cup body + handle */
+      + '<path d="M64 52 C71 51 72 61 63 63" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+      + '<path d="M35 47 H65 L63 60 C62 66 57 68 50 68 C43 68 38 66 37 60 Z" fill="' + c.cup + '"/>'
+      + '<path d="M58 48 L60 48 L58.4 60 C57.8 64 55.6 66 53 66.6 C56 64 57 61 57.3 58Z" fill="' + c.cupDark + '" opacity=".55"/>'
+      + '<ellipse cx="50" cy="47" rx="15" ry="2.6" fill="' + c.cupDark + '"/>'
+      + '<ellipse cx="50" cy="47.3" rx="12.6" ry="1.8" fill="' + c.coffee + '"/>'
+      + '<path d="M40 54 H60" stroke="' + c.accent + '" stroke-width="1.6" stroke-linecap="round"/>'
+      + '</svg>';
+  }
+  var BADGE = { ring: '#6d1a36', face: '#f6e7d8', ink: '#fff3e6', cup: '#ffffff', cupDark: '#d9b8a0', coffee: '#7a4a2c', steam: '#c98a7a', accent: '#d4a07a' };
+  function badgeDiv(l, t, s) { return '<div class="p02-badge" style="' + at(l, t, s, s) + '">' + badge('p02-bdg', BADGE) + '</div>'; }
+
+  /* gradients shared by every flyer on the page (bounding-box units so identical defs are interchangeable) */
+  var DEFS = '<defs>'
+    + '<radialGradient id="p02-wall" cx=".62" cy=".3" r=".9"><stop offset="0" stop-color="#84243f"/><stop offset=".55" stop-color="#651631"/><stop offset="1" stop-color="#430c20"/></radialGradient>'
+    + '<radialGradient id="p02-sau" cx=".45" cy=".42" r=".6"><stop offset="0" stop-color="#ffffff"/><stop offset=".62" stop-color="#f8f2eb"/><stop offset=".86" stop-color="#ebe0d4"/><stop offset="1" stop-color="#d8c7b8"/></radialGradient>'
+    + '<radialGradient id="p02-cupg" cx=".4" cy=".38" r=".65"><stop offset="0" stop-color="#ffffff"/><stop offset=".7" stop-color="#f6f0e9"/><stop offset="1" stop-color="#dccfc2"/></radialGradient>'
+    + '<radialGradient id="p02-cre" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#d7a774"/><stop offset=".5" stop-color="#bb7f4b"/><stop offset=".84" stop-color="#8d5129"/><stop offset="1" stop-color="#5a2f15"/></radialGradient>'
+    + '<linearGradient id="p02-rg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6d2bd"/><stop offset=".45" stop-color="#d79c80"/><stop offset=".7" stop-color="#f1c3aa"/><stop offset="1" stop-color="#b47058"/></linearGradient>'
+    + '<linearGradient id="p02-choc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7a4a31"/><stop offset="1" stop-color="#4d2817"/></linearGradient>'
+    + '<linearGradient id="p02-cube" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eadfd3"/></linearGradient>'
+    + '<filter id="p02-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.6"/></filter>'
+    + '</defs>';
+
+  var HEART = 'M0 15 C-6 9 -19 1.5 -19 -7.5 C-19 -14.5 -13.5 -19 -7.8 -19 C-3.8 -19 -1.2 -16.8 0 -13.6 C1.2 -16.8 3.8 -19 7.8 -19 C13.5 -19 19 -14.5 19 -7.5 C19 1.5 6 9 0 15Z';
+
+  function bean(x, y, s, rot) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ') scale(' + f(s) + ')"><ellipse cx="0" cy="0" rx="5" ry="3.5" fill="#3b1f12"/><ellipse cx="-1" cy="-1" rx="3.6" ry="2.2" fill="#5c331d" opacity=".8"/>'
+      + '<path d="M-4.2 .3 C-2 -1.4 1.5 1.6 4.2 -.3" stroke="#1f0f08" stroke-width=".7" fill="none" stroke-linecap="round"/></g>';
+  }
+  /* a top-down latte on a saucer with a rose-gold spoon; saucer radius R */
+  function latte(cx, cy, R, rot) {
+    var s = '<g transform="translate(' + f(cx) + ' ' + f(cy) + ') scale(' + f(R / 50) + ') rotate(' + f(rot || 0) + ')">'
+      + '<circle cx="2.5" cy="4" r="50" fill="rgba(25,3,10,.45)" filter="url(#p02-soft)"/>'
+      + '<circle r="50" fill="url(#p02-sau)"/>'
+      + '<circle r="47" fill="none" stroke="url(#p02-rg)" stroke-width="1.5"/>'
+      + '<circle r="49.4" fill="none" stroke="rgba(90,50,30,.12)" stroke-width=".8"/>'
+      + '<circle r="34" fill="none" stroke="rgba(120,85,60,.13)" stroke-width="3"/>'
+      /* spoon resting on the saucer */
+      + '<g transform="rotate(42)"><path d="M33 3 C33 -2 41 -3 45 1 L63 1.8 L63 4.4 L45 4.4 C41 8 33 8 33 3Z" fill="rgba(60,30,20,.2)"/>'
+      + '<ellipse cx="38" cy="0" rx="7.6" ry="4.9" fill="url(#p02-rg)"/><ellipse cx="37.2" cy="-.7" rx="5" ry="2.8" fill="#fbe2d3" opacity=".65"/>'
+      + '<path d="M45 -.9 C50 -1.4 56 -1.9 61 -2 C63.2 -2 63.2 2 61 2 C56 1.9 50 1.4 45 .9Z" fill="url(#p02-rg)"/>'
+      + '<path d="M47 -.5 L60 -1.1" stroke="#fde8da" stroke-width=".6" opacity=".85"/></g>'
+      /* two beans on the saucer */
+      + '<g transform="rotate(-112) translate(40 0) rotate(80) scale(.27)"><path d="' + HEART + '" fill="#3f1a10" transform="translate(1.5 2)" opacity=".35"/><path d="' + HEART + '" fill="#5a2a17"/><path d="' + HEART + '" transform="scale(.74)" fill="none" stroke="#7a4128" stroke-width="2"/><path d="M-12 -12 C-9 -15 -5 -15 -3 -12" stroke="#a8694a" stroke-width="2" fill="none" stroke-linecap="round"/></g>'
+      /* cup handle */
+      + '<g transform="rotate(-24)"><rect x="25" y="-5.2" width="18.5" height="10.4" rx="5.2" fill="rgba(60,30,20,.16)" transform="translate(1.2 1.6)"/>'
+      + '<rect x="25" y="-5.2" width="18.5" height="10.4" rx="5.2" fill="url(#p02-cupg)" stroke="rgba(90,60,40,.18)" stroke-width=".5"/>'
+      + '<rect x="30.5" y="-1.8" width="9" height="3.6" rx="1.8" fill="#e2d5c8"/></g>'
+      /* cup */
+      + '<circle cx="1.4" cy="2" r="30.5" fill="rgba(60,30,20,.2)" filter="url(#p02-soft)"/>'
+      + '<circle r="30" fill="url(#p02-cupg)" stroke="rgba(90,60,40,.16)" stroke-width=".6"/>'
+      + '<circle r="28.3" fill="none" stroke="#ffffff" stroke-width="1.1"/>'
+      + '<circle r="26.6" fill="url(#p02-cre)"/>'
+      + '<circle r="25" fill="none" stroke="#f3dcc0" stroke-width="2.2" opacity=".28"/>'
+      + '<circle cx="-14" cy="15" r=".9" fill="#f6e6d0" opacity=".6"/><circle cx="-11.5" cy="17.5" r=".6" fill="#f6e6d0" opacity=".55"/><circle cx="16" cy="-12" r=".7" fill="#f6e6d0" opacity=".5"/><circle cx="18" cy="9" r=".55" fill="#f6e6d0" opacity=".5"/>'
+      /* poured heart, stacked layers and pull-through */
+      + '<g transform="rotate(-14) translate(0 1.5)">'
+      + '<path d="' + HEART + '" fill="#fbf2e3"/>'
+      + '<path d="' + HEART + '" transform="translate(0 -2.2) scale(.78)" fill="none" stroke="#c99a6b" stroke-width=".85" opacity=".55"/>'
+      + '<path d="' + HEART + '" transform="translate(0 -4) scale(.56)" fill="none" stroke="#c99a6b" stroke-width="1" opacity=".5"/>'
+      + '<path d="' + HEART + '" transform="translate(0 -5.6) scale(.34)" fill="none" stroke="#c99a6b" stroke-width="1.3" opacity=".45"/>'
+      + '<path d="M0 -15.5 C.4 -6 -.4 6 0 21" stroke="#a76c3e" stroke-width="1.1" fill="none" stroke-linecap="round"/>'
+      + '</g>'
+      + '<path d="M-18 -16 A24 24 0 0 1 -4 -24" stroke="#ffffff" stroke-width="1.2" fill="none" opacity=".35" stroke-linecap="round"/>'
+      + '<path d="M-26 -10 A28.3 28.3 0 0 1 -12 -25.6" stroke="#ffffff" stroke-width="1.8" fill="none" opacity=".9" stroke-linecap="round"/>'
+      + '</g>';
+    return s;
+  }
+  function wall(H, seed, beans) {
+    var r = rng(seed), s = '<rect width="100" height="' + f(H) + '" fill="url(#p02-wall)"/>';
+    /* faint wallpaper lattice */
+    for (var y = -4; y < H + 8; y += 8) for (var x = (Math.round(y / 8) % 2 ? 4 : 0); x < 104; x += 8)
+      s += '<path d="M' + f(x) + ' ' + f(y - 1.3) + ' L' + f(x + 1) + ' ' + f(y) + ' L' + f(x) + ' ' + f(y + 1.3) + ' L' + f(x - 1) + ' ' + f(y) + 'Z" fill="#e9b39b" opacity=".07"/>';
+    (beans || []).forEach(function (b) { s += bean(b[0], b[1], b[2], b[3] != null ? b[3] : r() * 180); });
+    return s;
+  }
+  function svg(H, inner) { return '<svg class="p02-bg" viewBox="0 0 100 ' + f(H) + '" preserveAspectRatio="none">' + DEFS + inner + '</svg>'; }
+
+  /* chocolate square / sugar cube tile for one zone row */
+  function tile(r, l, t, w, h, rot, sq) {
+    var home = r.home, sv;
+    if (home) {
+      sv = '<rect x="2" y="3" width="96" height="94" rx="6" fill="rgba(25,3,10,.35)"/><rect x="0" y="0" width="96" height="94" rx="6" fill="url(#p02-cube)"/>'
+        + '<rect x="5" y="5" width="86" height="84" rx="4" fill="none" stroke="#d9a58c" stroke-width="1.6" stroke-dasharray="3 2.5"/>';
+      for (var i = 0; i < 26; i++) { var k = (i * 37) % 100; sv += '<rect x="' + f(4 + (k * 0.88)) + '" y="' + f(4 + ((i * 53) % 86)) + '" width="1.4" height="1.4" fill="#d8ccc0" opacity=".7"/>'; }
+    } else {
+      sv = '<rect x="2" y="3" width="96" height="94" rx="5" fill="rgba(20,3,8,.4)"/><rect x="0" y="0" width="96" height="94" rx="5" fill="url(#p02-choc)"/>'
+        + '<path d="M0 5 Q0 0 5 0 H91 Q96 0 96 5 L88 10 H8Z" fill="#8f5a3c" opacity=".8"/><path d="M0 5 L8 10 V84 L0 89Z" fill="#83502f" opacity=".7"/>'
+        + '<path d="M96 5 L88 10 V84 L96 89Z" fill="#3a1d10" opacity=".55"/><path d="M8 84 H88 L96 89 Q96 94 91 94 H5 Q0 94 0 89Z" fill="#33190d" opacity=".6"/>'
+        + '<rect x="8" y="10" width="80" height="74" rx="2" fill="#5e3420"/>';
+    }
+    return '<div class="p02-tile' + (home ? ' h' : '') + (sq ? ' ts' : '') + '" style="' + at(l, t, w, h) + ';transform:rotate(' + rot + 'deg)">'
+      + '<svg viewBox="0 0 100 100" preserveAspectRatio="none">' + sv + '</svg>'
+      + '<div class="tx"><div class="i">' + r.label + '</div><div class="d">' + r.days + '</div><div class="t">' + r.time.replace(' / ', '<br>') + '</div></div></div>';
+  }
+
+  function header(H, spec, partner, o) {
+    var logo = partner ? '<div class="p02-logo pip' + (o.sq ? ' s' : '') + '" style="' + at(o.lg[0], o.lg[1]) + '"><img src="' + spec.pipUrl + '" alt=""></div>'
+      : '<div class="p02-logo' + (o.sq ? ' s' : '') + '" style="' + at(o.lg[0], o.lg[1]) + '"><img src="' + spec.logoUrl + '" alt=""></div>';
+    var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop(), first = words.join(' ');
+    var t = o.ttl, ser = o.oneLine
+      ? '<div class="ser" style="font-size:' + f(t[3]) + 'cqw">' + (first ? first + ' ' : '') + '<i>' + last + '</i></div>'
+      : '<div class="ser" style="font-size:' + f(t[3]) + 'cqw">' + (first ? first + '<br>' : '') + '<i style="font-size:' + f(t[3] * 1.38) + 'cqw">' + last + '</i></div>';
+    return logo
+      + '<div class="p02-ttl" style="' + at(t[0], t[1], t[2]) + '"><div class="k" style="font-size:' + f(o.kfs || 1.5) + 'cqw">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>' + ser + '</div>'
+      + '<div class="p02-mo" style="' + at(o.mo[0], o.mo[1]) + '"><span class="m" style="font-size:' + f(o.mo[2]) + 'cqw">' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</span><span class="z">on Zoom</span></div>';
+  }
+  function topicSize(txt, w, max, lines) {
+    var n = txt.replace(/&[a-z]+;/g, 'x').length;
+    return Math.min(max, (w * lines) / (n * 0.53));
+  }
+  function presenter(spec, H) { return spec.presenter ? '<div class="pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : ''; }
+  function when(s) { return DOWF[s.dow] + ', ' + s.monFull + ' ' + s.day; }
+
+  /* the menu card that holds the topic (the star) */
+  function menu(S, spec, H, o) {
+    var solo = S.length === 1, inner = o.w - 2 * o.pad, h = '<div class="p02-menu' + (o.cls ? ' ' + o.cls : '') + '" style="' + at(o.l, o.t, o.w) + ';padding:' + f(o.pad * .8) + 'cqw ' + f(o.pad) + 'cqw;transform:rotate(' + o.rot + 'deg)">';
+    h += '<div class="lb"><span>' + (solo ? 'ON THE MENU THIS MONTH' : 'ON THE MENU · TWO TALKS') + '</span></div>';
+    S.forEach(function (s, i) {
+      var fs = topicSize(s.lesson, inner, solo ? o.fs : o.fs2, solo ? (o.lines || 2) : 2);
+      h += '<div class="it' + (i ? ' n2' : '') + '"><div class="tp" style="font-size:' + f(fs) + 'cqw">' + s.lesson + '</div>'
+        + (s.desc && o.desc !== false ? '<div class="ds">' + s.desc + '</div>' : '')
+        + (o.dates ? '<div class="dt"><b>' + when(s) + '</b><span>' + s.time + '</span></div>' : '') + '</div>';
+    });
+    return h + presenter(spec, H) + '</div>';
+  }
+  function where(H, l, t, w, fs, center) { return '<div class="p02-where" style="' + at(l, t, w) + ';font-size:' + f(fs) + 'cqw' + (center ? ';text-align:center' : '') + '">' + H.PTC_WHERE + '</div>'; }
+  function footer(spec, partner, H, top, h, sq) {
+    return '<div class="p02-foot' + (sq ? ' fs' : '') + '" style="top:' + f(top) + 'cqw;height:' + f(h) + 'cqw"><div class="rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link: scan the QR code<br>or call ' + H.phone(partner) + '</div>'
+      + '<div class="p02-qr">' + H.qrImg(spec, partner) + '</div><div class="p02-bd">' + H.badges(spec, partner) + '</div></div>';
+  }
+
+  var css = [
+    '.p02{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(67,12,32,.4);background:#651631;font-family:Jost,Poppins,sans-serif;color:#fbefe3}',
+    '.p02.sq{aspect-ratio:1/1}',
+    '.p02>div{position:absolute;z-index:2}',
+    '.p02 .p02-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.p02 .p02-badge{z-index:2;pointer-events:none}',
+    '.p02 .p02-logo{width:14cqw;height:14cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 .55cqw #d79c80,0 .6cqw 1.6cqw rgba(30,3,12,.45)}',
+    '.p02 .p02-logo img{width:11cqw;height:auto}',
+    '.p02 .p02-logo.s{width:12cqw;height:12cqw}.p02 .p02-logo.s img{width:9.4cqw}',
+    '.p02 .p02-logo.pip{width:19cqw;height:11.3cqw;border-radius:1.6cqw}.p02 .p02-logo.pip img{width:17cqw}',
+    '.p02 .p02-logo.pip.s{width:16cqw;height:9.6cqw;border-radius:1.3cqw}.p02 .p02-logo.pip.s img{width:14.2cqw}',
+    '.p02 .p02-ttl .k{font-weight:600;letter-spacing:.3cqw;color:#e8b49b;white-space:nowrap}',
+    '.p02 .p02-ttl .ser{font-family:"DM Serif Display",Georgia,serif;line-height:.98;color:#fff6ec;margin-top:1.2cqw;white-space:nowrap}',
+    '.p02 .p02-ttl .ser i{color:#f0bfa5;font-style:italic}',
+    '.p02 .p02-mo{display:flex;align-items:center;gap:2cqw;white-space:nowrap}',
+    '.p02 .p02-mo .m{font-family:"Great Vibes",cursive;color:#f6d2bd;line-height:1.15}',
+    '.p02 .p02-mo .z{background:linear-gradient(135deg,#f6d2bd,#d79c80 55%,#c07c62);color:#4a0f24;font-weight:700;font-size:1.6cqw;letter-spacing:.2cqw;padding:.6cqw 2cqw;border-radius:4cqw;text-transform:uppercase}',
+    '.p02 .p02-where{font-style:italic;font-weight:500;color:#f2cdb8;line-height:1.3}',
+    /* menu card */
+    '.p02 .p02-menu{box-sizing:border-box;background:#f3e4cf;color:#4a0f24;border-radius:1cqw;box-shadow:0 0 0 .5cqw #f3e4cf,0 0 0 .75cqw #d79c80,0 1.4cqw 2.6cqw rgba(25,3,10,.5);z-index:3}',
+    '.p02 .p02-menu .lb{text-align:center;font-weight:700;font-size:1.3cqw;letter-spacing:.42cqw;color:#a8644b;display:flex;align-items:center;gap:1.4cqw}',
+    '.p02 .p02-menu .lb:before,.p02 .p02-menu .lb:after{content:"";flex:1;height:.22cqw;background:#d79c80}',
+    '.p02 .p02-menu .it{margin-top:1.1cqw}.p02 .p02-menu .it.n2{border-top:.25cqw dashed #d6b39f;padding-top:1.1cqw}',
+    '.p02 .p02-menu .tp{font-family:"DM Serif Display",Georgia,serif;line-height:1.04;color:#5a1029;text-align:center;text-wrap:balance}',
+    '.p02 .p02-menu .ds{text-align:center;font-style:italic;font-size:2cqw;color:#7b4a3a;margin-top:.6cqw}',
+    '.p02 .p02-menu .dt{display:flex;justify-content:center;flex-wrap:wrap;gap:.3cqw 1.6cqw;margin-top:1cqw;font-size:2cqw;color:#4a0f24}',
+    '.p02 .p02-menu .dt b{font-weight:700}.p02 .p02-menu .dt span{font-weight:500;color:#9a5540}',
+    '.p02 .p02-menu .pr{margin-top:1.1cqw;text-align:center;font-size:1.85cqw;color:#7b4a3a}.p02 .p02-menu .pr b{color:#5a1029}',
+    '.p02 .p02-menu.ms .lb{font-size:1.15cqw}.p02 .p02-menu.ms .ds{font-size:1.7cqw}.p02 .p02-menu.ms .dt{font-size:1.75cqw;margin-top:.7cqw}.p02 .p02-menu.ms .pr{font-size:1.6cqw;margin-top:.8cqw}.p02 .p02-menu.ms .it{margin-top:.8cqw}.p02 .p02-menu.ms .it.n2{padding-top:.8cqw}',
+    '.p02 .p02-menu.ml .tp{text-align:left}.p02 .p02-menu.ml .ds{text-align:left}.p02 .p02-menu.ml .dt{justify-content:flex-start;flex-direction:column}.p02 .p02-menu.ml .pr{text-align:left}',
+    /* when (HST date plate) */
+    '.p02 .p02-hd{font-family:"Great Vibes",cursive;color:#f6d2bd;line-height:1.1;white-space:nowrap}',
+    /* chocolate tiles */
+    '.p02 .p02-tile svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}',
+    '.p02 .p02-tile .tx{position:absolute;left:10%;right:10%;top:12%;bottom:12%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#fbe9d7}',
+    '.p02 .p02-tile .i{font-weight:700;font-size:1.55cqw;line-height:1.1;color:#f6d2bd}',
+    '.p02 .p02-tile .d{font-weight:500;font-size:1.3cqw;line-height:1.3}',
+    '.p02 .p02-tile .t{font-family:"DM Serif Display",Georgia,serif;font-size:2.35cqw;line-height:1.08;margin-top:.2cqw}',
+    '.p02 .p02-tile.h .tx{color:#5a1029}.p02 .p02-tile.h .i{color:#8a4436}',
+    '.p02 .p02-tile.ts .i{font-size:1.4cqw}.p02 .p02-tile.ts .d{font-size:1.2cqw}.p02 .p02-tile.ts .t{font-size:2cqw}',
+    /* footer */
+    '.p02 .p02-foot{left:0;right:0;background:#f3e4cf;color:#4a0f24;display:flex;align-items:center;gap:2.4cqw;padding:0 4.5cqw;box-sizing:border-box;border-top:.9cqw solid #d79c80;box-shadow:0 -.4cqw 0 #f3e4cf inset}',
+    '.p02 .p02-foot .rg{flex:1;font-size:1.75cqw;font-weight:500;line-height:1.35;color:#6b3a2e}',
+    '.p02 .p02-foot .rg b{display:block;font-family:"DM Serif Display",Georgia,serif;font-weight:400;font-size:3.6cqw;line-height:1.1;margin-bottom:.4cqw;color:#5a1029}',
+    '.p02 .p02-foot .rg b span{color:#b0664b;font-style:italic}',
+    '.p02 .p02-qr{width:11cqw;height:11cqw;background:#fff;border-radius:.8cqw;padding:.5cqw;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:2cqw;color:#4a0f24;box-shadow:0 0 0 .3cqw #d79c80}',
+    '.p02 .p02-qr img{width:100%;height:100%;display:block}',
+    '.p02 .p02-bd{display:flex;flex-direction:column;gap:.6cqw;width:20cqw}',
+    '.p02 .p02-bd span{display:block;text-align:center;font-weight:700;font-size:1.3cqw;padding:.55cqw .8cqw;border-radius:5cqw;background:#6d1a36;color:#fbefe3}',
+    '.p02 .p02-bd span:nth-child(2){background:linear-gradient(135deg,#f6d2bd,#d79c80);color:#4a0f24}.p02 .p02-bd span:nth-child(3){background:#4a2a1c;color:#fbefe3}',
+    '.p02 .p02-foot.fs{gap:2cqw;padding:0 4cqw}.p02 .p02-foot.fs .rg{font-size:1.6cqw}.p02 .p02-foot.fs .rg b{font-size:3.2cqw}.p02 .p02-foot.fs .p02-qr{width:9.8cqw;height:9.8cqw}.p02 .p02-foot.fs .p02-bd{width:18cqw}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, out;
+    var root = '<div class="p02' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">';
+    if (!partner && !sq) {
+      out = svg(129.4, wall(129.4, 11, [[90, 75, .55, 30], [94, 82, .5, 100], [4, 71, .5, 140], [52, 7, .45, 60]]) + latte(71, 40.5, 25, 0))
+        + header(H, spec, false, { lg: [5, 4.5], ttl: [5, 22, 40, 7.6], mo: [5, 45.5, 5.8] })
+        + badgeDiv(6.5, 54, 20)
+        + where(H, 30, 71.6, 64, 2.05)
+        + menu(S, spec, H, { l: 6, t: 79, w: 88, pad: 4, rot: -1.2, fs: 6.4, fs2: 4, dates: true })
+        + footer(spec, false, H, 113, 16.4, false);
+    } else if (!partner && sq) {
+      out = svg(100, wall(100, 12, [[97, 30, .4, 80], [3, 72, .4, 140]]) + latte(76, 54, 21.5, 20))
+        + header(H, spec, false, { sq: true, lg: [4.5, 4.5], ttl: [20, 5, 56, 5.6], oneLine: true, kfs: 1.3, mo: [20, 13.6, 4.2] })
+        + badgeDiv(80, 3, 17)
+        + menu(S, spec, H, { l: 5, t: 25.5, w: 48, pad: 3, rot: -1.2, fs: 5, fs2: 3.9, lines: 3, dates: true, desc: solo, cls: 'ms' })
+        + where(H, 5, 79.2, 90, 1.8, true)
+        + footer(spec, false, H, 84, 16, true);
+    } else if (!sq) {
+      var rows = H.zoneRows(spec.sessions), tw = 20.5, th = 14.6;
+      var pos = [[5, 80.4, -3], [27.4, 81.6, 2], [49.8, 80.2, -1.5], [72.3, 81.4, 3], [16.2, 97.4, 2.5], [38.7, 98.2, -2], [61.2, 97.2, 1.5]];
+      out = svg(129.4, wall(129.4, 13, [[90, 61, .5, 40], [3, 54, .45, 120], [96, 108, .5, 10], [4, 104, .45, 70]]) + latte(62, 25.5, 19, 8))
+        + header(H, spec, true, { lg: [5, 4.5], ttl: [5, 18.6, 38, 6.4], kfs: 1.35, mo: [5, 39.6, 5.2] })
+        + badgeDiv(80, 30.5, 18)
+        + menu(S, spec, H, { l: 6, t: 51.2, w: 86, pad: 3.4, rot: -1, fs: 4.2, fs2: 3.3, dates: false, desc: solo, cls: 'ms' })
+        + '<div class="p02-hd" style="' + at(5, 74.6, 90) + ';font-size:4cqw;text-align:center">Your local time, sweet and simple</div>'
+        + rows.map(function (r, i) { return tile(r, pos[i][0], pos[i][1], tw, th, pos[i][2], false); }).join('')
+        + footer(spec, true, H, 114.4, 15, false);
+      out = out.replace('</div><div class="p02-hd"', '</div>' + where(H, 5, 47.2, 70, 1.9, false) + '<div class="p02-hd"');
+    } else {
+      var rws = H.zoneRows(spec.sessions), w2 = 19.5, h2 = 13.6;
+      var ps = [[4, 43, -2.5], [25.4, 44.2, 2], [46.8, 42.8, -1.5], [68.2, 44, 2.5], [6, 59, 2], [27.4, 60, -2], [48.8, 58.8, 1.5]];
+      out = svg(100, wall(100, 14, [[97, 78, .4, 40]]) + latte(86, 71, 12.4, -10))
+        + header(H, spec, true, { sq: true, lg: [4, 4.5], ttl: [22.5, 4.6, 56, 5.4], oneLine: true, kfs: 1.25, mo: [22.5, 13, 3.8] })
+        + badgeDiv(80.5, 3, 17)
+        + menu(S, spec, H, { l: 5, t: 22.8, w: 90, pad: 2.6, rot: -.8, fs: 3.7, fs2: 3, lines: 1, dates: false, desc: false, cls: 'ms' })
+        + rws.map(function (r, i) { return tile(r, ps[i][0], ps[i][1], w2, h2, ps[i][2], true); }).join('')
+        + where(H, 4, 76.4, 66, 1.65, false)
+        + footer(spec, true, H, 85, 15, true);
+    }
+    return root + out + '</div>';
+  }
+
+  return {
+    name: 'Latte-art date (wine café wall, heart latte, chocolate squares)',
+    fonts: 'family=DM+Serif+Display:ital@0;1&family=Jost:wght@400;500;600;700',
+    css: css,
+    fn: fn
+  };
+})(), 'ptc');
+
+/* ---- PTC month 03 ---- */
+VEBFlyers.registerTheme(3, (function () {
+  /* Parent Talk Café, March: a matcha tea garden. Cream paper, matcha greens and soft lavender.
+     The topic hangs on a painted tea-shop sign from an iron bracket, a glazed teapot pours a stream
+     of tea into cups, and on the partner flyer each island's local time is a tea-bag tag on a string. */
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function at(l, t, w, h) { return 'left:' + f(l) + 'cqw;top:' + f(t) + 'cqw' + (w != null ? ';width:' + f(w) + 'cqw' : '') + (h != null ? ';height:' + f(h) + 'cqw' : ''); }
+  var C = { cream: '#f7f2e3', paper: '#fbf8ee', matcha: '#6f9a3c', deep: '#2f4f1f', tea: '#9cc05a', teaLt: '#c9df8f', lav: '#b8a4dc', lavDk: '#6e5a9e', lavLt: '#e9e1f5', wood: '#8a5a36', iron: '#3a362f' };
+
+  /* Shared PTC series mark (copied verbatim from the series snippet). */
+  function badge(id, c) {
+    var top = 'M16 50 A34 34 0 0 1 84 50', bot = 'M10 50 A40 40 0 0 0 90 50';
+    return '<svg viewBox="0 0 100 100" style="width:100%;height:100%;display:block;overflow:visible">'
+      + '<defs><path id="' + id + '-t" d="' + top + '"/><path id="' + id + '-b" d="' + bot + '"/></defs>'
+      + '<circle cx="50" cy="51.5" r="48" fill="rgba(0,0,0,.18)"/>'
+      + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/>'
+      + '<circle cx="50" cy="50" r="45.2" fill="none" stroke="' + c.ink + '" stroke-width=".7" stroke-dasharray="1.4 1.6" opacity=".7"/>'
+      + '<circle cx="50" cy="50" r="30" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="30" fill="none" stroke="' + c.accent + '" stroke-width="1.4"/>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="1.2" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-t" startOffset="50%">PARENT TALK</textPath></text>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="2.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-b" startOffset="50%">CAFÉ</textPath></text>'
+      + '<circle cx="11.5" cy="54" r="1.6" fill="' + c.accent + '"/><circle cx="88.5" cy="54" r="1.6" fill="' + c.accent + '"/>'
+      /* steam */
+      + '<g fill="none" stroke="' + c.steam + '" stroke-width="2" stroke-linecap="round">'
+      + '<path d="M43 44 C40 40 46 37 43 32 C41 29 44 26 43 24"/><path d="M50 43 C47 38 53 35 50 30 C48 27 51 24 50 22"/><path d="M57 44 C54 40 60 37 57 32 C55 29 58 26 57 24"/></g>'
+      /* saucer */
+      + '<ellipse cx="50" cy="69" rx="19" ry="3.6" fill="' + c.cupDark + '"/><ellipse cx="50" cy="68" rx="19" ry="3.4" fill="' + c.cup + '" stroke="' + c.accent + '" stroke-width=".8"/>'
+      /* cup body + handle */
+      + '<path d="M64 52 C71 51 72 61 63 63" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+      + '<path d="M35 47 H65 L63 60 C62 66 57 68 50 68 C43 68 38 66 37 60 Z" fill="' + c.cup + '"/>'
+      + '<path d="M58 48 L60 48 L58.4 60 C57.8 64 55.6 66 53 66.6 C56 64 57 61 57.3 58Z" fill="' + c.cupDark + '" opacity=".55"/>'
+      + '<ellipse cx="50" cy="47" rx="15" ry="2.6" fill="' + c.cupDark + '"/>'
+      + '<ellipse cx="50" cy="47.3" rx="12.6" ry="1.8" fill="' + c.coffee + '"/>'
+      + '<path d="M40 54 H60" stroke="' + c.accent + '" stroke-width="1.6" stroke-linecap="round"/>'
+      + '</svg>';
+  }
+  var BADGE = { ring: '#3f6a2a', face: '#f7f2e3', ink: '#fbf6e6', cup: '#ffffff', cupDark: '#d6cbe6', coffee: '#7fa646', steam: '#a48fcf', accent: '#b8a4dc' };
+
+  /* ---- drawn decorations (SVG user units = cqw) ---- */
+  function rot(px, py, a) { var r = a * Math.PI / 180; return [px * Math.cos(r) - py * Math.sin(r), px * Math.sin(r) + py * Math.cos(r)]; }
+  /* glazed matcha teapot, body centred at x,y; returns [svg, spoutTipX, spoutTipY] */
+  function teapot(x, y, s, a) {
+    var g = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(a) + ') scale(' + f(s) + ')">'
+      + '<ellipse cx="1" cy="11.6" rx="11" ry="1.6" fill="rgba(47,79,31,.18)"/>'
+      + '<path d="M-11.5 -5.5 C-21 -9 -23 8.5 -10.5 7" fill="none" stroke="' + C.lavDk + '" stroke-width="2.8" stroke-linecap="round"/>'
+      + '<path d="M-11.5 -5.5 C-21 -9 -23 8.5 -10.5 7" fill="none" stroke="' + C.lav + '" stroke-width="1.2" stroke-linecap="round"/>'
+      + '<path d="M10 0 C15 -1 15.5 -7 20.5 -10.5 L22.6 -8.9 C18.6 -5 18.4 4.5 10.5 7 Z" fill="#5a8432"/>'
+      + '<ellipse cx="21.6" cy="-9.7" rx="1.5" ry=".8" transform="rotate(-38 21.6 -9.7)" fill="#3f6a2a"/>'
+      + '<ellipse cx="0" cy="0" rx="13" ry="10.8" fill="' + C.matcha + '"/>'
+      + '<path d="M-13 0 A13 10.8 0 0 0 13 0 A13 7 0 0 1 -13 0Z" fill="#5a8432"/>'
+      + '<path d="M-12.6 -2.6 Q0 .6 12.6 -2.6 L12.95 1.2 Q0 4.6 -12.95 1.2Z" fill="' + C.cream + '"/>'
+      + [-9, -4.5, 0, 4.5, 9].map(function (dx, i) { var cy = -1 + (Math.abs(dx) < 1 ? 1.6 : Math.abs(dx) < 5 ? 1.3 : .7); return '<circle cx="' + dx + '" cy="' + f(cy) + '" r=".95" fill="' + (i % 2 ? C.matcha : C.lav) + '"/>'; }).join('')
+      + '<ellipse cx="-5" cy="-5.6" rx="4" ry="1.8" transform="rotate(-20 -5 -5.6)" fill="#fff" opacity=".28"/>'
+      + '<path d="M-7.4 -9.4 Q0 -15.6 7.4 -9.4Z" fill="' + C.lav + '"/><ellipse cx="0" cy="-9.4" rx="8.4" ry="1.5" fill="' + C.lavDk + '"/>'
+      + '<circle cx="0" cy="-14.4" r="1.7" fill="' + C.lavDk + '"/>'
+      + '<ellipse cx="0" cy="10.4" rx="7.4" ry="1.3" fill="#3f6a2a"/></g>';
+    var t = rot(22, -9.6, a);
+    return [g, x + t[0] * s, y + t[1] * s];
+  }
+  /* teacup on saucer; x = centre, y = rim; w = rim width */
+  function cup(x, y, w, steam) {
+    var h = w * .62, s = '';
+    s += '<ellipse cx="' + f(x) + '" cy="' + f(y + h + .3) + '" rx="' + f(w * .8) + '" ry="' + f(w * .13) + '" fill="' + C.lavDk + '"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y + h) + '" rx="' + f(w * .8) + '" ry="' + f(w * .12) + '" fill="' + C.lav + '"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y + h - .1) + '" rx="' + f(w * .42) + '" ry="' + f(w * .06) + '" fill="' + C.lavDk + '" opacity=".35"/>'
+      + '<path d="M' + f(x + w * .42) + ' ' + f(y + h * .22) + ' C' + f(x + w * .78) + ' ' + f(y + h * .1) + ' ' + f(x + w * .74) + ' ' + f(y + h * .72) + ' ' + f(x + w * .3) + ' ' + f(y + h * .7) + '" fill="none" stroke="#efe6d2" stroke-width="' + f(w * .085) + '"/>'
+      + '<path d="M' + f(x - w / 2) + ' ' + f(y) + ' H' + f(x + w / 2) + ' C' + f(x + w / 2) + ' ' + f(y + h * .75) + ' ' + f(x + w * .3) + ' ' + f(y + h) + ' ' + f(x) + ' ' + f(y + h) + ' C' + f(x - w * .3) + ' ' + f(y + h) + ' ' + f(x - w / 2) + ' ' + f(y + h * .75) + ' ' + f(x - w / 2) + ' ' + f(y) + 'Z" fill="#fffdf6"/>'
+      + '<path d="M' + f(x + w * .28) + ' ' + f(y + h * .1) + ' C' + f(x + w * .3) + ' ' + f(y + h * .6) + ' ' + f(x + w * .18) + ' ' + f(y + h * .9) + ' ' + f(x) + ' ' + f(y + h * .97) + ' C' + f(x + w * .3) + ' ' + f(y + h * .98) + ' ' + f(x + w * .47) + ' ' + f(y + h * .6) + ' ' + f(x + w * .49) + ' ' + f(y + h * .1) + 'Z" fill="#e6dcc6" opacity=".7"/>'
+      + '<path d="M' + f(x - w * .47) + ' ' + f(y + h * .3) + ' Q' + f(x) + ' ' + f(y + h * .42) + ' ' + f(x + w * .47) + ' ' + f(y + h * .3) + '" stroke="' + C.matcha + '" stroke-width="' + f(w * .05) + '" fill="none"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y) + '" rx="' + f(w / 2) + '" ry="' + f(w * .11) + '" fill="#e9e0cb"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y + .15) + '" rx="' + f(w * .44) + '" ry="' + f(w * .08) + '" fill="' + C.tea + '"/>'
+      + '<ellipse cx="' + f(x - w * .1) + '" cy="' + f(y + .05) + '" rx="' + f(w * .16) + '" ry="' + f(w * .03) + '" fill="' + C.teaLt + '"/>';
+    if (steam) for (var k = -1; k <= 1; k++) {
+      var sx = x + k * w * .22, sy = y - 1.2;
+      s += '<path d="M' + f(sx) + ' ' + f(sy) + ' c-1.4 -1.6 1.4 -2.8 0 -4.4 s1.2 -2.6 0 -3.8" stroke="' + C.lav + '" stroke-width=".55" fill="none" stroke-linecap="round" opacity=".85"/>';
+    }
+    return s;
+  }
+  /* falling stream from spout tip to the cup */
+  function stream(x0, y0, x1, y1) {
+    var d = 'M' + f(x0) + ' ' + f(y0) + ' C' + f(x0 + 2.6) + ' ' + f(y0 + 1) + ' ' + f(x1) + ' ' + f(y0 + 4) + ' ' + f(x1) + ' ' + f(y1);
+    return '<path d="' + d + '" stroke="' + C.matcha + '" stroke-width="1.1" fill="none" stroke-linecap="round"/>'
+      + '<path d="' + d + '" stroke="' + C.teaLt + '" stroke-width=".35" fill="none" stroke-linecap="round" opacity=".9"/>'
+      + '<circle cx="' + f(x1 - 1.4) + '" cy="' + f(y1 - .4) + '" r=".35" fill="' + C.tea + '"/><circle cx="' + f(x1 + 1.5) + '" cy="' + f(y1 - .7) + '" r=".3" fill="' + C.tea + '"/>';
+  }
+  /* sprig of tea leaves (sz ~ length) */
+  function sprig(x, y, sz, a, col) {
+    var s = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(a) + ') scale(' + f(sz / 10) + ')"><path d="M0 0 Q1 -5 0 -10" stroke="#5a7a2c" stroke-width=".35" fill="none"/>';
+    [[-.2, -2.6, -1], [.4, -4.6, 1], [-.1, -6.6, -1], [.2, -8.4, 1]].forEach(function (p) {
+      s += '<path transform="translate(' + p[0] + ' ' + p[1] + ') rotate(' + (p[2] * 52) + ')" d="M0 0 C.9 -1 2.6 -1 3.4 0 C2.6 1 .9 1 0 0Z" fill="' + col + '"/>';
+    });
+    return s + '<path d="M0 -10 C1 -11.4 -1 -11.4 0 -10Z" fill="' + col + '"/></g>';
+  }
+  /* lavender stalk */
+  function lavender(x, y, len, a) {
+    var s = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(a) + ')"><path d="M0 0 Q.4 ' + f(-len * .5) + ' 0 ' + f(-len) + '" stroke="#7d9a52" stroke-width=".3" fill="none"/>';
+    for (var i = 0; i < 9; i++) {
+      var yy = -len * .52 - i * len * .055, side = i % 2 ? .45 : -.45;
+      s += '<ellipse cx="' + f(side) + '" cy="' + f(yy) + '" rx=".55" ry=".85" fill="' + (i % 3 ? C.lav : '#9a85c7') + '"/>';
+    }
+    return s + '</g>';
+  }
+  /* iron wall bracket along y=by from the left edge to x=x1, with chains down to the sign at cTop */
+  function bracket(by, x1, chains, cTop) {
+    var s = '<rect x="0" y="' + f(by - 3.4) + '" width="1.4" height="9.8" rx=".3" fill="' + C.iron + '"/>'
+      + '<path d="M1 ' + f(by) + ' H' + f(x1) + '" stroke="' + C.iron + '" stroke-width=".9" stroke-linecap="round"/>'
+      + '<circle cx="' + f(x1 + .6) + '" cy="' + f(by) + '" r=".95" fill="' + C.iron + '"/>'
+      + '<path d="M1.2 ' + f(by + 5.8) + ' C7 ' + f(by + 5.6) + ' 12 ' + f(by + 2.6) + ' 18 ' + f(by + .2) + '" stroke="' + C.iron + '" stroke-width=".6" fill="none"/>'
+      + '<path d="M9 ' + f(by + 3.6) + ' c-2.6 .2 -3.4 -2.6 -1.4 -3.2 c1.4 -.4 2 1.2 .8 1.6" stroke="' + C.iron + '" stroke-width=".45" fill="none"/>'
+      + '<path d="M14 ' + f(by + 1.8) + ' c1.6 -1.4 3.6 -.4 3 1.2 c-.4 1 -1.8 .6 -1.4 -.3" stroke="' + C.iron + '" stroke-width=".45" fill="none"/>';
+    chains.forEach(function (cx) {
+      s += '<path d="M' + f(cx - .6) + ' ' + f(by + .2) + ' a.6 .6 0 1 0 1.2 0" stroke="' + C.iron + '" stroke-width=".35" fill="none"/>';
+      for (var y = by + 1, i = 0; y < cTop - .3; y += 1.25, i++) {
+        s += i % 2 ? '<rect x="' + f(cx - .12) + '" y="' + f(y) + '" width=".24" height="1.3" rx=".12" fill="' + C.iron + '"/>'
+          : '<ellipse cx="' + f(cx) + '" cy="' + f(y + .65) + '" rx=".42" ry=".72" stroke="' + C.iron + '" stroke-width=".26" fill="none"/>';
+      }
+    });
+    return s;
+  }
+  /* twine with tea-bag pouches; tags hang below on strings. P = [{x, tagTop}] */
+  function twine(y, P) {
+    var s = '<path d="M-1 ' + f(y - .6) + ' Q50 ' + f(y + 2.4) + ' 101 ' + f(y - .6) + '" stroke="#a88a60" stroke-width=".42" fill="none"/>';
+    P.forEach(function (p, i) {
+      var ty = y + .9 - Math.pow((p.x - 50) / 50, 2) * 1.5, px = p.x;
+      s += '<path d="M' + f(px) + ' ' + f(ty + 4.8) + ' V' + f(p.tagTop + .6) + '" stroke="#bfae8c" stroke-width=".22"/>'
+        + '<path d="M' + f(px - .9) + ' ' + f(ty - .2) + ' q.9 -1.1 1.8 0" stroke="#a88a60" stroke-width=".28" fill="none"/>'
+        + '<path d="M' + f(px - 2) + ' ' + f(ty + .6) + ' H' + f(px + 2) + ' L' + f(px + 2.3) + ' ' + f(ty + 4.6) + ' Q' + f(px) + ' ' + f(ty + 5.2) + ' ' + f(px - 2.3) + ' ' + f(ty + 4.6) + 'Z" fill="#efe5cc" stroke="#d8c9a6" stroke-width=".15"/>'
+        + '<path d="M' + f(px - 1.8) + ' ' + f(ty + 2.6) + ' Q' + f(px) + ' ' + f(ty + 3.4) + ' ' + f(px + 1.9) + ' ' + f(ty + 2.6) + ' L' + f(px + 2.05) + ' ' + f(ty + 4.4) + ' Q' + f(px) + ' ' + f(ty + 5) + ' ' + f(px - 2.05) + ' ' + f(ty + 4.4) + 'Z" fill="' + (i % 2 ? C.matcha : C.tea) + '" opacity=".8"/>'
+        + '<rect x="' + f(px - 2) + '" y="' + f(ty + .3) + '" width="4" height=".7" fill="#d8c9a6"/>';
+    });
+    return s;
+  }
+
+  function scene(Ht, parts) { return '<svg class="p03-bg" viewBox="0 0 100 ' + f(Ht) + '" preserveAspectRatio="none">' + parts + '</svg>'; }
+  function paper(Ht) {
+    return '<rect width="100" height="' + f(Ht) + '" fill="' + C.cream + '"/>'
+      + '<path d="M100 0 V' + f(Ht * .34) + ' C88 ' + f(Ht * .3) + ' 70 ' + f(Ht * .2) + ' 56 0Z" fill="' + C.lavLt + '" opacity=".9"/>'
+      + '<path d="M0 ' + f(Ht) + ' V' + f(Ht * .78) + ' C14 ' + f(Ht * .8) + ' 30 ' + f(Ht * .9) + ' 40 ' + f(Ht) + 'Z" fill="#e6efd3" opacity=".8"/>';
+  }
+
+  /* ---- text blocks ---- */
+  function title(H, spec, partner, l, t, w, fs, mo) {
+    return '<div class="p03-ttl" style="' + at(l, t, w) + '"><div class="p03-k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="p03-ser" style="font-size:' + f(fs) + 'cqw">' + H.esc(spec.series || 'Parent Talk Café') + '</div>'
+      + '<div class="p03-mo" style="font-size:' + f(mo) + 'cqw">' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</div></div>';
+  }
+  function where(H, l, t, w, sq) {
+    return '<div class="p03-wh' + (sq ? ' s' : '') + '" style="' + at(l, t, w) + '"><span class="p03-zm">on Zoom</span><span class="p03-fb">' + H.PTC_WHERE + '</span></div>';
+  }
+  function topicFs(S, solo, base) {
+    var L = Math.max.apply(null, S.map(function (s) { return s.lesson.replace(/&[a-z]+;/g, 'x').length; }));
+    if (!solo) return base * (L > 30 ? .72 : .8);
+    return base * (L <= 18 ? 1.2 : L <= 30 ? 1.05 : .92);
+  }
+  function sign(H, spec, S, l, t, w, base, opts) {
+    var solo = S.length === 1, fs = topicFs(S, solo, base), pres = (spec.presenter || '').trim();
+    var body = S.map(function (s, i) {
+      return '<div class="p03-tp' + (i ? ' n2' : '') + '"><div class="p03-tt" style="font-size:' + f(fs) + 'cqw">' + (solo ? '' : '<b class="p03-no">' + (i + 1) + '</b>') + s.lesson + '</div>'
+        + (s.desc && opts.desc ? '<div class="p03-ds">' + s.desc + '</div>' : '')
+        + (opts.when ? '<div class="p03-wn">' + s.dow + '., ' + s.monFull + ' ' + s.day + ' &middot; ' + s.time + '</div>' : '') + '</div>';
+    }).join('');
+    return '<div class="p03-sign' + (opts.sq ? ' s' : '') + '" style="' + at(l, t, w) + '"><i class="p03-hk a"></i><i class="p03-hk b"></i><div class="p03-pan">'
+      + (opts.nolb ? '' : '<div class="p03-lb"><i></i>' + (solo ? 'TODAY&#8217;S TOPIC' : 'THIS MONTH&#8217;S TOPICS') + '<i></i></div>') + body
+      + (pres ? '<div class="p03-pr">Presented by <b>' + H.esc(pres) + '</b></div>' : '') + '</div></div>';
+  }
+  function tickets(S, l, t, w, sq) {
+    var solo = S.length === 1;
+    return '<div class="p03-tks' + (sq ? ' s' : '') + '" style="' + at(l, t, w) + '">' + S.map(function (s, i) {
+      return '<div class="p03-tk"><div class="p03-st"><span>' + s.dow.toUpperCase() + '</span><b>' + s.day + '</b><span>' + s.mon.toUpperCase() + '</span></div>'
+        + '<div class="p03-tx">' + (solo ? '' : '<em>Topic ' + (i + 1) + '</em>') + '<b>' + s.time + '</b><span>' + s.monFull + ' ' + s.day + ', ' + s.dow + '.</span></div></div>';
+    }).join('') + '</div>';
+  }
+  function tags(rows, pos, w, h, sq) {
+    return rows.map(function (r, i) {
+      var p = pos[i];
+      return '<div class="p03-tag' + (r.home ? ' h' : '') + (r.time.length > 12 ? ' lg' : '') + (sq ? ' s' : '') + '" style="' + at(p[0], p[1], w, h) + '"><i></i><div class="p03-i">' + r.label + '</div><div class="p03-d">' + r.days + '</div><div class="p03-t">' + r.time + '</div></div>';
+    }).join('');
+  }
+  function footer(H, spec, partner, top, h, sq) {
+    return '<div class="p03-foot' + (sq ? ' s' : '') + '" style="top:' + f(top) + 'cqw;height:' + f(h) + 'cqw"><div class="p03-rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link, scan the QR code,<br>or call ' + H.phone(partner) + '</div>'
+      + '<div class="p03-qr">' + H.qrImg(spec, partner) + '</div><div class="p03-bd">' + H.badges(spec, partner) + '</div></div>';
+  }
+  function badgeDiv(l, t, w) { return '<div class="p03-badge" style="' + at(l, t, w, w) + '">' + badge('p03-bdg', BADGE) + '</div>'; }
+
+  var css = [
+    '.p03{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(47,79,31,.28);background:#f7f2e3;font-family:Nunito,Poppins,sans-serif;color:#2f4f1f}',
+    '.p03.sq{aspect-ratio:1/1}',
+    '.p03>div{position:absolute;z-index:2}',
+    '.p03 .p03-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.p03 .p03-badge{z-index:3}',
+    '.p03 .p03-logo{width:14cqw;height:14cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 .6cqw #b8a4dc,0 .5cqw 1.4cqw rgba(47,79,31,.22)}',
+    '.p03 .p03-logo img{width:11cqw;height:auto}',
+    '.p03 .p03-logo.pip{width:19cqw;height:11.3cqw;border-radius:1.6cqw}.p03 .p03-logo.pip img{width:17cqw}',
+    '.p03 .p03-k{font-weight:800;font-size:1.5cqw;letter-spacing:.3cqw;color:#6e5a9e;white-space:nowrap;position:relative;z-index:1}',
+    '.p03 .p03-ser{font-family:"DM Serif Display",serif;line-height:1;color:#2f4f1f;margin:1.4cqw 0 .3cqw;white-space:nowrap}',
+    '.p03 .p03-mo{font-family:Satisfy,cursive;color:#6f9a3c;line-height:1.15}',
+    '.p03 .p03-wh{display:flex;align-items:center;gap:1.6cqw}',
+    '.p03 .p03-zm{flex:none;background:#6e5a9e;color:#fbf8ee;font-weight:800;font-size:1.7cqw;letter-spacing:.18cqw;padding:.6cqw 2cqw;border-radius:5cqw}',
+    '.p03 .p03-fb{font-weight:700;font-size:1.6cqw;line-height:1.25;color:#2f4f1f}',
+    '.p03 .p03-wh.s .p03-zm{font-size:1.55cqw;padding:.5cqw 1.6cqw}.p03 .p03-wh.s .p03-fb{font-size:1.45cqw}',
+    /* hanging sign */
+    '.p03 .p03-sign{box-sizing:border-box;padding:1.1cqw;border-radius:1.2cqw;background:repeating-linear-gradient(180deg,#8a5a36 0 2.6cqw,#80522f 2.6cqw 2.75cqw,#94643d 2.75cqw 5.2cqw,#80522f 5.2cqw 5.35cqw);box-shadow:0 1.2cqw 2cqw rgba(47,40,20,.32),inset 0 0 0 .25cqw #6a4226;z-index:3}',
+    '.p03 .p03-hk{position:absolute;top:-1.1cqw;width:1.5cqw;height:1.5cqw;border:.32cqw solid #3a362f;border-radius:50%;box-sizing:border-box}.p03 .p03-hk.a{left:5.25cqw}.p03 .p03-hk.b{right:5.25cqw}',
+    '.p03 .p03-pan{background:#fbf8ee;border-radius:.8cqw;border:.35cqw solid #6f9a3c;box-shadow:inset 0 0 0 .5cqw #fbf8ee,inset 0 0 0 .65cqw #b8a4dc;padding:2cqw 3cqw 2.2cqw;text-align:center}',
+    '.p03 .p03-lb{display:flex;align-items:center;justify-content:center;gap:1.2cqw;font-weight:800;font-size:1.35cqw;letter-spacing:.38cqw;color:#6e5a9e}',
+    '.p03 .p03-lb i{display:block;width:4cqw;height:.25cqw;background:#b8a4dc;border-radius:1cqw}',
+    '.p03 .p03-tp{margin-top:1cqw}.p03 .p03-tp.n2{margin-top:1.4cqw;padding-top:1.2cqw;border-top:.25cqw dashed #c9df8f}',
+    '.p03 .p03-no{display:inline-block;vertical-align:.15em;width:1.5em;height:1.5em;line-height:1.5em;border-radius:50%;background:#6f9a3c;color:#fbf8ee;font-family:Nunito,sans-serif;font-size:.5em;font-weight:800;margin-right:.6em;text-align:center}',
+    '.p03 .p03-wn{display:inline-block;margin-top:.8cqw;background:#e9e1f5;color:#3f2f6e;font-weight:800;font-size:1.65cqw;padding:.45cqw 1.6cqw;border-radius:5cqw}',
+    '.p03 .p03-sign.s .p03-wn{font-size:1.45cqw;margin-top:.6cqw}',
+    '.p03 .p03-tt{font-family:"DM Serif Display",serif;line-height:1.05;color:#2f4f1f}',
+    '.p03 .p03-ds{font-family:Satisfy,cursive;font-size:2.5cqw;color:#6e5a9e;margin-top:.7cqw;line-height:1.15}',
+    '.p03 .p03-pr{margin-top:1.3cqw;font-size:1.75cqw;font-weight:600;color:#2f4f1f;line-height:1.25}.p03 .p03-pr b{font-weight:800;color:#5a8432}',
+    '.p03 .p03-sign.s .p03-pan{padding:1.5cqw 2.4cqw 1.6cqw}.p03 .p03-sign.s .p03-pr{font-size:1.6cqw;margin-top:.9cqw}.p03 .p03-sign.s .p03-ds{font-size:2.2cqw}',
+    /* tea tickets */
+    '.p03 .p03-tks{display:flex;flex-direction:column;gap:1.4cqw}',
+    '.p03 .p03-tk{display:flex;align-items:stretch;background:#e9e1f5;border-radius:1cqw;box-shadow:0 .5cqw 1.2cqw rgba(110,90,158,.25);overflow:hidden}',
+    '.p03 .p03-st{flex:none;width:9cqw;background:#6f9a3c;color:#fbf8ee;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.8cqw 0;border-right:.35cqw dashed #fbf8ee}',
+    '.p03 .p03-st span{display:block;font-weight:800;font-size:1.3cqw;letter-spacing:.2cqw;line-height:1.3}.p03 .p03-st b{font-family:"DM Serif Display",serif;font-weight:400;font-size:4.2cqw;line-height:1.05;display:block;margin:.35cqw 0 .25cqw}',
+    '.p03 .p03-tx{flex:1;padding:1cqw 2.2cqw;display:flex;flex-direction:column;justify-content:center}',
+    '.p03 .p03-tx b,.p03 .p03-tx span{display:block}.p03 .p03-tx em{font-style:normal;font-weight:800;font-size:1.2cqw;letter-spacing:.3cqw;color:#6e5a9e;text-transform:uppercase}',
+    '.p03 .p03-tx b{font-family:"DM Serif Display",serif;font-weight:400;font-size:3.3cqw;line-height:1.1;color:#2f4f1f}',
+    '.p03 .p03-tx span{font-weight:700;font-size:1.65cqw;color:#5a4a86}',
+    '.p03 .p03-tks.s{gap:1cqw}.p03 .p03-tks.s .p03-st{width:7.6cqw;padding:.5cqw 0}.p03 .p03-tks.s .p03-st b{font-size:3.4cqw}.p03 .p03-tks.s .p03-tx{padding:.6cqw 1.8cqw}.p03 .p03-tks.s .p03-tx b{font-size:2.7cqw}.p03 .p03-tks.s .p03-tx span{font-size:1.45cqw}',
+    /* tea-bag tags */
+    '.p03 .p03-tag{box-sizing:border-box;background:#fbf8ee;border:.3cqw solid #6f9a3c;border-radius:.6cqw .6cqw 1.2cqw 1.2cqw;box-shadow:0 .5cqw 1cqw rgba(47,79,31,.22);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:1.4cqw .8cqw .6cqw}',
+    '.p03 .p03-tag>i{position:absolute;left:50%;top:.55cqw;width:1cqw;height:1cqw;margin-left:-.5cqw;border-radius:50%;background:#f7f2e3;box-shadow:inset 0 0 0 .2cqw #bfae8c}',
+    '.p03 .p03-tag .p03-i{font-weight:800;font-size:1.6cqw;line-height:1.1;color:#2f4f1f}',
+    '.p03 .p03-tag .p03-d{font-weight:600;font-size:1.3cqw;line-height:1.25;color:#5a4a86}',
+    '.p03 .p03-tag .p03-t{font-family:"DM Serif Display",serif;font-size:2.35cqw;line-height:1.1;color:#4d7a28}',
+    '.p03 .p03-tag.lg .p03-t{font-size:1.75cqw}.p03 .p03-tag.s.lg .p03-t{font-size:1.4cqw;line-height:1.05}.p03 .p03-tag.s.lg .p03-d{font-size:1.05cqw;line-height:1.15}.p03 .p03-tag.s.lg{padding-top:1.4cqw}',
+    '.p03 .p03-tag.h{background:#6e5a9e;border-color:#3f2f6e}.p03 .p03-tag.h .p03-i,.p03 .p03-tag.h .p03-t{color:#fbf8ee}.p03 .p03-tag.h .p03-d{color:#e9e1f5}.p03 .p03-tag.h>i{background:#f7f2e3}',
+    '.p03 .p03-tag.s{padding:1.2cqw .6cqw .5cqw}.p03 .p03-tag.s .p03-i{font-size:1.4cqw}.p03 .p03-tag.s .p03-d{font-size:1.15cqw}.p03 .p03-tag.s .p03-t{font-size:2cqw}',
+    '.p03 .p03-th{font-family:"DM Serif Display",serif;color:#2f4f1f;line-height:1}.p03 .p03-th span{color:#6e5a9e;font-family:Satisfy,cursive}',
+    /* footer */
+    '.p03 .p03-foot{left:0;right:0;background:#3f6a2a;color:#f7f2e3;display:flex;align-items:center;gap:2.4cqw;padding:0 4.5cqw;box-sizing:border-box;border-top:.8cqw solid #b8a4dc}',
+    '.p03 .p03-rg{flex:1;font-size:1.75cqw;font-weight:600;line-height:1.35}',
+    '.p03 .p03-rg b{display:block;font-family:"DM Serif Display",serif;font-weight:400;font-size:3.5cqw;line-height:1.1;margin-bottom:.4cqw;color:#fff}',
+    '.p03 .p03-rg b span{color:#d9ccef}',
+    '.p03 .p03-qr{width:11cqw;height:11cqw;flex:none;background:#fff;border-radius:.8cqw;padding:.5cqw;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:#2f4f1f}',
+    '.p03 .p03-qr img{width:100%;height:100%;display:block}',
+    '.p03 .p03-bd{display:flex;flex-direction:column;gap:.6cqw;width:20cqw}',
+    '.p03 .p03-bd span{display:block;text-align:center;font-weight:800;font-size:1.3cqw;padding:.55cqw .8cqw;border-radius:5cqw;background:#f7f2e3;color:#3f6a2a}',
+    '.p03 .p03-bd span:nth-child(2){background:#b8a4dc;color:#2a1f4a}.p03 .p03-bd span:nth-child(3){background:#c9df8f;color:#2f4f1f}',
+    '.p03 .p03-foot.s{gap:2cqw;padding:0 4cqw}.p03 .p03-foot.s .p03-rg{font-size:1.6cqw}.p03 .p03-foot.s .p03-rg b{font-size:3.1cqw}.p03 .p03-foot.s .p03-qr{width:9.6cqw;height:9.6cqw}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), rows = partner ? H.zoneRows(spec.sessions) : null, solo = S.length === 1;
+    var logo = partner ? '<div class="p03-logo pip" style="' + at(5, 4.5) + '"><img src="' + spec.pipUrl + '" alt=""></div>'
+      : '<div class="p03-logo" style="' + at(5, 4.5) + '"><img src="' + spec.logoUrl + '" alt=""></div>';
+    var root = '<div class="p03' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">', out, tp, art;
+    if (!partner && !sq) {
+      tp = teapot(77.5, 61, .86, 18);
+      art = paper(129.4) + sprig(96, 128, 14, -20, '#6f9a3c') + sprig(3, 128, 12, 25, '#7fa646') + lavender(99, 30, 13, -16) + lavender(95, 30.5, 11, -6)
+        + bracket(46, 56, [10.5, 50.5], 51) + tp[0] + stream(tp[1], tp[2], 87, 94) + cup(87, 94, 13, false) + cup(69.5, 99, 11, true)
+        + sprig(60, 110.5, 8, -70, '#7fa646') + lavender(99, 111, 9, -12);
+      out = scene(129.4, art) + logo + badgeDiv(76, 4.5, 20)
+        + title(H, spec, false, 5, 21, 66, 8.4, 5.4)
+        + where(H, 5, 38.2, 66)
+        + sign(H, spec, S, 4.5, 51, 52, 6, { desc: true, when: !solo })
+        + (solo ? tickets(S, 6, 91, 48, false) : '')
+        + footer(H, spec, false, 112, 17.4, false);
+    } else if (!partner && sq) {
+      tp = teapot(78, 36, .78, 22);
+      art = paper(100) + bracket(28.5, 54.5, [10, 52], 33) + tp[0] + stream(tp[1], tp[2], 91, 64) + cup(91, 64, 10, false) + cup(75, 69, 8.5, true)
+        + lavender(99, 86, 9, -14) + lavender(96, 86.4, 7, -5) + sprig(2.5, 85.5, 8, 35, '#7fa646');
+      out = scene(100, art) + '<div class="p03-logo" style="' + at(4, 4) + ';width:12cqw;height:12cqw"><img src="' + spec.logoUrl + '" alt="" style="width:9.4cqw"></div>'
+        + badgeDiv(79, 3.5, 17.5)
+        + title(H, spec, false, 19.5, 4.2, 58, 6.6, 4.2)
+        + where(H, 19.5, 21, 60, true)
+        + sign(H, spec, S, 4, 33, 54, solo ? 5.2 : 4.6, { desc: false, sq: true, when: !solo, nolb: !solo })
+        + (solo ? tickets(S, 6, 70, 50, false) : '')
+        + footer(H, spec, false, 87, 13, true);
+    } else if (!sq) {
+      tp = teapot(81, 53, .72, 18);
+      var P = [[3, 85.2], [27, 85.2], [51, 85.2], [75, 85.2], [15, 98.8], [39, 98.8], [63, 98.8]];
+      art = paper(129.4) + lavender(99, 30, 12, -16) + lavender(95.4, 30.4, 10, -6)
+        + bracket(40.5, 53.5, [10.5, 50.5], 45.5) + tp[0] + stream(tp[1], tp[2], 90, 66) + cup(90, 66, 10, false)
+        + twine(78, P.map(function (p) { return { x: p[0] + 11, tagTop: p[1] }; }));
+      out = scene(129.4, art) + logo + badgeDiv(76, 3.5, 20)
+        + title(H, spec, true, 5, 18, 66, 7.8, 4.6)
+        + where(H, 5, 34, 70)
+        + sign(H, spec, S, 4.5, 45.5, 52, 5, { desc: true })
+        + tags(rows, P, 22, 11.8, false)
+        + footer(H, spec, true, 112.6, 16.8, false);
+    } else {
+      tp = teapot(80, 35, .66, 22);
+      var Q = [[3, 62], [27, 62], [51, 62], [75, 62], [15, 75], [39, 75], [63, 75]];
+      art = paper(100) + bracket(27.5, 52.5, [10, 50], 31) + tp[0] + stream(tp[1], tp[2], 91, 47.4) + cup(91, 47.4, 8, false)
+        + twine(55.4, Q.map(function (p) { return { x: p[0] + 11, tagTop: p[1] }; }));
+      out = scene(100, art) + '<div class="p03-logo pip" style="' + at(4, 4) + ';width:17cqw;height:10cqw"><img src="' + spec.pipUrl + '" alt="" style="width:15cqw"></div>'
+        + badgeDiv(80, 3.5, 17)
+        + title(H, spec, true, 23.5, 3.6, 54, 5.8, 3.6)
+        + where(H, 23.5, 18.6, 54, true)
+        + sign(H, spec, S, 4, 31, 52, solo ? 4.3 : 3.9, { desc: false, sq: true, nolb: !solo })
+        + tags(rows, Q, 22, 10.8, true)
+        + footer(H, spec, true, 87.4, 12.6, true);
+    }
+    return root + out + '</div>';
+  }
+
+  return {
+    name: 'Matcha tea garden (hanging tea-shop sign, teapot pouring, tea-bag tags)',
+    fonts: 'family=DM+Serif+Display&family=Nunito:wght@600;700;800&family=Satisfy',
+    css: css,
+    fn: fn
+  };
+})(), 'ptc');
+
+/* ---- PTC month 04 ---- */
+VEBFlyers.registerTheme(4, (function () {
+  /* Parent Talk Café, April: spring blossom tea party. Blush-pink paper, cherry-blossom branches,
+     a white porcelain tiered cake stand with petit fours, cupcakes and macarons on a mint lace tablecloth.
+     Partner flyers: the seven local times are macarons stacked on the cake stand (Hawaiʻi on top, raspberry). */
+  function rng(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function at(l, t, w, h) { return 'left:' + f(l) + 'cqw;top:' + f(t) + 'cqw' + (w != null ? ';width:' + f(w) + 'cqw' : '') + (h != null ? ';height:' + f(h) + 'cqw' : ''); }
+
+  /* Shared PTC series mark (verbatim from the shared snippet). */
+  function badge(id, c) {
+    var top = 'M16 50 A34 34 0 0 1 84 50', bot = 'M10 50 A40 40 0 0 0 90 50';
+    return '<svg viewBox="0 0 100 100" style="width:100%;height:100%;display:block;overflow:visible">'
+      + '<defs><path id="' + id + '-t" d="' + top + '"/><path id="' + id + '-b" d="' + bot + '"/></defs>'
+      + '<circle cx="50" cy="51.5" r="48" fill="rgba(0,0,0,.18)"/>'
+      + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/>'
+      + '<circle cx="50" cy="50" r="45.2" fill="none" stroke="' + c.ink + '" stroke-width=".7" stroke-dasharray="1.4 1.6" opacity=".7"/>'
+      + '<circle cx="50" cy="50" r="30" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="30" fill="none" stroke="' + c.accent + '" stroke-width="1.4"/>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="1.2" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-t" startOffset="50%">PARENT TALK</textPath></text>'
+      + '<text font-family="Poppins,sans-serif" font-weight="800" font-size="9.4" letter-spacing="2.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + id + '-b" startOffset="50%">CAFÉ</textPath></text>'
+      + '<circle cx="11.5" cy="54" r="1.6" fill="' + c.accent + '"/><circle cx="88.5" cy="54" r="1.6" fill="' + c.accent + '"/>'
+      /* steam */
+      + '<g fill="none" stroke="' + c.steam + '" stroke-width="2" stroke-linecap="round">'
+      + '<path d="M43 44 C40 40 46 37 43 32 C41 29 44 26 43 24"/><path d="M50 43 C47 38 53 35 50 30 C48 27 51 24 50 22"/><path d="M57 44 C54 40 60 37 57 32 C55 29 58 26 57 24"/></g>'
+      /* saucer */
+      + '<ellipse cx="50" cy="69" rx="19" ry="3.6" fill="' + c.cupDark + '"/><ellipse cx="50" cy="68" rx="19" ry="3.4" fill="' + c.cup + '" stroke="' + c.accent + '" stroke-width=".8"/>'
+      /* cup body + handle */
+      + '<path d="M64 52 C71 51 72 61 63 63" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+      + '<path d="M35 47 H65 L63 60 C62 66 57 68 50 68 C43 68 38 66 37 60 Z" fill="' + c.cup + '"/>'
+      + '<path d="M58 48 L60 48 L58.4 60 C57.8 64 55.6 66 53 66.6 C56 64 57 61 57.3 58Z" fill="' + c.cupDark + '" opacity=".55"/>'
+      + '<ellipse cx="50" cy="47" rx="15" ry="2.6" fill="' + c.cupDark + '"/>'
+      + '<ellipse cx="50" cy="47.3" rx="12.6" ry="1.8" fill="' + c.coffee + '"/>'
+      + '<path d="M40 54 H60" stroke="' + c.accent + '" stroke-width="1.6" stroke-linecap="round"/>'
+      + '</svg>';
+  }
+  var BADGE = { ring: '#b0245a', face: '#fde9f0', ink: '#ffffff', cup: '#ffffff', cupDark: '#f0bfd0', coffee: '#7a4a2c', steam: '#6fcaa6', accent: '#5cbf9a' };
+
+  var PINK = '#f7a9c3', PINK2 = '#f28bb0', RASP = '#b0245a', MINT = '#7fd3b4', MINTD = '#2f8f73', GOLD = '#d6a756', BARK = '#6e3f3a';
+
+  /* ---------- drawn decorations (SVG units = cqw) ---------- */
+  function blossom(x, y, r, rot, c) {
+    var s = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ')">';
+    for (var k = 0; k < 5; k++) {
+      s += '<path transform="rotate(' + (k * 72) + ')" d="M0 0 C' + f(-r * .55) + ' ' + f(-r * .35) + ' ' + f(-r * .5) + ' ' + f(-r * 1.02) + ' ' + f(-r * .14) + ' ' + f(-r * 1.08) + ' L0 ' + f(-r * .9) + ' L' + f(r * .14) + ' ' + f(-r * 1.08) + ' C' + f(r * .5) + ' ' + f(-r * 1.02) + ' ' + f(r * .55) + ' ' + f(-r * .35) + ' 0 0Z" fill="' + (c || PINK) + '" stroke="' + PINK2 + '" stroke-width="' + f(r * .05) + '"/>';
+    }
+    s += '<circle r="' + f(r * .24) + '" fill="#e0568a"/>';
+    for (k = 0; k < 6; k++) { var a = k * 60 * Math.PI / 180; s += '<circle cx="' + f(Math.cos(a) * r * .42) + '" cy="' + f(Math.sin(a) * r * .42) + '" r="' + f(r * .07) + '" fill="#c2185b"/>'; }
+    return s + '</g>';
+  }
+  function bud(x, y, r, rot) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ')"><ellipse rx="' + f(r * .55) + '" ry="' + f(r) + '" fill="' + PINK2 + '"/><path d="M0 ' + f(r * .5) + ' L' + f(-r * .5) + ' ' + f(r * 1.2) + ' M0 ' + f(r * .5) + ' L' + f(r * .5) + ' ' + f(r * 1.2) + '" stroke="#6aa86b" stroke-width="' + f(r * .25) + '" stroke-linecap="round"/></g>';
+  }
+  function petal(x, y, r, rot) {
+    return '<path transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ')" d="M0 0 C' + f(-r * .6) + ' ' + f(-r * .4) + ' ' + f(-r * .5) + ' ' + f(-r * 1.1) + ' 0 ' + f(-r) + ' C' + f(r * .5) + ' ' + f(-r * 1.1) + ' ' + f(r * .6) + ' ' + f(-r * .4) + ' 0 0Z" fill="' + PINK + '" opacity=".85"/>';
+  }
+  /* branch: main path d + width, flowers list [x,y,r,rot] */
+  function branch(d, w, twigs, flowers, buds) {
+    var s = '<path d="' + d + '" stroke="' + BARK + '" stroke-width="' + f(w) + '" fill="none" stroke-linecap="round"/>';
+    (twigs || []).forEach(function (t) { s += '<path d="' + t + '" stroke="' + BARK + '" stroke-width="' + f(w * .45) + '" fill="none" stroke-linecap="round"/>'; });
+    (buds || []).forEach(function (b) { s += bud(b[0], b[1], b[2], b[3]); });
+    (flowers || []).forEach(function (b) { s += blossom(b[0], b[1], b[2], b[3], b[4]); });
+    return s;
+  }
+  /* cake-stand plate with gold rim and scalloped porcelain underside */
+  function plate(cx, y, w) {
+    var s = '', n = Math.max(6, Math.round(w / 3.2)), step = w / n;
+    for (var i = 0; i < n; i++) s += '<circle cx="' + f(cx - w / 2 + step * (i + .5)) + '" cy="' + f(y + .9) + '" r="' + f(step * .5) + '" fill="#fbf3f6" stroke="#ead2db" stroke-width=".15"/>';
+    return s + '<ellipse cx="' + f(cx) + '" cy="' + f(y + .5) + '" rx="' + f(w / 2 + .3) + '" ry="1.2" fill="#e3c1cd"/>'
+      + '<ellipse cx="' + f(cx) + '" cy="' + f(y) + '" rx="' + f(w / 2 + .3) + '" ry="1.1" fill="#ffffff" stroke="' + GOLD + '" stroke-width=".35"/>';
+  }
+  function standPole(cx, y0, y1, plates, finial) {
+    var s = '<rect x="' + f(cx - .8) + '" y="' + f(y0) + '" width="1.6" height="' + f(y1 - y0) + '" fill="#ffffff" stroke="#e3c1cd" stroke-width=".2"/>';
+    plates.forEach(function (p) { s += '<rect x="' + f(cx - 1.3) + '" y="' + f(p - 2) + '" width="2.6" height=".9" rx=".4" fill="' + GOLD + '"/>'; });
+    if (finial) s += '<circle cx="' + f(cx) + '" cy="' + f(y0 - .6) + '" r="1.3" fill="' + GOLD + '"/><circle cx="' + f(cx) + '" cy="' + f(y0 - 3.2) + '" r="1.3" stroke="' + GOLD + '" stroke-width=".55" fill="none"/>';
+    /* base foot */
+    s += '<path d="M' + f(cx - 1.2) + ' ' + f(y1 - 1.2) + ' L' + f(cx - 6) + ' ' + f(y1) + ' H' + f(cx + 6) + ' L' + f(cx + 1.2) + ' ' + f(y1 - 1.2) + 'Z" fill="#ffffff" stroke="#e3c1cd" stroke-width=".2"/>'
+      + '<ellipse cx="' + f(cx) + '" cy="' + f(y1) + '" rx="6.4" ry=".9" fill="#ffffff" stroke="' + GOLD + '" stroke-width=".3"/>';
+    return s;
+  }
+  /* small treats sitting with their bottom at y */
+  function petitFour(x, y, w, icing) {
+    var h = w * .78;
+    return '<rect x="' + f(x - w / 2) + '" y="' + f(y - h) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(w * .08) + '" fill="#fff6e6"/>'
+      + '<rect x="' + f(x - w / 2) + '" y="' + f(y - h * .52) + '" width="' + f(w) + '" height="' + f(h * .12) + '" fill="#f6c7d6"/>'
+      + '<path d="M' + f(x - w / 2) + ' ' + f(y - h) + ' H' + f(x + w / 2) + ' V' + f(y - h * .72) + ' Q' + f(x + w * .38) + ' ' + f(y - h * .55) + ' ' + f(x + w * .25) + ' ' + f(y - h * .72) + ' Q' + f(x + w * .12) + ' ' + f(y - h * .48) + ' ' + f(x) + ' ' + f(y - h * .72) + ' Q' + f(x - w * .15) + ' ' + f(y - h * .58) + ' ' + f(x - w * .28) + ' ' + f(y - h * .72) + ' Q' + f(x - w * .4) + ' ' + f(y - h * .5) + ' ' + f(x - w / 2) + ' ' + f(y - h * .72) + 'Z" fill="' + icing + '"/>'
+      + blossom(x, y - h - w * .08, w * .2, 10);
+  }
+  function cupcake(x, y, w, frost) {
+    var h = w * .55, s = '<path d="M' + f(x - w * .42) + ' ' + f(y - h) + ' H' + f(x + w * .42) + ' L' + f(x + w * .32) + ' ' + f(y) + ' H' + f(x - w * .32) + 'Z" fill="#ffffff" stroke="#e8b9c9" stroke-width=".15"/>';
+    for (var i = -2; i <= 2; i++) s += '<path d="M' + f(x + i * w * .16) + ' ' + f(y - h) + ' L' + f(x + i * w * .125) + ' ' + f(y) + '" stroke="' + PINK + '" stroke-width="' + f(w * .05) + '"/>';
+    s += '<ellipse cx="' + f(x) + '" cy="' + f(y - h - w * .08) + '" rx="' + f(w * .5) + '" ry="' + f(w * .2) + '" fill="' + frost + '"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y - h - w * .28) + '" rx="' + f(w * .36) + '" ry="' + f(w * .17) + '" fill="' + frost + '"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y - h - w * .44) + '" rx="' + f(w * .2) + '" ry="' + f(w * .13) + '" fill="' + frost + '"/>'
+      + '<circle cx="' + f(x + w * .04) + '" cy="' + f(y - h - w * .62) + '" r="' + f(w * .1) + '" fill="#d7264f"/>'
+      + '<path d="M' + f(x + w * .06) + ' ' + f(y - h - w * .7) + ' q' + f(w * .04) + ' ' + f(-w * .14) + ' ' + f(w * .14) + ' ' + f(-w * .18) + '" stroke="#5a8a3a" stroke-width="' + f(w * .03) + '" fill="none"/>';
+    return s;
+  }
+  function miniMac(x, y, w, c, c2) {
+    var h = w * .3;
+    return '<ellipse cx="' + f(x) + '" cy="' + f(y - h * .55) + '" rx="' + f(w / 2) + '" ry="' + f(h * .55) + '" fill="' + c2 + '"/>'
+      + '<rect x="' + f(x - w * .46) + '" y="' + f(y - h * 1.25) + '" width="' + f(w * .92) + '" height="' + f(h * .4) + '" rx="' + f(h * .2) + '" fill="#fffaf0"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y - h * 1.75) + '" rx="' + f(w / 2) + '" ry="' + f(h * .62) + '" fill="' + c + '"/>';
+  }
+  function teapot(x, y, s) { /* small white teapot with pink blossoms, bottom at y, width ~ 12*s */
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') scale(' + f(s) + ')">'
+      + '<path d="M4.4 -5.2 C7.4 -5.6 8.2 -8.8 9.4 -9.6" stroke="#e3c1cd" stroke-width="1.5" fill="none" stroke-linecap="round"/>'
+      + '<path d="M4.4 -5.2 C7.4 -5.6 8.2 -8.8 9.4 -9.6" stroke="#ffffff" stroke-width="1.1" fill="none" stroke-linecap="round"/>'
+      + '<path d="M-4.6 -6.4 C-7.8 -6.8 -7.8 -2.4 -4.4 -2.6" stroke="#e3c1cd" stroke-width="1.4" fill="none"/>'
+      + '<path d="M-4.6 -6.4 C-7.8 -6.8 -7.8 -2.4 -4.4 -2.6" stroke="#ffffff" stroke-width="1" fill="none"/>'
+      + '<path d="M-5 0 C-6.4 -3.4 -5.4 -7.6 0 -7.8 C5.4 -7.6 6.4 -3.4 5 0Z" fill="#ffffff" stroke="#e3c1cd" stroke-width=".3"/>'
+      + '<ellipse cx="0" cy="-7.8" rx="3" ry=".8" fill="' + MINT + '"/><circle cx="0" cy="-8.9" r=".8" fill="' + MINT + '"/>'
+      + '<path d="M-5.6 -3.8 H5.6" stroke="' + MINT + '" stroke-width=".45"/>'
+      + blossom(-1.6, -5.4, 1.2, 0) + blossom(1.7, -5.8, .9, 30) + '</g>';
+  }
+  function cakeStand(cx, tiers, base, finial) {
+    /* tiers: [{y,w,items:[[type,dx,size,color,color2]]}] */
+    var s = standPole(cx, tiers[0].y - (finial ? 4 : 1), base, tiers.map(function (t) { return t.y; }), finial);
+    tiers.forEach(function (t) {
+      s += plate(cx, t.y, t.w);
+      (t.items || []).forEach(function (it) {
+        var x = cx + it[1], y = t.y - .4;
+        if (it[0] === 'pf') s += petitFour(x, y, it[2], it[3]);
+        else if (it[0] === 'cc') s += cupcake(x, y, it[2], it[3]);
+        else if (it[0] === 'mm') s += miniMac(x, y, it[2], it[3], it[4]);
+      });
+    });
+    return s;
+  }
+  /* lace tablecloth: mint cloth with white scalloped lace edge along its top */
+  function lace(y) {
+    var s = '', r = 1.6;
+    for (var x = r; x < 101; x += r * 2) s += '<circle cx="' + f(x) + '" cy="' + f(y + .2) + '" r="' + f(r) + '" fill="#ffffff"/><circle cx="' + f(x) + '" cy="' + f(y + .2) + '" r=".45" fill="' + MINT + '"/>';
+    return s + '<rect x="0" y="' + f(y) + '" width="100" height="1.6" fill="#ffffff"/>'
+      + '<path d="M0 ' + f(y + .8) + ' H100" stroke="' + MINT + '" stroke-width=".25" stroke-dasharray=".7 .7"/>';
+  }
+  function petals(r, n, zones) {
+    var s = '';
+    zones.forEach(function (z) { for (var i = 0; i < n; i++) s += petal(z[0] + r() * (z[2] - z[0]), z[1] + r() * (z[3] - z[1]), .7 + r() * .6, r() * 360); });
+    return s;
+  }
+  function bgSvg(Hh, inner) {
+    return '<svg class="p04-bg" viewBox="0 0 100 ' + f(Hh) + '" preserveAspectRatio="none">'
+      + '<defs><linearGradient id="p04-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fde3ec"/><stop offset=".55" stop-color="#fff4f7"/><stop offset="1" stop-color="#f3fbf7"/></linearGradient></defs>'
+      + '<rect width="100" height="' + f(Hh) + '" fill="url(#p04-g)"/>' + inner + '</svg>';
+  }
+
+  /* ---------- HTML pieces ---------- */
+  function logo(spec, partner, l, t, sq) {
+    return partner ? '<div class="p04-logo p04-pip' + (sq ? ' p04-s' : '') + '" style="' + at(l, t) + '"><img src="' + spec.pipUrl + '" alt=""></div>'
+      : '<div class="p04-logo' + (sq ? ' p04-s' : '') + '" style="' + at(l, t) + '"><img src="' + spec.logoUrl + '" alt=""></div>';
+  }
+  function head(H, spec, partner, l, t, w, fs) {
+    return '<div class="p04-head" style="' + at(l, t, w) + '"><div class="p04-k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="p04-ser" style="font-size:' + f(fs) + 'cqw">' + H.esc(spec.series || 'Parent Talk Café') + '</div>'
+      + '<div class="p04-mo" style="font-size:' + f(fs * .5) + 'cqw">' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '<span class="p04-zm">on Zoom</span></div></div>';
+  }
+  function badgeDiv(l, t, w) { return '<div class="p04-badge" style="' + at(l, t, w, w) + '">' + badge('p04-bdg', BADGE) + '</div>'; }
+  function longestWord(s) { return String(s).replace(/&amp;/g, '&').split(/\s+/).reduce(function (m, w) { return Math.max(m, w.length); }, 0); }
+  function topicSize(lesson, w, max) { return Math.min(max, w / (longestWord(lesson) * .5)); }
+  function presenter(H, spec) { var p = (spec.presenter || '').trim(); return p ? '<div class="p04-pr">Presented by <b>' + H.esc(p) + '</b></div>' : ''; }
+  function when(s) { return '<div class="p04-wh"><b>' + s.dow + ', ' + s.monFull + ' ' + s.day + '</b><span>' + s.time + '</span></div>'; }
+  function where(H) { return '<div class="p04-fb">' + H.PTC_WHERE + '</div>'; }
+
+  function footer(spec, partner, H, top, h, sq) {
+    return '<div class="p04-foot' + (sq ? ' p04-fs' : '') + '" style="top:' + f(top) + 'cqw;height:' + f(h) + 'cqw"><div class="p04-rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link, scan the QR code,<br>or call ' + H.phone(partner) + '</div>'
+      + '<div class="p04-qr">' + H.qrImg(spec, partner) + '</div><div class="p04-bd">' + H.badges(spec, partner) + '</div></div>';
+  }
+
+  /* macarons for the partner local-time table */
+  var SHELLS = [['#f9c6d6', '#f3b0c6'], ['#bfe8d6', '#a6dcc6'], ['#e2d4f3', '#d3c1ec'], ['#fde7a8', '#f8d987'], ['#ffd2bd', '#fbbea2'], ['#c9ecc4', '#b2e0ab']];
+  function macaron(r, i, l, t, w, h, sq) {
+    var c = r.home ? ['#c2185b', '#a3134b'] : SHELLS[i % SHELLS.length], long = r.time.length > 9;
+    return '<div class="p04-mac' + (r.home ? ' p04-h' : '') + (sq ? ' p04-ms' : '') + '" style="' + at(l, t, w, h) + '">'
+      + '<div class="p04-sh" style="background:' + c[0] + ';box-shadow:inset 0 -.5cqw 0 ' + c[1] + '"><div class="p04-i">' + r.label + '</div><div class="p04-d">' + r.days + '</div></div>'
+      + '<div class="p04-fi"></div>'
+      + '<div class="p04-sb" style="background:' + c[0] + ';box-shadow:inset 0 .45cqw 0 ' + c[1] + '"><div class="p04-t' + (long ? ' p04-lg' : '') + '">' + r.time + '</div></div></div>';
+  }
+  function order(rows) { /* Hawaiʻi first (top tier), rest keep their order */
+    var home = rows.filter(function (r) { return r.home; }), rest = rows.filter(function (r) { return !r.home; });
+    return home.concat(rest);
+  }
+
+  var css = [
+    '.p04{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(120,30,70,.25);background:#fff4f7;font-family:Nunito,Poppins,sans-serif;color:#4a1f33}',
+    '.p04.sq{aspect-ratio:1/1}',
+    '.p04>div{position:absolute;z-index:2}',
+    '.p04 .p04-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.p04 .p04-logo{width:14cqw;height:14cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 .6cqw ' + MINT + ',0 0 0 1.1cqw #fff,0 .6cqw 1.6cqw rgba(176,36,90,.25)}',
+    '.p04 .p04-logo img{width:11cqw;height:auto}',
+    '.p04 .p04-logo.p04-s{width:12cqw;height:12cqw}.p04 .p04-logo.p04-s img{width:9.4cqw}',
+    '.p04 .p04-logo.p04-pip{width:19cqw;height:11.3cqw;border-radius:1.8cqw}.p04 .p04-logo.p04-pip img{width:17cqw}',
+    '.p04 .p04-logo.p04-pip.p04-s{width:16cqw;height:9.6cqw;border-radius:1.5cqw}.p04 .p04-logo.p04-pip.p04-s img{width:14.2cqw}',
+    '.p04 .p04-head .p04-k{font-weight:800;font-size:1.45cqw;letter-spacing:.28cqw;color:' + MINTD + ';white-space:nowrap}',
+    '.p04 .p04-head .p04-ser{font-family:"Dancing Script",cursive;font-weight:700;line-height:1.02;color:' + RASP + ';margin:.5cqw 0 .3cqw;white-space:nowrap}',
+    '.p04 .p04-head .p04-mo{font-family:"DM Serif Display",serif;font-style:italic;color:#4a1f33;line-height:1.1;white-space:nowrap;display:flex;align-items:center;gap:1.6cqw}',
+    '.p04 .p04-head .p04-zm{font-family:Nunito,sans-serif;font-style:normal;font-weight:800;font-size:1.55cqw;letter-spacing:.18cqw;background:' + MINTD + ';color:#fff;padding:.5cqw 1.8cqw;border-radius:5cqw;text-transform:uppercase}',
+    '.p04.sq .p04-head .p04-k{font-size:1.3cqw;letter-spacing:.22cqw}.p04.sq .p04-head .p04-zm{font-size:1.35cqw;padding:.4cqw 1.5cqw}',
+    /* main topic column */
+    '.p04 .p04-main{display:flex;flex-direction:column;justify-content:center}.p04 .p04-main>*{flex-shrink:0}',
+    '.p04 .p04-main .p04-lb{font-weight:800;font-size:1.45cqw;letter-spacing:.32cqw;color:' + MINTD + ';display:flex;align-items:center;gap:1cqw}',
+    '.p04 .p04-main .p04-lb:after{content:"";flex:1;height:.25cqw;background:linear-gradient(90deg,' + MINT + ',transparent)}',
+    '.p04 .p04-main .p04-tp{font-family:"DM Serif Display",serif;line-height:1.02;color:#4a1f33;margin:1.2cqw 0 1cqw;letter-spacing:-.02cqw}',
+    '.p04 .p04-main .p04-ds{font-family:"Dancing Script",cursive;font-weight:700;font-size:3cqw;color:' + RASP + ';line-height:1.1;margin-bottom:1.2cqw}',
+    '.p04 .p04-main .p04-pr{font-size:1.9cqw;color:#6b3a50;margin-bottom:1.4cqw}.p04 .p04-main .p04-pr b{color:#4a1f33;font-weight:800}',
+    '.p04 .p04-main .p04-wh{display:inline-flex;flex-direction:column;align-self:flex-start;background:#fff;border:.35cqw solid ' + MINT + ';border-radius:1.4cqw;padding:1cqw 2.2cqw;box-shadow:.6cqw .6cqw 0 ' + PINK + '}',
+    '.p04 .p04-main .p04-wh b{font-family:"DM Serif Display",serif;font-weight:400;font-size:3.2cqw;color:' + RASP + ';line-height:1.1}',
+    '.p04 .p04-main .p04-wh span{font-weight:800;font-size:2.1cqw;color:' + MINTD + ';letter-spacing:.1cqw}',
+    '.p04 .p04-main .p04-fb{margin-top:1.8cqw;font-weight:600;font-style:italic;font-size:1.6cqw;color:#7a4a60}',
+    '.p04 .p04-main .p04-ses{margin-bottom:2cqw}.p04 .p04-main .p04-ses .p04-tp{margin:.6cqw 0 .8cqw}.p04 .p04-main .p04-ses .p04-ds{font-size:2.4cqw;margin:.8cqw 0 0}',
+    '.p04 .p04-main .p04-ses .p04-wh{padding:.7cqw 1.8cqw}.p04 .p04-main .p04-ses .p04-wh b{font-size:2.5cqw}.p04 .p04-main .p04-ses .p04-wh span{font-size:1.75cqw}',
+    '.p04 .p04-main.p04-cen{align-items:center;text-align:center}.p04 .p04-main.p04-cen .p04-lb{width:100%}.p04 .p04-main.p04-cen .p04-lb:before{content:"";flex:1;height:.25cqw;background:linear-gradient(270deg,' + MINT + ',transparent)}',
+    '.p04 .p04-main .p04-sub{font-weight:800;font-size:1.5cqw;letter-spacing:.2cqw;color:' + RASP + ';margin-top:1cqw}',
+    /* macarons */
+    '.p04 .p04-mac{display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 .5cqw .5cqw rgba(120,30,70,.22));z-index:3}',
+    '.p04 .p04-mac .p04-sh{width:100%;height:50%;border-radius:50% 50% 16% 16% / 78% 78% 22% 22%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:.7cqw;box-sizing:border-box;text-align:center}',
+    '.p04 .p04-mac .p04-fi{width:93%;height:11%;background:#fffaf0;border-radius:1cqw;box-shadow:inset 0 0 0 .15cqw rgba(214,167,86,.35)}',
+    '.p04 .p04-mac .p04-sb{width:100%;height:39%;border-radius:16% 16% 50% 50% / 22% 22% 78% 78%;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding-bottom:.3cqw}',
+    '.p04 .p04-mac .p04-i{font-weight:800;font-size:1.75cqw;line-height:1.1;color:#4a1f33;white-space:nowrap}',
+    '.p04 .p04-mac .p04-d{font-weight:700;font-size:1.35cqw;line-height:1.2;color:#6b3a50;white-space:nowrap}',
+    '.p04 .p04-mac .p04-t{font-family:"DM Serif Display",serif;font-size:2.6cqw;line-height:1;color:#4a1f33;white-space:nowrap}',
+    '.p04 .p04-mac .p04-t.p04-lg{font-size:1.9cqw}',
+    '.p04 .p04-mac.p04-h .p04-i,.p04 .p04-mac.p04-h .p04-d,.p04 .p04-mac.p04-h .p04-t{color:#fff}',
+    '.p04 .p04-mac.p04-h .p04-i{font-size:2.1cqw}.p04 .p04-mac.p04-h .p04-t{font-size:3cqw}.p04 .p04-mac.p04-h .p04-t.p04-lg{font-size:2.2cqw}',
+    '.p04 .p04-mac.p04-ms .p04-i{font-size:1.5cqw}.p04 .p04-mac.p04-ms .p04-d{font-size:1.2cqw}.p04 .p04-mac.p04-ms .p04-t{font-size:2.2cqw}.p04 .p04-mac.p04-ms .p04-t.p04-lg{font-size:1.6cqw}.p04 .p04-mac.p04-ms .p04-sh{padding-bottom:.5cqw}',
+    '.p04 .p04-mac.p04-ms.p04-h .p04-i{font-size:1.65cqw}',
+    '.p04 .p04-lt{font-family:"Dancing Script",cursive;font-weight:700;color:' + RASP + ';line-height:1.05}',
+    '.p04 .p04-lt small{display:block;font-family:Nunito,sans-serif;font-weight:800;font-size:1.35cqw;letter-spacing:.22cqw;color:' + MINTD + ';margin-top:.8cqw;line-height:1.3}',
+    /* footer on mint tablecloth */
+    '.p04 .p04-foot{left:0;right:0;background:' + MINTD + ';color:#effaf5;display:flex;align-items:center;gap:2.4cqw;padding:0 4.5cqw;box-sizing:border-box}',
+    '.p04 .p04-foot .p04-rg{flex:1;font-size:1.75cqw;font-weight:600;line-height:1.35}',
+    '.p04 .p04-foot .p04-rg b{display:block;font-family:"DM Serif Display",serif;font-weight:400;font-size:3.5cqw;line-height:1.1;margin-bottom:.4cqw;color:#fff}',
+    '.p04 .p04-foot .p04-rg b span{color:#ffd1e0;font-style:italic}',
+    '.p04 .p04-qr{width:11cqw;height:11cqw;background:#fff;border-radius:.8cqw;padding:.5cqw;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:#4a1f33}',
+    '.p04 .p04-qr img{width:100%;height:100%;display:block}',
+    '.p04 .p04-bd{display:flex;flex-direction:column;gap:.6cqw;width:20cqw}',
+    '.p04 .p04-bd span{display:block;text-align:center;font-weight:800;font-size:1.3cqw;padding:.55cqw .8cqw;border-radius:5cqw;background:#fff;color:' + MINTD + '}',
+    '.p04 .p04-bd span:nth-child(2){background:' + PINK + ';color:#4a1f33}.p04 .p04-bd span:nth-child(3){background:' + RASP + ';color:#fff}',
+    '.p04 .p04-foot.p04-fs{gap:2cqw;padding:0 4cqw}.p04 .p04-foot.p04-fs .p04-rg{font-size:1.6cqw}.p04 .p04-foot.p04-fs .p04-rg b{font-size:3.1cqw}.p04 .p04-foot.p04-fs .p04-qr{width:10cqw;height:10cqw}'
+  ].join('\n');
+
+  function sessionsBlock(H, S, w, opts) {
+    if (S.length === 1) {
+      var s = S[0], fs = topicSize(s.lesson, w, opts.max);
+      return '<div class="p04-lb">THIS MONTH’S TOPIC</div><div class="p04-tp" style="font-size:' + f(fs) + 'cqw">' + s.lesson + '</div>'
+        + (s.desc && opts.desc ? '<div class="p04-ds">' + s.desc + '</div>' : '') + (opts.pres || '') + (opts.when ? when(s) : '');
+    }
+    var fs2 = Math.min.apply(null, S.map(function (x) { return topicSize(x.lesson, w, opts.max2); }));
+    return '<div class="p04-lb">THIS MONTH’S TOPICS</div>' + S.map(function (x) {
+      return '<div class="p04-ses"><div class="p04-tp" style="font-size:' + f(fs2) + 'cqw">' + x.lesson + '</div>' + (opts.when ? when(x) : '') + (x.desc && opts.desc ? '<div class="p04-ds">' + x.desc + '</div>' : '') + '</div>';
+    }).join('') + (opts.pres || '');
+  }
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), root = '<div class="p04' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">', out, r;
+    var pres = presenter(H, spec);
+    if (!partner && !sq) {
+      r = rng(41);
+      out = bgSvg(129.4,
+        petals(r, 4, [[60, 40, 98, 46], [2, 104, 58, 110]])
+        + branch('M102 44 C92 40 86 32 74 30 C68 29 64 31 60 34', 1.4, ['M86 34 C84 30 85 27 88 25', 'M74 30 C72 27 70 26 67 26'],
+          [[96, 38, 2.6, 10], [89, 33.5, 2.2, 40], [80, 31, 2.8, 5], [70, 29, 2.1, 50], [62, 33.5, 1.9, 20], [87.5, 25, 1.8, 0, '#fbd3e0'], [67, 26.5, 1.6, 30, '#fbd3e0']],
+          [[93, 43, 1, 30], [76, 34.5, .9, -20], [64.5, 37, .8, 10]])
+        + lace(110.5)
+        + cakeStand(79, [
+          { y: 58, w: 22, items: [['cc', -5, 7, '#ffd1e0'], ['pf', 5, 6.4, PINK]] },
+          { y: 78, w: 31, items: [['mm', -10.5, 6.4, '#bfe8d6', '#a6dcc6'], ['pf', -2.4, 6.4, '#fbd3e0'], ['cc', 6.2, 7, MINT], ['mm', 12.6, 4.6, '#f9c6d6', '#f3b0c6']] },
+          { y: 98, w: 38, items: [['pf', -13.6, 6.6, MINT], ['mm', -6, 6.4, '#e2d4f3', '#d3c1ec'], ['cc', 2, 7.4, '#ffd1e0'], ['pf', 9.8, 6.4, PINK], ['mm', 15.8, 4.8, '#fde7a8', '#f8d987']] }
+        ], 110.5, true))
+        + logo(spec, false, 5, 4.5) + head(H, spec, false, 23, 4.6, 50, 7.4) + badgeDiv(75.5, 3.8, 20)
+        + '<div class="p04-main" style="' + at(5, 28, 53, 82) + '">' + sessionsBlock(H, S, 53, { max: 8, max2: 5.4, desc: true, when: true, pres: pres }) + where(H) + '</div>'
+        + footer(spec, false, H, 112.4, 17, false);
+    } else if (!partner && sq) {
+      r = rng(42);
+      out = bgSvg(100,
+        petals(r, 3, [[62, 24, 98, 28]])
+        + branch('M102 30 C94 27 88 22 80 22.5 C76 23 73 25 71 27', 1.1, ['M88 24 C87 21.5 88 20.5 90 20'],
+          [[96, 27, 2, 10], [86, 23.5, 2.2, 40], [77, 23, 1.8, 0], [71.5, 27, 1.5, 30, '#fbd3e0']], [[90, 20, .8, 20]])
+        + lace(81)
+        + cakeStand(80.5, [
+          { y: 44, w: 17, items: [['cc', -3.8, 5.4, '#ffd1e0'], ['pf', 3.9, 5, PINK]] },
+          { y: 60, w: 24, items: [['mm', -8, 5.2, '#bfe8d6', '#a6dcc6'], ['pf', -1.4, 5, '#fbd3e0'], ['cc', 5.6, 5.4, MINT]] },
+          { y: 76, w: 30, items: [['pf', -10.4, 5.2, MINT], ['mm', -3.8, 5.2, '#e2d4f3', '#d3c1ec'], ['cc', 2.8, 5.6, '#ffd1e0'], ['mm', 9.8, 4.6, '#fde7a8', '#f8d987']] }
+        ], 81, true))
+        + logo(spec, false, 4.5, 4.5, true) + head(H, spec, false, 20.5, 4.4, 50, 6.4) + badgeDiv(78.5, 3.2, 17.5)
+        + '<div class="p04-main" style="' + at(5, 23.5, 57, 57.5) + '">' + sessionsBlock(H, S, 57, { max: 6.6, max2: 4.8, desc: false, when: true, pres: S.length === 1 ? pres : '' }) + where(H) + '</div>'
+        + footer(spec, false, H, 82.6, 17.4, true);
+    } else if (!sq) {
+      r = rng(43);
+      var rows = order(H.zoneRows(spec.sessions)), mw = 26, mh = 13.4;
+      out = bgSvg(129.4,
+        petals(r, 3, [[70, 52, 96, 62], [3, 100, 8, 108]])
+        + branch('M102 44 C96 40 92 34 86 31 C83 29.5 81 30 79 32', 1.1, ['M93 37 C92 34 93 32 95.5 30.5'],
+          [[97.5, 40.5, 2.3, 10], [90.5, 34.5, 2.3, 40], [84, 30.6, 2, 5], [79.5, 32.5, 1.5, 30, '#fbd3e0'], [95.5, 30.5, 1.6, 0, '#fbd3e0']], [[88, 37, .9, 20]])
+        + lace(110.5)
+        + cakeStand(50, [{ y: 67.4, w: 34 }, { y: 85.6, w: 88 }, { y: 103.8, w: 92 }], 110.5, false)
+        + teapot(84, 67.2, 1.25))
+        + logo(spec, true, 5, 5) + head(H, spec, true, 27, 4.6, 46, 7.2) + badgeDiv(75.5, 3.8, 20)
+        + '<div class="p04-main" style="' + at(5, 23.2, 70, 28.6) + '">' + sessionsBlock(H, S, 70, { max: 5.3, max2: 4.6, desc: S.length === 1, when: false, pres: pres }) + where(H) + '</div>'
+        + '<div class="p04-lt" style="' + at(5, 55, 27) + ';font-size:4.4cqw">Pour a cup at your local time<small>' + (S.length > 1 ? 'BOTH CHATS' : 'ONE CHAT') + ', SEVEN PLACES</small></div>'
+        + macaron(rows[0], 0, 50 - 15, 67.4 - 15, 30, 15, false)
+        + [1, 2, 3].map(function (k, j) { return macaron(rows[k], k, 50 - 1.5 * mw - 1.6 + j * (mw + 1.6), 85.6 - mh, mw, mh, false); }).join('')
+        + [4, 5, 6].map(function (k, j) { return macaron(rows[k], k, 50 - 1.5 * mw - 1.6 + j * (mw + 1.6), 103.8 - mh, mw, mh, false); }).join('')
+        + footer(spec, true, H, 112.4, 17, false);
+    } else {
+      r = rng(44);
+      var rw = H.zoneRows(spec.sessions), w2 = 21.5, h2 = 12;
+      out = bgSvg(100,
+        petals(r, 2, [[2, 58, 6, 62], [94, 58, 98, 62]])
+        + branch('M-2 46 C3 47 8 49 11.5 53', .9, [], [[3, 47, 1.9, 10], [9, 50.5, 1.7, 40], [11.8, 54, 1.2, 0, '#fbd3e0']], [[6, 52.5, .7, 30]])
+        + branch('M102 46 C97 47 92 49 88.5 53', .9, [], [[97, 47, 1.9, 20], [91, 50.5, 1.7, 50], [88.2, 54, 1.2, 0, '#fbd3e0']], [[94, 52.5, .7, -30]])
+        + lace(79)
+        + cakeStand(50, [{ y: 55.6, w: 72 }, { y: 73.4, w: 94 }], 79, false))
+        + logo(spec, true, 4.5, 4.5, true) + head(H, spec, true, 23, 4, 52, 6.2) + badgeDiv(78.5, 3.2, 17.5)
+        + '<div class="p04-main" style="' + at(5, 20.6, 72, 22) + '">' + sessionsBlock(H, S, 72, { max: 5, max2: 3.6, desc: false, when: false, pres: '' }) + where(H) + '</div>'
+        + [0, 1, 2].map(function (k, j) { return macaron(rw[k], k, 50 - 1.5 * w2 - 1.4 + j * (w2 + 1.4), 55.6 - h2, w2, h2, true); }).join('')
+        + [3, 4, 5, 6].map(function (k, j) { return macaron(rw[k], k, 50 - 2 * w2 - 2.1 + j * (w2 + 1.4), 73.4 - h2, w2, h2, true); }).join('')
+        + footer(spec, true, H, 80.6, 19.4, true);
+    }
+    return root + out + '</div>';
+  }
+
+  return {
+    name: 'Spring blossom tea party (cherry blossoms, tiered cake stand, macaron times)',
+    fonts: 'family=DM+Serif+Display:ital@0;1&family=Dancing+Script:wght@700&family=Nunito:wght@600;700;800',
+    css: css,
+    fn: fn
+  };
+})(), 'ptc');
+
+/* ---- PTC month 05 ---- */
+VEBFlyers.registerTheme(5, (function () {
+  /* PTC May: "Mother's Day brunch" - a brunch table seen from above (peach linen, sage plates, butter-yellow
+     accents): pancake stack, teacup on a saucer, a little vase of daisies. The topic sits on a folded place card,
+     the date on a sage-rimmed plate, partner local times on seven brunch plates. Steaming-cup PTC badge top right. */
+  var P = 'p05';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function fit(t, w, lines, maxF, k) { // font size (cqw) so text t wraps into <= lines in width w
+    t = String(t).replace(/&amp;/g, '&').replace(/&[a-z]+;/g, 'x');
+    var lw = Math.max.apply(null, t.split(/\s+/).map(function (s) { return s.length; }));
+    return Math.min(maxF, w * lines / (t.length * k * 1.18), w / (lw * k * 1.1));
+  }
+  function rnd(seed) { var s = seed; return function () { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+  /* recurring series mark: round PARENT TALK CAFE badge with a steaming cup */
+  function badge(c, b) {
+    return '<svg class="' + P + '-badge" style="left:' + f(b[0]) + 'cqw;top:' + f(b[1]) + 'cqw;width:' + f(b[2]) + 'cqw;height:' + f(b[2]) + 'cqw" viewBox="0 0 100 100"><defs><path id="' + P + 'bt" d="M9 50 A41 41 0 0 1 91 50"/><path id="' + P + 'bb" d="M3.6 50 A46.4 46.4 0 0 0 96.4 50"/></defs>'
+      + '<circle cx="50" cy="52" r="48.5" fill="rgba(0,0,0,.12)"/><circle cx="50" cy="50" r="49" fill="' + c.ring + '"/><circle cx="50" cy="50" r="39.5" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="38" fill="none" stroke="' + c.ring + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text font-family="Nunito,sans-serif" font-size="8.6" font-weight="900" letter-spacing="1.25" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bt" startOffset="50%">PARENT TALK CAFÉ</textPath></text>'
+      + '<text font-family="Nunito,sans-serif" font-size="6.2" font-weight="800" letter-spacing="1.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bb" startOffset="50%">MONTHLY CHAT</textPath></text>'
+      + '<circle cx="6" cy="50" r="1.8" fill="' + c.ink + '"/><circle cx="94" cy="50" r="1.8" fill="' + c.ink + '"/>'
+      + '<ellipse cx="50" cy="76" rx="23" ry="4.6" fill="' + c.saucer + '"/><ellipse cx="50" cy="75" rx="15" ry="2.4" fill="rgba(0,0,0,.12)"/>'
+      + '<path d="M67 53 q10 -1 9.5 7.5 q-.5 7.5 -12 8" fill="none" stroke="' + c.cup + '" stroke-width="3.4" stroke-linecap="round"/>'
+      + '<path d="M30 50 H70 L67 64 Q64.5 75 55 75 H45 Q35.5 75 33 64 Z" fill="' + c.cup + '"/>'
+      + '<ellipse cx="50" cy="50" rx="20" ry="3.8" fill="' + c.coffee + '" stroke="' + c.cup + '" stroke-width="1.4"/>'
+      + '<path d="M44 60 c0 -3 6 -3 6 0 c0 -3 6 -3 6 0 c0 4 -6 7 -6 8 c0 -1 -6 -4 -6 -8z" fill="' + c.heart + '"/>'
+      + ['M41 44 q-4 -5 0 -10 q4 -5 0 -10', 'M50 43 q-4 -5 0 -10 q4 -5 0 -11', 'M59 44 q-4 -5 0 -10 q4 -5 0 -10'].map(function (d) {
+        return '<path d="' + d + '" fill="none" stroke="' + c.steam + '" stroke-width="2.6" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+
+  /* ---- brunch table, seen from above ---- */
+  function shadowCircle(cx, cy, r) { return '<circle cx="' + f(cx + r * 0.06) + '" cy="' + f(cy + r * 0.12) + '" r="' + f(r) + '" fill="rgba(120,70,40,.16)"/>'; }
+  function plate(cx, cy, r, rim, center) {
+    return shadowCircle(cx, cy, r) + '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="#fffdf8"/>'
+      + '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.9) + '" fill="none" stroke="' + rim + '" stroke-width="' + f(r * 0.07) + '"/>'
+      + '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.78) + '" fill="' + (center || '#fffaf2') + '" stroke="rgba(150,120,90,.18)" stroke-width="' + f(r * 0.02) + '"/>';
+  }
+  function pancakes(cx, cy, r) {
+    var o = plate(cx, cy, r, '#8fb38c');
+    var p = r * 0.62;
+    o += '<circle cx="' + f(cx + p * 0.1) + '" cy="' + f(cy + p * 0.12) + '" r="' + f(p) + '" fill="#c98642"/>';
+    o += '<circle cx="' + f(cx + p * 0.05) + '" cy="' + f(cy + p * 0.06) + '" r="' + f(p) + '" fill="#dc9a52"/>';
+    o += '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(p) + '" fill="#eab36a"/><circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(p * 0.8) + '" fill="#f2c47e"/>';
+    o += '<path d="M' + f(cx - p * 0.55) + ' ' + f(cy - p * 0.2) + ' q' + f(p * 0.3) + ' ' + f(-p * 0.5) + ' ' + f(p * 0.75) + ' ' + f(-p * 0.35) + ' q' + f(p * 0.45) + ' ' + f(p * 0.1) + ' ' + f(p * 0.5) + ' ' + f(p * 0.5) + ' q' + f(p * 0.05) + ' ' + f(p * 0.55) + ' ' + f(-p * 0.35) + ' ' + f(p * 0.62) + ' q' + f(-p * 0.55) + ' ' + f(p * 0.05) + ' ' + f(-p * 0.9) + ' ' + f(-p * 0.25) + 'z" fill="#b5651d" opacity=".55"/>';
+    o += '<rect x="' + f(cx - p * 0.2) + '" y="' + f(cy - p * 0.22) + '" width="' + f(p * 0.4) + '" height="' + f(p * 0.32) + '" rx="' + f(p * 0.06) + '" fill="#fff0a3" transform="rotate(12 ' + f(cx) + ' ' + f(cy) + ')"/>';
+    [[0.78, -0.6], [0.95, 0.15], [0.6, 0.85], [-0.9, 0.6], [-0.65, 0.85]].forEach(function (b, i) {
+      var x = cx + b[0] * r * 0.75, y = cy + b[1] * r * 0.72;
+      if (i < 3) o += '<circle cx="' + f(x) + '" cy="' + f(y) + '" r="' + f(r * 0.07) + '" fill="#41528f"/><circle cx="' + f(x - r * 0.02) + '" cy="' + f(y - r * 0.02) + '" r="' + f(r * 0.022) + '" fill="#8fa0d8"/>';
+      else o += strawberry(x, y, r * 0.14, i * 50);
+    });
+    return o;
+  }
+  function strawberry(x, y, s, rot) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + rot + ')"><path d="M0 ' + f(s) + ' C' + f(-s * 1.1) + ' ' + f(s * 0.2) + ' ' + f(-s * 0.9) + ' ' + f(-s * 0.9) + ' 0 ' + f(-s * 0.7) + ' C' + f(s * 0.9) + ' ' + f(-s * 0.9) + ' ' + f(s * 1.1) + ' ' + f(s * 0.2) + ' 0 ' + f(s) + 'Z" fill="#e8605a"/>'
+      + '<path d="M' + f(-s * 0.5) + ' ' + f(-s * 0.75) + ' L0 ' + f(-s * 0.45) + ' L' + f(s * 0.5) + ' ' + f(-s * 0.75) + ' L0 ' + f(-s * 1.05) + 'Z" fill="#6f9a5e"/>'
+      + '<circle cx="' + f(-s * 0.3) + '" cy="0" r="' + f(s * 0.06) + '" fill="#ffe6a8"/><circle cx="' + f(s * 0.3) + '" cy="' + f(s * 0.1) + '" r="' + f(s * 0.06) + '" fill="#ffe6a8"/><circle cx="0" cy="' + f(s * 0.45) + '" r="' + f(s * 0.06) + '" fill="#ffe6a8"/></g>';
+  }
+  function teacup(cx, cy, r) {
+    var o = shadowCircle(cx, cy, r) + '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="#fffdf8"/><circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.88) + '" fill="none" stroke="#f3c9b0" stroke-width="' + f(r * 0.05) + '"/>';
+    var c = r * 0.58;
+    o += '<rect x="' + f(cx + c * 0.8) + '" y="' + f(cy - c * 0.2) + '" width="' + f(c * 0.65) + '" height="' + f(c * 0.4) + '" rx="' + f(c * 0.2) + '" fill="#fffdf8" stroke="#8fb38c" stroke-width="' + f(r * 0.04) + '"/>';
+    o += '<circle cx="' + f(cx + c * 0.06) + '" cy="' + f(cy + c * 0.12) + '" r="' + f(c) + '" fill="rgba(120,70,40,.15)"/><circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(c) + '" fill="#fffdf8" stroke="#8fb38c" stroke-width="' + f(r * 0.06) + '"/>';
+    o += '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(c * 0.8) + '" fill="#c98a4b"/><circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(c * 0.8) + '" fill="url(#p05tea)"/>';
+    o += '<ellipse cx="' + f(cx - c * 0.28) + '" cy="' + f(cy - c * 0.3) + '" rx="' + f(c * 0.24) + '" ry="' + f(c * 0.1) + '" fill="rgba(255,255,255,.45)" transform="rotate(-30 ' + f(cx) + ' ' + f(cy) + ')"/>';
+    o += '<g transform="rotate(-35 ' + f(cx) + ' ' + f(cy) + ')"><ellipse cx="' + f(cx) + '" cy="' + f(cy + r * 0.78) + '" rx="' + f(r * 0.08) + '" ry="' + f(r * 0.11) + '" fill="#d7d2c8"/><rect x="' + f(cx - r * 0.025) + '" y="' + f(cy + r * 0.62) + '" width="' + f(r * 0.05) + '" height="' + f(r * 0.06) + '" fill="#d7d2c8"/></g>';
+    o += '<g transform="translate(' + f(cx - r * 1.05) + ' ' + f(cy + r * 0.45) + ') rotate(-12)"><rect x="0" y="0" width="' + f(r * 0.32) + '" height="' + f(r * 0.32) + '" fill="#f7e08a" stroke="#d9b94a" stroke-width="' + f(r * 0.02) + '"/><path d="M' + f(r * 0.16) + ' 0 L' + f(r * 0.4) + ' ' + f(-r * 0.32) + '" stroke="#c9b59a" stroke-width="' + f(r * 0.02) + '"/></g>';
+    return o;
+  }
+  function daisy(x, y, s, rot) {
+    var o = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + rot + ')">';
+    for (var i = 0; i < 10; i++) o += '<ellipse cx="0" cy="' + f(-s * 0.55) + '" rx="' + f(s * 0.18) + '" ry="' + f(s * 0.45) + '" fill="#fffef8" stroke="#eadfcf" stroke-width="' + f(s * 0.03) + '" transform="rotate(' + (i * 36) + ')"/>';
+    return o + '<circle r="' + f(s * 0.3) + '" fill="#f6cf45"/></g>';
+  }
+  function rose(x, y, s) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ')"><circle r="' + f(s) + '" fill="#f4a989"/><path d="M' + f(-s * 0.6) + ' 0 a' + f(s * 0.6) + ' ' + f(s * 0.6) + ' 0 1 1 ' + f(s * 0.6) + ' ' + f(s * 0.6) + ' a' + f(s * 0.4) + ' ' + f(s * 0.4) + ' 0 1 1 ' + f(-s * 0.3) + ' ' + f(-s * 0.7) + ' a' + f(s * 0.2) + ' ' + f(s * 0.2) + ' 0 1 1 ' + f(s * 0.25) + ' ' + f(s * 0.3) + '" fill="none" stroke="#e07e60" stroke-width="' + f(s * 0.12) + '" stroke-linecap="round"/></g>';
+  }
+  function leaf(x, y, len, ang, c) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(ang) + ')"><path d="M0 0 Q' + f(len * 0.5) + ' ' + f(-len * 0.34) + ' ' + f(len) + ' 0 Q' + f(len * 0.5) + ' ' + f(len * 0.34) + ' 0 0Z" fill="' + c + '"/><path d="M' + f(len * 0.1) + ' 0 L' + f(len * 0.85) + ' 0" stroke="rgba(255,255,255,.35)" stroke-width="' + f(len * 0.03) + '"/></g>';
+  }
+  function vase(cx, cy, r) {
+    var o = shadowCircle(cx, cy, r * 0.62) + '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.6) + '" fill="#9cc2b4"/><circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.4) + '" fill="#6f9a8a"/>';
+    [20, 95, 160, 230, 300].forEach(function (a) { o += leaf(cx, cy, r * 1.05, a, a % 2 ? '#7fa57c' : '#93b98f'); });
+    o += daisy(cx - r * 0.42, cy - r * 0.28, r * 0.42, 10) + daisy(cx + r * 0.45, cy - r * 0.05, r * 0.38, 30) + daisy(cx - r * 0.05, cy + r * 0.45, r * 0.4, 0);
+    o += rose(cx + r * 0.08, cy - r * 0.5, r * 0.22) + rose(cx - r * 0.5, cy + r * 0.3, r * 0.18);
+    return o;
+  }
+  function cutlery(x, y, len, rot) {
+    var w = len * 0.06;
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + rot + ')" fill="#cfc9be">'
+      + '<rect x="' + f(-w / 2) + '" y="0" width="' + f(w) + '" height="' + f(len * 0.62) + '" rx="' + f(w / 2) + '"/><path d="M' + f(-w * 1.4) + ' ' + f(len * 0.62) + ' h' + f(w * 2.8) + ' v' + f(len * 0.16) + ' q0 ' + f(len * 0.07) + ' ' + f(-w * 1.4) + ' ' + f(len * 0.07) + ' q' + f(-w * 1.4) + ' 0 ' + f(-w * 1.4) + ' ' + f(-len * 0.07) + 'z"/>'
+      + [-1, -0.33, 0.33, 1].map(function (k) { return '<rect x="' + f(k * w * 1.1 - w * 0.18) + '" y="' + f(len * 0.78) + '" width="' + f(w * 0.36) + '" height="' + f(len * 0.22) + '" rx="' + f(w * 0.18) + '"/>'; }).join('') + '</g>';
+  }
+  function petalScatter(R, x0, x1, y0, y1, n, avoid) {
+    var o = '';
+    for (var i = 0; i < n; i++) {
+      var x = x0 + R() * (x1 - x0), y = y0 + R() * (y1 - y0), a = R() * 360;
+      if (avoid && avoid(x, y)) continue;
+      o += '<ellipse cx="' + f(x) + '" cy="' + f(y) + '" rx=".7" ry="1.2" fill="' + (i % 3 ? '#f7b9a0' : '#f7e08a') + '" transform="rotate(' + f(a) + ' ' + f(x) + ' ' + f(y) + ')" opacity=".85"/>';
+    }
+    return o;
+  }
+
+  var BADGE = { ring: '#7fa57c', face: '#fff6e6', ink: '#fffdf6', cup: '#f2a07f', coffee: '#9a5b34', saucer: '#f7e08a', heart: '#fff6e6', steam: '#a9c7a5' };
+
+  /* layout per variant: logo [x,y,w,h], badge [x,y,size], title [x,y,w,fs], card [x,y,w,h], plates [[cx,cy,r]...], foot y */
+  var L = {
+    lh: { H: 129.41, logo: [4.5, 4.5, 15, 15], badge: [77.5, 3, 19.5], kick: [22, 5.6, 54, 1.4], title: [21, 9.2, 56, 8.6], mon: [21, 28.4, 56, 5],
+      card: [11, 38.5, 78, 33, -1.5], plates1: [[50, 89, 15.5]], plates2: [[31, 89, 14], [69, 89, 14]],
+      deco1: { pan: [16, 90, 12.5], cup: [84, 88.5, 10.5], vase: [91.5, 34, 7] }, deco2: { pan: [4, 92, 9], cup: [96, 81, 8], vase: [91.5, 34, 7] },
+      where: [5, 104.3, 90, 1.75], foot: 108.6 },
+    lp: { H: 129.41, logo: [4, 4.5, 22, 13], badge: [78, 3, 18.5], kick: [28, 5.4, 48, 1.3], title: [28, 8.6, 48, 7.4], mon: [28, 25.4, 48, 4.4],
+      card: [9, 33.4, 82, 25.6, -1.2], head: [5, 61.6, 90, 4.4],
+      zp: [[13.5, 76.4], [37.8, 76.4], [62.2, 76.4], [86.5, 76.4], [25.6, 93.6], [50, 93.6], [74.4, 93.6]], zr: 11.1,
+      deco: { vase: [5, 64, 5.2], cup: [95, 63.5, 5] },
+      where: [5, 106.6, 90, 1.7], foot: 111.4 },
+    sh: { H: 100, logo: [3.5, 3.5, 11.5, 11.5], badge: [81, 2.5, 16.5], kick: [17, 4.4, 40, 1.15], title: [4, 17.5, 43, 7], mon: [4, 34, 43, 4],
+      card: [48.5, 20.5, 47.5, 38, 1.5], plates1: [[25, 56.5, 13]], plates2: [[13.5, 56.5, 11.4], [38, 56.5, 11.4]],
+      deco1: { pan: [44, 69.5, 6.2], cup: [88, 68.5, 6.5], vase: [66, 69.5, 5.5] }, deco2: { pan: [58, 69.5, 6], cup: [89, 68.5, 6], vase: [74.5, 69.5, 5] },
+      where: [3, 77.6, 94, 1.45], foot: 83.4 },
+    sp: { H: 100, logo: [3.5, 3.5, 18, 10.6], badge: [81, 2.5, 16.5], kick: [24, 5.2, 54, 1.15], title: [24, 8.4, 54, 5.6], mon: [24, 21.2, 54, 3.4],
+      card: [5, 27.4, 90, 16.4, -0.8],
+      zp: [[13, 55.2], [37.7, 55.2], [62.3, 55.2], [87, 55.2], [25.3, 69.6], [50, 69.6], [74.7, 69.6]], zr: 8.9,
+      deco: {}, where: [3, 79.2, 94, 1.45], foot: 83.8 }
+  };
+
+  var css = [
+    '.p05{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(120,70,40,.2);background:#fde4d3;font-family:Nunito,Poppins,sans-serif;color:#3e5a45}',
+    '.p05.sq{aspect-ratio:1/1}',
+    '.p05>svg.p05-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.p05>div,.p05>svg.p05-badge{position:absolute;z-index:3}',
+    '.p05 .p05-logo{background:#fff;border-radius:50%;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #a9c7a5,0 .8cqw 1.6cqw rgba(120,70,40,.18)}',
+    '.p05 .p05-logo img{width:78%}.p05 .p05-logo.p05-pip{border-radius:2cqw}.p05 .p05-logo.p05-pip img{width:90%}',
+    '.p05 .p05-k{text-align:center;font-weight:800;letter-spacing:.16em;color:#6f9a6c;line-height:1.3}',
+    '.p05 .p05-t{text-align:center;font-family:Lora,Georgia,serif;font-weight:700;line-height:1;color:#3e5a45}',
+    '.p05 .p05-t span{display:block;font-family:Satisfy,cursive;font-weight:400;color:#e07e60;font-size:1.22em;line-height:1.05;margin-top:.02em}',
+    '.p05 .p05-m{display:flex;justify-content:center;align-items:center;gap:.5em;line-height:1}',
+    '.p05 .p05-m b{font-family:Lora,serif;font-style:italic;font-weight:700;color:#3e5a45}',
+    '.p05 .p05-m i{font-style:normal;font-weight:900;font-size:.36em;letter-spacing:.18em;background:#7fa57c;color:#fff;border-radius:2em;padding:.5em 1em .45em}',
+    '.p05 .p05-card{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-radius:1.2cqw;padding:0 4cqw;box-sizing:border-box;',
+    'background:linear-gradient(180deg,#fffdf8 0%,#fffdf8 17%,#efe6d8 17.4%,#fffaf2 18.6%,#fffdf8 100%);box-shadow:0 1cqw 2cqw rgba(120,70,40,.2),inset 0 0 0 .35cqw #fff,inset 0 0 0 .55cqw #e9c7a8}',
+    '.p05 .p05-lb{font-weight:900;letter-spacing:.2em;color:#e07e60;line-height:1;position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:.8em}',
+    '.p05 .p05-lb:before,.p05 .p05-lb:after{content:"";width:3em;height:.15em;background:#f3c3a8;border-radius:1em}',
+    '.p05 .p05-tp{font-family:Lora,Georgia,serif;font-weight:700;line-height:1.08;color:#3e5a45}',
+    '.p05 .p05-tp em{font-style:normal;font-family:Nunito,sans-serif;font-weight:900;color:#fff;background:#e07e60;border-radius:50%;display:inline-grid;place-items:center;width:1.15em;height:1.15em;font-size:.62em;vertical-align:.25em;margin-right:.35em}',
+    '.p05 .p05-ds{font-family:Lora,serif;font-style:italic;font-weight:600;color:#8a6b55;line-height:1.2;margin-top:.45em}',
+    '.p05 .p05-pr{font-weight:800;color:#5f7f62;line-height:1.2;margin-top:.7em;background:#eef4e8;border-radius:2em;padding:.35em 1.1em}',
+    '.p05 .p05-pr b{font-weight:900;color:#3e5a45}',
+    '.p05 .p05-gap{height:.9em}',
+    '.p05 .p05-dt{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1}',
+    '.p05 .p05-dt .w{font-weight:900;letter-spacing:.24em;color:#7fa57c}',
+    '.p05 .p05-dt .d{font-family:Lora,serif;font-weight:700;color:#3e5a45;margin:.12em 0 .14em}',
+    '.p05 .p05-dt .t{font-weight:900;color:#e07e60;letter-spacing:.02em}',
+    '.p05 .p05-dt .n{font-weight:900;color:#fff;background:#7fa57c;border-radius:2em;padding:.25em .8em;letter-spacing:.12em;margin-bottom:.4em}',
+    '.p05 .p05-h{text-align:center;font-family:Satisfy,cursive;color:#e07e60;line-height:1}',
+    '.p05 .p05-z{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1.08}',
+    '.p05 .p05-z .i{font-weight:900;color:#3e5a45}.p05 .p05-z .y{font-weight:700;color:#8a6b55;margin:.25em 0 .2em}',
+    '.p05 .p05-z .tm{font-family:Lora,serif;font-weight:700;color:#d0694b}',
+    '.p05 .p05-w{text-align:center;font-weight:800;font-style:italic;color:#8a6b55;line-height:1.2}',
+    '.p05 .p05-w b{color:#5f7f62}',
+    '.p05 .p05-f{display:flex;align-items:center;gap:2.4cqw;color:#fff}',
+    '.p05 .p05-rg{flex:1;line-height:1.3;font-weight:700;color:#f2f7ee}',
+    '.p05 .p05-rg b{display:block;font-weight:900;color:#fff;line-height:1.1;margin-bottom:.25em}.p05 .p05-rg b i{font-style:normal;color:#fbe38b}',
+    '.p05 .p05-qr{background:#fff;border-radius:1cqw;padding:.7cqw;box-sizing:border-box;display:grid;place-items:center;flex:none}',
+    '.p05 .p05-qr img{width:100%;height:100%;display:block}.p05 .p05-qr span{color:#3e5a45;font-weight:900;font-size:2.4cqw}',
+    '.p05 .p05-bd{display:flex;flex-direction:column;gap:.6cqw;flex:none}',
+    '.p05 .p05-bd span{background:#fffaf0;color:#3e5a45;border-radius:2cqw;padding:.45em 1.1em;font-weight:800;text-align:center;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), n = S.length;
+    var R = rnd(spec.month * 31 + (sq ? 7 : 0) + (partner ? 3 : 0) + n);
+    var svg = '<defs><radialGradient id="p05tea" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#e2a86b"/><stop offset="1" stop-color="#9a5b34"/></radialGradient>'
+      + '<pattern id="p05lin" width="6" height="6" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#fde4d3"/><path d="M0 3 H6 M3 0 V6" stroke="#fcdac6" stroke-width="1.5"/><circle cx="3" cy="3" r=".9" fill="#fff1e6"/></pattern>'
+      + '<linearGradient id="p05ft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fa57c"/><stop offset="1" stop-color="#5f8a5f"/></linearGradient></defs>';
+    svg += '<rect width="100" height="' + V.H + '" fill="url(#p05lin)"/>';
+    // soft sage runner under the place card
+    var c = V.card;
+    svg += '<rect x="' + f(c[0] - 3) + '" y="' + f(c[1] - 2.5) + '" width="' + f(c[2] + 6) + '" height="' + f(c[3] + 5) + '" rx="2" fill="#cfe0c8" opacity=".75" transform="rotate(' + f(c[4] * -1.3) + ' 50 ' + f(c[1] + c[3] / 2) + ')"/>';
+    var html = '';
+
+    // footer: scalloped sage tablecloth edge
+    var fy = V.foot, sc = '';
+    for (var x = 0; x <= 100.1; x += 5) sc += '<circle cx="' + f(x) + '" cy="' + f(fy) + '" r="2.6" fill="#7fa57c"/><circle cx="' + f(x) + '" cy="' + f(fy + 0.3) + '" r=".55" fill="#fde4d3"/>';
+    svg += '<rect x="0" y="' + f(fy) + '" width="100" height="' + f(V.H - fy + 1) + '" fill="url(#p05ft)"/>' + sc;
+
+    // scattered petals (kept off the main text zones visually by being tiny and soft)
+    svg += petalScatter(R, 2, 98, 2, fy - 4, sq ? 10 : 16, function (x, y) { return x > c[0] - 2 && x < c[0] + c[2] + 2 && y > c[1] - 2 && y < c[1] + c[3] + 2; });
+
+    var lg = V.logo;
+    html += box(P + '-logo' + (partner ? ' ' + P + '-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    html += badge(BADGE, V.badge);
+    var k = V.kick;
+    html += box(P + '-k', k[0], k[1], k[2], null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER', 'font-size:' + k[3] + 'cqw');
+    var t = V.title;
+    html += box(P + '-t', t[0], t[1], t[2], null, H.seriesTitle(spec.series), 'font-size:' + f(fit(spec.series, t[2], 1.2, t[3], 0.52)) + 'cqw');
+    var m = V.mon;
+    html += box(P + '-m', m[0], m[1], m[2], null, '<b>' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</b><i>ON ZOOM</i>', 'font-size:' + m[3] + 'cqw');
+
+    // decorations
+    var D = partner ? V.deco : (n > 1 ? V.deco2 : V.deco1);
+    if (D.vase) svg += vase(D.vase[0], D.vase[1], D.vase[2]);
+    if (D.pan) svg += pancakes(D.pan[0], D.pan[1], D.pan[2]);
+    if (D.cup) svg += teacup(D.cup[0], D.cup[1], D.cup[2]);
+
+    // place card with the topic
+    var lblF = sq ? 1.15 : 1.35, pres = spec.presenter ? '<div class="' + P + '-pr" style="font-size:' + f(sq ? 1.6 : 1.9) + 'cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var lesson = function (x) { return x.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); };
+    var noLb = sq && partner;
+    var inner = noLb ? '' : '<div class="' + P + '-lb" style="font-size:' + lblF + 'cqw;height:' + f(c[3] * 0.17) + 'cqw">' + (n > 1 ? 'ON THE MENU THIS MONTH' : 'THIS MONTH\'S TOPIC') + '</div><div class="' + P + '-gap" style="font-size:' + f(c[3] * 0.1) + 'cqw"></div>';
+    var tw = c[2] - 8;
+    if (n === 1) {
+      var tf = fit(S[0].lesson, tw, sq ? 4 : (partner ? 2 : 3), sq ? 4.6 : (partner ? 5 : 6.4), 0.55);
+      inner += '<div class="' + P + '-tp" style="font-size:' + f(tf) + 'cqw">' + lesson(S[0].lesson) + '</div>'
+        + (S[0].desc ? '<div class="' + P + '-ds" style="font-size:' + f(sq ? 1.7 : 2.1) + 'cqw">' + S[0].desc + '</div>' : '') + pres;
+    } else {
+      var lf = Math.min.apply(null, S.map(function (s) { return fit(s.lesson, tw - 4, sq ? 3 : 2, sq ? 3.2 : (partner ? 3.4 : 4.4), 0.55); }));
+      S.forEach(function (s, i) {
+        inner += '<div class="' + P + '-tp" style="font-size:' + f(lf) + 'cqw;margin-top:' + (i ? '.45em' : '0') + '"><em>' + (i + 1) + '</em>' + lesson(s.lesson) + '</div>'
+          + (s.desc && !sq ? '<div class="' + P + '-ds" style="font-size:' + f(partner ? 1.7 : 1.9) + 'cqw;margin-top:.25em">' + s.desc + '</div>' : '');
+      });
+      inner += pres;
+    }
+    html += box(P + '-card', c[0], c[1], c[2], c[3], inner, 'transform:rotate(' + c[4] + 'deg);padding-top:' + f(noLb ? 0 : c[3] * 0.1) + 'cqw' + (noLb ? ';background:#fffdf8' : ''));
+
+    if (!partner) {
+      var PL = n > 1 ? V.plates2 : V.plates1;
+      S.forEach(function (s, i) {
+        var p = PL[i];
+        svg += plate(p[0], p[1], p[2], '#8fb38c', '#fffbf3');
+        svg += '<circle cx="' + f(p[0]) + '" cy="' + f(p[1]) + '" r="' + f(p[2] * 0.7) + '" fill="none" stroke="#f3c9b0" stroke-width=".25" stroke-dasharray=".8 .8"/>';
+        var w = p[2] * 1.45, k2 = p[2] / 15.5;
+        html += box(P + '-dt', p[0] - w / 2, p[1] - p[2] * 0.62, w, p[2] * 1.24,
+          (n > 1 ? '<div class="n" style="font-size:' + f(1.25 * k2 + 0.15) + 'cqw">TOPIC ' + (i + 1) + '</div>' : '')
+          + '<div class="w" style="font-size:' + f(1.7 * k2) + 'cqw">' + s.dow.toUpperCase() + '</div>'
+          + '<div class="d" style="font-size:' + f(6 * k2) + 'cqw">' + s.mon + ' ' + s.day + '</div>'
+          + '<div class="t" style="font-size:' + f(1.85 * k2) + 'cqw">' + s.time + '</div>');
+      });
+    } else {
+      var hd = V.head;
+      if (hd) html += box(P + '-h', hd[0], hd[1], hd[2], null, 'Find your local time', 'font-size:' + hd[3] + 'cqw');
+      var rows = H.zoneRows(spec.sessions), zr = V.zr, zk = zr / 11.3;
+      rows.forEach(function (r, i) {
+        var p = V.zp[i];
+        svg += plate(p[0], p[1], zr, r.home ? '#e9b949' : '#8fb38c', r.home ? '#fff3bf' : '#fffbf3');
+        if (r.home) svg += strawberry(p[0] + zr * 0.72, p[1] - zr * 0.7, zr * 0.17, 25);
+        var w = zr * 1.56, tm = r.time.split(' / ');
+        html += box(P + '-z', p[0] - w / 2, p[1] - zr * 0.66, w, zr * 1.32,
+          '<div class="i" style="font-size:' + f(1.5 * zk) + 'cqw">' + r.label + '</div><div class="y" style="font-size:' + f(1.25 * zk) + 'cqw">' + r.days + '</div>'
+          + '<div class="tm" style="font-size:' + f((tm.length > 1 ? 1.95 : 2.55) * zk) + 'cqw">' + tm.join('<br>') + '</div>');
+      });
+    }
+
+    var wh = V.where;
+    html += box(P + '-w', wh[0], wh[1], wh[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:' + wh[3] + 'cqw');
+
+    var fs = sq ? 0.8 : 1, qy = fy + (sq ? 3.2 : 4), qh = V.H - qy - (sq ? 1.8 : 2.8);
+    html += box(P + '-f', 5, qy, 90, qh,
+      '<div class="' + P + '-rg" style="font-size:' + f(1.95 * fs) + 'cqw"><b style="font-size:' + f(3.3 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call ' + H.phone(partner) + '</div>'
+      + '<div class="' + P + '-qr" style="width:' + (sq ? 10 : 11) + 'cqw;height:' + (sq ? 10 : 11) + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="' + P + '-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="' + P + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="' + P + '-bg" viewBox="0 0 100 ' + V.H + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Mother\'s Day brunch (brunch table from above, place card, plates)', fonts: 'family=Nunito:wght@600;700;800;900&family=Lora:ital,wght@0,600;0,700;1,600;1,700&family=Satisfy', css: css, fn: fn };
+})(), 'ptc');
+
+/* ---- PTC month 06 ---- */
+VEBFlyers.registerTheme(6, (function () {
+  /* PTC June: "Iced coffee summer" - bright aqua, citrus orange and lime. Tall iced drinks with striped straws,
+     ice cubes and lemon slices stand on a lime counter; the topic hangs from a glass on a drink-menu tag,
+     the date sits on a big ice cube, partner local times on seven ice cubes (Hawaiʻi = a lemon-yellow cube). */
+  var P = 'p06';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function fit(t, w, lines, maxF, k) { // font size (cqw) so text t wraps into <= lines in width w
+    t = String(t).replace(/&amp;/g, '&').replace(/&[a-z]+;/g, 'x');
+    var lw = Math.max.apply(null, t.split(/\s+/).map(function (s) { return s.length; }));
+    return Math.min(maxF, w * lines / (t.length * k * 1.18), w / (lw * k * 1.1));
+  }
+  function rnd(seed) { var s = seed; return function () { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+  /* recurring series mark: round PARENT TALK CAFE badge with a steaming cup */
+  function badge(c, b) {
+    return '<svg class="' + P + '-badge" style="left:' + f(b[0]) + 'cqw;top:' + f(b[1]) + 'cqw;width:' + f(b[2]) + 'cqw;height:' + f(b[2]) + 'cqw" viewBox="0 0 100 100"><defs><path id="' + P + 'bt" d="M9 50 A41 41 0 0 1 91 50"/><path id="' + P + 'bb" d="M3.6 50 A46.4 46.4 0 0 0 96.4 50"/></defs>'
+      + '<circle cx="50" cy="52" r="48.5" fill="rgba(0,0,0,.12)"/><circle cx="50" cy="50" r="49" fill="' + c.ring + '"/><circle cx="50" cy="50" r="39.5" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="38" fill="none" stroke="' + c.ring + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text font-family="Nunito,sans-serif" font-size="8.6" font-weight="900" letter-spacing="1.25" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bt" startOffset="50%">PARENT TALK CAFÉ</textPath></text>'
+      + '<text font-family="Nunito,sans-serif" font-size="6.2" font-weight="800" letter-spacing="1.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bb" startOffset="50%">MONTHLY CHAT</textPath></text>'
+      + '<circle cx="6" cy="50" r="1.8" fill="' + c.ink + '"/><circle cx="94" cy="50" r="1.8" fill="' + c.ink + '"/>'
+      + '<ellipse cx="50" cy="76" rx="23" ry="4.6" fill="' + c.saucer + '"/><ellipse cx="50" cy="75" rx="15" ry="2.4" fill="rgba(0,0,0,.12)"/>'
+      + '<path d="M67 53 q10 -1 9.5 7.5 q-.5 7.5 -12 8" fill="none" stroke="' + c.cup + '" stroke-width="3.4" stroke-linecap="round"/>'
+      + '<path d="M30 50 H70 L67 64 Q64.5 75 55 75 H45 Q35.5 75 33 64 Z" fill="' + c.cup + '"/>'
+      + '<ellipse cx="50" cy="50" rx="20" ry="3.8" fill="' + c.coffee + '" stroke="' + c.cup + '" stroke-width="1.4"/>'
+      + '<path d="M44 60 c0 -3 6 -3 6 0 c0 -3 6 -3 6 0 c0 4 -6 7 -6 8 c0 -1 -6 -4 -6 -8z" fill="' + c.heart + '"/>'
+      + ['M41 44 q-4 -5 0 -10 q4 -5 0 -10', 'M50 43 q-4 -5 0 -10 q4 -5 0 -11', 'M59 44 q-4 -5 0 -10 q4 -5 0 -10'].map(function (d) {
+        return '<path d="' + d + '" fill="none" stroke="' + c.steam + '" stroke-width="2.6" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+
+
+  /* ---- summer drinks ---- */
+  function lemon(cx, cy, r, rot, lime) {
+    var rind = lime ? '#7cc242' : '#ffcc1f', pith = lime ? '#e9f8c9' : '#fff6c8', seg = lime ? '#b5e06a' : '#ffe36b';
+    var o = '<g transform="translate(' + f(cx) + ' ' + f(cy) + ') rotate(' + f(rot || 0) + ')"><circle r="' + f(r) + '" fill="' + rind + '"/><circle r="' + f(r * 0.86) + '" fill="' + pith + '"/>';
+    for (var i = 0; i < 8; i++) {
+      var a0 = (i * 45 + 4) * Math.PI / 180, a1 = ((i + 1) * 45 - 4) * Math.PI / 180, rr = r * 0.76, ri = r * 0.1;
+      o += '<path d="M' + f(Math.cos(a0) * ri) + ' ' + f(Math.sin(a0) * ri) + ' L' + f(Math.cos(a0) * rr) + ' ' + f(Math.sin(a0) * rr) + ' A' + f(rr) + ' ' + f(rr) + ' 0 0 1 ' + f(Math.cos(a1) * rr) + ' ' + f(Math.sin(a1) * rr) + ' Z" fill="' + seg + '"/>';
+    }
+    return o + '<circle r="' + f(r * 0.1) + '" fill="' + pith + '"/></g>';
+  }
+  function cube(x, y, w, h, rot, fill, edge) { // ice cube (front face + bevel + shine)
+    var cx = x + w / 2, cy = y + h / 2, rx = Math.min(w, h) * 0.18;
+    return '<g transform="rotate(' + f(rot) + ' ' + f(cx) + ' ' + f(cy) + ')">'
+      + '<rect x="' + f(x + 0.5) + '" y="' + f(y + 0.9) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(rx) + '" fill="rgba(11,85,99,.16)"/>'
+      + '<rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(rx) + '" fill="' + (fill || 'url(#p06ice)') + '" stroke="' + (edge || '#7fd6da') + '" stroke-width=".45"/>'
+      + '<rect x="' + f(x + w * 0.05) + '" y="' + f(y + h * 0.07) + '" width="' + f(w * 0.9) + '" height="' + f(h * 0.86) + '" rx="' + f(rx * 0.75) + '" fill="none" stroke="rgba(255,255,255,.9)" stroke-width=".35"/>'
+      + '<path d="M' + f(x + w * 0.1) + ' ' + f(y + h * 0.42) + ' Q' + f(x + w * 0.1) + ' ' + f(y + h * 0.14) + ' ' + f(x + w * 0.3) + ' ' + f(y + h * 0.13) + '" fill="none" stroke="#fff" stroke-width=".7" stroke-linecap="round"/>'
+      + '<circle cx="' + f(x + w * 0.9) + '" cy="' + f(y + h * 0.82) + '" r=".45" fill="#fff" opacity=".9"/><circle cx="' + f(x + w * 0.86) + '" cy="' + f(y + h * 0.9) + '" r=".25" fill="#fff"/></g>';
+  }
+  function smallCube(x, y, s, rot) {
+    return '<rect x="' + f(x - s / 2) + '" y="' + f(y - s / 2) + '" width="' + f(s) + '" height="' + f(s) + '" rx="' + f(s * 0.22) + '" fill="rgba(255,255,255,.55)" stroke="rgba(255,255,255,.95)" stroke-width="' + f(s * 0.06) + '" transform="rotate(' + f(rot) + ' ' + f(x) + ' ' + f(y) + ')"/>'
+      + '<path d="M' + f(x - s * 0.3) + ' ' + f(y) + ' q0 ' + f(-s * 0.3) + ' ' + f(s * 0.25) + ' ' + f(-s * 0.3) + '" stroke="#fff" stroke-width="' + f(s * 0.08) + '" fill="none" stroke-linecap="round" transform="rotate(' + f(rot) + ' ' + f(x) + ' ' + f(y) + ')"/>';
+  }
+  function glass(cx, by, w, h, kind, R) {
+    var ty = by - h, tw = w, bw = w * 0.8;
+    function hw(y) { return bw / 2 + (tw - bw) / 2 * (by - y) / h; }
+    function band(y0, y1, fill, wav) {
+      var d = 'M' + f(cx - hw(y1)) + ' ' + f(y1) + ' L' + f(cx - hw(y0)) + ' ' + f(y0);
+      if (wav) d += ' Q' + f(cx - hw(y0) / 2) + ' ' + f(y0 - wav) + ' ' + f(cx) + ' ' + f(y0) + ' T' + f(cx + hw(y0)) + ' ' + f(y0);
+      else d += ' L' + f(cx + hw(y0)) + ' ' + f(y0);
+      return '<path d="' + d + ' L' + f(cx + hw(y1)) + ' ' + f(y1) + ' Z" fill="' + fill + '"/>';
+    }
+    var o = '<ellipse cx="' + f(cx + 0.8) + '" cy="' + f(by + 0.6) + '" rx="' + f(bw * 0.62) + '" ry="' + f(w * 0.07) + '" fill="rgba(11,85,99,.2)"/>';
+    var lv = ty + h * 0.13, bot = by - w * 0.08;
+    var straw = kind === 'coffee' ? ['#ff8a1f', '#fff'] : (kind === 'citrus' ? ['#7cc242', '#fff'] : ['#2ec4c9', '#fff']);
+    // straw (behind the front glass wall, above the drink)
+    var sx = cx + tw * 0.12, sang = kind === 'citrus' ? -14 : 12, sl = h * 0.42, sw = w * 0.13;
+    o += '<g transform="rotate(' + sang + ' ' + f(sx) + ' ' + f(lv + h * 0.2) + ')">';
+    for (var i = 0; i < 9; i++) o += '<rect x="' + f(sx - sw / 2) + '" y="' + f(lv + h * 0.2 - sl * (i + 1) / 6) + '" width="' + f(sw) + '" height="' + f(sl / 6 + 0.05) + '" fill="' + straw[i % 2] + '"/>';
+    o += '<path d="M' + f(sx - sw / 2) + ' ' + f(lv + h * 0.2 - sl * 1.5) + ' q' + f(sw * 0.8) + ' ' + f(-sw * 2.2) + ' ' + f(sw * 3) + ' ' + f(-sw * 2.4) + '" stroke="' + straw[0] + '" stroke-width="' + f(sw) + '" fill="none" stroke-linecap="round"/></g>';
+    if (kind === 'coffee') {
+      o += band(lv, bot, '#8a4f2a') + band(lv + h * 0.36, bot, '#6b3a1e', 1.6) + band(lv, lv + h * 0.2, '#e8c49a') + band(lv + h * 0.16, lv + h * 0.4, '#c98b55', 1.2);
+    } else if (kind === 'citrus') {
+      o += band(lv, bot, '#ff8a1f') + band(lv + h * 0.38, bot, '#ff6a3d', 1.4) + band(lv, lv + h * 0.22, '#ffc94a', 0);
+    } else {
+      o += band(lv, bot, '#2ec4c9') + band(lv + h * 0.4, bot, '#1fa6b3', 1.4) + band(lv, lv + h * 0.2, '#9be8e4', 0);
+    }
+    for (i = 0; i < 4; i++) o += smallCube(cx + (R() - 0.5) * tw * 0.45, lv + h * (0.08 + i * 0.13), w * 0.3, R() * 50 - 25);
+    if (kind !== 'coffee') o += lemon(cx - tw * 0.08, lv + h * 0.55, w * 0.22, 30, kind === 'aqua');
+    // glass walls + shine
+    o += '<path d="M' + f(cx - tw / 2) + ' ' + f(ty) + ' L' + f(cx - bw / 2) + ' ' + f(by - w * 0.1) + ' Q' + f(cx - bw / 2) + ' ' + f(by) + ' ' + f(cx - bw / 2 + w * 0.1) + ' ' + f(by) + ' L' + f(cx + bw / 2 - w * 0.1) + ' ' + f(by) + ' Q' + f(cx + bw / 2) + ' ' + f(by) + ' ' + f(cx + bw / 2) + ' ' + f(by - w * 0.1) + ' L' + f(cx + tw / 2) + ' ' + f(ty) + '" fill="rgba(255,255,255,.18)" stroke="#fff" stroke-width="' + f(w * 0.035) + '" stroke-linejoin="round"/>';
+    o += '<ellipse cx="' + f(cx) + '" cy="' + f(ty) + '" rx="' + f(tw / 2) + '" ry="' + f(w * 0.07) + '" fill="none" stroke="#fff" stroke-width="' + f(w * 0.03) + '"/>';
+    o += '<path d="M' + f(cx - tw * 0.36) + ' ' + f(ty + h * 0.08) + ' L' + f(cx - bw * 0.33) + ' ' + f(by - h * 0.12) + '" stroke="rgba(255,255,255,.75)" stroke-width="' + f(w * 0.06) + '" stroke-linecap="round"/>';
+    for (i = 0; i < 5; i++) o += '<ellipse cx="' + f(cx + (R() - 0.2) * tw * 0.7) + '" cy="' + f(ty + h * (0.3 + R() * 0.55)) + '" rx="' + f(w * 0.025) + '" ry="' + f(w * 0.04) + '" fill="rgba(255,255,255,.7)"/>';
+    o += lemon(cx + tw * 0.46, ty + w * 0.02, w * 0.26, 0, kind === 'citrus');
+    return o;
+  }
+  function tagPath(x0, y0, w, h) {
+    var x1 = x0 + w, y1 = y0 + h, c = Math.min(h * 0.32, 6), r = 1.6;
+    return 'M' + f(x0) + ' ' + f(y0 + c) + ' L' + f(x0 + c) + ' ' + f(y0) + ' L' + f(x1 - r) + ' ' + f(y0) + ' Q' + f(x1) + ' ' + f(y0) + ' ' + f(x1) + ' ' + f(y0 + r)
+      + ' L' + f(x1) + ' ' + f(y1 - r) + ' Q' + f(x1) + ' ' + f(y1) + ' ' + f(x1 - r) + ' ' + f(y1) + ' L' + f(x0 + c) + ' ' + f(y1) + ' L' + f(x0) + ' ' + f(y1 - c) + ' Z';
+  }
+
+  var BADGE = { ring: '#ff8a1f', face: '#effcfa', ink: '#fffdf6', cup: '#2ec4c9', coffee: '#7a4a2a', saucer: '#9bd34a', heart: '#effcfa', steam: '#ffb15e' };
+
+  var L = {
+    lh: { H: 129.41, logo: [4.5, 4.5, 15, 15], badge: [77.5, 3, 19.5], kick: [22, 5.6, 54, 1.4], title: [21, 9.2, 56, 8.6], mon: [21, 28.4, 56, 5],
+      tag: [38, 38.5, 58, 37, 2.5], glasses: [[13, 106, 15.5, 52, 'coffee'], [28.5, 106, 12.5, 40, 'citrus']], hook: [33, 51],
+      cubes1: [[56, 82.5, 32, 19.5, -4]], cubes2: [[37, 82.5, 28.5, 19, -4], [67, 82.5, 28.5, 19, 4]],
+      counter: 106, where: [37, 102.6, 60, 1.65], foot: 110.4 },
+    lp: { H: 129.41, logo: [4, 4.5, 22, 13], badge: [78, 3, 18.5], kick: [28, 5.4, 48, 1.3], title: [28, 8.6, 48, 7.4], mon: [28, 25.4, 48, 4.4],
+      tag: [28, 33.2, 68, 25.5, 1.5], glasses: [[13.5, 59, 13, 25, 'citrus']], hook: [18, 36.5],
+      head: [5, 61.6, 90, 4.4], zc: [[3.5, 67.4], [27.5, 67.4], [51.5, 67.4], [75.5, 67.4], [15.5, 86], [39.5, 86], [63.5, 86]], zw: 21, zh: 15.6,
+      counter: 59, where: [5, 104.3, 90, 1.7], foot: 108.8 },
+    sh: { H: 100, logo: [3.5, 3.5, 11.5, 11.5], badge: [81, 2.5, 16.5], kick: [17, 4.4, 62, 1.15], title: [17, 8, 62, 6.4], mon: [17, 22.2, 62, 3.6],
+      tag: [33, 29.5, 63, 30, 2], glasses: [[11, 79, 12, 41, 'coffee'], [24, 79, 9.5, 31, 'citrus']], hook: [28, 46],
+      cubes1: [[47, 61.5, 30, 15.5, -3]], cubes2: [[35, 61.5, 28, 15.5, -3], [66.5, 61.5, 28, 15.5, 3]],
+      counter: 79, where: [33, 78.9, 64, 1.4], foot: 84 },
+    sp: { H: 100, logo: [3.5, 3.5, 18, 10.6], badge: [81, 2.5, 16.5], kick: [24, 5.2, 54, 1.15], title: [24, 8.4, 54, 5.6], mon: [24, 21.2, 54, 3.4],
+      tag: [5, 27.6, 90, 16.4, -0.8],
+      zc: [[3.5, 47.4], [27.5, 47.4], [51.5, 47.4], [75.5, 47.4], [15.5, 63], [39.5, 63], [63.5, 63]], zw: 21, zh: 13.4,
+      where: [3, 79.2, 94, 1.45], foot: 83.8 }
+  };
+
+  var css = [
+    '.p06{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(11,85,99,.25);background:#bff0ec;font-family:Nunito,Poppins,sans-serif;color:#0b5563}',
+    '.p06.sq{aspect-ratio:1/1}',
+    '.p06>svg.p06-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.p06>div,.p06>svg.p06-badge{position:absolute;z-index:3}',
+    '.p06 .p06-logo{background:#fff;border-radius:50%;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #ff8a1f,0 .8cqw 1.6cqw rgba(11,85,99,.2)}',
+    '.p06 .p06-logo img{width:78%}.p06 .p06-logo.p06-pip{border-radius:2cqw}.p06 .p06-logo.p06-pip img{width:90%}',
+    '.p06 .p06-k{text-align:center;font-weight:900;letter-spacing:.16em;color:#0b8a94;line-height:1.3}',
+    '.p06 .p06-t{text-align:center;font-family:"Baloo 2",Fredoka,sans-serif;font-weight:800;line-height:1.12;color:#0b5563}',
+    '.p06 .p06-t span{display:block;font-family:Yellowtail,cursive;font-weight:400;color:#ff7a1a;font-size:1.25em;line-height:1.1;margin-top:-.12em}',
+    '.p06 .p06-m{display:flex;justify-content:center;align-items:center;gap:.5em;line-height:1}',
+    '.p06 .p06-m b{font-family:"Baloo 2",sans-serif;font-weight:800;color:#0b5563}',
+    '.p06 .p06-m i{font-style:normal;font-weight:900;font-size:.36em;letter-spacing:.18em;background:#7cc242;color:#fff;border-radius:2em;padding:.5em 1em .45em}',
+    '.p06 .p06-tag{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-sizing:border-box}',
+    '.p06 .p06-lb{font-weight:900;letter-spacing:.2em;color:#fff;background:#ff8a1f;border-radius:2em;padding:.4em 1.1em .35em;line-height:1;margin-bottom:1.3em}',
+    '.p06 .p06-tp{font-family:"Baloo 2",sans-serif;font-weight:800;line-height:1.08;color:#0b5563}',
+    '.p06 .p06-tp em{font-style:normal;font-weight:800;color:#fff;background:#2ec4c9;border-radius:30%;display:inline-grid;place-items:center;width:1.1em;height:1.1em;font-size:.62em;vertical-align:.2em;margin-right:.35em}',
+    '.p06 .p06-ds{font-weight:700;font-style:italic;color:#d4620c;line-height:1.2;margin-top:.35em}',
+    '.p06 .p06-pr{font-weight:800;color:#3d6b12;line-height:1.2;margin-top:.7em;background:#e6f6cf;border-radius:2em;padding:.35em 1.1em}',
+    '.p06 .p06-pr b{font-weight:900;color:#2c520a}',
+    '.p06 .p06-dt{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1}',
+    '.p06 .p06-dt>div{flex:none}.p06 .p06-dt .w{font-weight:900;letter-spacing:.2em;color:#0b8a94;line-height:1.3;margin-bottom:.75em}',
+    '.p06 .p06-dt .d{font-family:"Baloo 2",sans-serif;font-weight:800;color:#0b5563;margin:0;line-height:1}',
+    '.p06 .p06-dt .t{font-weight:900;color:#e8650c;margin-top:.3em}',
+    '.p06 .p06-dt .n{font-weight:900;color:#fff;background:#ff8a1f;border-radius:2em;padding:.25em .8em;letter-spacing:.12em;margin-bottom:.35em}',
+    '.p06 .p06-h{text-align:center;font-family:Yellowtail,cursive;color:#e8650c;line-height:1}',
+    '.p06 .p06-z{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1.08}',
+    '.p06 .p06-z .i{font-weight:900;color:#0b5563}.p06 .p06-z .y{font-weight:700;color:#3f7c86;margin:.2em 0 .45em}',
+    '.p06 .p06-z .tm{font-family:"Baloo 2",sans-serif;font-weight:800;color:#e8650c;line-height:1.15}',
+    '.p06 .p06-w{text-align:center;font-weight:800;font-style:italic;color:#0b5563;line-height:1.2}',
+    '.p06 .p06-w b{color:#e8650c}',
+    '.p06 .p06-f{display:flex;align-items:center;gap:2.4cqw;color:#fff}',
+    '.p06 .p06-rg{flex:1;line-height:1.3;font-weight:700;color:#d8f6f4}',
+    '.p06 .p06-rg b{display:block;font-weight:900;color:#fff;line-height:1.1;margin-bottom:.25em}.p06 .p06-rg b i{font-style:normal;color:#ffc94a}',
+    '.p06 .p06-qr{background:#fff;border-radius:1cqw;padding:.7cqw;box-sizing:border-box;display:grid;place-items:center;flex:none}',
+    '.p06 .p06-qr img{width:100%;height:100%;display:block}.p06 .p06-qr span{color:#0b5563;font-weight:900;font-size:2.4cqw}',
+    '.p06 .p06-bd{display:flex;flex-direction:column;gap:.6cqw;flex:none}',
+    '.p06 .p06-bd span{background:#fff;color:#0b5563;border-radius:2cqw;padding:.45em 1.1em;font-weight:800;text-align:center;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), n = S.length;
+    var R = rnd(spec.month * 37 + (sq ? 7 : 0) + (partner ? 3 : 0) + n);
+    var svg = '<defs><linearGradient id="p06sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fdcd8"/><stop offset=".45" stop-color="#c4f1ec"/><stop offset="1" stop-color="#f3fcf8"/></linearGradient>'
+      + '<linearGradient id="p06ice" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".6" stop-color="#f1fdfc"/><stop offset="1" stop-color="#cdf3f2"/></linearGradient>'
+      + '<linearGradient id="p06lem" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff7c2"/><stop offset="1" stop-color="#ffe066"/></linearGradient>'
+      + '<linearGradient id="p06ft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b6b78"/><stop offset="1" stop-color="#0a4f5c"/></linearGradient></defs>';
+    svg += '<rect width="100" height="' + V.H + '" fill="url(#p06sky)"/>';
+    // condensation bubbles drifting in the sky
+    for (var b = 0; b < (sq ? 12 : 18); b++) { var bx = R() * 100, by2 = R() * (V.foot - 10), br = 0.3 + R() * 0.8; svg += '<circle cx="' + f(bx) + '" cy="' + f(by2) + '" r="' + f(br) + '" fill="none" stroke="#fff" stroke-width=".25" opacity=".8"/>'; }
+    var html = '', fy = V.foot;
+
+    // corner citrus
+    svg += lemon(sq ? 101 : 102, sq ? 40 : 30, sq ? 5.5 : 7, 10, false) + lemon(-2, sq ? 36 : 30, sq ? 4.6 : 6, 20, true);
+
+    // counter (lime) under the glasses
+    if (V.counter) svg += '<rect x="0" y="' + f(V.counter) + '" width="' + f(partner ? 27 : (sq ? 32 : 36)) + '" height="1.6" rx=".8" fill="#9bd34a"/><rect x="0" y="' + f(V.counter + 1.6) + '" width="' + f(partner ? 27 : (sq ? 32 : 36)) + '" height=".7" fill="#6aa82e"/>';
+    (V.glasses || []).forEach(function (g) { svg += glass(g[0], g[1], g[2], g[3], g[4], R); });
+
+    // footer: teal with a wavy lime edge
+    var wv = 'M0 ' + f(fy);
+    for (var x = 0; x < 100; x += 10) wv += ' q2.5 -2 5 0 t5 0';
+    svg += '<path d="' + wv + ' V' + f(V.H + 1) + ' H0Z" fill="#9bd34a" transform="translate(0 -1.1)"/><path d="' + wv + ' V' + f(V.H + 1) + ' H0Z" fill="url(#p06ft)"/>';
+
+    var lg = V.logo;
+    html += box(P + '-logo' + (partner ? ' ' + P + '-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    html += badge(BADGE, V.badge);
+    var k = V.kick;
+    html += box(P + '-k', k[0], k[1], k[2], null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER', 'font-size:' + k[3] + 'cqw');
+    var t = V.title;
+    html += box(P + '-t', t[0], t[1], t[2], null, H.seriesTitle(spec.series), 'font-size:' + f(fit(spec.series, t[2], 1.2, t[3], 0.5)) + 'cqw');
+    var m = V.mon;
+    html += box(P + '-m', m[0], m[1], m[2], null, '<b>' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</b><i>ON ZOOM</i>', 'font-size:' + m[3] + 'cqw');
+
+    // drink-menu tag with the topic
+    var g = V.tag, tx = g[0], ty = g[1], tw = g[2], th = g[3], c = Math.min(th * 0.32, 6), cx = tx + tw / 2, cy = ty + th / 2;
+    var hole = [tx + c * 0.85, cy];
+    if (V.hook) {
+      var a = g[4] * Math.PI / 180, hx = cx + (hole[0] - cx) * Math.cos(a) - (hole[1] - cy) * Math.sin(a), hy = cy + (hole[0] - cx) * Math.sin(a) + (hole[1] - cy) * Math.cos(a);
+      svg += '<path d="M' + f(V.hook[0]) + ' ' + f(V.hook[1]) + ' Q' + f((V.hook[0] + hx) / 2) + ' ' + f(Math.max(V.hook[1], hy) + 4) + ' ' + f(hx) + ' ' + f(hy) + '" fill="none" stroke="#e8650c" stroke-width=".45"/>';
+    }
+    svg += '<g transform="rotate(' + g[4] + ' ' + f(cx) + ' ' + f(cy) + ')"><path d="' + tagPath(tx + 0.6, ty + 1, tw, th) + '" fill="rgba(11,85,99,.18)"/><path d="' + tagPath(tx, ty, tw, th) + '" fill="#ff8a1f"/>'
+      + '<path d="' + tagPath(tx + 0.9, ty + 0.9, tw - 1.8, th - 1.8) + '" fill="#fffef8"/>'
+      + '<path d="' + tagPath(tx + 1.9, ty + 1.9, tw - 3.8, th - 3.8) + '" fill="none" stroke="#ffb15e" stroke-width=".25" stroke-dasharray="1 .8"/>'
+      + (V.hook ? '<circle cx="' + f(hole[0]) + '" cy="' + f(hole[1]) + '" r="1.5" fill="#ff8a1f"/><circle cx="' + f(hole[0]) + '" cy="' + f(hole[1]) + '" r=".75" fill="#bff0ec"/>' : '')
+      + lemon(tx + tw - 1.5, ty + 1.2, sq ? 2.6 : 3.2, 15, n > 1) + '</g>';
+    var noLb = sq && partner, padL = V.hook ? c * 1.75 : 3;
+    var lesson = function (x) { return x.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); };
+    var pres = spec.presenter ? '<div class="' + P + '-pr" style="font-size:' + f(sq ? 1.55 : 1.85) + 'cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var inner = noLb ? '' : '<div class="' + P + '-lb" style="font-size:' + (sq ? 1.1 : 1.3) + 'cqw">' + (n > 1 ? 'ON THE DRINK MENU' : 'TODAY\'S SPECIAL') + '</div>';
+    var iw = tw - padL - 4;
+    if (n === 1) {
+      inner += '<div class="' + P + '-tp" style="font-size:' + f(fit(S[0].lesson, iw, sq ? 3 : (partner ? 2 : 3), sq ? 4.6 : (partner ? 5.2 : 6.4), 0.5)) + 'cqw">' + lesson(S[0].lesson) + '</div>'
+        + (S[0].desc ? '<div class="' + P + '-ds" style="font-size:' + f(sq ? 1.65 : 2.05) + 'cqw">' + S[0].desc + '</div>' : '') + pres;
+    } else {
+      var lf = Math.min.apply(null, S.map(function (s) { return fit(s.lesson, iw - 4, sq ? 2 : 2, sq ? 3.4 : (partner ? 3.6 : 4.6), 0.5); }));
+      S.forEach(function (s, i) {
+        inner += '<div class="' + P + '-tp" style="font-size:' + f(lf) + 'cqw;margin-top:' + (i ? '.4em' : '0') + '"><em>' + (i + 1) + '</em>' + lesson(s.lesson) + '</div>'
+          + (s.desc && !sq ? '<div class="' + P + '-ds" style="font-size:' + f(partner ? 1.65 : 1.85) + 'cqw;margin-top:.2em">' + s.desc + '</div>' : '');
+      });
+      inner += pres;
+    }
+    html += box(P + '-tag', tx + padL, ty + 2, tw - padL - 2.5, th - 4, inner, 'transform-origin:' + f(cx - tx - padL) + 'cqw ' + f(cy - ty - 2) + 'cqw;transform:rotate(' + g[4] + 'deg)');
+
+    if (!partner) {
+      var CB = n > 1 ? V.cubes2 : V.cubes1;
+      S.forEach(function (s, i) {
+        var q = CB[i], kk = q[3] / 19.5;
+        svg += cube(q[0], q[1], q[2], q[3], q[4]);
+        html += box(P + '-dt', q[0] + 1.5, q[1] + 1, q[2] - 3, q[3] - 2,
+          (n > 1 ? '<div class="n" style="font-size:' + f(1.2 * kk) + 'cqw">TOPIC ' + (i + 1) + '</div>' : '') + ('<div class="w" style="font-size:' + f(1.6 * kk) + 'cqw">' + ({ Sun: 'SUNDAY', Mon: 'MONDAY', Tue: 'TUESDAY', Wed: 'WEDNESDAY', Thu: 'THURSDAY', Fri: 'FRIDAY', Sat: 'SATURDAY' })[s.dow] + '</div>')
+          + '<div class="d" style="font-size:' + f((n > 1 ? 5 : 6.2) * kk) + 'cqw">' + s.mon + ' ' + s.day + '</div>'
+          + '<div class="t" style="font-size:' + f(2.05 * kk) + 'cqw">' + s.time + '</div>', 'transform:rotate(' + q[4] + 'deg)');
+      });
+    } else {
+      var hd = V.head;
+      if (hd) html += box(P + '-h', hd[0], hd[1], hd[2], null, 'Find your local time', 'font-size:' + hd[3] + 'cqw');
+      var rows = H.zoneRows(spec.sessions), zw = V.zw, zh = V.zh, zk = zh / 15.6;
+      rows.forEach(function (r, i) {
+        var p = V.zc[i], rot = [-3, 2, -2, 3, 2, -3, 2][i];
+        svg += cube(p[0], p[1], zw, zh, rot, r.home ? 'url(#p06lem)' : null, r.home ? '#ffb11f' : null);
+        if (r.home) svg += lemon(p[0] + zw - 1, p[1] + 0.5, zh * 0.2, 20, false);
+        var tm = r.time.split(' / ');
+        html += box(P + '-z', p[0] + 1, p[1] + 0.8, zw - 2, zh - 1.6,
+          '<div class="i" style="font-size:' + f(1.5 * zk) + 'cqw">' + r.label + '</div><div class="y" style="font-size:' + f(1.25 * zk) + 'cqw">' + r.days + '</div>'
+          + '<div class="tm" style="font-size:' + f((tm.length > 1 ? 2.1 : 2.9) * zk) + 'cqw">' + tm.join('<br>') + '</div>', 'transform:rotate(' + rot + 'deg)');
+      });
+    }
+
+    var wh = V.where;
+    html += box(P + '-w', wh[0], wh[1], wh[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:' + wh[3] + 'cqw');
+
+    var fs = sq ? 0.8 : 1, qy = fy + (sq ? 2.6 : 3.2), qh = V.H - qy - (sq ? 1.8 : 2.6);
+    html += box(P + '-f', 5, qy, 90, qh,
+      '<div class="' + P + '-rg" style="font-size:' + f(1.95 * fs) + 'cqw"><b style="font-size:' + f(3.3 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call ' + H.phone(partner) + '</div>'
+      + '<div class="' + P + '-qr" style="width:' + (sq ? 10 : 11) + 'cqw;height:' + (sq ? 10 : 11) + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="' + P + '-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="' + P + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="' + P + '-bg" viewBox="0 0 100 ' + V.H + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Iced coffee summer (iced drinks, drink-menu tag, ice cubes)', fonts: 'family=Nunito:wght@600;700;800;900&family=Baloo+2:wght@600;700;800&family=Yellowtail', css: css, fn: fn };
+})(), 'ptc');
+
+/* ---- PTC month 07 ---- */
+VEBFlyers.registerTheme(7, (function () {
+  /* PTC July: "Shave ice stand" - a white stand under a rainbow-striped scalloped awning, syrup colors
+     (cherry, orange, lemon, lime, blue, grape). The topic is on the stand's hanging menu board; the date (HST)
+     and the partner local times are printed on paper shave-ice cups with rainbow ice domes, lined up on shelves. */
+  var P = 'p07';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function fit(t, w, lines, maxF, k) { // font size (cqw) so text t wraps into <= lines in width w
+    t = String(t).replace(/&amp;/g, '&').replace(/&[a-z]+;/g, 'x');
+    var lw = Math.max.apply(null, t.split(/\s+/).map(function (s) { return s.length; }));
+    return Math.min(maxF, w * lines / (t.length * k * 1.18), w / (lw * k * 1.1));
+  }
+  function rnd(seed) { var s = seed; return function () { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+  /* recurring series mark: round PARENT TALK CAFE badge with a steaming cup */
+  function badge(c, b) {
+    return '<svg class="' + P + '-badge" style="left:' + f(b[0]) + 'cqw;top:' + f(b[1]) + 'cqw;width:' + f(b[2]) + 'cqw;height:' + f(b[2]) + 'cqw" viewBox="0 0 100 100"><defs><path id="' + P + 'bt" d="M9 50 A41 41 0 0 1 91 50"/><path id="' + P + 'bb" d="M3.6 50 A46.4 46.4 0 0 0 96.4 50"/></defs>'
+      + '<circle cx="50" cy="52" r="48.5" fill="rgba(0,0,0,.12)"/><circle cx="50" cy="50" r="49" fill="' + c.ring + '"/><circle cx="50" cy="50" r="39.5" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="38" fill="none" stroke="' + c.ring + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text font-family="Nunito,sans-serif" font-size="8.6" font-weight="900" letter-spacing="1.25" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bt" startOffset="50%">PARENT TALK CAFÉ</textPath></text>'
+      + '<text font-family="Nunito,sans-serif" font-size="6.2" font-weight="800" letter-spacing="1.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bb" startOffset="50%">MONTHLY CHAT</textPath></text>'
+      + '<circle cx="6" cy="50" r="1.8" fill="' + c.ink + '"/><circle cx="94" cy="50" r="1.8" fill="' + c.ink + '"/>'
+      + '<ellipse cx="50" cy="76" rx="23" ry="4.6" fill="' + c.saucer + '"/><ellipse cx="50" cy="75" rx="15" ry="2.4" fill="rgba(0,0,0,.12)"/>'
+      + '<path d="M67 53 q10 -1 9.5 7.5 q-.5 7.5 -12 8" fill="none" stroke="' + c.cup + '" stroke-width="3.4" stroke-linecap="round"/>'
+      + '<path d="M30 50 H70 L67 64 Q64.5 75 55 75 H45 Q35.5 75 33 64 Z" fill="' + c.cup + '"/>'
+      + '<ellipse cx="50" cy="50" rx="20" ry="3.8" fill="' + c.coffee + '" stroke="' + c.cup + '" stroke-width="1.4"/>'
+      + '<path d="M44 60 c0 -3 6 -3 6 0 c0 -3 6 -3 6 0 c0 4 -6 7 -6 8 c0 -1 -6 -4 -6 -8z" fill="' + c.heart + '"/>'
+      + ['M41 44 q-4 -5 0 -10 q4 -5 0 -10', 'M50 43 q-4 -5 0 -10 q4 -5 0 -11', 'M59 44 q-4 -5 0 -10 q4 -5 0 -10'].map(function (d) {
+        return '<path d="' + d + '" fill="none" stroke="' + c.steam + '" stroke-width="2.6" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+
+
+  var SYR = ['#ff4f7b', '#ff9f1c', '#ffd23d', '#5cc96b', '#3fa7ff', '#9b6bff'];
+  function awning(h, sc) { // stripes + scallops, top bar
+    var o = '', n = 12, w = 100 / n;
+    for (var i = 0; i < n; i++) {
+      var col = i % 2 ? '#ffffff' : SYR[(i / 2) % 6], x = i * w;
+      o += '<path d="M' + f(x) + ' 0 H' + f(x + w) + ' V' + f(h) + ' A' + f(w / 2) + ' ' + f(sc) + ' 0 0 1 ' + f(x) + ' ' + f(h) + ' Z" fill="' + col + '" stroke="rgba(91,58,158,.18)" stroke-width=".25"/>';
+    }
+    o += '<path d="M0 ' + f(h + sc * 0.2) + ' H100" stroke="rgba(70,41,127,.12)" stroke-width="' + f(sc * 0.5) + '"/>';
+    o += '<rect x="0" y="0" width="100" height="' + f(h * 0.14) + '" fill="#5b3a9e"/><rect x="0" y="' + f(h * 0.14) + '" width="100" height="' + f(h * 0.05) + '" fill="rgba(70,41,127,.25)"/>';
+    for (i = 0; i < n; i++) o += '<path d="M' + f(i * w + w * 0.15) + ' ' + f(h * 0.3) + ' V' + f(h * 0.9) + '" stroke="rgba(255,255,255,.35)" stroke-width="' + f(w * 0.08) + '" stroke-linecap="round"/>';
+    return o;
+  }
+  function dome(cx, rimY, rx, ry, R, cols) {
+    var o = '', k = cols || [SYR[0], SYR[2], SYR[4]];
+    function pt(a) { a = a * Math.PI / 180; return f(cx + rx * Math.cos(a)) + ' ' + f(rimY - ry * Math.sin(a)); }
+    [[180, 120], [120, 60], [60, 0]].forEach(function (s, i) {
+      o += '<path d="M' + f(cx) + ' ' + f(rimY) + ' L' + pt(s[0]) + ' A' + f(rx) + ' ' + f(ry) + ' 0 0 1 ' + pt(s[1]) + ' Z" fill="' + k[i] + '"/>';
+    });
+    o += '<path d="M' + f(cx - rx * 0.75) + ' ' + f(rimY - ry * 0.45) + ' Q' + f(cx - rx * 0.45) + ' ' + f(rimY - ry * 0.95) + ' ' + f(cx) + ' ' + f(rimY - ry * 0.98) + '" stroke="rgba(255,255,255,.55)" stroke-width="' + f(rx * 0.1) + '" fill="none" stroke-linecap="round"/>';
+    for (var i = 0; i < 9; i++) { var a = R() * Math.PI, rr = R() * 0.8; o += '<circle cx="' + f(cx + Math.cos(a) * rx * rr) + '" cy="' + f(rimY - Math.sin(a) * ry * rr - 0.2) + '" r="' + f(rx * 0.035) + '" fill="#fff" opacity=".75"/>'; }
+    return o;
+  }
+  function cup(cx, top, w, h, R, opt) { // paper cup + rainbow dome + drips + spoon straw; text area = middle of body
+    opt = opt || {};
+    var bw = w * 0.76, o = '', band = opt.band || '#ff4f7b';
+    var body = 'M' + f(cx - w / 2) + ' ' + f(top) + ' L' + f(cx + w / 2) + ' ' + f(top) + ' L' + f(cx + bw / 2) + ' ' + f(top + h) + ' L' + f(cx - bw / 2) + ' ' + f(top + h) + ' Z';
+    var rx = w * 0.53, ry = Math.min(w * 0.42, h * 0.38);
+    // spoon straw behind the dome
+    var sx = cx + w * 0.18, sl = opt.sl || 1;
+    o += '<path d="M' + f(sx) + ' ' + f(top - ry * 0.4) + ' L' + f(sx + w * 0.22) + ' ' + f(top - ry * 1.45 * sl) + '" stroke="' + (opt.straw || '#3fa7ff') + '" stroke-width="' + f(w * 0.05) + '" stroke-linecap="round"/>'
+      + '<ellipse cx="' + f(sx + w * 0.24) + '" cy="' + f(top - ry * 1.52 * sl) + '" rx="' + f(w * 0.06) + '" ry="' + f(w * 0.035) + '" fill="' + (opt.straw || '#3fa7ff') + '" transform="rotate(-30 ' + f(sx + w * 0.24) + ' ' + f(top - ry * 1.52 * sl) + ')"/>';
+    o += dome(cx, top + 0.2, rx, ry, R, opt.cols);
+    o += '<path d="' + body + '" fill="rgba(70,41,127,.16)" transform="translate(.6 .8)"/><path d="' + body + '" fill="' + (opt.fill || '#ffffff') + '" stroke="#e8dff5" stroke-width=".25"/>';
+    var bh = h * 0.13;
+    o += '<path d="M' + f(cx - w / 2) + ' ' + f(top) + ' L' + f(cx + w / 2) + ' ' + f(top) + ' L' + f(cx + w / 2 - (w - bw) / 2 * bh / h) + ' ' + f(top + bh) + ' L' + f(cx - w / 2 + (w - bw) / 2 * bh / h) + ' ' + f(top + bh) + ' Z" fill="' + band + '"/>';
+    var y2 = top + h - bh * 0.7;
+    o += '<path d="M' + f(cx - w / 2 + (w - bw) / 2 * (y2 - top) / h) + ' ' + f(y2) + ' L' + f(cx + w / 2 - (w - bw) / 2 * (y2 - top) / h) + ' ' + f(y2) + ' L' + f(cx + bw / 2) + ' ' + f(top + h) + ' L' + f(cx - bw / 2) + ' ' + f(top + h) + ' Z" fill="' + band + '"/>';
+    // syrup drips over the rim band only
+    [-0.32, 0.05, 0.3].forEach(function (d, i) {
+      var x = cx + d * w, c = (opt.cols || [SYR[0], SYR[2], SYR[4]])[i], dl = bh * (0.75 + 0.2 * i);
+      o += '<path d="M' + f(x - w * 0.045) + ' ' + f(top) + ' V' + f(top + dl) + ' a' + f(w * 0.045) + ' ' + f(w * 0.045) + ' 0 0 0 ' + f(w * 0.09) + ' 0 V' + f(top) + ' Z" fill="' + c + '"/>';
+    });
+    return o;
+  }
+  function boardShape(x, y, w, h) {
+    return '<rect x="' + f(x + 0.6) + '" y="' + f(y + 1) + '" width="' + f(w) + '" height="' + f(h) + '" rx="2" fill="rgba(70,41,127,.18)"/>'
+      + '<rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '" rx="2" fill="#5b3a9e"/>'
+      + '<rect x="' + f(x + 1) + '" y="' + f(y + 1) + '" width="' + f(w - 2) + '" height="' + f(h - 2) + '" rx="1.3" fill="#fffdf8"/>'
+      + '<rect x="' + f(x + 2) + '" y="' + f(y + 2) + '" width="' + f(w - 4) + '" height="' + f(h - 4) + '" rx="1" fill="none" stroke="#d9cdf0" stroke-width=".3" stroke-dasharray="1.2 .8"/>';
+  }
+
+  var BADGE = { ring: '#ff4f7b', face: '#fffaf3', ink: '#fffdf6', cup: '#3fa7ff', coffee: '#7a4a2a', saucer: '#ffd23d', heart: '#fffaf3', steam: '#b49bf0' };
+
+  var L = {
+    lh: { H: 129.41, aw: [13, 3.6], logo: [4.5, 3, 15, 15], badge: [77.5, 2.5, 19.5], kick: [20, 20.6, 60, 1.4], title: [8, 23.4, 84, 9.4], mon: [10, 34.4, 80, 4.8],
+      board: [9, 41.2, 82, 31.6], cups1: [[50, 0, 27, 20.2]], cups2: [[28.5, 0, 26, 20.2], [71.5, 0, 26, 20.2]], deco1: [[15, 0, 16, 13], [85, 0, 16, 13]], deco2: [[50, 0, 11, 10]],
+      shelf: 101, where: [5, 103.2, 90, 1.75], foot: 107.8 },
+    lp: { H: 129.41, aw: [12, 3.4], logo: [4, 2.6, 22, 13], badge: [78, 2.4, 18.5], kick: [20, 18.8, 60, 1.3], title: [8, 21.4, 84, 7.8], mon: [10, 30.6, 80, 4.2],
+      board: [6, 36.2, 88, 24.6], head: [5, 61.2, 90, 4.1],
+      zc: [[13.5, 71.2], [37.8, 71.2], [62.2, 71.2], [86.5, 71.2], [25.6, 92.4], [50, 92.4], [74.4, 92.4]], zw: 19.6, zh: 13.6,
+      shelves: [84.8, 106], where: [5, 108.2, 90, 1.7], foot: 112.2 },
+    sh: { H: 100, aw: [10.5, 2.8], logo: [3.5, 2.2, 11.5, 11.5], badge: [81, 2, 16.5], kick: [17, 15.6, 66, 1.15], title: [10, 17.8, 80, 6.6], mon: [10, 26.4, 80, 3.6],
+      board: [4, 34, 56, 41], cups1: [[79, 55, 22, 18.5]], cups2: [[70.5, 55, 17, 18.5], [89.5, 55, 17, 18.5]],
+      shelf: 75.2, where: [3, 78.2, 94, 1.45], foot: 83.6 },
+    sp: { H: 100, aw: [10.5, 2.8], logo: [3.5, 2.2, 18, 10.6], badge: [81, 2, 16.5], kick: [22, 15.4, 56, 1.15], title: [10, 17.6, 80, 6], mon: [10, 25.4, 80, 3.4],
+      board: [5, 30.8, 90, 17.2],
+      zc: [[13, 54.4], [37.7, 54.4], [62.3, 54.4], [87, 54.4], [25.3, 70.4], [50, 70.4], [74.7, 70.4]], zw: 17, zh: 10.4,
+      shelves: [64.8, 80.8], where: [3, 82.6, 94, 1.35], foot: 86 }
+  };
+
+  var css = [
+    '.p07{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(70,41,127,.25);background:#fffaf3;font-family:Nunito,Poppins,sans-serif;color:#46297f}',
+    '.p07.sq{aspect-ratio:1/1}',
+    '.p07>svg.p07-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.p07>div,.p07>svg.p07-badge{position:absolute;z-index:3}',
+    '.p07 .p07-logo{background:#fff;border-radius:50%;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #5b3a9e,0 .8cqw 1.6cqw rgba(70,41,127,.22)}',
+    '.p07 .p07-logo img{width:78%}.p07 .p07-logo.p07-pip{border-radius:2cqw}.p07 .p07-logo.p07-pip img{width:90%}',
+    '.p07 .p07-k{text-align:center;font-weight:900;letter-spacing:.18em;color:#ff4f7b;line-height:1.3}',
+    '.p07 .p07-t{text-align:center;font-family:Chewy,Fredoka,sans-serif;font-weight:400;line-height:1.1;color:#5b3a9e;white-space:nowrap;letter-spacing:.01em}',
+    '.p07 .p07-t span{color:#ff4f7b}',
+    '.p07 .p07-m{display:flex;justify-content:center;align-items:center;gap:.5em;line-height:1.1}',
+    '.p07 .p07-m b{font-family:Fredoka,sans-serif;font-weight:700;color:#3fa7ff}',
+    '.p07 .p07-m i{font-style:normal;font-weight:900;font-size:.38em;letter-spacing:.18em;background:#5cc96b;color:#fff;border-radius:2em;padding:.5em 1em .45em}',
+    '.p07 .p07-bd2{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-sizing:border-box}',
+    '.p07 .p07-lb{font-weight:900;letter-spacing:.2em;color:#fff;background:#5b3a9e;border-radius:2em;padding:.4em 1.2em .35em;line-height:1;margin-bottom:.8em}',
+    '.p07 .p07-tp{font-family:Fredoka,sans-serif;font-weight:700;line-height:1.08;color:#46297f}',
+    '.p07 .p07-tp em{font-style:normal;color:#fff;border-radius:50%;display:inline-grid;place-items:center;width:1.12em;height:1.12em;font-size:.62em;vertical-align:.2em;margin-right:.35em}',
+    '.p07 .p07-ds{font-weight:800;font-style:italic;color:#e0386a;line-height:1.2;margin-top:.4em}',
+    '.p07 .p07-pr{font-weight:800;color:#1f6fc0;line-height:1.2;margin-top:.75em;background:#e3f1ff;border-radius:2em;padding:.35em 1.1em}',
+    '.p07 .p07-pr b{font-weight:900;color:#17508c}',
+    '.p07 .p07-dt{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1}',
+    '.p07 .p07-dt>div{flex:none}',
+    '.p07 .p07-dt .w{font-weight:900;letter-spacing:.2em;color:#ff4f7b;line-height:1.3}',
+    '.p07 .p07-dt .d{font-family:Fredoka,sans-serif;font-weight:700;color:#46297f;line-height:1.05}',
+    '.p07 .p07-dt .t{font-weight:900;color:#1f6fc0;margin-top:.35em;line-height:1.15}',
+    '.p07 .p07-h{text-align:center;font-family:Chewy,cursive;color:#ff4f7b;line-height:1.1}',
+    '.p07 .p07-z{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1.1}',
+    '.p07 .p07-z>div{flex:none}',
+    '.p07 .p07-z .i{font-weight:900;color:#46297f}.p07 .p07-z .y{font-weight:700;color:#7a64a8;margin:.15em 0 .3em}',
+    '.p07 .p07-z .tm{font-family:Fredoka,sans-serif;font-weight:700;color:#e0386a;line-height:1.05}',
+    '.p07 .p07-w{text-align:center;font-weight:800;font-style:italic;color:#5b3a9e;line-height:1.2}',
+    '.p07 .p07-w b{color:#ff4f7b}',
+    '.p07 .p07-f{display:flex;align-items:center;gap:2.4cqw;color:#fff}',
+    '.p07 .p07-rg{flex:1;line-height:1.3;font-weight:700;color:#ece4fb}',
+    '.p07 .p07-rg b{display:block;font-weight:900;color:#fff;line-height:1.1;margin-bottom:.25em}.p07 .p07-rg b i{font-style:normal;color:#ffd23d}',
+    '.p07 .p07-qr{background:#fff;border-radius:1cqw;padding:.7cqw;box-sizing:border-box;display:grid;place-items:center;flex:none}',
+    '.p07 .p07-qr img{width:100%;height:100%;display:block}.p07 .p07-qr span{color:#46297f;font-weight:900;font-size:2.4cqw}',
+    '.p07 .p07-bd{display:flex;flex-direction:column;gap:.6cqw;flex:none}',
+    '.p07 .p07-bd span{background:#fff;color:#46297f;border-radius:2cqw;padding:.45em 1.1em;font-weight:800;text-align:center;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), n = S.length;
+    var R = rnd(spec.month * 41 + (sq ? 7 : 0) + (partner ? 3 : 0) + n);
+    var svg = '<defs><linearGradient id="p07ft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6442ad"/><stop offset="1" stop-color="#46297f"/></linearGradient>'
+      + '<linearGradient id="p07wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7ef"/><stop offset="1" stop-color="#fffdf9"/></linearGradient></defs>';
+    svg += '<rect width="100" height="' + V.H + '" fill="url(#p07wall)"/>';
+    for (var x = 10; x < 100; x += 10) svg += '<path d="M' + x + ' 0 V' + f(V.H) + '" stroke="rgba(91,58,158,.045)" stroke-width=".35"/>';
+    // stand posts
+    svg += '<rect x="0" y="0" width="2.2" height="' + f(V.H) + '" fill="#efe6fb"/><rect x="97.8" y="0" width="2.2" height="' + f(V.H) + '" fill="#efe6fb"/>';
+    var html = '', fy = V.foot;
+    var g = V.board;
+    // strings from awning to menu board
+
+    svg += boardShape(g[0], g[1], g[2], g[3]);
+
+    svg += awning(V.aw[0], V.aw[1]);
+
+    // shelves / counter
+    function shelf(y) { return '<rect x="0" y="' + f(y + 0.5) + '" width="100" height="1.8" fill="rgba(70,41,127,.12)"/><rect x="0" y="' + f(y) + '" width="100" height="1.8" fill="#ff4f7b"/><rect x="0" y="' + f(y) + '" width="100" height=".45" fill="#ff8aa8"/>'; }
+
+    var lg = V.logo;
+    html += box(P + '-logo' + (partner ? ' ' + P + '-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    html += badge(BADGE, V.badge);
+    var k = V.kick;
+    html += box(P + '-k', k[0], k[1], k[2], null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER', 'font-size:' + k[3] + 'cqw');
+    var t = V.title;
+    html += box(P + '-t', t[0], t[1], t[2], null, H.seriesTitle(spec.series), 'font-size:' + f(Math.min(t[3], t[2] / (H.esc(spec.series).length * 0.5))) + 'cqw');
+    var m = V.mon;
+    html += box(P + '-m', m[0], m[1], m[2], null, '<b>' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</b><i>ON ZOOM</i>', 'font-size:' + m[3] + 'cqw');
+
+    // menu board text
+    var noLb = sq && partner;
+    var lesson = function (x) { return x.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); };
+    var pres = spec.presenter ? '<div class="' + P + '-pr" style="font-size:' + f(sq ? 1.55 : 1.85) + 'cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var inner = noLb ? '' : '<div class="' + P + '-lb" style="font-size:' + (sq ? 1.1 : 1.3) + 'cqw">' + (n > 1 ? 'ON THE MENU THIS MONTH' : 'TODAY\'S FLAVOR') + '</div>';
+    var iw = g[2] - 8;
+    if (n === 1) {
+      inner += '<div class="' + P + '-tp" style="font-size:' + f(fit(S[0].lesson, iw, sq ? (partner ? 2 : 4) : (partner ? 2 : 3), sq ? (partner ? 3.6 : 4.6) : (partner ? 4.7 : 5.3), 0.5)) + 'cqw">' + lesson(S[0].lesson) + '</div>'
+        + (S[0].desc ? '<div class="' + P + '-ds" style="font-size:' + f(sq ? 1.65 : 2.05) + 'cqw">' + S[0].desc + '</div>' : '') + pres;
+    } else {
+      var lf = Math.min.apply(null, S.map(function (s) { return fit(s.lesson, iw - 4, sq ? 3 : 2, sq ? 3.4 : (partner ? 3.6 : 4.6), 0.5); }));
+      S.forEach(function (s, i) {
+        inner += '<div class="' + P + '-tp" style="font-size:' + f(lf) + 'cqw;margin-top:' + (i ? '.45em' : '0') + '"><em style="background:' + (i ? '#3fa7ff' : '#ff4f7b') + '">' + (i + 1) + '</em>' + lesson(s.lesson) + '</div>'
+          + (s.desc && !sq ? '<div class="' + P + '-ds" style="font-size:' + f(partner ? 1.65 : 1.85) + 'cqw;margin-top:.2em">' + s.desc + '</div>' : '');
+      });
+      inner += pres;
+    }
+    html += box(P + '-bd2', g[0] + 3, g[1] + 2.4, g[2] - 6, g[3] - 4.8, inner);
+
+    var CUPC = [{ band: '#ff4f7b', straw: '#3fa7ff', cols: [SYR[0], SYR[2], SYR[4]] }, { band: '#3fa7ff', straw: '#ff9f1c', cols: [SYR[5], SYR[1], SYR[3]] },
+      { band: '#5cc96b', straw: '#ff4f7b', cols: [SYR[1], SYR[0], SYR[2]] }, { band: '#9b6bff', straw: '#5cc96b', cols: [SYR[4], SYR[3], SYR[0]] },
+      { band: '#ff9f1c', straw: '#9b6bff', cols: [SYR[2], SYR[5], SYR[4]] }];
+    if (!partner) {
+      if (V.shelf) svg += shelf(V.shelf);
+      var DC = n > 1 ? V.deco2 : V.deco1;
+      (DC || []).forEach(function (d, i) { svg += cup(d[0], V.shelf - d[3], d[2], d[3], R, CUPC[(i + 2) % 5]); });
+      var CP = n > 1 ? V.cups2 : V.cups1;
+      S.forEach(function (s, i) {
+        var q = CP[i], top = V.shelf - q[3], kk = q[2] / 26;
+        svg += cup(q[0], top, q[2], q[3], R, Object.assign({ sl: sq ? 1 : 0.72 }, CUPC[i]));
+        var bw = q[2] * 0.82;
+        html += box(P + '-dt', q[0] - bw / 2, top + q[3] * 0.15, bw, q[3] * 0.72,
+          '<div class="w" style="font-size:' + f(1.5 * kk) + 'cqw">' + (n > 1 ? 'TOPIC ' + (i + 1) + ' &middot; ' : '') + s.dow.toUpperCase() + '</div>'
+          + '<div class="d" style="font-size:' + f((n > 1 ? 5.4 : 5.8) * kk) + 'cqw">' + s.mon + ' ' + s.day + '</div>'
+          + '<div class="t" style="font-size:' + f(1.85 * kk) + 'cqw">' + s.time + '</div>');
+      });
+    } else {
+      var hd = V.head;
+      if (hd) html += box(P + '-h', hd[0], hd[1], hd[2], null, 'Find your local time', 'font-size:' + hd[3] + 'cqw');
+      V.shelves.forEach(function (y) { svg += shelf(y); });
+      var rows = H.zoneRows(spec.sessions), zw = V.zw, zh = V.zh, zk = zw / 19.6;
+      rows.forEach(function (r, i) {
+        var p = V.zc[i], top = p[1];
+        svg += cup(p[0], top, zw, zh, R, Object.assign({ sl: 0.6 }, r.home ? { band: '#ffd23d', fill: '#fff6c9', straw: '#ff4f7b', cols: [SYR[0], SYR[1], SYR[2]] } : CUPC[i % 5]));
+        var tm = r.time.split(' / '), bw = zw * 0.8;
+        html += box(P + '-z', p[0] - bw / 2, top + zh * 0.14, bw, zh * 0.72,
+          '<div class="i" style="font-size:' + f(1.45 * zk) + 'cqw">' + r.label + '</div><div class="y" style="font-size:' + f(1.2 * zk) + 'cqw">' + r.days + '</div>'
+          + '<div class="tm" style="font-size:' + f((tm.length > 1 ? 1.75 : 2.5) * zk) + 'cqw">' + tm.join('<br>') + '</div>');
+      });
+    }
+
+    var wh = V.where;
+    html += box(P + '-w', wh[0], wh[1], wh[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:' + wh[3] + 'cqw');
+
+    // footer: grape stand base with a rainbow trim
+    svg += '<rect x="0" y="' + f(fy) + '" width="100" height="' + f(V.H - fy + 1) + '" fill="url(#p07ft)"/>';
+    SYR.forEach(function (c, i) { svg += '<rect x="' + f(i * 100 / 6) + '" y="' + f(fy) + '" width="' + f(100 / 6 + 0.1) + '" height="1" fill="' + c + '"/>'; });
+    var fs = sq ? 0.8 : 1, qy = fy + (sq ? 2.6 : 3.4), qh = V.H - qy - (sq ? 1.8 : 2.6);
+    html += box(P + '-f', 5, qy, 90, qh,
+      '<div class="' + P + '-rg" style="font-size:' + f(1.95 * fs) + 'cqw"><b style="font-size:' + f(3.3 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call ' + H.phone(partner) + '</div>'
+      + '<div class="' + P + '-qr" style="width:' + (sq ? 10 : 11) + 'cqw;height:' + (sq ? 10 : 11) + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="' + P + '-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="' + P + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="' + P + '-bg" viewBox="0 0 100 ' + V.H + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Shave ice stand (rainbow awning, menu board, shave-ice cups)', fonts: 'family=Nunito:wght@600;700;800;900&family=Chewy&family=Fredoka:wght@500;600;700', css: css, fn: fn };
+})(), 'ptc');
+
+/* ---- PTC month 08 ---- */
+VEBFlyers.registerTheme(8, (function () {
+  /* PTC August: "Café order ticket" - kraft paper counter, blue ballpoint ink, a coffee-ring stain. The topic is
+     written on a big café receipt at a jaunty angle beside a takeaway cup; partner local times are order tickets
+     hanging from a stainless ticket rail, each time stamped in blue ink (Hawaiʻi on a yellow ticket). */
+  var P = 'p08';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function fit(t, w, lines, maxF, k) { // font size (cqw) so text t wraps into <= lines in width w
+    t = String(t).replace(/&amp;/g, '&').replace(/&[a-z]+;/g, 'x');
+    var lw = Math.max.apply(null, t.split(/\s+/).map(function (s) { return s.length; }));
+    return Math.min(maxF, w * lines / (t.length * k * 1.18), w / (lw * k * 1.1));
+  }
+  function rnd(seed) { var s = seed; return function () { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+  /* recurring series mark: round PARENT TALK CAFE badge with a steaming cup */
+  function badge(c, b) {
+    return '<svg class="' + P + '-badge" style="left:' + f(b[0]) + 'cqw;top:' + f(b[1]) + 'cqw;width:' + f(b[2]) + 'cqw;height:' + f(b[2]) + 'cqw" viewBox="0 0 100 100"><defs><path id="' + P + 'bt" d="M9 50 A41 41 0 0 1 91 50"/><path id="' + P + 'bb" d="M3.6 50 A46.4 46.4 0 0 0 96.4 50"/></defs>'
+      + '<circle cx="50" cy="52" r="48.5" fill="rgba(0,0,0,.12)"/><circle cx="50" cy="50" r="49" fill="' + c.ring + '"/><circle cx="50" cy="50" r="39.5" fill="' + c.face + '"/>'
+      + '<circle cx="50" cy="50" r="38" fill="none" stroke="' + c.ring + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text font-family="Nunito,sans-serif" font-size="8.6" font-weight="900" letter-spacing="1.25" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bt" startOffset="50%">PARENT TALK CAFÉ</textPath></text>'
+      + '<text font-family="Nunito,sans-serif" font-size="6.2" font-weight="800" letter-spacing="1.4" fill="' + c.ink + '" text-anchor="middle"><textPath href="#' + P + 'bb" startOffset="50%">MONTHLY CHAT</textPath></text>'
+      + '<circle cx="6" cy="50" r="1.8" fill="' + c.ink + '"/><circle cx="94" cy="50" r="1.8" fill="' + c.ink + '"/>'
+      + '<ellipse cx="50" cy="76" rx="23" ry="4.6" fill="' + c.saucer + '"/><ellipse cx="50" cy="75" rx="15" ry="2.4" fill="rgba(0,0,0,.12)"/>'
+      + '<path d="M67 53 q10 -1 9.5 7.5 q-.5 7.5 -12 8" fill="none" stroke="' + c.cup + '" stroke-width="3.4" stroke-linecap="round"/>'
+      + '<path d="M30 50 H70 L67 64 Q64.5 75 55 75 H45 Q35.5 75 33 64 Z" fill="' + c.cup + '"/>'
+      + '<ellipse cx="50" cy="50" rx="20" ry="3.8" fill="' + c.coffee + '" stroke="' + c.cup + '" stroke-width="1.4"/>'
+      + '<path d="M44 60 c0 -3 6 -3 6 0 c0 -3 6 -3 6 0 c0 4 -6 7 -6 8 c0 -1 -6 -4 -6 -8z" fill="' + c.heart + '"/>'
+      + ['M41 44 q-4 -5 0 -10 q4 -5 0 -10', 'M50 43 q-4 -5 0 -10 q4 -5 0 -11', 'M59 44 q-4 -5 0 -10 q4 -5 0 -10'].map(function (d) {
+        return '<path d="' + d + '" fill="none" stroke="' + c.steam + '" stroke-width="2.6" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+
+
+  function zig(x0, x1, y, amp, n, down) { // zigzag edge points from x0 to x1
+    var o = '', st = (x1 - x0) / n;
+    for (var i = 1; i <= n; i++) o += ' L' + f(x0 + st * (i - 0.5)) + ' ' + f(y + (down ? amp : -amp)) + ' L' + f(x0 + st * i) + ' ' + f(y);
+    return o;
+  }
+  function receiptPath(x, y, w, h, amp) {
+    var n = Math.round(w / 2.2);
+    return 'M' + f(x) + ' ' + f(y) + zig(x, x + w, y, amp, n, false) + ' L' + f(x + w) + ' ' + f(y + h)
+      + zig(x + w, x, y + h, -amp, n, false).replace(/L/g, 'L') + ' Z';
+  }
+  function barcode(x, y, w, h, R) {
+    var o = '', cx = x;
+    while (cx < x + w) { var bw = 0.18 + R() * 0.55; if (cx + bw > x + w) break; o += '<rect x="' + f(cx) + '" y="' + f(y) + '" width="' + f(bw) + '" height="' + f(h) + '" fill="#2b2420"/>'; cx += bw + 0.2 + R() * 0.45; }
+    return o;
+  }
+  function stain(cx, cy, r, R) {
+    var o = '<g opacity=".5">';
+    o += '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="none" stroke="#8a5a2b" stroke-width="' + f(r * 0.07) + '" stroke-dasharray="' + f(r * 1.6) + ' ' + f(r * 0.25) + ' ' + f(r * 2.2) + ' ' + f(r * 0.4) + '"/>';
+    o += '<circle cx="' + f(cx + r * 0.05) + '" cy="' + f(cy - r * 0.04) + '" r="' + f(r * 0.9) + '" fill="none" stroke="#a06d3a" stroke-width="' + f(r * 0.03) + '" opacity=".7"/>';
+    o += '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.93) + '" fill="#a06d3a" opacity=".12"/>';
+    o += '<circle cx="' + f(cx + r * 1.15) + '" cy="' + f(cy + r * 0.5) + '" r="' + f(r * 0.08) + '" fill="#8a5a2b"/><circle cx="' + f(cx + r * 1.3) + '" cy="' + f(cy + r * 0.62) + '" r="' + f(r * 0.04) + '" fill="#8a5a2b"/>';
+    return o + '</g>';
+  }
+  function takeaway(cx, top, w, h) {
+    var bw = w * 0.74, lidH = h * 0.11, o = '';
+    var y0 = top + lidH;
+    o += '<ellipse cx="' + f(cx + 1) + '" cy="' + f(top + h + 0.6) + '" rx="' + f(bw * 0.62) + '" ry="' + f(w * 0.06) + '" fill="rgba(59,42,32,.28)"/>';
+    o += '<path d="M' + f(cx - w / 2) + ' ' + f(y0) + ' L' + f(cx + w / 2) + ' ' + f(y0) + ' L' + f(cx + bw / 2) + ' ' + f(top + h) + ' L' + f(cx - bw / 2) + ' ' + f(top + h) + ' Z" fill="#fbf8ef"/>';
+    o += '<path d="M' + f(cx + w * 0.18) + ' ' + f(y0) + ' L' + f(cx + w / 2) + ' ' + f(y0) + ' L' + f(cx + bw / 2) + ' ' + f(top + h) + ' L' + f(cx + bw * 0.2) + ' ' + f(top + h) + ' Z" fill="rgba(59,42,32,.07)"/>';
+    // sleeve
+    var s0 = y0 + (h - lidH) * 0.3, s1 = y0 + (h - lidH) * 0.68;
+    function hw(y) { return w / 2 - (w - bw) / 2 * (y - y0) / (top + h - y0); }
+    o += '<path d="M' + f(cx - hw(s0) - 0.4) + ' ' + f(s0) + ' L' + f(cx + hw(s0) + 0.4) + ' ' + f(s0) + ' L' + f(cx + hw(s1) + 0.4) + ' ' + f(s1) + ' L' + f(cx - hw(s1) - 0.4) + ' ' + f(s1) + ' Z" fill="#b8875a"/>';
+    for (var i = 1; i < 9; i++) { var yy = s0 + (s1 - s0) * i / 9; o += '<path d="M' + f(cx - hw(yy)) + ' ' + f(yy) + ' H' + f(cx + hw(yy)) + '" stroke="rgba(90,58,30,.25)" stroke-width=".2"/>'; }
+    var hc = (s0 + s1) / 2, hs = w * 0.12;
+    o += '<path d="M' + f(cx) + ' ' + f(hc + hs * 0.9) + ' C' + f(cx - hs * 1.6) + ' ' + f(hc - hs * 0.1) + ' ' + f(cx - hs * 0.7) + ' ' + f(hc - hs * 1.2) + ' ' + f(cx) + ' ' + f(hc - hs * 0.4) + ' C' + f(cx + hs * 0.7) + ' ' + f(hc - hs * 1.2) + ' ' + f(cx + hs * 1.6) + ' ' + f(hc - hs * 0.1) + ' ' + f(cx) + ' ' + f(hc + hs * 0.9) + 'Z" fill="#1f4fa8"/>';
+    // lid
+    o += '<rect x="' + f(cx - w / 2 - w * 0.04) + '" y="' + f(top + lidH * 0.45) + '" width="' + f(w * 1.08) + '" height="' + f(lidH * 0.55) + '" rx="' + f(lidH * 0.2) + '" fill="#3b2a20"/>';
+    o += '<path d="M' + f(cx - w * 0.42) + ' ' + f(top + lidH * 0.5) + ' Q' + f(cx - w * 0.4) + ' ' + f(top) + ' ' + f(cx - w * 0.25) + ' ' + f(top) + ' H' + f(cx + w * 0.25) + ' Q' + f(cx + w * 0.4) + ' ' + f(top) + ' ' + f(cx + w * 0.42) + ' ' + f(top + lidH * 0.5) + ' Z" fill="#4a362a"/>';
+    o += '<rect x="' + f(cx + w * 0.08) + '" y="' + f(top + lidH * 0.08) + '" width="' + f(w * 0.16) + '" height="' + f(lidH * 0.18) + '" rx=".3" fill="#2b1e17"/>';
+    // steam
+    [-0.2, 0.05, 0.3].forEach(function (d, i) {
+      var x = cx + d * w, y = top - 1.2;
+      o += '<path d="M' + f(x) + ' ' + f(y) + ' q' + f(-w * 0.1) + ' ' + f(-h * 0.08) + ' 0 ' + f(-h * 0.15) + ' q' + f(w * 0.1) + ' ' + f(-h * 0.07) + ' 0 ' + f(-h * 0.14) + '" fill="none" stroke="rgba(255,255,255,.75)" stroke-width="' + f(w * 0.05) + '" stroke-linecap="round" opacity="' + (i === 1 ? 1 : 0.8) + '"/>';
+    });
+    return o;
+  }
+  function ticket(x, y, w, h, rot, fill) {
+    var cx = x + w / 2, cy = y + h / 2, n = Math.round(w / 2);
+    var d = 'M' + f(x) + ' ' + f(y) + ' L' + f(x + w) + ' ' + f(y) + ' L' + f(x + w) + ' ' + f(y + h) + zig(x + w, x, y + h, -0.9, n, false) + ' Z';
+    return '<g transform="rotate(' + f(rot) + ' ' + f(cx) + ' ' + f(y) + ')"><path d="' + d + '" fill="rgba(59,42,32,.22)" transform="translate(.5 .8)"/><path d="' + d + '" fill="' + fill + '"/>'
+      + '<path d="M' + f(x + 1) + ' ' + f(y + h * 0.36) + ' H' + f(x + w - 1) + '" stroke="#b7ab95" stroke-width=".22" stroke-dasharray=".8 .6"/></g>';
+  }
+  function rail(y) {
+    return '<rect x="0" y="' + f(y + 0.6) + '" width="100" height="2.4" fill="rgba(59,42,32,.25)"/><rect x="0" y="' + f(y - 1.2) + '" width="100" height="2.6" fill="url(#p08steel)"/>'
+      + '<rect x="0" y="' + f(y - 1.2) + '" width="100" height=".5" fill="rgba(255,255,255,.7)"/>';
+  }
+
+  var BADGE = { ring: '#1f4fa8', face: '#fbf8ef', ink: '#fffdf6', cup: '#b8875a', coffee: '#3b2a20', saucer: '#c9a27a', heart: '#fbf8ef', steam: '#7d9bd6' };
+
+  var L = {
+    lh: { H: 129.41, logo: [4.5, 4.5, 15, 15], badge: [77.5, 3, 19.5], kick: [22, 5.6, 54, 1.4], title: [21, 9.4, 56, 7.4], mon: [21, 29, 56, 4.6],
+      rc: [7, 37, 58, 64, -4], cup: [80.5, 58, 23, 38], stain: [82, 96.5, 10], where: [67, 100.6, 30, 1.6], foot: 108.2 },
+    lp: { H: 129.41, logo: [4, 4.5, 22, 13], badge: [78, 3, 18.5], kick: [28, 5.4, 48, 1.3], title: [28, 8.8, 48, 6.6], mon: [28, 25.6, 48, 4.2],
+      rc: [5, 31.6, 66, 29.4, -2.5], cup: [85.5, 37, 16, 25], stain: [83, 60, 6.5], head: [5, 63.2, 90, 3.6],
+      r1: 68.6, r2: 88.2, tw: 21, th: 17, tk: [[14, 68], [38, 68], [62, 68], [86, 68], [26, 87.6], [50, 87.6], [74, 87.6]],
+      where: [5, 106.2, 90, 1.7], foot: 110.2 },
+    sh: { H: 100, logo: [3.5, 3.5, 11.5, 11.5], badge: [81, 2.5, 16.5], kick: [17, 4.4, 62, 1.15], title: [16, 7.6, 64, 6], mon: [16, 16.6, 64, 3.4], one: true,
+      rc: [5, 24, 58, 56, -3.5], cup: [81, 31, 20, 33], stain: [83, 69, 8], where: [65, 74.5, 32, 1.4], foot: 84.2 },
+    sp: { H: 100, logo: [3.5, 3.5, 18, 10.6], badge: [81, 2.5, 16.5], kick: [24, 4.6, 54, 1.1], title: [24, 7.8, 54, 5.2], mon: [24, 15.6, 54, 3.2], one: true,
+      rc: [4, 22.4, 92, 18, -1.2], r1: 45.4, r2: 63, tw: 21, th: 14.6, tk: [[13, 44.8], [37.7, 44.8], [62.3, 44.8], [87, 44.8], [25.3, 62.4], [50, 62.4], [74.7, 62.4]],
+      where: [3, 79, 94, 1.4], foot: 83.8 }
+  };
+
+  var css = [
+    '.p08{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(59,42,32,.3);background:#cfa77c;font-family:"Courier Prime","Courier New",monospace;color:#2b2420}',
+    '.p08.sq{aspect-ratio:1/1}',
+    '.p08>svg.p08-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.p08>div,.p08>svg.p08-badge{position:absolute;z-index:3}',
+    '.p08 .p08-logo{background:#fff;border-radius:50%;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #1f4fa8,0 .8cqw 1.6cqw rgba(59,42,32,.25)}',
+    '.p08 .p08-logo img{width:78%}.p08 .p08-logo.p08-pip{border-radius:2cqw}.p08 .p08-logo.p08-pip img{width:90%}',
+    '.p08 .p08-k{text-align:center;font-weight:700;letter-spacing:.14em;color:#3b2a20;line-height:1.3}',
+    '.p08 .p08-t{text-align:center;font-family:"Alfa Slab One",Georgia,serif;font-weight:400;line-height:1.08;color:#1f4fa8}',
+    '.p08 .p08-t span{display:block;font-family:Kalam,cursive;font-weight:700;color:#3b2a20;font-size:1.25em;line-height:1.05;margin-top:-.05em}',
+    '.p08.sq .p08-t span{display:inline;font-size:1.1em;margin:0;color:#1f4fa8;font-family:"Alfa Slab One",serif;font-weight:400}',
+    '.p08 .p08-m{display:flex;justify-content:center;align-items:center;gap:.5em;line-height:1.15}',
+    '.p08 .p08-m b{font-family:Kalam,cursive;font-weight:700;color:#2b2420}',
+    '.p08 .p08-m i{font-style:normal;font-weight:700;font-size:.4em;letter-spacing:.16em;background:#1f4fa8;color:#fff;border-radius:.3em;padding:.45em .9em .4em}',
+    '.p08 .p08-rc{display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:center;box-sizing:border-box}',
+    '.p08 .p08-rc>div{flex:none}',
+    '.p08 .p08-hd{font-weight:700;letter-spacing:.24em;line-height:1.25;color:#2b2420}',
+    '.p08 .p08-sub{letter-spacing:.06em;line-height:1.25;color:#6b5c4c}',
+    '.p08 .p08-rule{border-top:.35cqw dashed #9c8f7c;margin:.8em 0}',
+    '.p08 .p08-it{display:flex;justify-content:space-between;font-weight:700;letter-spacing:.06em;color:#6b5c4c;line-height:1.2;margin-bottom:.7em}',
+    '.p08 .p08-tp{font-family:Kalam,cursive;font-weight:700;line-height:1.12;color:#1f4fa8}',
+    '.p08 .p08-ds{font-family:Kalam,cursive;font-weight:400;color:#2f5fb8;line-height:1.15;margin-top:.15em}',
+    '.p08 .p08-pr{font-weight:700;line-height:1.25;color:#2b2420;margin-top:.55em}',
+    '.p08 .p08-pr b{color:#1f4fa8}',
+    '.p08 .p08-dl{display:flex;flex-direction:column;align-items:center;font-weight:700;line-height:1.2;color:#2b2420}',
+    '.p08 .p08-dl b{font-family:"Alfa Slab One",serif;font-weight:400;color:#1f4fa8;letter-spacing:.02em}',
+    '.p08 .p08-h{text-align:center;font-family:Kalam,cursive;font-weight:700;color:#2b2420;line-height:1.1}',
+    '.p08 .p08-z{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;text-align:center;line-height:1.15}',
+    '.p08 .p08-z>div{flex:none}',
+    '.p08 .p08-z .i{font-weight:700;color:#2b2420}.p08 .p08-z .y{color:#6b5c4c;margin:.15em 0 0}',
+    '.p08 .p08-z .tm{font-weight:700;color:#1f4fa8;border:.3cqw solid #1f4fa8;border-radius:.6cqw;padding:.2em .45em .15em;line-height:1.1;transform:rotate(-4deg);background:rgba(31,79,168,.06)}',
+    '.p08 .p08-w{text-align:center;font-weight:700;color:#3b2a20;line-height:1.25}',
+    '.p08 .p08-w b{color:#1f4fa8}',
+    '.p08 .p08-f{display:flex;align-items:center;gap:2.4cqw;color:#fff;font-family:Nunito,Poppins,sans-serif}',
+    '.p08 .p08-rg{flex:1;line-height:1.3;font-weight:700;color:#dbe5fb}',
+    '.p08 .p08-rg b{display:block;font-weight:900;color:#fff;line-height:1.1;margin-bottom:.25em}.p08 .p08-rg b i{font-style:normal;color:#ffd77a}',
+    '.p08 .p08-qr{background:#fff;border-radius:1cqw;padding:.7cqw;box-sizing:border-box;display:grid;place-items:center;flex:none}',
+    '.p08 .p08-qr img{width:100%;height:100%;display:block}.p08 .p08-qr span{color:#1f4fa8;font-weight:900;font-size:2.4cqw}',
+    '.p08 .p08-bd{display:flex;flex-direction:column;gap:.6cqw;flex:none}',
+    '.p08 .p08-bd span{background:#fbf8ef;color:#1f4fa8;border-radius:2cqw;padding:.45em 1.1em;font-weight:800;text-align:center;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), n = S.length;
+    var R = rnd(spec.month * 43 + (sq ? 7 : 0) + (partner ? 3 : 0) + n);
+    var svg = '<defs><linearGradient id="p08steel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eef1f4"/><stop offset=".5" stop-color="#b9c0c8"/><stop offset="1" stop-color="#8d959e"/></linearGradient>'
+      + '<radialGradient id="p08kr" cx=".5" cy=".4" r=".8"><stop offset="0" stop-color="#d8b48b"/><stop offset="1" stop-color="#c39a6e"/></radialGradient>'
+      + '<linearGradient id="p08ft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2459b8"/><stop offset="1" stop-color="#173f8a"/></linearGradient></defs>';
+    svg += '<rect width="100" height="' + V.H + '" fill="url(#p08kr)"/>';
+    for (var i = 0; i < (sq ? 70 : 100); i++) { // kraft fibres
+      var x = R() * 100, y = R() * V.H, l = 0.6 + R() * 1.6, a = R() * 180;
+      svg += '<path d="M' + f(x) + ' ' + f(y) + ' l' + f(Math.cos(a) * l) + ' ' + f(Math.sin(a) * l) + '" stroke="' + (i % 3 ? 'rgba(110,72,38,.22)' : 'rgba(255,240,215,.35)') + '" stroke-width=".18" stroke-linecap="round"/>';
+    }
+    var html = '', fy = V.foot;
+
+    if (V.stain) svg += stain(V.stain[0], V.stain[1], V.stain[2], R);
+    if (!sq && !partner) svg += stain(10, 31, 5.5, R);
+
+    var lg = V.logo;
+    html += box(P + '-logo' + (partner ? ' ' + P + '-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    html += badge(BADGE, V.badge);
+    var k = V.kick;
+    html += box(P + '-k', k[0], k[1], k[2], null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER', 'font-size:' + k[3] + 'cqw');
+    var t = V.title, tlen = H.esc(spec.series).length;
+    html += box(P + '-t', t[0], t[1], t[2], null, H.seriesTitle(spec.series), 'font-size:' + f(V.one ? Math.min(t[3], t[2] / (tlen * 0.66)) : fit(spec.series, t[2], 1.25, t[3], 0.62)) + 'cqw');
+    var m = V.mon;
+    html += box(P + '-m', m[0], m[1], m[2], null, '<b>' + H.MONTHS[spec.month - 1] + ' ' + spec.year + '</b><i>ON ZOOM</i>', 'font-size:' + m[3] + 'cqw');
+
+    // the receipt
+    var g = V.rc, rx = g[0], ry = g[1], rw = g[2], rh = g[3], rcx = rx + rw / 2, rcy = ry + rh / 2, small = partner;
+    var bcH = small ? 0 : (sq ? 3.2 : 4);
+    svg += '<g transform="rotate(' + g[4] + ' ' + f(rcx) + ' ' + f(rcy) + ')"><path d="' + receiptPath(rx, ry, rw, rh, 0.9) + '" fill="rgba(59,42,32,.3)" transform="translate(.8 1.3)"/>'
+      + '<path d="' + receiptPath(rx, ry, rw, rh, 0.9) + '" fill="#fbf8ef"/>'
+      + (bcH ? barcode(rcx - rw * 0.3, ry + rh - bcH - 2, rw * 0.6, bcH, R) : '') + '</g>';
+    var lesson = function (x) { return x.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); };
+    var base = sq ? 1.35 : (partner ? 1.45 : 1.8), iw = rw - 8;
+    var on = 'ORDER No. ' + String(spec.month).padStart(2, '0') + String(S[0].day).padStart(2, '0');
+    var inner = '';
+    if (!small) inner += '<div class="' + P + '-hd" style="font-size:' + f(base * 1.15) + 'cqw">ORDER TICKET</div><div class="' + P + '-sub" style="font-size:' + f(base * 0.85) + 'cqw">' + on + ' &middot; FOR: ALL FAMILIES</div><div class="' + P + '-rule"></div>';
+    var pres = spec.presenter ? '<div class="' + P + '-pr" style="font-size:' + f(base * 1.05) + 'cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var dline = function (s) { return partner ? '' : '<div class="' + P + '-dl" style="font-size:' + f(base * (n > 1 ? 1.05 : 1.2)) + 'cqw;margin-top:' + (n > 1 ? '.35em' : '0') + '"><b style="font-size:' + (n > 1 ? 1.4 : 1.75) + 'em">' + s.dow.toUpperCase() + ' ' + s.mon.toUpperCase() + ' ' + s.day + '</b><span>' + s.time + '</span></div>'; };
+    if (n === 1) {
+      var s0 = S[0];
+      if (!small) inner += '<div class="' + P + '-it" style="font-size:' + f(base) + 'cqw"><span>1 x</span><span>THIS MONTH\'S TOPIC</span></div>';
+      inner += '<div class="' + P + '-tp" style="font-size:' + f(fit(s0.lesson, iw, sq ? (partner ? 2 : 4) : (partner ? 2 : 4), sq ? (partner ? 3.8 : 4.4) : (partner ? 4.8 : 5.4), 0.48)) + 'cqw">' + lesson(s0.lesson) + '</div>'
+        + (s0.desc ? '<div class="' + P + '-ds" style="font-size:' + f(base * 1.45) + 'cqw">' + s0.desc + '</div>' : '') + pres;
+      if (!partner) inner += '<div class="' + P + '-rule"></div>' + dline(s0);
+    } else {
+      var lf = Math.min.apply(null, S.map(function (s) { return fit(s.lesson, iw, sq ? 2 : 2, sq ? (partner ? 3 : 3.8) : (partner ? 3.6 : 4.8), 0.48); }));
+      S.forEach(function (s, i) {
+        if (i) inner += '<div class="' + P + '-rule" style="margin:.6em 0"></div>';
+        if (!small) inner += '<div class="' + P + '-it" style="font-size:' + f(base) + 'cqw"><span>' + (i + 1) + ' x</span><span>TOPIC ' + (i + 1) + '</span></div>';
+        inner += '<div class="' + P + '-tp" style="font-size:' + f(lf) + 'cqw">' + (small ? (i + 1) + '. ' : '') + lesson(s.lesson) + '</div>'
+          + (s.desc && !sq ? '<div class="' + P + '-ds" style="font-size:' + f(base * 1.3) + 'cqw">' + s.desc + '</div>' : '') + dline(s);
+      });
+      inner += pres;
+    }
+    var padX = 4, padT = small ? 2.2 : 3.4, padB = (bcH ? bcH + 3.4 : 2.2);
+    html += box(P + '-rc', rx + padX, ry + padT, rw - padX * 2, rh - padT - padB, inner,
+      'font-size:' + f(base) + 'cqw;transform-origin:' + f(rcx - rx - padX) + 'cqw ' + f(rcy - ry - padT) + 'cqw;transform:rotate(' + g[4] + 'deg)');
+
+    if (V.cup) svg += takeaway(V.cup[0], V.cup[1], V.cup[2], V.cup[3]);
+
+    if (partner) {
+      var hd = V.head;
+      if (hd) html += box(P + '-h', hd[0], hd[1], hd[2], null, 'Find your local time', 'font-size:' + hd[3] + 'cqw');
+      var rows = H.zoneRows(spec.sessions), tw = V.tw, th = V.th, zk = th / 17;
+      rows.forEach(function (r, i) {
+        var p = V.tk[i], rot = [-2.5, 1.5, -1, 2.5, 1.5, -2, 2][i];
+        svg += ticket(p[0] - tw / 2, p[1], tw, th, rot, r.home ? '#fff2a6' : '#fbf8ef');
+        var tm = r.time.split(' / ');
+        html += box(P + '-z', p[0] - tw / 2 + 0.8, p[1] + 2.4, tw - 1.6, th - 3.4,
+          '<div class="i" style="font-size:' + f(1.55 * zk) + 'cqw">' + r.label + '</div><div class="y" style="font-size:' + f(1.3 * zk) + 'cqw">' + r.days + '</div>'
+          + '<div class="tm" style="font-size:' + f((tm.length > 1 ? 1.75 : 2.6) * zk) + 'cqw;margin-top:' + (tm.length > 1 ? '.45em' : '.6em') + '">' + tm.join('<br>') + '</div>',
+          'transform-origin:50% -' + f(2.4) + 'cqw;transform:rotate(' + rot + 'deg)');
+      });
+      svg += rail(V.r1) + rail(V.r2);
+    }
+
+    var wh = V.where;
+    html += box(P + '-w', wh[0], wh[1], wh[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:' + wh[3] + 'cqw');
+
+    // footer: blue ink band with a tear-off perforation
+    svg += '<rect x="0" y="' + f(fy) + '" width="100" height="' + f(V.H - fy + 1) + '" fill="url(#p08ft)"/>';
+    for (x = 1; x < 100; x += 2.5) svg += '<circle cx="' + f(x) + '" cy="' + f(fy + 1.1) + '" r=".45" fill="#cfa77c"/>';
+    var fs = sq ? 0.8 : 1, qy = fy + (sq ? 2.8 : 3.6), qh = V.H - qy - (sq ? 1.8 : 2.6);
+    html += box(P + '-f', 5, qy, 90, qh,
+      '<div class="' + P + '-rg" style="font-size:' + f(1.95 * fs) + 'cqw"><b style="font-size:' + f(3.3 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call ' + H.phone(partner) + '</div>'
+      + '<div class="' + P + '-qr" style="width:' + (sq ? 10 : 11) + 'cqw;height:' + (sq ? 10 : 11) + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="' + P + '-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="' + P + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="' + P + '-bg" viewBox="0 0 100 ' + V.H + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Café order ticket (kraft paper, receipt, takeaway cup, ticket rail)', fonts: 'family=Nunito:wght@600;700;800;900&family=Courier+Prime:wght@400;700&family=Kalam:wght@400;700&family=Alfa+Slab+One', css: css, fn: fn };
+})(), 'ptc');
+
+/* ---- PTC month 09 ---- */
+VEBFlyers.registerTheme(9, {
+  name: 'Pumpkin-spice flannel café (plaid awning, sandwich-board sign, mugs on a flannel runner)',
+  fonts: 'family=Alfa+Slab+One&family=Nunito:wght@600;700;800;900&family=Caveat:wght@600;700',
+  css: [
+    '.p09{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(74,42,23,.35);font-family:Nunito,Poppins,sans-serif;color:#4a2a17;background:#f8e9c9}',
+    '.p09.sq{aspect-ratio:1/1}',
+    '.p09 *,.p09 *:before,.p09 *:after{box-sizing:border-box}',
+    '.p09 .p09-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}',
+    /* wall + table + runner */
+    '.p09 .p09-wall{position:absolute;inset:0;pointer-events:none;z-index:0;background:radial-gradient(ellipse at 50% 30%,#fdf4de 0%,#f6e3bd 70%,#ecd2a0 100%)}',
+    '.p09 .p09-tbl{position:absolute;left:0;right:0;bottom:0;pointer-events:none;z-index:0;background:repeating-linear-gradient(178deg,rgba(255,255,255,.05) 0 .5cqw,transparent .5cqw 2.2cqw),repeating-linear-gradient(181deg,rgba(40,18,6,.18) 0 .2cqw,transparent .2cqw 3.4cqw),linear-gradient(180deg,#8a5530,#6b3d1e);box-shadow:0 -.6cqw 0 #5a3216}',
+    '.p09 .p09-plaid{background-color:#b5482a;background-image:repeating-linear-gradient(90deg,transparent 0 1.25cqw,rgba(240,186,60,.75) 1.25cqw 1.55cqw,transparent 1.55cqw 6cqw),repeating-linear-gradient(0deg,transparent 0 1.25cqw,rgba(240,186,60,.75) 1.25cqw 1.55cqw,transparent 1.55cqw 6cqw),repeating-linear-gradient(90deg,rgba(58,18,6,.55) 0 3cqw,transparent 3cqw 6cqw),repeating-linear-gradient(0deg,rgba(58,18,6,.55) 0 3cqw,transparent 3cqw 6cqw)}',
+    '.p09 .p09-run{position:absolute;left:-6cqw;right:-6cqw;pointer-events:none;z-index:1;transform:rotate(-2.2deg);box-shadow:0 .8cqw 1.4cqw rgba(40,15,5,.45);border-top:.5cqw dashed rgba(255,236,200,.75);border-bottom:.5cqw dashed rgba(255,236,200,.75)}',
+    '.p09 .p09-awn{position:absolute;left:0;right:0;top:0;height:10cqw;pointer-events:none;z-index:1;box-shadow:inset 0 1.2cqw 0 #5a2412}',
+    '.p09 .p09-scal{position:absolute;left:0;right:0;top:10cqw;height:3.6cqw;pointer-events:none;z-index:1;background:radial-gradient(circle at 50% 0,#8a3219 0 3.4cqw,#e0a526 3.4cqw 3.9cqw,transparent 4cqw) 0 0/8.33cqw 4cqw repeat-x}',
+    /* header */
+    '.p09 .p09-logo{position:absolute;z-index:5;left:5cqw;top:15cqw;width:15.5cqw;height:15.5cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 .7cqw #b5482a,0 0 0 1.2cqw #e0a526,0 1cqw 2cqw rgba(74,42,23,.35)}',
+    '.p09 .p09-logo img{width:11.5cqw;height:auto;display:block}',
+    '.p09 .p09-logo.pip{border-radius:2cqw;width:18.5cqw;height:12cqw;top:16cqw}.p09 .p09-logo.pip img{width:16.6cqw}.p09.partner .p09-hd{left:26cqw}',
+    '.p09 .p09-hd{position:absolute;z-index:5;left:24.5cqw;top:15.4cqw}',
+    '.p09 .p09-hd .k{font-weight:900;font-size:1.65cqw;letter-spacing:.2em;color:#8a3219;white-space:nowrap}',
+    '.p09 .p09-hd .t{font-family:"Alfa Slab One",serif;font-size:5.2cqw;line-height:1.08;color:#4a2a17;white-space:nowrap;margin-top:.5cqw}',
+    '.p09 .p09-hd .t span{color:#b5482a}',
+    '.p09 .p09-hd .m{display:inline-flex;align-items:center;gap:1.2cqw;margin-top:1cqw;white-space:nowrap}',
+    '.p09 .p09-hd .m b{font-family:"Alfa Slab One",serif;font-weight:400;font-size:2.3cqw;letter-spacing:.08em;background:#e0a526;color:#4a2a17;padding:.55cqw 1.8cqw .45cqw;transform:rotate(-1.5deg);box-shadow:.3cqw .4cqw 0 #8a3219;display:inline-block}',
+    '.p09 .p09-hd .m i{font-style:normal;font-weight:900;font-size:1.75cqw;letter-spacing:.14em;color:#fff6e3;background:#4a2a17;border-radius:3cqw;padding:.6cqw 1.6cqw}',
+    '.p09 .p09-hd .w{font-family:Caveat,cursive;font-weight:700;font-size:2.75cqw;line-height:1.1;color:#8a3219;margin-top:1cqw;white-space:nowrap}',
+    '.p09 .p09-badge{position:absolute;z-index:3;right:3cqw;top:2.5cqw;width:22cqw;height:22cqw;pointer-events:none;transform:rotate(8deg);filter:drop-shadow(0 .6cqw .6cqw rgba(60,20,5,.4))}',
+    /* sandwich board */
+    '.p09 .p09-brd{position:absolute;z-index:4;left:12cqw;right:12cqw;top:37.5cqw;background:#fffaf0;border:1.5cqw solid #7a4a24;border-radius:1.2cqw;padding:2.4cqw 3cqw 2.6cqw;text-align:center;transform:rotate(-1.4deg);box-shadow:inset 0 0 0 .35cqw #e0a526,.6cqw 1cqw 1.4cqw rgba(60,25,5,.35)}',
+    '.p09 .p09-brd:before{content:"";position:absolute;left:44%;width:12%;top:-4.4cqw;height:3.4cqw;border:.7cqw solid #5a3216;border-bottom:none;border-radius:1.5cqw 1.5cqw 0 0;z-index:-1}',
+    '.p09 .p09-brd:after{content:"";position:absolute;left:6%;right:6%;top:100%;height:var(--leg,11cqw);background:linear-gradient(90deg,#6b3d1e 0 2.2cqw,transparent 2.2cqw calc(100% - 2.2cqw),#6b3d1e calc(100% - 2.2cqw));z-index:-1;margin-top:1.5cqw}',
+    '.p09 .p09-brd .h{display:inline-block;font-weight:900;font-size:1.75cqw;letter-spacing:.3em;color:#b5482a;white-space:nowrap;padding:0 2.4cqw;background:linear-gradient(#e0a526,#e0a526) left center/1.6cqw .3cqw no-repeat,linear-gradient(#e0a526,#e0a526) right center/1.6cqw .3cqw no-repeat}',
+    '.p09 .p09-brd .t{font-family:"Alfa Slab One",serif;line-height:1.12;color:#4a2a17;margin-top:1cqw}',
+    '.p09 .p09-brd .t .n{display:inline-block;width:1.45em;height:1.45em;line-height:1.45em;border-radius:50%;background:#b5482a;color:#fff6e3;font-size:.55em;vertical-align:.3em;margin-right:.4em}',
+    '.p09 .p09-brd .t + .t{margin-top:1.4cqw}',
+    '.p09 .p09-brd .d{font-family:Caveat,cursive;font-weight:700;font-size:3.1cqw;line-height:1.15;color:#b5482a;margin-top:.8cqw}',
+    '.p09 .p09-brd .p{display:inline-block;font-weight:700;font-size:2.15cqw;color:#4a2a17;margin-top:1.2cqw;padding:.4cqw 1.6cqw;border-top:.3cqw dashed #e0a526;border-bottom:.3cqw dashed #e0a526}',
+    '.p09 .p09-brd .p b{font-weight:900;color:#8a3219}',
+    /* mugs */
+    '.p09 .p09-mug{position:absolute;z-index:5;background:var(--mc);color:var(--mt);border-radius:.8cqw .8cqw 4.5cqw 4.5cqw;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2.2cqw 1cqw 1.2cqw;box-shadow:inset -1.2cqw 0 0 rgba(0,0,0,.1),0 .8cqw 1cqw rgba(40,15,5,.35)}',
+    '.p09 .p09-mug:before{content:"";position:absolute;left:0;right:0;top:0;height:1.4cqw;border-radius:.8cqw .8cqw 0 0;background:repeating-linear-gradient(90deg,var(--mb) 0 1.4cqw,transparent 1.4cqw 2.8cqw),rgba(0,0,0,.12)}',
+    '.p09 .p09-mug:after{content:"";position:absolute;left:100%;top:22%;width:var(--hw,5cqw);height:44%;margin-left:-.6cqw;border:var(--hb,1.3cqw) solid var(--mc);border-left:none;border-radius:0 50% 50% 0;z-index:-1}',
+    '.p09 .p09-mug .sc{position:absolute;left:-12%;right:-12%;bottom:-1.6cqw;height:2.6cqw;border-radius:50%;background:#fff6e3;box-shadow:inset 0 -.5cqw 0 #e0c79a,0 .5cqw .6cqw rgba(40,15,5,.3);z-index:-2}',
+    '.p09 .p09-mug .st{position:absolute;left:15%;width:70%;bottom:100%;height:var(--sh,8cqw);pointer-events:none;overflow:visible}',
+    '.p09 .p09-mug .w{position:relative;z-index:1;font-weight:900;letter-spacing:.2em;line-height:1.1;white-space:nowrap}',
+    '.p09 .p09-mug .dd{font-family:"Alfa Slab One",serif;line-height:1.25;white-space:nowrap}',
+    '.p09 .p09-mug .tm{font-weight:900;line-height:1.15;white-space:nowrap}',
+    '.p09 .p09-mug .nn{position:absolute;left:-1.6cqw;top:-1.6cqw;width:4.4cqw;height:4.4cqw;border-radius:50%;background:#4a2a17;color:#ffd36b;font-family:"Alfa Slab One",serif;font-size:2.3cqw;line-height:4.4cqw}',
+    '.p09 .p09-mug .i{font-weight:900;line-height:1.08}',
+    '.p09 .p09-mug .ds{font-weight:700;line-height:1.15}',
+    '.p09 .p09-mug .ti{font-family:Caveat,cursive;font-weight:700;line-height:1.05}',
+    '.p09 .p09-mug.h{box-shadow:inset -1.2cqw 0 0 rgba(0,0,0,.1),0 0 0 .6cqw #fff6e3,0 0 0 1.1cqw #b5482a,0 .8cqw 1.4cqw rgba(40,15,5,.4)}',
+    '.p09 .p09-mug.h .hm{position:absolute;top:-2.2cqw;left:50%;transform:translateX(-50%) rotate(-3deg);background:#b5482a;color:#fff6e3;font-weight:900;font-size:1.2cqw;letter-spacing:.18em;padding:.35cqw 1cqw;white-space:nowrap;border-radius:.4cqw}',
+    '.p09 .p09-lab{position:absolute;z-index:5;left:50%;transform:translateX(-50%) rotate(1.2deg);background:#4a2a17;color:#fff6e3;font-family:"Alfa Slab One",serif;font-size:2.7cqw;padding:.9cqw 3cqw;white-space:nowrap;border-radius:.6cqw;box-shadow:.4cqw .6cqw 0 #e0a526}',
+    '.p09 .p09-lab small{display:block;font-family:Nunito,sans-serif;font-weight:900;font-size:1.3cqw;letter-spacing:.2em;color:#ffd36b;text-align:center}',
+    /* footer */
+    '.p09 .p09-ft{position:absolute;z-index:6;left:5cqw;right:5cqw;bottom:4cqw;height:17cqw;background:#fff6e3;border-radius:1.4cqw;display:flex;align-items:center;gap:2.6cqw;padding:0 3cqw 0 4cqw;box-shadow:inset 0 0 0 .8cqw #fff6e3,inset 0 0 0 1.05cqw #b5482a,0 1cqw 1.6cqw rgba(40,15,5,.45);outline:.3cqw dashed #e0a526;outline-offset:-1.9cqw}',
+    '.p09 .p09-ft .rg{flex:1;font-weight:700;font-size:1.8cqw;line-height:1.35;color:#4a2a17}',
+    '.p09 .p09-ft .rg b{display:block;font-family:"Alfa Slab One",serif;font-weight:400;font-size:3.05cqw;line-height:1.15;color:#4a2a17;margin-bottom:.4cqw}',
+    '.p09 .p09-ft .rg b span{color:#b5482a}',
+    '.p09 .p09-qr{width:10.6cqw;height:10.6cqw;background:#fff;padding:.5cqw;flex:none;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:2cqw;box-shadow:0 0 0 .3cqw #4a2a17}',
+    '.p09 .p09-qr img{width:100%;height:100%;display:block}',
+    '.p09 .p09-lg{display:flex;flex-direction:column;gap:.8cqw;flex:none;width:20cqw}',
+    '.p09 .p09-lg span{background:#b5482a;color:#fff6e3;font-weight:900;font-size:1.4cqw;text-align:center;padding:.6cqw .8cqw;white-space:nowrap;border-radius:3cqw}',
+    '.p09 .p09-lg span:nth-child(2){background:#e0a526;color:#4a2a17}.p09 .p09-lg span:nth-child(3){background:#4a2a17}',
+    /* partner letter */
+    '.p09:not(.sq) .p09-brd{left:7cqw;right:7cqw}.p09.partner:not(.sq) .p09-brd{top:37.5cqw;left:9cqw;right:9cqw;padding:2cqw 3cqw 2.2cqw}',
+    /* square */
+    '.p09.sq .p09-awn{height:7cqw}.p09.sq .p09-scal{top:7cqw;height:3cqw;background-size:6.25cqw 3cqw;background-image:radial-gradient(circle at 50% 0,#8a3219 0 2.6cqw,#e0a526 2.6cqw 3cqw,transparent 3.05cqw)}',
+    '.p09.sq .p09-logo{left:4.5cqw;top:12cqw;width:12.5cqw;height:12.5cqw}.p09.sq .p09-logo img{width:9.4cqw}',
+    '.p09.sq .p09-logo.pip{width:14.5cqw;height:9.5cqw;top:12.5cqw}.p09.sq .p09-logo.pip img{width:13cqw}.p09.sq.partner .p09-hd{left:21cqw}',
+    '.p09.sq .p09-hd{left:20.5cqw;top:11.6cqw}.p09.sq .p09-hd .k{font-size:1.45cqw}.p09.sq .p09-hd .t{font-size:4.6cqw}',
+    '.p09.sq .p09-hd .m{margin-top:.7cqw}.p09.sq .p09-hd .m b{font-size:2cqw}.p09.sq .p09-hd .m i{font-size:1.5cqw}.p09.sq .p09-hd .w{font-size:2.3cqw;margin-top:.7cqw}',
+    '.p09.sq .p09-badge{width:18.5cqw;height:18.5cqw;top:2cqw;right:3cqw}',
+    '.p09.sq .p09-ft{height:13cqw;bottom:3cqw;left:4cqw;right:4cqw;gap:2.2cqw;padding:0 2.6cqw 0 3.6cqw;outline-offset:-1.6cqw}',
+    '.p09.sq .p09-ft .rg{font-size:1.5cqw}.p09.sq .p09-ft .rg b{font-size:2.6cqw}',
+    '.p09.sq .p09-qr{width:9cqw;height:9cqw}.p09.sq .p09-lg{width:18cqw}.p09.sq .p09-lg span{font-size:1.22cqw;padding:.45cqw .6cqw}',
+    '.p09.sq .p09-brd{left:5cqw;right:auto;width:56cqw;top:34cqw;padding:1.8cqw 2.4cqw 2cqw;border-width:1.2cqw}',
+    '.p09.sq .p09-brd .h{font-size:1.45cqw}.p09.sq .p09-brd .d{font-size:2.5cqw}.p09.sq .p09-brd .p{font-size:1.75cqw;margin-top:.8cqw}',
+    '.p09.sq.partner .p09-brd{width:auto;right:5cqw;top:32.5cqw;padding:1.4cqw 2.4cqw 1.6cqw}',
+    '.p09.sq .p09-lab{font-size:2.1cqw;padding:.6cqw 2.4cqw}.p09.sq .p09-lab small{font-size:1.1cqw}'
+  ].join('\n'),
+  fn: function (spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, n2 = !solo;
+    var uid = 'p09u' + (partner ? 1 : 0) + (sq ? 1 : 0) + S.length;
+    var HT = sq ? 100 : 129.41;
+    function f(n) { return (+n).toFixed(2); }
+    var seed = 9 + (partner ? 3 : 0) + (sq ? 5 : 0) + S.length;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+    var C = { rust: '#b5482a', drk: '#8a3219', mus: '#e0a526', cream: '#fff6e3', brn: '#4a2a17', grn: '#6f7d32' };
+
+    /* ---------- recurring PTC badge ---------- */
+    function badge(c) {
+      var id = uid + 'b';
+      return '<svg class="p09-badge" viewBox="0 0 100 100"><defs><path id="' + id + 't" d="M17 50 A33 33 0 0 1 83 50"/><path id="' + id + 'u" d="M14 52 A36 36 0 0 0 86 52"/></defs>'
+        + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/><circle cx="50" cy="50" r="44.5" fill="none" stroke="' + c.line + '" stroke-width="1" stroke-dasharray="2.2 1.6"/>'
+        + '<circle cx="50" cy="50" r="30" fill="' + c.fill + '"/>'
+        + '<text font-family="Alfa Slab One,serif" font-size="9.6" letter-spacing="1.1" fill="' + c.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+        + '<text font-family="Alfa Slab One,serif" font-size="9.6" letter-spacing="2" fill="' + c.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle" dominant-baseline="hanging">CAFÉ</textPath></text>'
+        + '<circle cx="10.5" cy="52" r="2" fill="' + c.text + '"/><circle cx="89.5" cy="52" r="2" fill="' + c.text + '"/>'
+        + '<g fill="none" stroke="' + c.steam + '" stroke-width="2.4" stroke-linecap="round"><path d="M41 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/><path d="M50 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -8"/><path d="M59 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/></g>'
+        + '<path d="M62 52 h4 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+        + '<path d="M35 47 h29 l-2.6 17 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + c.cup + '"/>'
+        + '<path d="M35.6 51 h27.8 l-.8 4.6 h-26.2 z" fill="' + c.band + '"/>'
+        + '<ellipse cx="49.5" cy="71" rx="21" ry="3.4" fill="' + c.cup + '"/><ellipse cx="49.5" cy="70.2" rx="14" ry="1.5" fill="' + c.band + '" opacity=".6"/>'
+        + '</svg>';
+    }
+
+    /* ---------- drawings ---------- */
+    function leaf(x, y, s, r, col) {
+      return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ') scale(' + f(s / 100) + ') translate(-50 -50)"><path d="M50 2 L57 22 L71 13 L68 33 L90 28 L80 43 L97 51 L73 59 L77 74 L56 66 L52 86 L48 86 L44 66 L23 74 L27 59 L3 51 L20 43 L10 28 L32 33 L29 13 L43 22 Z" fill="' + col + '"/><path d="M50 30 L50 99 M50 55 L28 42 M50 55 L72 42" stroke="rgba(70,25,5,.45)" stroke-width="2.2" fill="none"/></g>';
+    }
+    function pumpkin(x, y, s) {
+      var g = '<g transform="translate(' + f(x) + ' ' + f(y) + ') scale(' + f(s / 100) + ')">';
+      g += '<ellipse cx="50" cy="96" rx="44" ry="6" fill="rgba(40,15,5,.35)"/>';
+      g += '<ellipse cx="25" cy="62" rx="24" ry="32" fill="#d9662a"/><ellipse cx="75" cy="62" rx="24" ry="32" fill="#d9662a"/><ellipse cx="50" cy="62" rx="27" ry="35" fill="#ea7a33"/>';
+      g += '<path d="M50 28 Q38 60 50 96 M50 28 Q62 60 50 96" stroke="#c2531f" stroke-width="2" fill="none"/>';
+      g += '<path d="M48 30 Q46 16 54 8 L58 11 Q52 18 54 30 Z" fill="#5a6b2a"/><path d="M56 16 Q72 6 80 18 Q68 22 58 20 Z" fill="#7a8a35"/></g>';
+      return g;
+    }
+    function bean(x, y, s, r) {
+      return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ')"><ellipse rx="' + f(s) + '" ry="' + f(s * .68) + '" fill="#3a1c0c"/><path d="M' + f(-s * .8) + ' 0 Q0 ' + f(-s * .3) + ' ' + f(s * .8) + ' 0" stroke="#7a4a24" stroke-width="' + f(s * .16) + '" fill="none"/></g>';
+    }
+    function cinnamon(x, y, s, r) {
+      return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ')"><rect x="0" y="0" width="' + f(s) + '" height="' + f(s * .13) + '" rx="' + f(s * .06) + '" fill="#8b4a22"/><rect x="0" y="' + f(s * .14) + '" width="' + f(s) + '" height="' + f(s * .13) + '" rx="' + f(s * .06) + '" fill="#a35a2b"/><ellipse cx="' + f(s) + '" cy="' + f(s * .135) + '" rx="' + f(s * .05) + '" ry="' + f(s * .13) + '" fill="#d08a52"/></g>';
+    }
+    function croissant(x, y, s, r) {
+      var g = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ') scale(' + f(s / 100) + ')">';
+      g += '<ellipse cx="50" cy="66" rx="46" ry="8" fill="rgba(40,15,5,.3)"/>';
+      g += '<path d="M6 52 Q14 30 30 34 L36 60 Q18 66 6 52Z" fill="#c9832e"/><path d="M94 52 Q86 30 70 34 L64 60 Q82 66 94 52Z" fill="#c9832e"/>';
+      g += '<path d="M26 34 Q50 14 74 34 L66 62 Q50 70 34 62 Z" fill="#e3a447"/><path d="M42 26 Q50 40 46 64 M58 26 Q50 40 54 64" stroke="#b8702a" stroke-width="2.4" fill="none"/></g>';
+      return g;
+    }
+    function steam(col) { return '<svg class="st" viewBox="0 0 70 80" preserveAspectRatio="xMidYMax meet"><g fill="none" stroke="' + col + '" stroke-width="4" stroke-linecap="round" opacity=".75"><path d="M18 76 c-8 -10 8 -16 0 -28 c-6 -9 4 -14 0 -22"/><path d="M35 72 c-8 -10 8 -16 0 -28 c-6 -9 4 -14 0 -30"/><path d="M52 76 c-8 -10 8 -16 0 -28 c-6 -9 4 -14 0 -22"/></g></svg>'; }
+
+    /* ---------- header ---------- */
+    var month = H.MONTHS[spec.month - 1], series = H.esc(spec.series || 'Parent Talk Café'), sw = series.split(' '), last = sw.pop();
+    var logo = partner ? '<div class="p09-logo pip"><img src="' + spec.pipUrl + '" alt=""></div>' : '<div class="p09-logo"><img src="' + spec.logoUrl + '" alt=""></div>';
+    var hd = '<div class="p09-hd"><div class="k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="t">' + (sw.length ? sw.join(' ') + ' ' : '') + '<span>' + last + '</span></div>'
+      + '<div class="m"><b>' + month.toUpperCase() + ' ' + spec.year + '</b><i>ON ZOOM</i></div>'
+      + '<div class="w">' + H.PTC_WHERE + '</div></div>';
+    var bdg = badge({ ring: C.rust, line: '#ffd36b', fill: C.cream, text: '#fff6e3', cup: C.brn, band: C.mus, steam: C.drk });
+
+    /* ---------- board ---------- */
+    var L = Math.max.apply(null, spec.sessions.map(function (s) { return String(s.lesson || '').length; }));
+    var tfs;
+    if (sq) tfs = partner ? (n2 ? 2.5 : 3.0) : (n2 ? 3.0 : (L > 30 ? 4.1 : 4.8));
+    else tfs = partner ? (n2 ? 3.2 : (L > 30 ? 4.2 : 5.2)) : (n2 ? 4.1 : (L > 30 ? 4.5 : 6));
+    var pres = spec.presenter ? '<div class="p">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var topics = S.map(function (s, i) { return '<div class="t" style="font-size:' + f(tfs) + 'cqw">' + (n2 ? '<span class="n">' + (i + 1) + '</span>' : '') + s.lesson + '</div>'; }).join('');
+    var showDesc = solo && S[0].desc && !partner;
+    var brd = '<div class="p09-brd" style="--leg:' + (sq ? 8 : 12) + 'cqw"><div class="h">' + (n2 ? 'TODAY\'S TOPICS' : 'TODAY\'S TOPIC') + '</div>' + topics
+      + (showDesc ? '<div class="d">~ ' + S[0].desc + ' ~</div>' : '') + pres + '</div>';
+
+    /* ---------- decorations ---------- */
+    var d = '';
+    var lc = ['#c4512a', '#e0a526', '#a8401f', '#d98a2b', '#8f6a22'];
+    function leaves(spots) { spots.forEach(function (p, i) { d += leaf(p[0], p[1], p[2], rnd() * 70 - 35, lc[i % lc.length]); }); }
+    var tableTop, run;
+    var mugs = '', lab = '';
+    if (!sq && !partner) {
+      tableTop = 82; run = [79, 24];
+      leaves([[6, 36, 7], [94, 41, 8], [5, 63, 6], [95, 70, 6.5], [22, 33.5, 4], [91, 31, 4.5]]);
+      if (solo) {
+        d += pumpkin(9, 84, 20) + croissant(71, 92, 21, -8) + bean(14, 107, 1.2, 20) + bean(88, 101, 1.2, -30) + cinnamon(80, 85, 12, -18);
+        mugs = mugHst(S[0], 0, 'left:34cqw;top:81.5cqw;width:32cqw;height:20cqw', 7.6, 2.3, 1.6, '#b5482a', '#fff6e3', '#e0a526');
+      } else {
+        d += croissant(41, 90, 18, 6) + bean(92, 101, 1.2, -30) + bean(6, 100, 1.2, 40);
+        mugs = mugHst(S[0], 1, 'left:6cqw;top:81cqw;width:31cqw;height:19cqw', 6.4, 2.05, 1.45, '#b5482a', '#fff6e3', '#e0a526')
+          + mugHst(S[1], 2, 'left:59cqw;top:79cqw;width:31cqw;height:19cqw', 6.4, 2.05, 1.45, '#e0a526', '#4a2a17', '#b5482a');
+      }
+    } else if (!sq && partner) {
+      tableTop = 74; run = [74, 33];
+      leaves([[5, 37, 6], [95, 39, 6.5], [4, 60, 5], [96, 62, 5], [22, 33.5, 4]]);
+      d += bean(50, 100.5, 1.2, 10) + bean(20, 102, 1, -30) + bean(80, 101.5, 1.1, 50);
+      lab = '<div class="p09-lab" style="top:' + (n2 ? 64.5 : 65.5) + 'cqw">What time is it on your island?<small>' + (n2 ? 'BOTH TOPICS' : 'TOPIC') + ' · YOUR LOCAL TIME</small></div>';
+      mugs = zoneMugs([[6, 79], [29, 77.5], [52, 79], [75, 77.5], [17.5, 92.5], [40.5, 93.5], [63.5, 92.5]], 18.5, 12, 1.55, 1.25, 2.05);
+    } else if (sq && !partner) {
+      tableTop = 66; run = [66, 17];
+      leaves([[94, 30, 5], [96, 56, 4.5]]);
+      if (solo) {
+        d += cinnamon(86, 76, 9, -14) + bean(66, 80, 1, 30);
+        mugs = mugHst(S[0], 0, 'left:65cqw;top:44cqw;width:27cqw;height:22cqw', 6, 1.85, 1.3, '#b5482a', '#fff6e3', '#e0a526');
+      } else {
+        mugs = mugHst(S[0], 1, 'left:66cqw;top:33cqw;width:25cqw;height:15cqw', 4.6, 1.6, 1.15, '#b5482a', '#fff6e3', '#e0a526')
+          + mugHst(S[1], 2, 'left:66cqw;top:58cqw;width:25cqw;height:15cqw', 4.6, 1.6, 1.15, '#e0a526', '#4a2a17', '#b5482a');
+      }
+    } else {
+      tableTop = 56; run = [57, 26];
+      leaves([[96, 27, 4]]);
+      lab = '';
+      mugs = zoneMugs([[6, 59], [29, 58], [52, 59], [75, 58], [17.5, 71.5], [40.5, 72], [63.5, 71.5]], 17, 10, 1.35, 1.1, 1.7);
+    }
+    function mugHst(s, n, pos, ddf, tmf, wf, mc, mt, mb) {
+      var dd = s.mon + ' ' + s.day;
+      return '<div class="p09-mug" style="' + pos + ';--mc:' + mc + ';--mt:' + mt + ';--mb:' + mb + ';--hw:' + (sq ? 4.4 : 5.6) + 'cqw;--sh:' + (sq ? 5 : 6) + 'cqw">'
+        + steam(mt === '#fff6e3' ? '#b5482a' : '#8a3219') + '<span class="sc"></span>' + (n ? '<span class="nn">' + n + '</span>' : '')
+        + '<div class="w" style="font-size:' + f(wf) + 'cqw">' + s.dow.toUpperCase() + '</div>'
+        + '<div class="dd" style="font-size:' + f(ddf) + 'cqw">' + dd + '</div>'
+        + '<div class="tm" style="font-size:' + f(tmf) + 'cqw">' + s.time + '</div></div>';
+    }
+    function zoneMugs(pos, w, h, lf, df, tf) {
+      var rows = H.zoneRows(spec.sessions);
+      var cols = [['#b5482a', '#fff6e3', '#e0a526'], ['#fff6e3', '#4a2a17', '#b5482a'], ['#e0a526', '#4a2a17', '#b5482a'], ['#4a2a17', '#fff6e3', '#e0a526'], ['#e0a526', '#4a2a17', '#4a2a17'], ['#b5482a', '#fff6e3', '#4a2a17'], ['#4a2a17', '#fff6e3', '#b5482a']];
+      return rows.map(function (r, i) {
+        var c = r.home ? ['#fff6e3', '#4a2a17', '#b5482a'] : cols[i];
+        var tlen = String(r.time).length, tfs2 = tlen > 9 ? tf * .78 : tf;
+        return '<div class="p09-mug' + (r.home ? ' h' : '') + '" style="left:' + pos[i][0] + 'cqw;top:' + pos[i][1] + 'cqw;width:' + w + 'cqw;height:' + h + 'cqw;padding:1.9cqw .6cqw 1cqw;--mc:' + c[0] + ';--mt:' + c[1] + ';--mb:' + c[2] + ';--hw:3.6cqw;--hb:1cqw">'
+          + '<span class="sc"></span>' + (r.home ? '<span class="hm">HAWAIʻI TIME</span>' : '')
+          + '<div class="i" style="font-size:' + f(lf) + 'cqw">' + r.label + '</div><div class="ds" style="font-size:' + f(df) + 'cqw">' + r.days + '</div><div class="ti" style="font-size:' + f(tfs2 * 1.25) + 'cqw">' + r.time + '</div></div>';
+      }).join('');
+    }
+
+    var base = '<div class="p09-wall"></div><div class="p09-tbl" style="top:' + tableTop + 'cqw"></div><div class="p09-run p09-plaid" style="top:' + run[0] + 'cqw;height:' + run[1] + 'cqw"></div>'
+      + '<div class="p09-awn p09-plaid"></div><div class="p09-scal"></div>';
+    var svg = '<svg class="p09-deco" viewBox="0 0 100 ' + HT + '" preserveAspectRatio="none">' + d + '</svg>';
+    var foot = '<div class="p09-ft"><div class="rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link, scan the QR code,<br>or call ' + H.phone(partner) + '</div><div class="p09-qr">' + H.qrImg(spec, partner) + '</div><div class="p09-lg">' + H.badges(spec, partner) + '</div></div>';
+    return '<div class="p09' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + base + svg + bdg + logo + hd + brd + lab + mugs + foot + '</div>';
+  }
+}, 'ptc');
+
+/* ---- PTC month 10 ---- */
+VEBFlyers.registerTheme(10, {
+  name: 'Harvest-moon cider café (teal + copper, string lights, hanging lantern-lit sign, glowing lanterns)',
+  fonts: 'family=Playfair+Display:wght@700;800;900&family=Josefin+Sans:wght@400;600;700&family=Dancing+Script:wght@700',
+  css: [
+    '.p10{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(8,38,43,.45);font-family:"Josefin Sans",Poppins,sans-serif;color:#fdf0dc;background:radial-gradient(ellipse at 50% 35%,#17646a 0%,#0f4a50 45%,#0a3237 80%,#08262b 100%)}',
+    '.p10.sq{aspect-ratio:1/1}',
+    '.p10 *,.p10 *:before,.p10 *:after{box-sizing:border-box}',
+    '.p10 .p10-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.p10 .p10-top{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}',
+    '.p10 .p10-ledge{position:absolute;left:0;right:0;pointer-events:none;z-index:1;background:repeating-linear-gradient(179deg,rgba(255,255,255,.05) 0 .4cqw,transparent .4cqw 1.8cqw),linear-gradient(180deg,#7a4321,#4e2a14);box-shadow:0 -.5cqw 0 #c8733a,0 -1cqw 2.4cqw rgba(255,180,90,.25)}',
+    /* header */
+    '.p10 .p10-logo{position:absolute;z-index:5;left:5cqw;top:14cqw;width:15cqw;height:15cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 .6cqw #c8733a,0 0 3cqw 1cqw rgba(255,190,100,.45)}',
+    '.p10 .p10-logo img{width:11.2cqw;height:auto;display:block}',
+    '.p10 .p10-logo.pip{border-radius:1.6cqw;width:18.5cqw;height:12cqw;top:15cqw}.p10 .p10-logo.pip img{width:16.6cqw}',
+    '.p10 .p10-hd{position:absolute;z-index:5;left:23cqw;width:52cqw;top:13.4cqw;text-align:center}',
+    '.p10.partner .p10-hd{left:25cqw;width:50cqw}',
+    '.p10 .p10-hd .k{position:relative;z-index:1;font-weight:700;font-size:1.6cqw;letter-spacing:.2em;color:#ffc76b;white-space:nowrap}',
+    '.p10 .p10-hd .t{font-family:"Playfair Display",serif;font-weight:900;font-size:5.6cqw;line-height:1.1;color:#fdf0dc;white-space:nowrap;margin-top:.4cqw;text-shadow:0 .4cqw 1.6cqw rgba(0,0,0,.35)}',
+    '.p10 .p10-hd .t span{color:#e8a165;font-style:italic}',
+    '.p10 .p10-hd .m{display:flex;align-items:center;justify-content:center;gap:1.4cqw;margin-top:.6cqw;white-space:nowrap}',
+    '.p10 .p10-hd .m b{font-weight:700;font-size:2.3cqw;letter-spacing:.32em;color:#fdf0dc;padding:.6cqw 0 .3cqw;border-top:.25cqw solid #c8733a;border-bottom:.25cqw solid #c8733a}',
+    '.p10 .p10-hd .m i{font-style:normal;font-weight:700;font-size:1.6cqw;letter-spacing:.16em;color:#08262b;background:#e8a165;border-radius:3cqw;padding:.75cqw 1.5cqw .45cqw}',
+    '.p10 .p10-hd .w{font-family:"Dancing Script",cursive;font-weight:700;font-size:2.65cqw;line-height:1.1;color:#ffd99a;margin-top:.9cqw;white-space:nowrap}',
+    '.p10 .p10-badge{position:absolute;z-index:4;right:3cqw;top:10cqw;width:21.5cqw;height:21.5cqw;pointer-events:none;transform:rotate(-7deg);filter:drop-shadow(0 0 2.2cqw rgba(255,190,100,.45))}',
+    /* hanging sign */
+    '.p10 .p10-sign{position:absolute;z-index:5;left:9cqw;right:9cqw;top:39cqw;background:radial-gradient(ellipse at 50% 40%,#fffaf0 0%,#fdf0dc 55%,#f5dcb4 100%);border-radius:1.4cqw;padding:2.6cqw 3.4cqw 2.8cqw;text-align:center;color:#0c3b41;box-shadow:0 0 0 .6cqw #c8733a,0 0 0 1.1cqw #7a4321,0 0 5cqw 1.4cqw rgba(255,190,100,.42),0 1.4cqw 2cqw rgba(0,0,0,.4);transform:rotate(1deg)}',
+    '.p10 .p10-sign .h{display:inline-block;font-weight:700;font-size:1.7cqw;letter-spacing:.32em;color:#b0602c;white-space:nowrap}',
+    '.p10 .p10-sign .h:before,.p10 .p10-sign .h:after{content:"";display:inline-block;width:3cqw;height:.25cqw;background:#c8733a;vertical-align:middle;margin:0 1.2cqw .4cqw}',
+    '.p10 .p10-sign .t{font-family:"Playfair Display",serif;font-weight:800;line-height:1.12;color:#0c3b41;margin-top:.9cqw}',
+    '.p10 .p10-sign .t .n{font-style:italic;color:#c8733a;margin-right:.3em}',
+    '.p10 .p10-sign .t + .t{margin-top:1.1cqw}',
+    '.p10 .p10-sign .d{font-family:"Dancing Script",cursive;font-weight:700;font-size:3.1cqw;line-height:1.15;color:#b0602c;margin-top:.7cqw}',
+    '.p10 .p10-sign .p{display:inline-block;font-weight:600;font-size:2.1cqw;color:#fdf0dc;background:#0f4a50;border-radius:3cqw;margin-top:1.2cqw;padding:.85cqw 2.2cqw .55cqw}',
+    '.p10 .p10-sign .p b{font-weight:700;color:#ffc76b}',
+    /* cider mugs */
+    '.p10 .p10-mug{position:absolute;z-index:6;border-radius:.6cqw .6cqw 2.6cqw 2.6cqw;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2.2cqw .8cqw 1cqw;color:#3a1e0c;background:linear-gradient(180deg,#fff3dc 0 1.5cqw,#f9cf7f 1.5cqw,#f2ad55 60%,#e58d3a 100%);box-shadow:inset 0 0 0 .45cqw rgba(255,255,255,.55),inset 1.4cqw 0 0 rgba(255,255,255,.18),0 0 3cqw rgba(255,170,80,.4),0 .8cqw 1cqw rgba(0,0,0,.35)}',
+    '.p10 .p10-mug:after{content:"";position:absolute;left:100%;top:20%;width:var(--hw,5cqw);height:50%;margin-left:-.4cqw;border:.9cqw solid rgba(255,240,215,.75);border-left:none;border-radius:0 45% 45% 0}',
+    '.p10 .p10-mug .ex{position:absolute;left:-10%;width:120%;bottom:96%;height:var(--sh,9cqw);pointer-events:none;overflow:visible}',
+    '.p10 .p10-mug .w{position:relative;z-index:1;font-weight:700;letter-spacing:.24em;line-height:1.1;white-space:nowrap}',
+    '.p10 .p10-mug .dd{font-family:"Playfair Display",serif;font-weight:900;line-height:1.15;white-space:nowrap}',
+    '.p10 .p10-mug .tm{font-weight:700;line-height:1.15;white-space:nowrap;margin-top:.2cqw}',
+    '.p10 .p10-mug .nn{position:absolute;left:-1.8cqw;top:-1.6cqw;width:4.4cqw;height:4.4cqw;border-radius:50%;background:#0c3b41;color:#ffc76b;font-family:"Playfair Display",serif;font-weight:900;font-size:2.4cqw;line-height:4.3cqw;box-shadow:0 0 0 .35cqw #e8a165}',
+    /* lanterns */
+    '.p10 .p10-lan{position:absolute;z-index:6;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.9cqw .5cqw .6cqw;color:#3a1e0c;border-radius:1cqw;background:radial-gradient(ellipse at 50% 55%,#fff6dc 0%,#ffd88d 50%,#f3a44d 100%);border:.45cqw solid #7a4321;border-left-width:.9cqw;border-right-width:.9cqw;box-shadow:0 0 3.4cqw .8cqw rgba(255,190,90,.45)}',
+    '.p10 .p10-lan:before{content:"";position:absolute;left:12%;right:12%;bottom:100%;height:2.2cqw;background:#c8733a;clip-path:polygon(22% 0,78% 0,100% 100%,0 100%);margin-bottom:.45cqw}',
+    '.p10 .p10-lan:after{content:"";position:absolute;left:-6%;right:-6%;top:100%;height:1.1cqw;background:#7a4321;border-radius:0 0 .6cqw .6cqw;margin-top:.45cqw}',
+    '.p10 .p10-lan .i,.p10 .p10-lan .ds{position:relative;z-index:1}.p10 .p10-lan .i{font-weight:700;line-height:1.08}',
+    '.p10 .p10-lan .ds{font-weight:600;line-height:1.15;margin-top:.15cqw}',
+    '.p10 .p10-lan .ti{font-family:"Playfair Display",serif;font-weight:900;line-height:1.1;margin-top:.2cqw}',
+    '.p10 .p10-lan.h{background:radial-gradient(ellipse at 50% 55%,#ffffff 0%,#fff0b8 50%,#ffc35e 100%);box-shadow:0 0 0 .5cqw #fdf0dc,0 0 4.4cqw 1.6cqw rgba(255,214,120,.7)}',
+    '.p10 .p10-lan .hm{position:absolute;bottom:-3.6cqw;left:50%;transform:translateX(-50%);background:#0c3b41;color:#ffc76b;font-weight:700;font-size:1.15cqw;letter-spacing:.16em;padding:.45cqw .9cqw .25cqw;white-space:nowrap;border-radius:3cqw;box-shadow:0 0 0 .25cqw #e8a165;z-index:2}',
+    '.p10 .p10-lab{position:absolute;z-index:5;left:50%;transform:translateX(-50%);text-align:center;white-space:nowrap}',
+    '.p10 .p10-lab b{display:block;font-family:"Playfair Display",serif;font-weight:800;font-style:italic;font-size:3cqw;line-height:1.1;color:#fdf0dc}',
+    '.p10 .p10-lab small{display:block;font-weight:700;font-size:1.3cqw;letter-spacing:.24em;color:#ffc76b;margin-top:.3cqw}',
+    /* footer */
+    '.p10 .p10-ft{position:absolute;z-index:7;left:5cqw;right:5cqw;bottom:4cqw;height:17cqw;background:linear-gradient(180deg,#0c3b41,#08262b);border-radius:1.4cqw;display:flex;align-items:center;gap:2.6cqw;padding:0 3cqw 0 4cqw;box-shadow:inset 0 0 0 .5cqw #c8733a,inset 0 0 0 .9cqw #08262b,inset 0 0 0 1.05cqw rgba(232,161,101,.6),0 1cqw 2cqw rgba(0,0,0,.45)}',
+    '.p10 .p10-ft .rg{flex:1;font-weight:600;font-size:1.8cqw;line-height:1.4;color:#fdf0dc}',
+    '.p10 .p10-ft .rg b{display:block;font-family:"Playfair Display",serif;font-weight:900;font-size:3.1cqw;line-height:1.15;color:#fdf0dc;margin-bottom:.4cqw}',
+    '.p10 .p10-ft .rg b span{color:#ffc76b}',
+    '.p10 .p10-qr{width:10.6cqw;height:10.6cqw;background:#fff;padding:.5cqw;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:2cqw;color:#0c3b41;border-radius:.5cqw;box-shadow:0 0 0 .35cqw #e8a165}',
+    '.p10 .p10-qr img{width:100%;height:100%;display:block}',
+    '.p10 .p10-lg{display:flex;flex-direction:column;gap:.8cqw;flex:none;width:20cqw}',
+    '.p10 .p10-lg span{background:#c8733a;color:#fff;font-weight:700;font-size:1.4cqw;text-align:center;padding:.7cqw .8cqw .45cqw;white-space:nowrap;border-radius:3cqw}',
+    '.p10 .p10-lg span:nth-child(2){background:#fdf0dc;color:#0c3b41}.p10 .p10-lg span:nth-child(3){background:#ffc76b;color:#3a1e0c}',
+    '.p10.partner:not(.sq) .p10-sign{top:38.5cqw;padding:2.2cqw 3cqw 2.4cqw}',
+    /* square */
+    '.p10.sq .p10-logo{left:4.5cqw;top:10.5cqw;width:12cqw;height:12cqw}.p10.sq .p10-logo img{width:9cqw}',
+    '.p10.sq .p10-logo.pip{width:14.5cqw;height:9.5cqw;top:11.5cqw}.p10.sq .p10-logo.pip img{width:13cqw}',
+    '.p10.sq .p10-hd{left:19cqw;width:57cqw;top:9.6cqw}.p10.sq .p10-hd .k{font-size:1.4cqw}.p10.sq .p10-hd .t{font-size:4.8cqw}',
+    '.p10.sq .p10-hd .m{margin-top:.4cqw}.p10.sq .p10-hd .m b{font-size:1.9cqw}.p10.sq .p10-hd .m i{font-size:1.35cqw}.p10.sq .p10-hd .w{font-size:2.25cqw;margin-top:.6cqw}',
+    '.p10.sq .p10-badge{width:18cqw;height:18cqw;top:8cqw;right:3cqw}',
+    '.p10.sq .p10-sign{left:5.5cqw;right:auto;width:55cqw;top:35cqw;padding:2cqw 2.4cqw 2.2cqw}',
+    '.p10.sq .p10-sign .h{font-size:1.4cqw}.p10.sq .p10-sign .d{font-size:2.4cqw}.p10.sq .p10-sign .p{font-size:1.7cqw;margin-top:.9cqw}',
+    '.p10.sq.partner .p10-sign{width:auto;right:5.5cqw;top:32cqw;padding:1.4cqw 2.4cqw 1.6cqw}',
+    '.p10.sq .p10-ft{height:13cqw;bottom:3cqw;left:4cqw;right:4cqw;gap:2.2cqw;padding:0 2.6cqw 0 3.6cqw}',
+    '.p10.sq .p10-ft .rg{font-size:1.5cqw}.p10.sq .p10-ft .rg b{font-size:2.6cqw}',
+    '.p10.sq .p10-qr{width:9cqw;height:9cqw}.p10.sq .p10-lg{width:18cqw}.p10.sq .p10-lg span{font-size:1.22cqw;padding:.55cqw .6cqw .35cqw}'
+  ].join('\n'),
+  fn: function (spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, n2 = !solo;
+    var uid = 'p10u' + (partner ? 1 : 0) + (sq ? 1 : 0) + S.length;
+    var HT = sq ? 100 : 129.41;
+    function f(n) { return (+n).toFixed(2); }
+    var seed = 10 + (partner ? 3 : 0) + (sq ? 5 : 0) + S.length;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+
+    /* ---------- recurring PTC badge ---------- */
+    function badge(c) {
+      var id = uid + 'b';
+      return '<svg class="p10-badge" viewBox="0 0 100 100"><defs><path id="' + id + 't" d="M17 50 A33 33 0 0 1 83 50"/><path id="' + id + 'u" d="M14 52 A36 36 0 0 0 86 52"/></defs>'
+        + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/><circle cx="50" cy="50" r="44.5" fill="none" stroke="' + c.line + '" stroke-width="1" stroke-dasharray="2.2 1.6"/>'
+        + '<circle cx="50" cy="50" r="30" fill="' + c.fill + '"/>'
+        + '<text font-family="Playfair Display,serif" font-weight="900" font-size="10" letter-spacing="1.2" fill="' + c.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+        + '<text font-family="Playfair Display,serif" font-weight="900" font-size="10" letter-spacing="2.4" fill="' + c.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle" dominant-baseline="hanging">CAFÉ</textPath></text>'
+        + '<circle cx="10.5" cy="52" r="2" fill="' + c.text + '"/><circle cx="89.5" cy="52" r="2" fill="' + c.text + '"/>'
+        + '<g fill="none" stroke="' + c.steam + '" stroke-width="2.4" stroke-linecap="round"><path d="M41 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/><path d="M50 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -8"/><path d="M59 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/></g>'
+        + '<path d="M62 52 h4 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+        + '<path d="M35 47 h29 l-2.6 17 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + c.cup + '"/>'
+        + '<path d="M35.6 51 h27.8 l-.8 4.6 h-26.2 z" fill="' + c.band + '"/>'
+        + '<ellipse cx="49.5" cy="71" rx="21" ry="3.4" fill="' + c.cup + '"/><ellipse cx="49.5" cy="70.2" rx="14" ry="1.5" fill="' + c.band + '" opacity=".6"/>'
+        + '</svg>';
+    }
+
+    /* ---------- drawings ---------- */
+    var gid = uid + 'g';
+    var defs = '<defs><radialGradient id="' + gid + '"><stop offset="0" stop-color="#ffd27a" stop-opacity=".85"/><stop offset=".45" stop-color="#ffb357" stop-opacity=".3"/><stop offset="1" stop-color="#ffb357" stop-opacity="0"/></radialGradient>'
+      + '<radialGradient id="' + gid + 'm" cx=".42" cy=".38"><stop offset="0" stop-color="#ffd7a0"/><stop offset=".7" stop-color="#eaa05a"/><stop offset="1" stop-color="#d5813f"/></radialGradient></defs>';
+    function strand(x0, y0, cx, cy, x1, y1, n, tilt) {
+      var g = '<path d="M' + f(x0) + ' ' + f(y0) + ' Q' + f(cx) + ' ' + f(cy) + ' ' + f(x1) + ' ' + f(y1) + '" fill="none" stroke="#06191c" stroke-width=".35"/>';
+      var cols = ['#ffd27a', '#ffb357', '#ffe7a8', '#ff9a4d'];
+      for (var i = 1; i < n; i++) {
+        var t = i / n, x = (1 - t) * (1 - t) * x0 + 2 * (1 - t) * t * cx + t * t * x1, y = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * cy + t * t * y1;
+        var r = (tilt || 0) + (rnd() * 24 - 12);
+        g += '<circle cx="' + f(x) + '" cy="' + f(y + 1.8) + '" r="3.4" fill="url(#' + gid + ')"/>';
+        g += '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ')"><rect x="-.55" y="-.2" width="1.1" height="1.1" fill="#2a1a10"/><ellipse cx="0" cy="1.95" rx=".9" ry="1.25" fill="' + cols[i % 4] + '"/><ellipse cx="-.25" cy="1.6" rx=".25" ry=".45" fill="#fff" opacity=".7"/></g>';
+      }
+      return g;
+    }
+    function candle(x, base, w, h) {
+      var g = '<circle cx="' + f(x) + '" cy="' + f(base - h - 1.6) + '" r="' + f(w * 1.3) + '" fill="url(#' + gid + ')"/>';
+      g += '<rect x="' + f(x - w / 2) + '" y="' + f(base - h) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(w * .12) + '" fill="#fdf0dc"/>';
+      g += '<rect x="' + f(x - w / 2) + '" y="' + f(base - h) + '" width="' + f(w * .28) + '" height="' + f(h) + '" fill="#f1dbb5"/>';
+      g += '<path d="M' + f(x - w * .25) + ' ' + f(base - h) + ' q0 ' + f(h * .18) + ' ' + f(w * .1) + ' ' + f(h * .22) + ' q' + f(w * .1) + ' -' + f(h * .04) + ' ' + f(w * .1) + ' -' + f(h * .22) + 'z" fill="#fff8ec"/>';
+      g += '<line x1="' + f(x) + '" y1="' + f(base - h) + '" x2="' + f(x) + '" y2="' + f(base - h - .9) + '" stroke="#2a1a10" stroke-width=".3"/>';
+      g += '<path d="M' + f(x) + ' ' + f(base - h - 3.6) + ' q1.2 1.6 .8 2.6 q-.3 .7 -.8 .8 q-.6 -.1 -.8 -.8 q-.4 -1 .8 -2.6z" fill="#ffc35e"/><path d="M' + f(x) + ' ' + f(base - h - 2.4) + ' q.5 .8 .3 1.3 q-.3 .3 -.6 0 q-.2 -.5 .3 -1.3z" fill="#fff6d0"/>';
+      return g;
+    }
+    function apple(x, y, s) {
+      return '<g transform="translate(' + f(x) + ' ' + f(y) + ') scale(' + f(s / 10) + ')"><path d="M0 -3 C-5 -6 -9 -1 -7 4 C-5 9 -2 9 0 8 C2 9 5 9 7 4 C9 -1 5 -6 0 -3Z" fill="#b5352a"/><path d="M-4 -2 C-5 0 -5 2 -4 4" stroke="#e86a52" stroke-width="1" fill="none"/><path d="M0 -3 L.6 -6.5" stroke="#4e2a14" stroke-width=".8"/><path d="M.6 -5.5 C3 -7.5 5 -6 5 -5.4 C3 -4.6 1.6 -4.8 .6 -5.5Z" fill="#5b7a3a"/></g>';
+    }
+    function rope(x0, y0, x1, y1) { return '<path d="M' + f(x0) + ' ' + f(y0) + ' L' + f(x1) + ' ' + f(y1) + '" stroke="#c9a77c" stroke-width=".45" stroke-dasharray=".9 .35"/>'; }
+    function mugExtras(col) {
+      return '<svg class="ex" viewBox="0 0 120 60" preserveAspectRatio="xMidYMax meet">'
+        + '<g fill="none" stroke="#fdf0dc" stroke-width="3" stroke-linecap="round" opacity=".55"><path d="M52 52 c-7 -9 7 -14 0 -24 c-5 -8 3 -12 0 -20"/><path d="M68 54 c-7 -9 7 -14 0 -24 c-5 -8 3 -12 0 -18"/></g>'
+        + '<g transform="translate(26 60) rotate(-24)"><rect x="-4" y="-46" width="8" height="52" rx="3" fill="#8b4a22"/><rect x="-4" y="-46" width="3.5" height="52" rx="1.5" fill="#a85e2c"/><ellipse cx="0" cy="-46" rx="4" ry="2" fill="#d08a52"/></g>'
+        + '<g transform="translate(36 58) rotate(-10)"><rect x="-3.5" y="-38" width="7" height="44" rx="3" fill="#7a3f1c"/><ellipse cx="0" cy="-38" rx="3.5" ry="1.8" fill="#c27a45"/></g>'
+        + '<g transform="translate(97 58)"><circle r="13" fill="#f7a23a"/><circle r="10.5" fill="#ffd37a"/><g stroke="#f7a23a" stroke-width="1.6"><path d="M0 0 L0 -10"/><path d="M0 0 L9 -5"/><path d="M0 0 L9 5"/><path d="M0 0 L0 10"/><path d="M0 0 L-9 5"/><path d="M0 0 L-9 -5"/></g></g>'
+        + '</svg>';
+    }
+
+    /* ---------- header ---------- */
+    var month = H.MONTHS[spec.month - 1], series = H.esc(spec.series || 'Parent Talk Café'), sw = series.split(' '), last = sw.pop();
+    var logo = partner ? '<div class="p10-logo pip"><img src="' + spec.pipUrl + '" alt=""></div>' : '<div class="p10-logo"><img src="' + spec.logoUrl + '" alt=""></div>';
+    var hd = '<div class="p10-hd"><div class="k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="t">' + (sw.length ? sw.join(' ') + ' ' : '') + '<span>' + last + '</span></div>'
+      + '<div class="m"><b>' + month.toUpperCase() + ' ' + spec.year + '</b><i>ON ZOOM</i></div>'
+      + '<div class="w">' + H.PTC_WHERE + '</div></div>';
+    var bdg = badge({ ring: '#c8733a', line: '#ffd99a', fill: '#fdf0dc', text: '#fff7ea', cup: '#0c3b41', band: '#e8a165', steam: '#b0602c' });
+
+    /* ---------- sign ---------- */
+    var L = Math.max.apply(null, spec.sessions.map(function (s) { return String(s.lesson || '').length; }));
+    var tfs;
+    if (sq) tfs = partner ? (n2 ? 2.6 : 3.1) : (n2 ? 3.1 : (L > 30 ? 3.9 : 4.6));
+    else tfs = partner ? (n2 ? 3.3 : (L > 30 ? 3.8 : 5)) : (n2 ? 4.3 : (L > 30 ? 5.1 : 6.2));
+    var pres = spec.presenter ? '<div class="p">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var topics = S.map(function (s, i) { return '<div class="t" style="font-size:' + f(tfs) + 'cqw">' + (n2 ? '<span class="n">' + (i + 1) + '.</span>' : '') + s.lesson + '</div>'; }).join('');
+    var showDesc = solo && S[0].desc && !partner;
+    var sign = '<div class="p10-sign"><div class="h">' + (n2 ? 'ON THE MENU' : 'TONIGHT\'S TOPIC') + '</div>' + topics + (showDesc ? '<div class="d">' + S[0].desc + '</div>' : '') + pres + '</div>';
+
+    /* ---------- composition ---------- */
+    var d = defs, top = '', items = '', lab = '', ledge = '';
+    // harvest moon peeking at top-left behind the logo
+    d += '<circle cx="' + (sq ? 10 : 12) + '" cy="' + (sq ? 16 : 21) + '" r="' + (sq ? 15 : 19) + '" fill="url(#' + gid + 'm)" opacity=".95"/>'
+      + '<circle cx="' + (sq ? 3 : 4) + '" cy="' + (sq ? 24 : 31) + '" r="2.4" fill="#d5813f" opacity=".5"/><circle cx="' + (sq ? 20 : 24) + '" cy="' + (sq ? 26 : 34) + '" r="1.6" fill="#d5813f" opacity=".5"/>';
+    // stars
+    for (var k = 0; k < 18; k++) { var sx = rnd() * 100, sy = rnd() * (sq ? 30 : 36); if (sx > 18 && sx < 80 && sy > 9) continue; d += '<circle cx="' + f(sx) + '" cy="' + f(sy) + '" r="' + f(.18 + rnd() * .25) + '" fill="#fdf0dc" opacity="' + f(.4 + rnd() * .5) + '"/>'; }
+    // top string of lights
+    top += sq ? strand(-3, 1, 50, 13, 103, 1, 13) : strand(-3, 1, 50, 15, 103, 1, 15);
+    var signTop = sq ? (partner ? 32 : 35) : (partner ? 38.5 : 39);
+    if (!sq) { d += rope(22, 7.2, 14, signTop) + rope(78, 7.2, 86, signTop); }
+    
+    
+    function mug(s, n, pos, ddf, tmf, wf, hw, sh) {
+      return '<div class="p10-mug" style="' + pos + ';--hw:' + hw + 'cqw;--sh:' + sh + 'cqw">' + mugExtras() + (n ? '<span class="nn">' + n + '</span>' : '')
+        + '<div class="w" style="font-size:' + f(wf) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.monFull.toUpperCase() + '</div>'
+        + '<div class="dd" style="font-size:' + f(ddf) + 'cqw">' + s.mon + ' ' + s.day + '</div>'
+        + '<div class="tm" style="font-size:' + f(tmf) + 'cqw">' + s.time + '</div></div>';
+    }
+    function lanterns(pos, w, h, lf, df, tf, hang) {
+      var rows = H.zoneRows(spec.sessions);
+      return rows.map(function (r, i) {
+        var x = pos[i][0], y = pos[i][1], cx = x + w / 2;
+        d += '<path d="M' + f(cx) + ' ' + f(hang + (i < 4 ? .3 : .3)) + ' L' + f(cx) + ' ' + f(y - 3.2) + '" stroke="#c9a77c" stroke-width=".3"/><circle cx="' + f(cx) + '" cy="' + f(y - 3.6) + '" r=".9" fill="none" stroke="#c8733a" stroke-width=".4"/>';
+        var tl = String(r.time).length, tfs2 = tl > 9 ? tf * .72 : tf;
+        return '<div class="p10-lan' + (r.home ? ' h' : '') + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + w + 'cqw;height:' + h + 'cqw">' + (r.home ? '<span class="hm">HAWAIʻI TIME</span>' : '')
+          + '<div class="i" style="font-size:' + f(lf) + 'cqw">' + r.label + '</div><div class="ds" style="font-size:' + f(df) + 'cqw">' + r.days + '</div><div class="ti" style="font-size:' + f(tfs2) + 'cqw">' + r.time + '</div></div>';
+      }).join('');
+    }
+    if (!sq && !partner) {
+      ledge = '<div class="p10-ledge" style="top:101cqw;height:8cqw"></div>';
+      if (solo) {
+        items = mug(S[0], 0, 'left:33cqw;top:79.5cqw;width:34cqw;height:21.5cqw', 7, 2.4, 1.5, 5, 9);
+        d += candle(14, 101.3, 5.5, 10) + candle(22, 101.3, 4.2, 6.5) + candle(86, 101.3, 5.5, 12) + apple(77, 98.5, 3.4);
+      } else {
+        items = mug(S[0], 1, 'left:7cqw;top:83cqw;width:29cqw;height:18cqw', 5.4, 2, 1.25, 4.2, 7)
+          + mug(S[1], 2, 'left:58cqw;top:83cqw;width:29cqw;height:18cqw', 5.4, 2, 1.25, 4.2, 7);
+        d += candle(47.5, 101.3, 5.5, 11) + apple(93, 98.5, 3);
+      }
+    } else if (!sq && partner) {
+      lab = '<div class="p10-lab" style="top:' + (n2 ? 61 : 64.2) + 'cqw"><b>What time is it on your island?</b><small>' + (n2 ? 'BOTH TOPICS' : 'TOPIC') + ' · YOUR LOCAL TIME</small></div>';
+      top += strand(-3, 69.5, 50, 77.5, 103, 69.5, 11);
+      items = lanterns([[5, 79], [28.5, 80.5], [52, 79], [75.5, 80.5], [16.75, 94], [40.25, 95], [63.75, 94]], 19, 11, 1.5, 1.2, 2.05, 74);
+    } else if (sq && !partner) {
+      ledge = '<div class="p10-ledge" style="top:76cqw;height:6cqw"></div>';
+      if (solo) {
+        items = mug(S[0], 0, 'left:66cqw;top:50cqw;width:26cqw;height:16.5cqw', 5, 1.75, 1.1, 3.8, 7);
+        d += candle(70, 76.3, 4.4, 7) + candle(90, 76.3, 3.6, 5);
+      } else {
+        items = mug(S[0], 1, 'left:65cqw;top:36cqw;width:27cqw;height:14cqw', 4.2, 1.6, 1.05, 3.6, 5.5)
+          + mug(S[1], 2, 'left:65cqw;top:60cqw;width:27cqw;height:14cqw', 4.2, 1.6, 1.05, 3.6, 5.5);
+      }
+    } else {
+      top += strand(-3, 47, 50, 53, 103, 47, 11);
+      items = lanterns([[6, 56], [29, 57], [52, 56], [75, 57], [17.5, 70.5], [40.5, 71], [63.5, 70.5]], 18, 9.6, 1.3, 1.05, 1.75, 50);
+    }
+    var svg = '<svg class="p10-deco" viewBox="0 0 100 ' + HT + '" preserveAspectRatio="none">' + d + '</svg><svg class="p10-top" viewBox="0 0 100 ' + HT + '" preserveAspectRatio="none">' + top + '</svg>';
+    var foot = '<div class="p10-ft"><div class="rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link, scan the QR code,<br>or call ' + H.phone(partner) + '</div><div class="p10-qr">' + H.qrImg(spec, partner) + '</div><div class="p10-lg">' + H.badges(spec, partner) + '</div></div>';
+    return '<div class="p10' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + ledge + svg + bdg + logo + hd + sign + lab + items + foot + '</div>';
+  }
+}, 'ptc');
+
+/* ---- PTC month 11 ---- */
+VEBFlyers.registerTheme(11, {
+  name: 'Gratitude café menu board (slate board on a brick café wall, Today\'s special, hand-drawn frames + doodles)',
+  fonts: 'family=Amatic+SC:wght@700&family=Patrick+Hand&family=Oswald:wght@500;600',
+  css: [
+    '.p11{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(40,25,15,.4);font-family:"Patrick Hand",Poppins,sans-serif;color:#f3ead6;background:#8e5136}',
+    '.p11.sq{aspect-ratio:1/1}',
+    '.p11 *,.p11 *:before,.p11 *:after{box-sizing:border-box}',
+    '.p11 .p11-wall{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.p11 .p11-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}',
+    '.p11 .p11-brd{position:absolute;z-index:1;pointer-events:none;border:2.4cqw solid #b98a52;border-radius:.6cqw;background:radial-gradient(ellipse at 22% 30%,rgba(255,255,255,.07),transparent 40%),radial-gradient(ellipse at 78% 72%,rgba(255,255,255,.06),transparent 45%),radial-gradient(ellipse at 60% 15%,rgba(255,255,255,.04),transparent 30%),#2b3135;box-shadow:inset 0 0 0 .35cqw #8a6034,inset 0 0 3cqw rgba(0,0,0,.55),0 0 0 .35cqw #7a5028,0 1.4cqw 2.4cqw rgba(30,15,5,.55)}',
+    '.p11 .p11-brd:before{content:"";position:absolute;inset:-2.4cqw;border-radius:.6cqw;background:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 .3cqw,transparent .3cqw 1.6cqw),repeating-linear-gradient(0deg,rgba(90,55,20,.12) 0 .2cqw,transparent .2cqw 1.3cqw);-webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);-webkit-mask-composite:xor;mask-composite:exclude;padding:2.4cqw}',
+    '.p11 .p11-rf{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:-1}',
+    /* header */
+    '.p11 .p11-logo{position:absolute;z-index:5;left:9cqw;top:12.5cqw;width:14.5cqw;height:14.5cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;transform:rotate(-5deg);box-shadow:0 0 0 .5cqw #e6b54a,.4cqw .8cqw 1cqw rgba(0,0,0,.45)}',
+    '.p11 .p11-logo img{width:11cqw;height:auto;display:block}',
+    '.p11 .p11-logo.pip{border-radius:1.4cqw;width:18cqw;height:11.5cqw;top:13.5cqw;left:8.5cqw}.p11 .p11-logo.pip img{width:16.2cqw}',
+    '.p11 .p11-hd{position:absolute;z-index:5;left:27cqw;top:12cqw}',
+    '.p11.partner .p11-hd{left:29cqw}',
+    '.p11 .p11-hd .k{position:relative;z-index:1;font-family:Oswald,sans-serif;font-weight:500;font-size:1.55cqw;letter-spacing:.24em;color:#c9d6c9;white-space:nowrap}',
+    '.p11 .p11-hd .t{font-family:"Amatic SC",cursive;font-weight:700;font-size:8.2cqw;line-height:1;color:#f3ead6;white-space:nowrap;margin-top:.2cqw}',
+    '.p11 .p11-hd .t span{color:#e6b54a}',
+    '.p11 .p11-hd .m{position:relative;z-index:1;display:flex;align-items:center;gap:1.6cqw;white-space:nowrap;margin-top:.2cqw}',
+    '.p11 .p11-hd .m b{font-family:Oswald,sans-serif;font-weight:600;font-size:2.2cqw;letter-spacing:.22em;color:#2b3135;background:#e6b54a;padding:.25cqw 1.4cqw;transform:rotate(-1.5deg);border-radius:.3cqw .9cqw .4cqw 1cqw}',
+    '.p11 .p11-hd .m i{font-style:normal;font-size:2.4cqw;color:#f3ead6;border:.25cqw solid #f3ead6;border-radius:50% 45% 55% 48%;padding:.1cqw 1.6cqw}',
+    '.p11 .p11-hd .w{font-size:2.45cqw;line-height:1.15;color:#c9d6c9;margin-top:.8cqw;white-space:nowrap}',
+    '.p11 .p11-badge{position:absolute;z-index:6;right:2cqw;top:1.5cqw;width:22cqw;height:22cqw;pointer-events:none;transform:rotate(9deg);filter:drop-shadow(.3cqw .7cqw .6cqw rgba(30,15,5,.5))}',
+    /* today\'s special */
+    '.p11 .p11-sp{position:absolute;z-index:5;left:9cqw;right:9cqw;top:33cqw;padding:2.6cqw 4.4cqw 3cqw;text-align:center;transform:rotate(-1deg)}',
+    '.p11 .p11-sp .h{display:inline-flex;align-items:center;gap:1.2cqw;font-family:"Amatic SC",cursive;font-weight:700;font-size:4.4cqw;line-height:1;color:#e6b54a;white-space:nowrap}',
+    '.p11 .p11-sp .h svg{width:6cqw;height:4cqw;overflow:visible}',
+    '.p11 .p11-sp .t{font-family:"Amatic SC",cursive;font-weight:700;line-height:1.02;color:#f3ead6;margin-top:.6cqw}',
+    '.p11 .p11-sp .t .n{color:#e6b54a;margin-right:.25em}',
+    '.p11 .p11-sp .t + .t{margin-top:.6cqw}',
+    '.p11 .p11-sp .d{font-size:2.9cqw;line-height:1.15;color:#e6b54a;margin-top:.6cqw}',
+    '.p11 .p11-sp .p{display:inline-block;font-size:2.5cqw;line-height:1.2;color:#f3ead6;margin-top:1cqw;padding:0 1cqw .5cqw;background:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 6%27 preserveAspectRatio=%27none%27%3E%3Cpath d=%27M1 3 Q8 0 16 3 T32 3 T48 3 T64 3 T80 3 T99 3%27 fill=%27none%27 stroke=%27%23d9824a%27 stroke-width=%271.4%27/%3E%3C/svg%3E") bottom/100% .9cqw no-repeat}',
+    '.p11 .p11-sp .p b{font-weight:400;color:#e6b54a}',
+    /* date tag */
+    '.p11 .p11-tag{position:absolute;z-index:5;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}',
+    '.p11 .p11-tag .w{position:relative;z-index:1;font-family:Oswald,sans-serif;font-weight:500;letter-spacing:.22em;color:#c9d6c9;line-height:1.2}',
+    '.p11 .p11-tag .dd{font-family:"Amatic SC",cursive;font-weight:700;line-height:1;color:#e6b54a;white-space:nowrap}',
+    '.p11 .p11-tag .tm{position:relative;z-index:1;line-height:1.15;color:#f3ead6;white-space:nowrap}',
+    '.p11 .p11-tag .nn{font-family:Oswald,sans-serif;font-weight:600;letter-spacing:.18em;color:#d9824a;line-height:1.2}',
+    /* island-times menu */
+    '.p11 .p11-mn{position:absolute;z-index:5;padding:2cqw 3cqw}',
+    '.p11 .p11-mn .mh{text-align:center;font-family:"Amatic SC",cursive;font-weight:700;line-height:1;color:#e6b54a;white-space:nowrap}',
+    '.p11 .p11-mn .ms{text-align:center;font-family:Oswald,sans-serif;font-weight:500;letter-spacing:.22em;color:#c9d6c9;white-space:nowrap;margin-top:.3cqw}',
+    '.p11 .p11-col{position:absolute}',
+    '.p11 .p11-it{position:relative}',
+    '.p11 .p11-it .r{display:flex;align-items:baseline;gap:.6cqw;white-space:nowrap}',
+    '.p11 .p11-it .r .l{color:#f3ead6}',
+    '.p11 .p11-it .r .dl{flex:1;min-width:1cqw;border-bottom:.3cqw dotted rgba(243,234,214,.55);transform:translateY(-.4cqw)}',
+    '.p11 .p11-it .r .tm{color:#e6b54a}',
+    '.p11 .p11-it .dy{color:#c9d6c9;white-space:nowrap;line-height:1.1}',
+    '.p11 .p11-it.h .r .l{color:#e6b54a}',
+    '.p11 .p11-it.h{margin-left:-1.2cqw;margin-right:-1.2cqw;padding:.3cqw 1.2cqw .4cqw;border:.3cqw solid #d9824a;border-radius:45% 55% 50% 48%/60% 45% 55% 40%;background:rgba(230,181,74,.1)}',
+    '.p11 .p11-it .ring{position:absolute;left:-1.6cqw;top:-.7cqw;width:calc(100% + 3cqw);height:calc(100% + 1.4cqw);pointer-events:none;overflow:visible;z-index:-1}',
+    /* footer */
+    '.p11 .p11-ft{position:absolute;z-index:7;left:6cqw;right:6cqw;bottom:3.6cqw;height:16cqw;background:#fbf4e4;color:#2b3135;display:flex;align-items:center;gap:2.6cqw;padding:0 3cqw 0 4cqw;transform:rotate(.6deg);box-shadow:.5cqw .9cqw 1.2cqw rgba(30,15,5,.45);clip-path:polygon(0 0,2% 4%,4% 0,6% 4%,8% 0,10% 4%,12% 0,14% 4%,16% 0,18% 4%,20% 0,22% 4%,24% 0,26% 4%,28% 0,30% 4%,32% 0,34% 4%,36% 0,38% 4%,40% 0,42% 4%,44% 0,46% 4%,48% 0,50% 4%,52% 0,54% 4%,56% 0,58% 4%,60% 0,62% 4%,64% 0,66% 4%,68% 0,70% 4%,72% 0,74% 4%,76% 0,78% 4%,80% 0,82% 4%,84% 0,86% 4%,88% 0,90% 4%,92% 0,94% 4%,96% 0,98% 4%,100% 0,100% 100%,0 100%)}',
+    '.p11 .p11-ft .rg{flex:1;font-size:2.1cqw;line-height:1.25}',
+    '.p11 .p11-ft .rg b{display:block;font-family:"Amatic SC",cursive;font-weight:700;font-size:5cqw;line-height:1;color:#2b3135}',
+    '.p11 .p11-ft .rg b span{color:#c0571f}',
+    '.p11 .p11-qr{width:10.6cqw;height:10.6cqw;background:#fff;padding:.5cqw;flex:none;display:flex;align-items:center;justify-content:center;font-family:Oswald,sans-serif;font-size:2cqw;box-shadow:0 0 0 .3cqw #2b3135}',
+    '.p11 .p11-qr img{width:100%;height:100%;display:block}',
+    '.p11 .p11-lg{display:flex;flex-direction:column;gap:.8cqw;flex:none;width:20cqw}',
+    '.p11 .p11-lg span{background:#2b3135;color:#f3ead6;font-family:Oswald,sans-serif;font-weight:500;font-size:1.4cqw;letter-spacing:.04em;text-align:center;padding:.5cqw .8cqw;white-space:nowrap;border-radius:.4cqw}',
+    '.p11 .p11-lg span:nth-child(2){background:#e6b54a;color:#2b3135}.p11 .p11-lg span:nth-child(3){background:#c0571f;color:#fff}',
+    '.p11.partner:not(.sq) .p11-sp{top:31cqw;padding:2.2cqw 4cqw 2.6cqw}',
+    /* square */
+    '.p11.sq .p11-logo{left:7cqw;top:8.5cqw;width:11.5cqw;height:11.5cqw}.p11.sq .p11-logo img{width:8.8cqw}',
+    '.p11.sq .p11-logo.pip{width:14cqw;height:9cqw;top:9.5cqw;left:6.5cqw}.p11.sq .p11-logo.pip img{width:12.6cqw}',
+    '.p11.sq .p11-hd{left:21.5cqw;top:7.8cqw}.p11.sq.partner .p11-hd{left:23cqw}.p11.sq .p11-hd .k{font-size:1.35cqw}.p11.sq .p11-hd .t{font-size:6.6cqw}',
+    '.p11.sq .p11-hd .m b{font-size:1.85cqw}.p11.sq .p11-hd .m i{font-size:2cqw}.p11.sq .p11-hd .w{font-size:2.1cqw;margin-top:.5cqw}',
+    '.p11.sq .p11-badge{width:18cqw;height:18cqw;top:1.4cqw;right:2cqw}',
+    '.p11.sq .p11-sp{left:6.5cqw;right:auto;width:56cqw;top:31cqw;padding:2cqw 3cqw 2.4cqw}',
+    '.p11.sq .p11-sp .h{font-size:3.6cqw}.p11.sq .p11-sp .h svg{width:4.6cqw;height:3cqw}.p11.sq .p11-sp .d{font-size:2.3cqw}.p11.sq .p11-sp .p{font-size:2cqw;margin-top:.6cqw}',
+    '.p11.sq.partner .p11-sp{width:auto;right:6.5cqw;top:28cqw;padding:1cqw 3cqw 1.3cqw}',
+    '.p11.sq.partner .p11-sp .h{font-size:3cqw}',
+    '.p11.sq .p11-ft{height:12.5cqw;bottom:2.6cqw;left:5cqw;right:5cqw;gap:2.2cqw;padding:0 2.6cqw 0 3.4cqw}',
+    '.p11.sq .p11-ft .rg{font-size:1.75cqw}.p11.sq .p11-ft .rg b{font-size:4cqw}',
+    '.p11.sq .p11-qr{width:8.8cqw;height:8.8cqw}.p11.sq .p11-lg{width:18cqw}.p11.sq .p11-lg span{font-size:1.22cqw;padding:.4cqw .6cqw}'
+  ].join('\n'),
+  fn: function (spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, n2 = !solo;
+    var uid = 'p11u' + (partner ? 1 : 0) + (sq ? 1 : 0) + S.length;
+    var HT = sq ? 100 : 129.41;
+    function f(n) { return (+n).toFixed(2); }
+    var seed = 11 + (partner ? 3 : 0) + (sq ? 5 : 0) + S.length;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+    function j(a) { return (rnd() * 2 - 1) * a; }
+    var CH = '#f3ead6', MU = '#e6b54a', OR = '#d9824a', SG = '#9bb07d';
+
+    /* ---------- recurring PTC badge ---------- */
+    function badge(c) {
+      var id = uid + 'b';
+      return '<svg class="p11-badge" viewBox="0 0 100 100"><defs><path id="' + id + 't" d="M17 50 A33 33 0 0 1 83 50"/><path id="' + id + 'u" d="M14 52 A36 36 0 0 0 86 52"/></defs>'
+        + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/><circle cx="50" cy="50" r="44.5" fill="none" stroke="' + c.line + '" stroke-width="1" stroke-dasharray="2.2 1.6"/>'
+        + '<circle cx="50" cy="50" r="30" fill="' + c.fill + '"/>'
+        + '<text font-family="Oswald,sans-serif" font-weight="600" font-size="10" letter-spacing="1.6" fill="' + c.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+        + '<text font-family="Oswald,sans-serif" font-weight="600" font-size="10" letter-spacing="2.6" fill="' + c.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle" dominant-baseline="hanging">CAFÉ</textPath></text>'
+        + '<circle cx="10.5" cy="52" r="2" fill="' + c.text + '"/><circle cx="89.5" cy="52" r="2" fill="' + c.text + '"/>'
+        + '<g fill="none" stroke="' + c.steam + '" stroke-width="2.4" stroke-linecap="round"><path d="M41 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/><path d="M50 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -8"/><path d="M59 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/></g>'
+        + '<path d="M62 52 h4 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+        + '<path d="M35 47 h29 l-2.6 17 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + c.cup + '"/>'
+        + '<path d="M35.6 51 h27.8 l-.8 4.6 h-26.2 z" fill="' + c.band + '"/>'
+        + '<ellipse cx="49.5" cy="71" rx="21" ry="3.4" fill="' + c.cup + '"/><ellipse cx="49.5" cy="70.2" rx="14" ry="1.5" fill="' + c.band + '" opacity=".6"/>'
+        + '</svg>';
+    }
+
+    /* ---------- hand-drawn helpers (cqw coordinates) ---------- */
+    function rough(x, y, w, h, col, sw, passes) {
+      var g = '';
+      for (var p = 0; p < (passes || 2); p++) {
+        var o = p ? .5 : 0;
+        g += '<path d="M' + f(x - 1 + j(.4)) + ' ' + f(y + j(.4) + o) + ' L' + f(x + w + 1 + j(.4)) + ' ' + f(y + j(.5) - o)
+          + ' M' + f(x + w + j(.4) - o) + ' ' + f(y - 1 + j(.4)) + ' L' + f(x + w + j(.5) + o) + ' ' + f(y + h + 1 + j(.4))
+          + ' M' + f(x + w + 1 + j(.4)) + ' ' + f(y + h + j(.4) + o) + ' L' + f(x - 1 + j(.4)) + ' ' + f(y + h + j(.5))
+          + ' M' + f(x + j(.4) + o) + ' ' + f(y + h + 1 + j(.4)) + ' L' + f(x + j(.5)) + ' ' + f(y - 1 + j(.4)) + '" fill="none" stroke="' + col + '" stroke-width="' + f(sw * (p ? .6 : 1)) + '" stroke-linecap="round" opacity="' + (p ? .6 : .95) + '"/>';
+      }
+      return g;
+    }
+    function roughCircle(cx, cy, r, col, sw) {
+      var pts = [], n = 28, g = '';
+      for (var p = 0; p < 2; p++) {
+        var d = '', st = rnd() * 6.28;
+        for (var i = 0; i <= n + 2; i++) { var a = st + i / n * 6.28, rr = r + j(.35) + (p ? .6 : 0); d += (i ? ' L' : 'M') + f(cx + Math.cos(a) * rr) + ' ' + f(cy + Math.sin(a) * rr); }
+        g += '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="' + f(sw * (p ? .6 : 1)) + '" stroke-linejoin="round" opacity="' + (p ? .6 : .95) + '"/>';
+      }
+      return g;
+    }
+    function cup(x, y, s) {
+      return '<g transform="translate(' + f(x) + ' ' + f(y) + ') scale(' + f(s / 10) + ')" fill="none" stroke="' + CH + '" stroke-width=".45" stroke-linecap="round" stroke-linejoin="round">'
+        + '<path d="M-4 -1 L4 -1 L3.2 4 Q3 5.5 1.5 5.5 L-1.5 5.5 Q-3 5.5 -3.2 4 Z"/><path d="M3.8 .2 Q6.3 .2 6 2.2 Q5.7 3.6 3.4 3.4"/><path d="M-6 6.4 Q0 8 6 6.4"/>'
+        + '<path d="M-1.6 -2.2 q-1 -1.2 0 -2.4 q.8 -1 0 -2" stroke="' + MU + '"/><path d="M1.2 -2.2 q-1 -1.2 0 -2.4 q.8 -1 0 -2" stroke="' + MU + '"/>'
+        + '<path d="M-2.4 1.6 q2.4 1.2 4.8 0" stroke="' + OR + '"/></g>';
+    }
+    function pie(x, y, s) {
+      return '<g transform="translate(' + f(x) + ' ' + f(y) + ') scale(' + f(s / 10) + ')" fill="none" stroke-linecap="round" stroke-linejoin="round">'
+        + '<path d="M-6 2 L5 -3 L6 2 Z" fill="' + OR + '" fill-opacity=".85" stroke="' + CH + '" stroke-width=".4"/><path d="M-6 2 L6 2 L6 3.6 L-6 3.6 Z" fill="#c99a5b" stroke="' + CH + '" stroke-width=".4"/>'
+        + '<path d="M5 -3 Q6.6 -.6 6 2" stroke="#e8c48a" stroke-width="1"/><path d="M1 -3.6 q1 -1.2 2.2 -.4 q.6 -1.2 1.6 -.2 q-.4 1.2 -1.8 1 q-1 .6 -2 -.4z" fill="' + CH + '" stroke="none"/></g>';
+    }
+    function leaf(x, y, s, r, col) {
+      return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ') scale(' + f(s / 10) + ')" fill="none" stroke="' + col + '" stroke-width=".55" stroke-linecap="round" stroke-linejoin="round">'
+        + '<path d="M0 5 L0 -5 M0 -5 Q4 -3 4 1 Q2 3.4 0 5 Q-2 3.4 -4 1 Q-4 -3 0 -5 M0 -1 L2.4 -2.6 M0 1.6 L-2.4 0 M0 1.6 L2.6 .2"/></g>';
+    }
+    function wheat(x, y, s, r) {
+      var g = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ') scale(' + f(s / 10) + ')" fill="none" stroke="' + MU + '" stroke-width=".45" stroke-linecap="round"><path d="M0 7 L0 -6"/>';
+      for (var i = 0; i < 5; i++) { var yy = -5 + i * 2.2; g += '<path d="M0 ' + f(yy + 1.6) + ' Q-1.8 ' + f(yy + .8) + ' -1.4 ' + f(yy - .6) + ' Q-.2 ' + f(yy) + ' 0 ' + f(yy + 1.6) + 'Z M0 ' + f(yy + 1.6) + ' Q1.8 ' + f(yy + .8) + ' 1.4 ' + f(yy - .6) + ' Q.2 ' + f(yy) + ' 0 ' + f(yy + 1.6) + 'Z"/>'; }
+      return g + '</g>';
+    }
+    function star(x, y, s, col) { return '<path d="M' + f(x) + ' ' + f(y - s) + ' L' + f(x) + ' ' + f(y + s) + ' M' + f(x - s) + ' ' + f(y) + ' L' + f(x + s) + ' ' + f(y) + ' M' + f(x - s * .6) + ' ' + f(y - s * .6) + ' L' + f(x + s * .6) + ' ' + f(y + s * .6) + ' M' + f(x - s * .6) + ' ' + f(y + s * .6) + ' L' + f(x + s * .6) + ' ' + f(y - s * .6) + '" stroke="' + col + '" stroke-width=".35" stroke-linecap="round"/>'; }
+    function swirl(x, y, s, r) { return '<path transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ') scale(' + f(s / 10) + ')" d="M-6 0 Q-2 -4 0 0 T6 0 M4 -1.6 L6 0 L4 1.4" fill="none" stroke="' + CH + '" stroke-width=".5" stroke-linecap="round" stroke-linejoin="round" opacity=".8"/>'; }
+    function laurel(flip) {
+      return '<svg viewBox="0 0 30 20"' + (flip ? ' style="transform:scaleX(-1)"' : '') + '><g fill="none" stroke="' + SG + '" stroke-width="1.6" stroke-linecap="round"><path d="M28 16 Q14 18 3 8"/><path d="M8 12 q-4 -1 -4 -5 q4 1 4 5z M14 14.5 q-3 -3 -1.5 -7 q3 3 1.5 7z M20 15.6 q-3 -2 -2 -6.4 q3 2.6 2 6.4z M8 12 q-1 4 -5 4.6 q.4 -4 5 -4.6z M15 15 q-1 3.6 -5 4 q.6 -3.6 5 -4z"/></g></svg>';
+    }
+    function elemFrame(col, sw) {
+      // a rough double frame drawn in the element's own box (percent units, non-scaling stroke)
+      var a = '', b = '';
+      for (var p = 0; p < 2; p++) {
+        var o = p ? 1.2 : 0;
+        a += '<path vector-effect="non-scaling-stroke" d="M' + f(-.6 + j(.4) + o) + ' ' + f(1 + j(.6) + o) + ' L' + f(100.8 + j(.4) - o) + ' ' + f(.6 + j(.6) + o) + ' M' + f(99.6 + j(.3) - o) + ' ' + f(-.6 + j(.5)) + ' L' + f(99.8 + j(.3) - o) + ' ' + f(100.8 + j(.5))
+          + ' M' + f(100.6 + j(.4) - o) + ' ' + f(99.4 + j(.6) - o) + ' L' + f(-.8 + j(.4) + o) + ' ' + f(99.8 + j(.6) - o) + ' M' + f(.4 + j(.3) + o) + ' ' + f(100.8 + j(.5)) + ' L' + f(.2 + j(.3) + o) + ' ' + f(-.8 + j(.5)) + '" fill="none" stroke="' + col + '" stroke-width="' + (p ? sw * .55 : sw) + '" stroke-linecap="round" opacity="' + (p ? .55 : .95) + '"/>';
+      }
+      return '<svg class="p11-rf" viewBox="0 0 100 100" preserveAspectRatio="none">' + a + b + '</svg>';
+    }
+
+    /* ---------- wall ---------- */
+    var wall = '<svg class="p11-wall" viewBox="0 0 100 ' + HT + '" preserveAspectRatio="none"><rect width="100" height="' + HT + '" fill="#d8c3a5"/>';
+    var bc = ['#9a5638', '#8e4d31', '#a35f3f', '#874a2f', '#96553a'];
+    for (var ry = 0, row = 0; ry < HT; ry += 4.2, row++) {
+      for (var rx = (row % 2 ? -4.6 : 0); rx < 100; rx += 9.2) {
+        wall += '<rect x="' + f(rx + .25) + '" y="' + f(ry + .25) + '" width="8.7" height="3.7" rx=".3" fill="' + bc[Math.floor(rnd() * bc.length)] + '"/>';
+      }
+    }
+    wall += '<rect width="100" height="' + HT + '" fill="url(#' + uid + 'v)"/><defs><radialGradient id="' + uid + 'v" cx=".5" cy=".4" r=".75"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#1a0d06" stop-opacity=".45"/></radialGradient></defs></svg>';
+    var bb = sq ? { l: 3.5, t: 3.5, r: 3.5, b: 82 } : { l: 3.5, t: 4, r: 3.5, b: 106 };
+    var board = '<div class="p11-brd" style="left:' + bb.l + 'cqw;right:' + bb.r + 'cqw;top:' + bb.t + 'cqw;height:' + f(bb.b - bb.t) + 'cqw"></div>';
+
+    /* ---------- header ---------- */
+    var month = H.MONTHS[spec.month - 1], series = H.esc(spec.series || 'Parent Talk Café'), sw = series.split(' '), last = sw.pop();
+    var logo = partner ? '<div class="p11-logo pip"><img src="' + spec.pipUrl + '" alt=""></div>' : '<div class="p11-logo"><img src="' + spec.logoUrl + '" alt=""></div>';
+    var hd = '<div class="p11-hd"><div class="k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="t">' + (sw.length ? sw.join(' ') + ' ' : '') + '<span>' + last + '</span></div>'
+      + '<div class="m"><b>' + month.toUpperCase() + ' ' + spec.year + '</b><i>on Zoom</i></div>'
+      + '<div class="w">' + H.PTC_WHERE + '</div></div>';
+    var bdg = badge({ ring: '#c0571f', line: '#f7d58a', fill: '#fbf4e4', text: '#fff7ea', cup: '#2b3135', band: '#e6b54a', steam: '#c0571f' });
+
+    /* ---------- today's special ---------- */
+    var L = Math.max.apply(null, spec.sessions.map(function (s) { return String(s.lesson || '').length; }));
+    var tfs;
+    if (sq) tfs = partner ? (n2 ? 3.4 : 4.2) : (n2 ? 4.4 : (L > 30 ? 5.6 : 6.6));
+    else tfs = partner ? (n2 ? 4.6 : (L > 30 ? 5.4 : 7)) : (n2 ? 5.8 : (L > 30 ? 7.2 : 8.6));
+    var pres = spec.presenter ? '<div class="p">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var topics = S.map(function (s, i) { return '<div class="t" style="font-size:' + f(tfs) + 'cqw">' + (n2 ? '<span class="n">' + (i + 1) + '.</span>' : '') + s.lesson + '</div>'; }).join('');
+    var showDesc = solo && S[0].desc && !partner;
+    var sp = '<div class="p11-sp">' + elemFrame(CH, 2.4) + '<div class="h">' + laurel(false) + (n2 ? 'Today\'s specials' : 'Today\'s special') + laurel(true) + '</div>' + topics + (showDesc ? '<div class="d">' + S[0].desc + '</div>' : '') + pres + '</div>';
+
+    /* ---------- composition ---------- */
+    var d = '', items = '';
+    function tag(s, n, cx, cy, r, ddf, tmf, wf) {
+      d += roughCircle(cx, cy, r, n === 2 ? OR : MU, .55) + roughCircle(cx, cy, r - 1.4, CH, .25);
+      return '<div class="p11-tag" style="left:' + f(cx - r + 2) + 'cqw;top:' + f(cy - r + 2) + 'cqw;width:' + f(2 * r - 4) + 'cqw;height:' + f(2 * r - 4) + 'cqw">'
+        + (n ? '<div class="nn" style="font-size:' + f(wf) + 'cqw">TOPIC ' + n + '</div>' : '')
+        + '<div class="w" style="font-size:' + f(wf) + 'cqw">' + s.dow.toUpperCase() + '</div>'
+        + '<div class="dd" style="font-size:' + f(ddf) + 'cqw">' + s.mon + ' ' + s.day + '</div>'
+        + '<div class="tm" style="font-size:' + f(tmf) + 'cqw">' + s.time + '</div></div>';
+    }
+    function menu(box, cols, hf, sf, lf, tf, df, rowH) {
+      var rows = H.zoneRows(spec.sessions);
+      var html = '<div class="p11-mn" style="left:' + box[0] + 'cqw;top:' + box[1] + 'cqw;width:' + box[2] + 'cqw;height:' + box[3] + 'cqw;transform:rotate(.8deg)">' + elemFrame(MU, 2)
+        + '<div class="mh" style="font-size:' + f(hf) + 'cqw">What time is it on your island?</div><div class="ms" style="font-size:' + f(sf) + 'cqw">' + (n2 ? 'BOTH TOPICS' : 'THE TOPIC') + ' · YOUR LOCAL TIME</div>';
+      cols.forEach(function (c, ci) {
+        html += '<div class="p11-col" style="left:' + c.x + 'cqw;top:' + c.y + 'cqw;width:' + c.w + 'cqw;transform:rotate(' + c.r + 'deg)">';
+        c.idx.forEach(function (ri, k) {
+          var r = rows[ri], tl = String(r.time).length, tfs2 = tl > 9 ? tf * .8 : tf;
+          var ring = false ? '<svg class="ring" viewBox="0 0 100 100" preserveAspectRatio="none"><path vector-effect="non-scaling-stroke" d="M50 3 C85 1 99 20 98 50 C97 84 80 98 48 97 C16 96 2 80 2 50 C3 18 22 4 60 6" fill="none" stroke="' + OR + '" stroke-width="2.4" stroke-linecap="round"/></svg>' : '';
+          html += '<div class="p11-it' + (r.home ? ' h' : '') + '" style="margin-top:' + (k ? rowH : 0) + 'cqw">' + ring + '<div class="r"><span class="l" style="font-size:' + f(lf) + 'cqw">' + r.label + (r.home ? ' (HST)' : '') + '</span><span class="dl"></span><span class="tm" style="font-size:' + f(tfs2) + 'cqw">' + r.time + '</span></div><div class="dy" style="font-size:' + f(df) + 'cqw">' + r.days + '</div></div>';
+        });
+        html += '</div>';
+      });
+      return html + '</div>';
+    }
+    if (!sq && !partner) {
+      if (solo) {
+        items = tag(S[0], 0, 26, 87.5, 14.5, 9, 2.5, 1.7);
+        d += cup(69, 83, 16) + pie(89, 95, 9) + wheat(50, 92, 8, -18) + wheat(93, 82, 8, 16) + leaf(56, 75, 6, -30, OR) + leaf(90, 98, 5, 40, SG)
+          + '<text x="67" y="100.6" font-family="Amatic SC,cursive" font-weight="700" font-size="4.4" fill="' + MU + '" text-anchor="middle">give thanks</text>' + swirl(48, 80, 5, -20);
+        d += star(8, 70, .9, MU) + star(47, 99, .8, CH) + star(92, 70, .9, CH);
+      } else {
+        items = tag(S[0], 1, 24, 84, 13.4, 8, 2.3, 1.55) + tag(S[1], 2, 57.5, 88.5, 13.4, 8, 2.3, 1.55);
+        d += cup(84, 80, 15) + pie(85, 97, 9) + leaf(41, 73, 5, -30, OR) + leaf(41, 101, 4.5, 30, SG) + wheat(8, 99, 7, -10) + star(72, 72, .9, MU) + star(8, 70, .8, CH);
+      }
+      d += leaf(7, 33, 4.5, -20, OR) + leaf(93, 31, 4.5, 25, MU);
+    } else if (!sq && partner) {
+      items = menu([7.5, 60.5, 85, 42], [{ x: 3, y: 9.6, w: 37, r: -1.2, idx: [0, 1, 2, 3] }, { x: 45, y: 9.6, w: 36, r: 1, idx: [4, 5, 6] }], 4.4, 1.3, 2.25, 2.25, 1.55, 3);
+      d += cup(81, 96.5, 9) + leaf(68, 99, 4, -20, OR) + star(92, 92, .8, MU);
+    } else if (sq && !partner) {
+      if (solo) {
+        items = tag(S[0], 0, 79, 46, 13.5, 7.2, 2.05, 1.45);
+        d += cup(74, 71, 12) + pie(87, 75, 8) + leaf(66, 30, 4, -25, OR) + star(94, 64, .7, MU);
+      } else {
+        items = tag(S[0], 1, 80, 39, 11.5, 5.8, 1.8, 1.3) + tag(S[1], 2, 80, 64.5, 11.5, 5.8, 1.8, 1.3);
+        d += cup(24, 70, 9) + pie(44, 73, 7) + wheat(10, 72, 6, -14) + leaf(57, 69, 4, 25, OR) + star(34, 66, .7, MU);
+      }
+    } else {
+      items = menu([6.5, 49, 87, 30.2], [{ x: 2.6, y: 7.4, w: 38, r: -1, idx: [0, 1, 2, 3] }, { x: 45.5, y: 7.4, w: 36, r: .8, idx: [4, 5, 6] }], 3.4, 1.05, 1.75, 1.75, 1.2, 1.1);
+      d += cup(84, 75, 6.5);
+    }
+    var svg = '<svg class="p11-deco" viewBox="0 0 100 ' + HT + '" preserveAspectRatio="none">' + d + '</svg>';
+    var foot = '<div class="p11-ft"><div class="rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link, scan the QR code,<br>or call ' + H.phone(partner) + '</div><div class="p11-qr">' + H.qrImg(spec, partner) + '</div><div class="p11-lg">' + H.badges(spec, partner) + '</div></div>';
+    return '<div class="p11' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + wall + board + svg + bdg + logo + hd + sp + items + foot + '</div>';
+  }
+}, 'ptc');
+
+/* ---- PTC month 12 ---- */
+VEBFlyers.registerTheme(12, {
+  name: 'Peppermint mocha holiday (big to-go cup with topic on the sleeve, candy-cane stirrer, peppermint swirl candies)',
+  fonts: 'family=Lobster&family=Baloo+2:wght@500;600;700;800',
+  css: [
+    '.p12{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(36,20,13,.45);font-family:"Baloo 2",Poppins,sans-serif;color:#fff3e3;background-color:#3b2218;background-image:radial-gradient(circle at 30% 30%,rgba(255,255,255,.05) 0 .35cqw,transparent .4cqw),radial-gradient(circle at 70% 70%,rgba(0,0,0,.18) 0 .3cqw,transparent .35cqw),radial-gradient(ellipse at 50% 45%,#5a3726 0%,#3b2218 60%,#24140d 100%);background-size:4cqw 4cqw,5cqw 5cqw,100% 100%}',
+    '.p12.sq{aspect-ratio:1/1}',
+    '.p12 *,.p12 *:before,.p12 *:after{box-sizing:border-box}',
+    '.p12 .p12-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}',
+    '.p12 .p12-edge{position:absolute;left:0;right:0;height:1.8cqw;pointer-events:none;z-index:1;background:repeating-linear-gradient(-45deg,#d7263d 0 1.4cqw,#fffaf5 1.4cqw 2.8cqw)}',
+    /* header */
+    '.p12 .p12-logo{position:absolute;z-index:5;left:5cqw;top:5cqw;width:15cqw;height:15cqw;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 .5cqw #fff,0 0 0 1.3cqw #d7263d,0 .8cqw 1.6cqw rgba(0,0,0,.45)}',
+    '.p12 .p12-logo img{width:11.2cqw;height:auto;display:block}',
+    '.p12 .p12-logo.pip{border-radius:1.6cqw;width:17.5cqw;height:11.5cqw;top:6cqw;box-shadow:0 0 0 .7cqw #d7263d,0 .8cqw 1.6cqw rgba(0,0,0,.45)}.p12 .p12-logo.pip img{width:16.2cqw}',
+    '.p12 .p12-hd{position:absolute;z-index:5;left:24cqw;top:5cqw}',
+    '.p12.partner .p12-hd{left:25cqw}',
+    '.p12 .p12-hd .k{position:relative;z-index:1;font-weight:700;font-size:1.6cqw;letter-spacing:.2em;color:#8fd9c0;white-space:nowrap}',
+    '.p12 .p12-hd .t{font-family:Lobster,cursive;font-size:6.4cqw;line-height:1.15;color:#fff3e3;white-space:nowrap;text-shadow:0 .4cqw 0 #24140d}',
+    '.p12 .p12-hd .t span{color:#ff8a98}',
+    '.p12 .p12-hd .m{position:relative;z-index:1;display:flex;align-items:center;gap:1.2cqw;white-space:nowrap;margin-top:.3cqw}',
+    '.p12 .p12-hd .m b{font-weight:800;font-size:2.2cqw;letter-spacing:.16em;color:#fff;background:#d7263d;border-radius:3cqw;padding:.35cqw 1.8cqw .1cqw;box-shadow:inset 0 0 0 .3cqw #fffaf5}',
+    '.p12 .p12-hd .m i{font-style:normal;font-weight:800;font-size:1.75cqw;letter-spacing:.12em;color:#24140d;background:#8fd9c0;border-radius:3cqw;padding:.35cqw 1.5cqw .1cqw}',
+    '.p12 .p12-hd .w{position:relative;z-index:1;font-weight:600;font-size:2.3cqw;line-height:1.2;color:#f3d9c4;margin-top:.7cqw;white-space:nowrap}',
+    '.p12 .p12-badge{position:absolute;z-index:4;right:3cqw;top:3cqw;width:21cqw;height:21cqw;pointer-events:none;transform:rotate(10deg);filter:drop-shadow(0 .6cqw .8cqw rgba(0,0,0,.45))}',
+    /* sleeve / ribbon */
+    '.p12 .p12-slv{position:absolute;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#3b2218;background:linear-gradient(90deg,rgba(0,0,0,.07),transparent 18%,transparent 82%,rgba(0,0,0,.1)),#fff3e3;padding:2.8cqw 5cqw 2.8cqw}',
+    '.p12 .p12-slv:before,.p12 .p12-slv:after{content:"";position:absolute;left:0;right:0;height:1.6cqw;background:repeating-linear-gradient(-45deg,#d7263d 0 1.2cqw,#fffaf5 1.2cqw 2.4cqw)}',
+    '.p12 .p12-slv:before{top:0}.p12 .p12-slv:after{bottom:0}',
+    '.p12 .p12-slv .h{position:relative;z-index:1;font-weight:800;font-size:1.7cqw;letter-spacing:.28em;color:#2f9e7e;white-space:nowrap}',
+    '.p12 .p12-slv .t{font-weight:800;line-height:1.08;color:#3b2218}',
+    '.p12 .p12-slv .t .n{color:#d7263d;margin-right:.25em}',
+    '.p12 .p12-slv .t + .t{margin-top:.6cqw}',
+    '.p12 .p12-slv .d{font-family:Lobster,cursive;font-size:2.9cqw;line-height:1.2;color:#d7263d;margin-top:.5cqw}',
+    '.p12 .p12-slv .p{position:relative;z-index:1;font-weight:700;font-size:2.15cqw;line-height:1.2;color:#3b2218;margin-top:.7cqw}',
+    '.p12 .p12-slv .p b{font-weight:800;color:#a8152b}',
+    '.p12 .p12-rib{clip-path:polygon(0 0,100% 0,96.5% 50%,100% 100%,0 100%,3.5% 50%);padding:1.8cqw 6cqw}',
+    /* candies */
+    '.p12 .p12-cd{position:absolute;z-index:6;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#3b2218;background:radial-gradient(circle,#fffaf5 0 59%,rgba(0,0,0,.08) 60%,transparent 61.5%),repeating-conic-gradient(from 8deg,var(--sc,#d7263d) 0 18deg,#fffaf5 18deg 36deg);box-shadow:inset 0 0 0 .35cqw rgba(255,255,255,.7),inset -.8cqw -1cqw 1.4cqw rgba(0,0,0,.18),0 .8cqw 1.2cqw rgba(0,0,0,.4)}',
+    '.p12 .p12-cd:before,.p12 .p12-cd:after{content:"";position:absolute;top:50%;width:var(--tw,3cqw);height:calc(var(--tw,3cqw) * 1.5);margin-top:calc(var(--tw,3cqw) * -.75);background:linear-gradient(180deg,rgba(255,255,255,.75),rgba(220,235,235,.45));z-index:-1}',
+    '.p12 .p12-cd:before{right:96%;clip-path:polygon(0 0,100% 40%,100% 60%,0 100%,22% 50%)}',
+    '.p12 .p12-cd:after{left:96%;clip-path:polygon(100% 0,0 40%,0 60%,100% 100%,78% 50%)}',
+    '.p12 .p12-cd .w{position:relative;z-index:1;font-weight:800;letter-spacing:.18em;color:#2f9e7e;line-height:1.1}',
+    '.p12 .p12-cd .dd{font-family:Lobster,cursive;line-height:1.1;color:#d7263d;white-space:nowrap}',
+    '.p12 .p12-cd .tm{position:relative;z-index:1;font-weight:800;line-height:1.1;white-space:nowrap}',
+    '.p12 .p12-cd .i{position:relative;z-index:2;font-weight:800;line-height:1.02}',
+    '.p12 .p12-cd .ds{position:relative;z-index:1;font-weight:600;line-height:1.05;color:#6b4a3a}',
+    '.p12 .p12-cd .ti{font-weight:800;line-height:1.02;color:#a8152b}',
+    '.p12 .p12-cd .nn{position:relative;z-index:2;font-weight:800;letter-spacing:.14em;color:#a8152b;line-height:1.1}',
+    '.p12 .p12-cd.h{--sc:#2f9e7e}.p12 .p12-cd.h .ti{color:#1f7a60}',
+    '.p12 .p12-cd .hm{position:absolute;top:-1.6cqw;left:50%;transform:translateX(-50%) rotate(-4deg);background:#2f9e7e;color:#fff;font-weight:800;font-size:1.15cqw;letter-spacing:.14em;padding:.25cqw .9cqw .05cqw;border-radius:3cqw;white-space:nowrap;z-index:2}',
+    '.p12 .p12-lab{position:absolute;z-index:5;left:50%;transform:translateX(-50%) rotate(-1deg);text-align:center;white-space:nowrap;background:#2f9e7e;color:#fff;border-radius:.8cqw;padding:.5cqw 3cqw .3cqw;box-shadow:0 .5cqw 0 #1f6b55}',
+    '.p12 .p12-lab b{display:block;font-family:Lobster,cursive;font-weight:400;font-size:2.8cqw;line-height:1.15}',
+    '.p12 .p12-lab small{display:block;font-weight:800;font-size:1.25cqw;letter-spacing:.2em;color:#dff7ee}',
+    /* footer */
+    '.p12 .p12-ft{position:absolute;z-index:7;left:5cqw;right:5cqw;bottom:4cqw;height:17cqw;background:#fff3e3;color:#3b2218;border-radius:1.4cqw;display:flex;align-items:center;gap:2.6cqw;padding:1cqw 3cqw 0 4cqw;overflow:hidden;box-shadow:0 1cqw 2cqw rgba(0,0,0,.45)}',
+    '.p12 .p12-ft:before{content:"";position:absolute;left:0;right:0;top:0;height:1.6cqw;background:repeating-linear-gradient(-45deg,#d7263d 0 1.2cqw,#fffaf5 1.2cqw 2.4cqw)}',
+    '.p12 .p12-ft .rg{flex:1;font-weight:600;font-size:1.85cqw;line-height:1.3}',
+    '.p12 .p12-ft .rg b{display:block;font-weight:800;font-size:3.3cqw;line-height:1.1;color:#3b2218;margin-bottom:.3cqw}',
+    '.p12 .p12-ft .rg b span{color:#d7263d}',
+    '.p12 .p12-qr{width:10.6cqw;height:10.6cqw;background:#fff;padding:.5cqw;flex:none;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;box-shadow:0 0 0 .3cqw #3b2218;border-radius:.4cqw}',
+    '.p12 .p12-qr img{width:100%;height:100%;display:block}',
+    '.p12 .p12-lg{display:flex;flex-direction:column;gap:.8cqw;flex:none;width:20cqw}',
+    '.p12 .p12-lg span{background:#d7263d;color:#fff;font-weight:800;font-size:1.4cqw;text-align:center;padding:.5cqw .8cqw .25cqw;white-space:nowrap;border-radius:3cqw}',
+    '.p12 .p12-lg span:nth-child(2){background:#2f9e7e}.p12 .p12-lg span:nth-child(3){background:#3b2218}',
+    /* square */
+    '.p12.sq .p12-logo{left:4.5cqw;top:4.5cqw;width:12cqw;height:12cqw}.p12.sq .p12-logo img{width:9cqw}',
+    '.p12.sq .p12-logo.pip{width:14.5cqw;height:9.5cqw;top:5cqw}.p12.sq .p12-logo.pip img{width:13cqw}',
+    '.p12.sq .p12-hd{left:20cqw;top:3.8cqw}.p12.sq.partner .p12-hd{left:22cqw}.p12.sq .p12-hd .k{font-size:1.4cqw}.p12.sq .p12-hd .t{font-size:5.4cqw}',
+    '.p12.sq .p12-hd .m b{font-size:1.85cqw}.p12.sq .p12-hd .m i{font-size:1.5cqw}.p12.sq .p12-hd .w{font-size:2cqw;margin-top:.5cqw}',
+    '.p12.sq .p12-badge{width:17.5cqw;height:17.5cqw;top:2.5cqw;right:3cqw}',
+    '.p12.sq .p12-slv{padding:2.4cqw 3.4cqw}.p12.sq .p12-slv .h{font-size:1.4cqw}.p12.sq .p12-slv .d{font-size:2.3cqw}.p12.sq .p12-slv .p{font-size:1.8cqw;margin-top:.4cqw}',
+    '.p12.sq .p12-rib{padding:1.9cqw 6cqw 1.8cqw}',
+    '.p12.sq .p12-ft{height:13cqw;bottom:3cqw;left:4cqw;right:4cqw;gap:2.2cqw;padding:1cqw 2.6cqw 0 3.6cqw}',
+    '.p12.sq .p12-ft .rg{font-size:1.55cqw}.p12.sq .p12-ft .rg b{font-size:2.8cqw}',
+    '.p12.sq .p12-qr{width:8.6cqw;height:8.6cqw}.p12.sq .p12-lg{width:18cqw}.p12.sq .p12-lg span{font-size:1.22cqw;padding:.4cqw .6cqw .2cqw}'
+  ].join('\n'),
+  fn: function (spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, n2 = !solo;
+    var uid = 'p12u' + (partner ? 1 : 0) + (sq ? 1 : 0) + S.length;
+    var HT = sq ? 100 : 129.41;
+    function f(n) { return (+n).toFixed(2); }
+    var seed = 12 + (partner ? 3 : 0) + (sq ? 5 : 0) + S.length;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+
+    /* ---------- recurring PTC badge ---------- */
+    function badge(c) {
+      var id = uid + 'b';
+      return '<svg class="p12-badge" viewBox="0 0 100 100"><defs><path id="' + id + 't" d="M17 50 A33 33 0 0 1 83 50"/><path id="' + id + 'u" d="M14 52 A36 36 0 0 0 86 52"/></defs>'
+        + '<circle cx="50" cy="50" r="48" fill="' + c.ring + '"/><circle cx="50" cy="50" r="44.5" fill="none" stroke="' + c.line + '" stroke-width="1" stroke-dasharray="2.2 1.6"/>'
+        + '<circle cx="50" cy="50" r="30" fill="' + c.fill + '"/>'
+        + '<text font-family="Baloo 2,sans-serif" font-weight="800" font-size="10.5" letter-spacing="1.2" fill="' + c.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+        + '<text font-family="Baloo 2,sans-serif" font-weight="800" font-size="10.5" letter-spacing="2.4" fill="' + c.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle" dominant-baseline="hanging">CAFÉ</textPath></text>'
+        + '<circle cx="10.5" cy="52" r="2" fill="' + c.text + '"/><circle cx="89.5" cy="52" r="2" fill="' + c.text + '"/>'
+        + '<g fill="none" stroke="' + c.steam + '" stroke-width="2.4" stroke-linecap="round"><path d="M41 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/><path d="M50 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -8"/><path d="M59 44 c-3 -4 3 -6 0 -10 c-2 -3 1 -5 0 -7"/></g>'
+        + '<path d="M62 52 h4 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + c.cup + '" stroke-width="3.2"/>'
+        + '<path d="M35 47 h29 l-2.6 17 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + c.cup + '"/>'
+        + '<path d="M35.6 51 h27.8 l-.8 4.6 h-26.2 z" fill="' + c.band + '"/>'
+        + '<ellipse cx="49.5" cy="71" rx="21" ry="3.4" fill="' + c.cup + '"/><ellipse cx="49.5" cy="70.2" rx="14" ry="1.5" fill="' + c.band + '" opacity=".6"/>'
+        + '</svg>';
+    }
+
+    /* ---------- drawings ---------- */
+    var cupN = 0;
+    function cane(x0, y0, x1, y1, w) {
+      var dx = x1 - x0, dy = y1 - y0, L = Math.sqrt(dx * dx + dy * dy), ux = dx / L, uy = dy / L, px = -uy, py = ux, r = w * 2.2;
+      var p = 'M' + f(x0) + ' ' + f(y0) + ' L' + f(x1) + ' ' + f(y1) + ' A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(x1 + px * 2 * r) + ' ' + f(y1 + py * 2 * r) + ' L' + f(x1 + px * 2 * r - ux * r * .9) + ' ' + f(y1 + py * 2 * r - uy * r * .9);
+      return '<path d="' + p + '" fill="none" stroke="#fffaf5" stroke-width="' + f(w) + '" stroke-linecap="round"/><path d="' + p + '" fill="none" stroke="#d7263d" stroke-width="' + f(w) + '" stroke-dasharray="' + f(w * .7) + ' ' + f(w * .9) + '"/>';
+    }
+    function cup(cx, yTop, W, Wb, yBot, caneArgs, cs) {
+      cs = cs || .75;
+      var id = uid + 'c' + (cupN++), lidY = yTop + W * .14, bodyY = lidY + W * .07;
+      var g = '<defs><clipPath id="' + id + '"><path d="M' + f(cx - W / 2) + ' ' + f(bodyY) + ' L' + f(cx + W / 2) + ' ' + f(bodyY) + ' L' + f(cx + Wb / 2) + ' ' + f(yBot) + ' L' + f(cx - Wb / 2) + ' ' + f(yBot) + 'Z"/></clipPath></defs>';
+      g += '<ellipse cx="' + f(cx) + '" cy="' + f(yBot + .6) + '" rx="' + f(Wb * .62) + '" ry="' + f(W * .04) + '" fill="rgba(0,0,0,.35)"/>';
+      if (caneArgs) g += cane.apply(null, caneArgs);
+      g += '<g clip-path="url(#' + id + ')"><rect x="' + f(cx - W / 2) + '" y="' + f(bodyY) + '" width="' + f(W) + '" height="' + f(yBot - bodyY) + '" fill="#d7263d"/>';
+      for (var k = -6; k < 16; k++) g += '<rect x="' + f(cx - W / 2 + k * W * .11) + '" y="' + f(bodyY - 4) + '" width="' + f(W * .045) + '" height="' + f(yBot - bodyY + 8) + '" fill="#fffaf5" opacity=".9" transform="rotate(-28 ' + f(cx) + ' ' + f((bodyY + yBot) / 2) + ')"/>';
+      g += '<rect x="' + f(cx + W * .28) + '" y="' + f(bodyY) + '" width="' + f(W * .25) + '" height="' + f(yBot - bodyY) + '" fill="rgba(0,0,0,.14)"/><rect x="' + f(cx - W * .42) + '" y="' + f(bodyY) + '" width="' + f(W * .06) + '" height="' + f(yBot - bodyY) + '" fill="rgba(255,255,255,.25)"/></g>';
+      // lid
+      g += '<rect x="' + f(cx - W / 2 - W * .03) + '" y="' + f(lidY) + '" width="' + f(W * 1.06) + '" height="' + f(W * .075) + '" rx="' + f(W * .03) + '" fill="#f4ece3"/><rect x="' + f(cx - W / 2 - W * .03) + '" y="' + f(lidY + W * .05) + '" width="' + f(W * 1.06) + '" height="' + f(W * .025) + '" rx="' + f(W * .012) + '" fill="#d8cabd"/>';
+      // whipped-cream swirl (three tiers + peak) with chocolate drizzle
+      var tiers = [[.44, .11, 0], [.33, .1, -.12], [.21, .085, -.23]], baseY = lidY + W * .005;
+      tiers.forEach(function (t) {
+        var cy = baseY + t[2] * W * cs, rx = t[0] * W, ry = t[1] * W * cs;
+        g += '<ellipse cx="' + f(cx) + '" cy="' + f(cy) + '" rx="' + f(rx) + '" ry="' + f(ry) + '" fill="#fffaf5"/>';
+        g += '<path d="M' + f(cx - rx * .85) + ' ' + f(cy + ry * .35) + ' Q' + f(cx) + ' ' + f(cy + ry * 1.05) + ' ' + f(cx + rx * .85) + ' ' + f(cy + ry * .35) + '" fill="none" stroke="#e9dccd" stroke-width="' + f(W * .012) + '" stroke-linecap="round"/>';
+      });
+      var pk = baseY - .3 * W * cs;
+      g += '<path d="M' + f(cx - W * .1) + ' ' + f(pk + W * .04 * cs) + ' Q' + f(cx - W * .02) + ' ' + f(pk - W * .03 * cs) + ' ' + f(cx + W * .04) + ' ' + f(pk - W * .08 * cs) + ' Q' + f(cx + W * .05) + ' ' + f(pk) + ' ' + f(cx + W * .1) + ' ' + f(pk + W * .04 * cs) + 'Z" fill="#fffaf5"/>';
+      g += '<path d="M' + f(cx - W * .36) + ' ' + f(baseY - W * .02 * cs) + ' q' + f(W * .06) + ' ' + f(W * .05 * cs) + ' ' + f(W * .12) + ' 0 t' + f(W * .12) + ' 0 t' + f(W * .12) + ' 0 t' + f(W * .12) + ' 0 t' + f(W * .12) + ' 0" fill="none" stroke="#5a3726" stroke-width="' + f(W * .016) + '" stroke-linecap="round"/>';
+      g += '<path d="M' + f(cx - W * .24) + ' ' + f(baseY - W * .14 * cs) + ' q' + f(W * .06) + ' ' + f(W * .045 * cs) + ' ' + f(W * .12) + ' 0 t' + f(W * .12) + ' 0 t' + f(W * .12) + ' 0 t' + f(W * .1) + ' 0" fill="none" stroke="#5a3726" stroke-width="' + f(W * .014) + '" stroke-linecap="round"/>';
+      for (var s = 0; s < 10; s++) { var sx = cx + (rnd() - .5) * W * .55, sy = baseY - W * cs * (.04 + rnd() * .2); g += '<rect x="' + f(sx) + '" y="' + f(sy) + '" width="' + f(W * .028) + '" height="' + f(W * .009) + '" rx=".1" fill="' + (s % 3 ? '#d7263d' : '#2f9e7e') + '" transform="rotate(' + f(rnd() * 180) + ' ' + f(sx) + ' ' + f(sy) + ')"/>'; }
+      return g;
+    }
+    function miniCandy(x, y, r, mint) {
+      var g = '<g transform="translate(' + f(x) + ' ' + f(y) + ')"><path d="M' + f(-r * 1.9) + ' ' + f(-r * .7) + ' L' + f(-r * .8) + ' 0 L' + f(-r * 1.9) + ' ' + f(r * .7) + 'Z M' + f(r * 1.9) + ' ' + f(-r * .7) + ' L' + f(r * .8) + ' 0 L' + f(r * 1.9) + ' ' + f(r * .7) + 'Z" fill="rgba(255,255,255,.55)"/><circle r="' + f(r) + '" fill="#fffaf5"/>';
+      for (var i = 0; i < 6; i++) g += '<path d="M0 0 L' + f(r * Math.cos(i * 1.047)) + ' ' + f(r * Math.sin(i * 1.047)) + ' A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(r * Math.cos(i * 1.047 + .5)) + ' ' + f(r * Math.sin(i * 1.047 + .5)) + 'Z" fill="' + (mint ? '#2f9e7e' : '#d7263d') + '"/>';
+      return g + '<circle r="' + f(r * .25) + '" fill="#fffaf5"/></g>';
+    }
+    function mint(x, y, s) { return '<path d="M' + f(x) + ' ' + f(y - s) + ' L' + f(x + s * .3) + ' ' + f(y - s * .3) + ' L' + f(x + s) + ' ' + f(y) + ' L' + f(x + s * .3) + ' ' + f(y + s * .3) + ' L' + f(x) + ' ' + f(y + s) + ' L' + f(x - s * .3) + ' ' + f(y + s * .3) + ' L' + f(x - s) + ' ' + f(y) + ' L' + f(x - s * .3) + ' ' + f(y - s * .3) + 'Z" fill="#8fd9c0" opacity=".85"/>'; }
+    function bean(x, y, s, r) { return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(r) + ')"><ellipse rx="' + f(s) + '" ry="' + f(s * .68) + '" fill="#24140d"/><path d="M' + f(-s * .8) + ' 0 Q0 ' + f(-s * .3) + ' ' + f(s * .8) + ' 0" stroke="#6b4a3a" stroke-width="' + f(s * .16) + '" fill="none"/></g>'; }
+
+    /* ---------- header ---------- */
+    var month = H.MONTHS[spec.month - 1], series = H.esc(spec.series || 'Parent Talk Café'), sw = series.split(' '), last = sw.pop();
+    var logo = partner ? '<div class="p12-logo pip"><img src="' + spec.pipUrl + '" alt=""></div>' : '<div class="p12-logo"><img src="' + spec.logoUrl + '" alt=""></div>';
+    var hd = '<div class="p12-hd"><div class="k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="t">' + (sw.length ? sw.join(' ') + ' ' : '') + '<span>' + last + '</span></div>'
+      + '<div class="m"><b>' + month.toUpperCase() + ' ' + spec.year + '</b><i>ON ZOOM</i></div>'
+      + '<div class="w">' + H.PTC_WHERE + '</div></div>';
+    var bdg = badge({ ring: '#d7263d', line: '#fffaf5', fill: '#fff3e3', text: '#fffaf5', cup: '#3b2218', band: '#8fd9c0', steam: '#d7263d' });
+
+    /* ---------- sleeve text ---------- */
+    var L = Math.max.apply(null, spec.sessions.map(function (s) { return String(s.lesson || '').length; }));
+    var tfs;
+    if (sq) tfs = partner ? (n2 ? 2.6 : 3.2) : (n2 ? 3.1 : (L > 30 ? 3.7 : 4.4));
+    else tfs = partner ? (n2 ? 3.3 : (L > 30 ? 4 : 4.8)) : (n2 ? 4.2 : (L > 30 ? 4.9 : 5.8));
+    var pres = spec.presenter ? '<div class="p">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var topics = S.map(function (s, i) { return '<div class="t" style="font-size:' + f(tfs) + 'cqw">' + (n2 ? '<span class="n">' + (i + 1) + '.</span>' : '') + s.lesson + '</div>'; }).join('');
+    var showDesc = solo && S[0].desc && !partner;
+    function sleeve(style, cls) {
+      return '<div class="p12-slv' + (cls ? ' ' + cls : '') + '" style="' + style + '"><div class="h">' + (n2 ? 'ON THE CUP THIS MONTH' : 'TODAY\'S TOPIC') + '</div>' + topics + (showDesc ? '<div class="d">' + S[0].desc + '</div>' : '') + pres + '</div>';
+    }
+
+    /* ---------- composition ---------- */
+    var d = '', items = '', lab = '', slv = '';
+    function candy(s, n, x, y, D, ddf, tmf, wf) {
+      return '<div class="p12-cd" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(D) + 'cqw;height:' + f(D) + 'cqw;--tw:' + f(D * .16) + 'cqw">'
+        + (n ? '<div class="nn" style="font-size:' + f(wf) + 'cqw">TOPIC ' + n + '</div>' : '')
+        + '<div class="w" style="font-size:' + f(wf) + 'cqw">' + s.dow.toUpperCase() + '</div>'
+        + '<div class="dd" style="font-size:' + f(ddf) + 'cqw">' + s.mon + ' ' + s.day + '</div>'
+        + '<div class="tm" style="font-size:' + f(tmf) + 'cqw">' + s.time + '</div></div>';
+    }
+    function zoneCandies(pos, D, lf, df, tf) {
+      var rows = H.zoneRows(spec.sessions);
+      return rows.map(function (r, i) {
+        var tl = String(r.time).length, long = tl > 9;
+        var tt = long ? String(r.time).replace(' / ', '<br>') : r.time;
+        return '<div class="p12-cd' + (r.home ? ' h' : '') + '" style="left:' + f(pos[i][0]) + 'cqw;top:' + f(pos[i][1]) + 'cqw;width:' + f(D) + 'cqw;height:' + f(D) + 'cqw;--tw:' + f(D * .12) + 'cqw;padding:0 ' + f(D * .2) + 'cqw">'
+          + (r.home ? '<span class="hm">HAWAIʻI TIME</span>' : '')
+          + '<div class="i" style="font-size:' + f(lf) + 'cqw">' + r.label + '</div><div class="ds" style="font-size:' + f(df) + 'cqw">' + r.days + '</div><div class="ti" style="font-size:' + f(long ? tf * .72 : tf) + 'cqw">' + tt + '</div></div>';
+      }).join('');
+    }
+    if (!sq && !partner) {
+      d += cup(50, 33, 64, 50, 104, [58, 44, 66.5, 32.5, 2.2]);
+      slv = sleeve('left:19.4cqw;right:19.4cqw;top:55cqw;height:33cqw;clip-path:polygon(0 0,100% 0,96.5% 100%,3.5% 100%)');
+      if (solo) {
+        items = candy(S[0], 0, 69, 80.5, 26, 5.6, 1.9, 1.5);
+        d += miniCandy(10, 92, 4.2, true) + miniCandy(14, 102.5, 3.2, false) + bean(6, 82, 1.3, 30) + mint(9, 70, 1.6) + mint(91, 66, 1.4) + mint(6, 40, 1.2) + mint(94, 35, 1.3);
+      } else {
+        items = candy(S[0], 1, 3, 78, 26, 5, 1.8, 1.35) + candy(S[1], 2, 71, 80, 26, 5, 1.8, 1.35);
+        d += mint(9, 68, 1.6) + mint(91, 66, 1.4) + mint(6, 40, 1.2) + mint(94, 35, 1.3);
+      }
+    } else if (!sq && partner) {
+      d += cup(50, 29.5, 72, 60, 67, [60, 40, 68, 30.5, 2], .55);
+      slv = sleeve('left:15.2cqw;right:15.2cqw;top:43.5cqw;height:21cqw;padding:2.2cqw 4.4cqw;clip-path:polygon(0 0,100% 0,98% 100%,2% 100%)');
+      lab = '<div class="p12-lab" style="top:68cqw"><b>What time is it on your island?</b><small>' + (n2 ? 'BOTH TOPICS' : 'THE TOPIC') + ' · YOUR LOCAL TIME</small></div>';
+      items = zoneCandies([[4, 75.5], [28.5, 77], [53.5, 75.5], [78, 77], [16.25, 90], [41, 91.2], [65.75, 90]], 18, 1.4, 1.1, 1.85);
+      d += mint(6, 40, 1.2) + mint(94, 36, 1.3) + mint(7, 62, 1.4) + mint(93, 60, 1.2);
+    } else if (sq && !partner) {
+      d += cup(32, 25, 52, 42, 81, [40, 34, 45.5, 25.5, 1.8], .62);
+      slv = sleeve('left:7cqw;width:50cqw;top:41.5cqw;height:29cqw;clip-path:polygon(0 0,100% 0,96.5% 100%,3.5% 100%)');
+      if (solo) {
+        items = candy(S[0], 0, 64.5, 34, 28, 5.6, 1.85, 1.45);
+        d += miniCandy(70, 72, 3.4, true) + miniCandy(86, 76, 2.8, false) + mint(94, 30, 1.2) + mint(62, 26, 1);
+      } else {
+        items = candy(S[0], 1, 67, 24.5, 24, 4.4, 1.6, 1.2) + candy(S[1], 2, 67, 52, 24, 4.4, 1.6, 1.2);
+      }
+    } else {
+      slv = sleeve('left:5cqw;right:5cqw;top:24.5cqw;transform:rotate(-1deg)', 'p12-rib');
+      items = zoneCandies([[6.5, 43], [29.5, 44], [53.5, 43], [76.5, 44], [18, 61], [41.5, 62], [65, 61]], 17, 1.25, 1, 1.65);
+      d += cup(8, 63, 10, 8, 78.5) + cup(92, 63, 10, 8, 78.5) + mint(50, 40.5, .9);
+    }
+    var edges = sq ? '' : '';
+    var svg = '<svg class="p12-deco" viewBox="0 0 100 ' + HT + '" preserveAspectRatio="none">' + d + '</svg>';
+    var foot = '<div class="p12-ft"><div class="rg"><b>REGISTER at <span>LDAHawaii.org</span></b>Get your Zoom link, scan the QR code,<br>or call ' + H.phone(partner) + '</div><div class="p12-qr">' + H.qrImg(spec, partner) + '</div><div class="p12-lg">' + H.badges(spec, partner) + '</div></div>';
+    return '<div class="p12' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + edges + svg + bdg + logo + hd + slv + lab + items + foot + '</div>';
+  }
+}, 'ptc');
