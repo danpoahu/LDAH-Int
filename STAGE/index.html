@@ -6263,7 +6263,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.15-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.16-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -49593,7 +49593,10 @@ window.cmsRenderVolunteerRequests = function() {
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
         '<div><div class="vac-name" style="font-size:1.08rem;' + (done ? 'color:#64748B;' : '') + '">' + rsEscape(r.title || '(untitled request)') +
           (done ? ' <span class="vac-badge" style="background:#E2E8F0;color:#475569;vertical-align:middle;">completed</span>' : (isFull ? ' <span class="vac-badge" style="background:#DCFCE7;color:#15803D;vertical-align:middle;">full</span>' : '')) + '</div>' +
-          (meta ? '<div class="vac-sub">' + rsEscape(meta) + '</div>' : '') + '</div>' +
+          (meta ? '<div class="vac-sub">' + rsEscape(meta) + '</div>' : '') +
+          '<div class="vac-sub">Lead: <b>' + rsEscape(r.leadName || 'not set') + '</b>' +
+            ((window.currentUserData || {}).role === 'superAdmin' ? ' &middot; <a href="javascript:void(0)" onclick="cmsVolPickLead(\'' + rsEscape(r.id) + '\')">' + (r.leadName ? 'change' : 'set lead') + '</a>' : '') + '</div>' +
+        '</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
           '<span class="' + confCls + '"' + (confStyle ? ' style="' + confStyle + '"' : '') + '>' + confLabel + '</span>' +
           (wait ? '<span class="vac-badge" style="background:#FEF3C7;color:#B45309;">' + wait + ' waiting</span>' : '') +
@@ -49805,6 +49808,126 @@ window.cmsVolAddToRequest = async function(reqId) {
   });
 };
 
+/* ── Lead + hours (v155.16-STAGE, Daniel 2026-11-09) ──────────────────────
+   "whomever is in charge, like tonight is Chassidy, ... or any superAdmin can
+   adjust the hours as needed but not regular attendees". The Lead is picked on
+   the request (Super Admins pick); the Lead and any Super Admin get Adjust hours
+   in View roster. The server (staffAdjustVolunteerHours) checks the same rule. */
+window._volReqDateKey = function(r) {
+  var t = String((r && r.date) || '').toLowerCase(), m;
+  var pad = function(n){ n = +n; return (n < 10 ? '0' : '') + n; };
+  var yNow = new Date().getFullYear();
+  if ((m = /(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t))) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+  if ((m = /\b(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})\b/.exec(t))) return (m[3].length === 2 ? 2000 + +m[3] : m[3]) + '-' + pad(m[1]) + '-' + pad(m[2]);
+  if ((m = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(\d{4}))?/.exec(t))) {
+    var mo = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1]) + 1;
+    return (m[3] || yNow) + '-' + pad(mo) + '-' + pad(m[2]);
+  }
+  var c = r && r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : new Date();
+  return new Date(c.getTime() - 10 * 3600 * 1000).toISOString().slice(0, 10);
+};
+window._volCanAdjust = function(r) {
+  var me = window.currentUserData || {};
+  return me.role === 'superAdmin' || (!!me.uid && !!r && r.leadUid === me.uid);
+};
+window.cmsVolPickLead = async function(reqId) {
+  var r = (window._cmsVolRequests || []).find(function(x){ return x.id === reqId; });
+  if (!r) return;
+  var old = document.getElementById('cmsVolLeadOverlay'); if (old) old.remove();
+  var staff = [];
+  try {
+    var us = await db.collection('userRoles').get();
+    us.forEach(function(d){ var u = d.data() || {}; if (u.archived === true || ['superAdmin','admin','webAdmin'].indexOf(u.role) === -1) return; var nm = (u.displayName || '').trim(); if (!nm || /it[\s._-]*help/i.test(nm)) return; staff.push({ uid: d.id, name: nm }); });
+  } catch (e) { _showToast('Could not load staff: ' + e.message, '#DC2626'); return; }
+  staff.sort(function(a, b){ return a.name.localeCompare(b.name); });
+  var ov = document.createElement('div');
+  ov.id = 'cmsVolLeadOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML = '<div style="background:#fff;max-width:380px;width:100%;border-radius:14px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.3);">' +
+    '<div style="background:linear-gradient(135deg,#166534,#16A34A);color:#fff;padding:14px 18px;font-weight:700;">Who is in charge?</div>' +
+    '<div style="padding:12px 18px;max-height:60vh;overflow-y:auto;">' + staff.map(function(u){
+      return '<button type="button" data-uid="' + rsEscape(u.uid) + '" data-name="' + rsEscape(u.name) + '" class="cmsVolLeadPick" style="display:block;width:100%;text-align:left;padding:10px 12px;margin:0 0 6px;border:2px solid ' + (u.uid === r.leadUid ? '#16A34A' : '#E2E8F0') + ';border-radius:10px;background:#fff;font-weight:600;cursor:pointer;">' + rsEscape(u.name) + '</button>';
+    }).join('') + '</div>' +
+    '<div style="padding:10px 18px;border-top:1px solid #E2E8F0;text-align:right;"><button type="button" class="btn btn-ghost" style="font-size:.84rem;" onclick="document.getElementById(\'cmsVolLeadOverlay\').remove()">Cancel</button></div></div>';
+  document.body.appendChild(ov);
+  Array.prototype.forEach.call(ov.querySelectorAll('.cmsVolLeadPick'), function(b){
+    b.addEventListener('click', async function(){
+      try {
+        await db.collection('volunteerRequests').doc(reqId).set({ leadUid: b.getAttribute('data-uid'), leadName: b.getAttribute('data-name') }, { merge: true });
+        if (window.auditLog) window.auditLog('Set help request lead', (r.title || reqId) + ': ' + b.getAttribute('data-name'));
+        ov.remove();
+        _showToast(b.getAttribute('data-name') + ' is the lead for ' + (r.title || 'this request') + '.', '#15803D');
+        await cmsLoadVolunteerRequests();
+      } catch (e) { _showToast('Could not set the lead: ' + e.message, '#DC2626'); }
+    });
+  });
+};
+
+// That day's QR / staff hours for each person on the request, for View roster.
+window._volLoadDayHours = async function(r) {
+  var day = window._volReqDateKey(r), out = {};
+  await Promise.all((r.participants || []).map(async function(p){
+    var vid = p.volunteerId || p.id;
+    try {
+      var ls = await db.collection('volunteerOnboarding').doc(vid).collection('logs').where('serviceDate', '==', day).get();
+      out[vid] = ls.docs.map(function(d){ return Object.assign({ id: d.id }, d.data() || {}); }).sort(function(a, b){ return String(a.timeIn).localeCompare(String(b.timeIn)); });
+      var o = await db.collection('volunteerOnboarding').doc(vid).get();
+      var oc = o.exists ? (o.data() || {}).openCheckIn : null;
+      if (oc && oc.at && oc.at.toDate) out[vid].open = oc.at.toDate();
+    } catch (e) { out[vid] = []; }
+  }));
+  return { day: day, byVol: out };
+};
+
+window.cmsVolAdjustHours = function(reqId, vid) {
+  var r = (window._cmsVolRequests || []).find(function(x){ return x.id === reqId; });
+  if (!r || !window._volCanAdjust(r)) { _showToast('Only the lead or a Super Admin can change hours.', '#DC2626'); return; }
+  var p = (r.participants || []).find(function(x){ return (x.volunteerId || x.id) === vid; }) || { name: '' };
+  var H = window._volDayHours || { day: window._volReqDateKey(r), byVol: {} };
+  var list = (H.byVol[vid] || []).slice();
+  var types = ['Community event', 'Outreach', 'Training', 'Office help', 'IEP meeting', 'Other'];
+  var opt = function(sel){ return types.map(function(t){ return '<option' + (t === sel ? ' selected' : '') + '>' + t + '</option>'; }).join(''); };
+  var row = function(e, i){
+    return '<div class="cmsVolHrRow" data-id="' + rsEscape(e.id || '') + '" style="display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:6px;align-items:end;padding:8px 0;border-bottom:1px solid #F1F5F9;">' +
+      '<label style="font-size:.74rem;color:#475569;font-weight:700;">In<input type="time" class="hrIn" value="' + rsEscape(e.timeIn || '') + '" style="width:100%;padding:6px;border:1px solid #CBD5E1;border-radius:6px;"></label>' +
+      '<label style="font-size:.74rem;color:#475569;font-weight:700;">Out<input type="time" class="hrOut" value="' + rsEscape(e.timeOut || '') + '" style="width:100%;padding:6px;border:1px solid #CBD5E1;border-radius:6px;"></label>' +
+      '<label style="font-size:.74rem;color:#475569;font-weight:700;">Type<select class="hrType" style="width:100%;padding:6px;border:1px solid #CBD5E1;border-radius:6px;">' + opt(e.serviceType || 'Community event') + '</select></label>' +
+      '<div style="display:flex;gap:4px;">' +
+        '<button type="button" class="btn btn-primary hrSave" style="font-size:.76rem;padding:6px 10px;">' + (e.id ? 'Save' : 'Add') + '</button>' +
+        (e.id ? '<button type="button" class="btn btn-ghost hrDel" style="font-size:.76rem;padding:6px 10px;color:#B91C1C;">Remove</button>' : '') +
+      '</div></div>';
+  };
+  var old = document.getElementById('cmsVolHrOverlay'); if (old) old.remove();
+  var ov = document.createElement('div');
+  ov.id = 'cmsVolHrOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML = '<div style="background:#fff;max-width:560px;width:100%;max-height:88vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.3);">' +
+    '<div style="background:linear-gradient(135deg,#0E7490,#0891B2);color:#fff;padding:14px 18px;"><div style="font-weight:700;">Adjust hours: ' + rsEscape(p.name || '') + '</div><div style="font-size:.82rem;opacity:.9;">' + rsEscape(H.day) + ' &middot; ' + rsEscape(r.title || '') + '</div></div>' +
+    '<div style="padding:8px 18px;overflow-y:auto;flex:1;">' + (list.length ? list.map(row).join('') : '<p style="color:#64748B;margin:8px 0;">No hours logged for this day yet. Add them below.</p>') +
+      '<div style="margin-top:10px;font-size:.78rem;font-weight:800;color:#0E7490;text-transform:uppercase;letter-spacing:.05em;">Add an entry</div>' + row({}, -1) + '</div>' +
+    '<div style="padding:10px 18px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;"><span id="cmsVolHrMsg" style="font-size:.82rem;color:#64748B;">Every change is saved to the Audit Log.</span><button type="button" class="btn btn-ghost" style="font-size:.84rem;" onclick="document.getElementById(\'cmsVolHrOverlay\').remove()">Close</button></div></div>';
+  document.body.appendChild(ov);
+  var call = firebase.functions().httpsCallable('staffAdjustVolunteerHours');
+  Array.prototype.forEach.call(ov.querySelectorAll('.cmsVolHrRow'), function(rowEl){
+    var id = rowEl.getAttribute('data-id');
+    var go = async function(action){
+      var msg = document.getElementById('cmsVolHrMsg');
+      if (action === 'delete' && !confirm('Remove this entry?')) return;
+      msg.style.color = '#64748B'; msg.textContent = 'Saving…';
+      try {
+        await call({ volunteerId: vid, requestId: reqId, action: action, entryId: id || '', serviceDate: H.day,
+          serviceType: rowEl.querySelector('.hrType').value, serviceDetail: r.title || '',
+          timeIn: rowEl.querySelector('.hrIn').value, timeOut: rowEl.querySelector('.hrOut').value });
+        ov.remove();
+        _showToast('Hours ' + (action === 'add' ? 'added' : action === 'edit' ? 'updated' : 'removed') + ' for ' + (p.name || 'the volunteer') + '.', '#15803D');
+        cmsViewRoster(reqId);
+      } catch (e) { msg.style.color = '#B91C1C'; msg.textContent = (e && e.message) || 'Could not save.'; }
+    };
+    rowEl.querySelector('.hrSave').addEventListener('click', function(){ go(id ? 'edit' : 'add'); });
+    var del = rowEl.querySelector('.hrDel'); if (del) del.addEventListener('click', function(){ go('delete'); });
+  });
+};
+
 /* On-screen roster (v155.12-STAGE, Daniel: "view on screen not only print").
    Everyone on the request with where they stand: attended, confirmed (by link or
    added by staff), waiting list, or invited with no answer yet. */
@@ -49836,7 +49959,8 @@ window.cmsViewRoster = function(reqId) {
         (ps.length ? ps.map(function(p, i){
           return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #F1F5F9;">' +
             '<div style="width:22px;color:#94A3B8;font-size:.82rem;text-align:right;">' + (i + 1) + '</div>' +
-            '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + rsEscape(p.name || '') + '</div><div style="font-size:.8rem;color:#64748B;overflow:hidden;text-overflow:ellipsis;">' + rsEscape(p.email || '') + '</div></div>' +
+            '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + rsEscape(p.name || '') + '</div><div style="font-size:.8rem;color:#64748B;overflow:hidden;text-overflow:ellipsis;">' + rsEscape(p.email || '') + '</div>' +
+              '<div data-vid="' + rsEscape(p.volunteerId || p.id) + '" style="font-size:.8rem;color:#94A3B8;margin-top:2px;">loading hours…</div></div>' +
             pill(p) + '</div>';
         }).join('') : '<div style="color:#64748B;padding:14px 0;">No one is on this request yet. Use + Add volunteers.</div>') +
       '</div>' +
@@ -49848,6 +49972,17 @@ window.cmsViewRoster = function(reqId) {
   document.body.appendChild(ov);
   document.getElementById('cmsVolRosterClose').addEventListener('click', function(){ ov.remove(); });
   ov.addEventListener('click', function(e){ if (e.target === ov) ov.remove(); });
+  // Hours for the request's day, and Adjust hours for the Lead / Super Admins.
+  window._volLoadDayHours(r).then(function(H){
+    window._volDayHours = H;
+    var can = window._volCanAdjust(r);
+    Array.prototype.forEach.call(ov.querySelectorAll('[data-vid]'), function(el){
+      var vid = el.getAttribute('data-vid'), L = H.byVol[vid] || [];
+      var tot = L.reduce(function(a, e){ return a + (Number(e.hours) || 0); }, 0);
+      var txt = (L.length ? L.map(function(e){ return e.timeIn + '–' + e.timeOut; }).join(', ') + ' · ' + _vdHrs(tot) + ' h' : 'no hours yet') + (L.open ? ' · checked in now' : '');
+      el.innerHTML = '<span style="color:#0E7490;">' + rsEscape(txt) + '</span>' + (can ? ' &middot; <a href="javascript:void(0)" onclick="cmsVolAdjustHours(\'' + rsEscape(reqId) + '\',\'' + rsEscape(vid) + '\')">Adjust hours</a>' : '');
+    });
+  });
 };
 
 window.cmsPrintRoster = function(reqId) {
