@@ -6263,7 +6263,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.10-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.11-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -36433,6 +36433,32 @@ function cmsIslandOf(city, zip) {
 window.cmsSendAnnouncement = async function(eventId, collection, title) {
   var endpoint = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendEventAnnouncement';
 
+  /* Open at once (v155.10-STAGE, Daniel: "something pops immediately and then
+     spins"). The recipient count is a server call that can take 20-30 seconds
+     when the function is cold; the window used to appear only after it. A
+     loading panel shows on the click and is replaced by the real window. A
+     second click while it is loading does nothing. */
+  if (document.getElementById('cmsAnnLoading') || document.getElementById('cmsAnnOverlay')) return;
+  var _annLoading = document.createElement('div');
+  _annLoading.id = 'cmsAnnLoading';
+  _annLoading.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  _annLoading.innerHTML =
+    '<style>@keyframes cmsAnnSpin{to{transform:rotate(360deg)}}</style>' +
+    '<div style="background:#fff;max-width:420px;width:100%;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.35);overflow:hidden;">' +
+      '<div style="background:linear-gradient(135deg,#004E7C,#0891B2);color:#fff;padding:16px 20px;font-size:1.05rem;font-weight:700;">Announce</div>' +
+      '<div style="padding:26px 20px;display:flex;align-items:center;gap:14px;">' +
+        '<div style="width:30px;height:30px;border:4px solid #E2E8F0;border-top-color:#0891B2;border-radius:50%;animation:cmsAnnSpin .8s linear infinite;flex-shrink:0;"></div>' +
+        '<div><div style="font-weight:700;color:#0F172A;">Loading recipients&hellip;</div>' +
+        '<div style="font-size:.84rem;color:#64748B;margin-top:3px;">' + rsEscape(title || '') + '</div>' +
+        '<div style="font-size:.78rem;color:#94A3B8;margin-top:6px;">This can take up to 30 seconds the first time.</div></div>' +
+      '</div>' +
+      '<div style="padding:0 20px 16px;text-align:right;"><button type="button" id="cmsAnnLoadingCancel" style="background:#F1F5F9;color:#334155;border:1px solid #CBD5E1;border-radius:8px;padding:7px 16px;font-weight:600;cursor:pointer;">Cancel</button></div>' +
+    '</div>';
+  document.body.appendChild(_annLoading);
+  var _annCancelled = false;
+  function _annLoadingDone() { var l = document.getElementById('cmsAnnLoading'); if (l) l.remove(); }
+  document.getElementById('cmsAnnLoadingCancel').addEventListener('click', function() { _annCancelled = true; _annLoadingDone(); });
+
   // Audience filter state — persisted across dry-runs in this modal session.
   // v122.5.0: 'all' = current behavior; 'parents' = contact.type === 'Parent/Guardian'.
   var _annAudience = 'all';
@@ -36540,9 +36566,12 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
   try {
     counts = await _annDryRun(_annAudience);
   } catch (err) {
+    _annLoadingDone();
     _showToast('Dry-run failed: ' + err.message, '#DC2626');
     return;
   }
+  _annLoadingDone();
+  if (_annCancelled) return;
 
   // Step 2 — build confirmation modal (self-contained inline styles, no class inheritance)
   var myEmail = (window.currentUserData && window.currentUserData.email) || '';
