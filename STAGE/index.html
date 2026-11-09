@@ -6263,7 +6263,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.12-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.13-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -49599,6 +49599,7 @@ window.cmsRenderVolunteerRequests = function() {
       '</div>' +
       '<div class="vac-foot">' +
         '<button class="btn btn-primary" style="font-size:.8rem;" onclick="cmsRequestAttendance(\'' + rsEscape(r.id) + '\')">Take attendance</button>' +
+        '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsViewRoster(\'' + rsEscape(r.id) + '\')">View roster</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsPrintRoster(\'' + rsEscape(r.id) + '\')">Print roster</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsVolAddToRequest(\'' + rsEscape(r.id) + '\')">+ Add volunteers</button>' +
       '</div>' +
@@ -49799,6 +49800,51 @@ window.cmsVolAddToRequest = async function(reqId) {
       _showToast('Could not add: ' + (e && e.message || e), '#DC2626');
     }
   });
+};
+
+/* On-screen roster (v155.12-STAGE, Daniel: "view on screen not only print").
+   Everyone on the request with where they stand: attended, confirmed (by link or
+   added by staff), waiting list, or invited with no answer yet. */
+window.cmsViewRoster = function(reqId) {
+  var r = (window._cmsVolRequests || []).find(function(x){ return x.id === reqId; });
+  if (!r) return;
+  var old = document.getElementById('cmsVolRosterOverlay'); if (old) old.remove();
+  var rank = function(p){ return p.attended ? 0 : p.confirmed ? 1 : p.waitlisted ? 2 : 3; };
+  var ps = (r.participants || []).slice().sort(function(a, b){ return rank(a) - rank(b) || String(a.name || '').localeCompare(String(b.name || '')); });
+  var pill = function(p) {
+    if (p.attended) return '<span class="vac-badge vb-accepted">attended</span>';
+    if (p.confirmed) return '<span class="vac-badge vb-contacted">confirmed' + (p.addedByStaff ? ' (added by staff)' : '') + '</span>';
+    if (p.waitlisted) return '<span class="vac-badge" style="background:#FEF3C7;color:#B45309;">waiting list</span>';
+    return '<span class="vac-badge" style="background:#F1F5F9;color:#64748B;">no answer yet</span>';
+  };
+  var conf = ps.filter(function(p){ return p.confirmed; }).length, att = ps.filter(function(p){ return p.attended; }).length;
+  var meta = [[r.date, r.time].filter(Boolean).join(' · '), r.location].filter(Boolean).join(' — ');
+  var ov = document.createElement('div');
+  ov.id = 'cmsVolRosterOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML =
+    '<div style="background:#fff;max-width:620px;width:100%;max-height:88vh;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden;">' +
+      '<div style="background:linear-gradient(135deg,#166534,#16A34A);color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+        '<div><div style="font-weight:700;">' + rsEscape(r.title || 'Roster') + '</div>' + (meta ? '<div style="font-size:.82rem;opacity:.9;">' + rsEscape(meta) + '</div>' : '') + '</div>' +
+        '<button type="button" id="cmsVolRosterClose" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;flex-shrink:0;">&times;</button>' +
+      '</div>' +
+      '<div style="padding:10px 18px;font-size:.86rem;color:#475569;border-bottom:1px solid #E2E8F0;">' + ps.length + ' on this request &middot; ' + conf + ' confirmed' + (Number(r.maxVolunteers) > 0 ? ' of ' + Number(r.maxVolunteers) + ' needed' : '') + ' &middot; ' + att + ' attended</div>' +
+      '<div style="overflow-y:auto;flex:1;padding:4px 18px 10px;">' +
+        (ps.length ? ps.map(function(p, i){
+          return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #F1F5F9;">' +
+            '<div style="width:22px;color:#94A3B8;font-size:.82rem;text-align:right;">' + (i + 1) + '</div>' +
+            '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + rsEscape(p.name || '') + '</div><div style="font-size:.8rem;color:#64748B;overflow:hidden;text-overflow:ellipsis;">' + rsEscape(p.email || '') + '</div></div>' +
+            pill(p) + '</div>';
+        }).join('') : '<div style="color:#64748B;padding:14px 0;">No one is on this request yet. Use + Add volunteers.</div>') +
+      '</div>' +
+      '<div style="padding:12px 18px;border-top:1px solid #E2E8F0;display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button type="button" class="btn btn-ghost" style="font-size:.84rem;" onclick="document.getElementById(\'cmsVolRosterOverlay\').remove();cmsPrintRoster(\'' + rsEscape(reqId) + '\')">Print</button>' +
+        '<button type="button" class="btn btn-primary" style="font-size:.84rem;" onclick="document.getElementById(\'cmsVolRosterOverlay\').remove();cmsRequestAttendance(\'' + rsEscape(reqId) + '\')">Take attendance</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('cmsVolRosterClose').addEventListener('click', function(){ ov.remove(); });
+  ov.addEventListener('click', function(e){ if (e.target === ov) ov.remove(); });
 };
 
 window.cmsPrintRoster = function(reqId) {
