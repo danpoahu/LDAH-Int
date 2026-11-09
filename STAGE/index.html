@@ -6263,7 +6263,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.9-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.10-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -36528,6 +36528,11 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
     Array.prototype.forEach.call(host.querySelectorAll('.cmsAnnRecip'), function(cb) { cb.addEventListener('change', _annUpdateSelCount); });
     _annUpdateSelCount();
     if (typeof _annFilterRefresh === 'function') _annFilterRefresh();
+    /* The island / status dropdowns are the selection (v155.10-STAGE). A reload
+       of this list (Families radio, LDAH/PIP, date) used to re-tick everyone not
+       yet sent and silently drop an O\u02bbahu selection, so the 11-09 Nutcracker
+       blast went to every island. Re-apply the dropdowns after every render. */
+    if (typeof _annFilterApplyQuiet === 'function') _annFilterApplyQuiet();
   }
 
   // Step 1 — initial dry-run to get counts (default: all contacts)
@@ -36719,6 +36724,15 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       e.warn.style.display = msg ? 'block' : 'none';
     }
   }
+  function _annFilterApplyQuiet() {
+    var _e = _annFilterEls();
+    if (!_e.isl || !_e.st) return -1;          // list rendered before the filter exists: keep its ticks
+    var m = _annFilterMatches();
+    Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) { cb.checked = false; });
+    m.forEach(function(cb) { cb.checked = true; });
+    _annUpdateSelCount();
+    return m.length;
+  }
   function _annFilterApply() {
     var m = _annFilterMatches();
     Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip'), function(cb) { cb.checked = false; });
@@ -36728,9 +36742,11 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       _showToast(m.length ? m.length + ' recipient' + (m.length === 1 ? '' : 's') + ' ticked.' : 'Nobody matches that combination \u2014 nothing ticked.', m.length ? '#004E7C' : '#64748B');
     }
   }
+  // Choosing an island or status ticks exactly those people straight away
+  // (v155.10-STAGE); the count and the ticks can no longer disagree.
   ['cmsAnnFilterIsland', 'cmsAnnFilterStatus'].forEach(function(id) {
     var el = document.getElementById(id);
-    if (el) el.addEventListener('change', _annFilterRefresh);
+    if (el) el.addEventListener('change', function() { _annFilterRefresh(); _annFilterApply(); });
   });
   var _applyBtn = document.getElementById('cmsAnnFilterApply');
   if (_applyBtn) _applyBtn.addEventListener('click', _annFilterApply);
@@ -36853,6 +36869,26 @@ window.cmsSendAnnouncement = async function(eventId, collection, title) {
       sendBtn.disabled = false; sendBtn.textContent = 'Send Blast';
       return;
     }
+    /* Last check before a blast (v155.10-STAGE): name the audience by island, and
+       stop if anyone ticked is outside the island chosen in the filter. */
+    try {
+      var _byIsl = {}, _wantIsl = (document.getElementById('cmsAnnFilterIsland') || {}).value || '', _outside = 0;
+      Array.prototype.forEach.call(document.querySelectorAll('#cmsAnnRecipientList .cmsAnnRecip:checked'), function(cb) {
+        var k = cb.getAttribute('data-island') || '';
+        _byIsl[k] = (_byIsl[k] || 0) + 1;
+        if (_wantIsl && _wantIsl !== 'none' && k !== _wantIsl) _outside++;
+      });
+      var _lines = Object.keys(_byIsl).sort(function(a, b) { return _byIsl[b] - _byIsl[a]; }).map(function(k) {
+        return '  ' + (k ? (CMS_ISLAND_LABEL[k] || k) : 'No location on file') + ': ' + _byIsl[k];
+      }).join('\n');
+      var _msg = 'Send this announcement to ' + _selIds.length + ' ' + (_selIds.length === 1 ? 'person' : 'people') + '?\n\n' + _lines;
+      if (_outside) _msg = 'WARNING: ' + _outside + ' of the people ticked are NOT on ' + (CMS_ISLAND_LABEL[_wantIsl] || _wantIsl) + '.\n\n' + _msg;
+      if (!confirm(_msg)) {
+        resultEl.innerHTML = '<span style="color:#64748B;">Not sent.</span>';
+        sendBtn.disabled = false; sendBtn.textContent = 'Send Blast';
+        return;
+      }
+    } catch (_) {}
     resultEl.innerHTML = '<span style="color:#64748B;">Sending — this can take up to a minute for 50 recipients...</span>';
     /* Repeat-send guard (v154.14-STAGE): the server leaves out anyone emailed
        this announcement in the last 12 hours unless a repeat is confirmed, and
