@@ -6263,7 +6263,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.17-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.18-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -49606,6 +49606,7 @@ window.cmsRenderVolunteerRequests = function() {
       '<div class="vac-foot">' +
         '<button class="btn btn-primary" style="font-size:.8rem;" onclick="cmsRequestAttendance(\'' + rsEscape(r.id) + '\')">Take attendance</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsViewRoster(\'' + rsEscape(r.id) + '\')">View roster</button>' +
+        '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsVolHoursSheet(\'' + rsEscape(r.id) + '\')">Hours</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsPrintRoster(\'' + rsEscape(r.id) + '\')">Print roster</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsVolAddToRequest(\'' + rsEscape(r.id) + '\')">+ Add volunteers</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsVolEditRequest(\'' + rsEscape(r.id) + '\')">Edit</button>' +
@@ -50010,6 +50011,105 @@ window.cmsVolAdjustHours = function(reqId, vid) {
     rowEl.querySelector('.hrSave').addEventListener('click', function(){ go(id ? 'edit' : 'add'); });
     var del = rowEl.querySelector('.hrDel'); if (del) del.addEventListener('click', function(){ go('delete'); });
   });
+};
+
+/* Hours sheet (v155.18-STAGE, Daniel 2026-11-10: "a modal and see everyone's
+   hours logged and the ability to adjust them"). Everyone on the request with
+   that day's entries; the Lead or a Super Admin edit them in place, others see
+   them read-only. Saves go through staffAdjustVolunteerHours (Audit Log). */
+window.cmsVolHoursSheet = function(reqId) {
+  var r = (window._cmsVolRequests || []).find(function(x){ return x.id === reqId; });
+  if (!r) return;
+  var can = window._volCanAdjust(r);
+  var old = document.getElementById('cmsVolHrsSheet'); if (old) old.remove();
+  var ov = document.createElement('div');
+  ov.id = 'cmsVolHrsSheet';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML = '<div style="background:#fff;max-width:760px;width:100%;max-height:88vh;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden;">' +
+    '<div style="background:linear-gradient(135deg,#0E7490,#0891B2);color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+      '<div><div style="font-weight:700;">Hours: ' + rsEscape(r.title || '') + '</div><div id="cmsVolHrsDay" style="font-size:.82rem;opacity:.9;"></div></div>' +
+      '<button type="button" id="cmsVolHrsClose" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;flex-shrink:0;">&times;</button>' +
+    '</div>' +
+    '<div id="cmsVolHrsBody" style="overflow-y:auto;flex:1;padding:6px 18px 12px;"><div style="color:#64748B;padding:18px 0;">Loading hours…</div></div>' +
+    '<div style="padding:10px 18px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<span id="cmsVolHrsMsg" style="font-size:.82rem;color:#64748B;">' + (can ? 'Every change is saved to the Audit Log.' : 'Only the lead (' + rsEscape(r.leadName || 'not set') + ') or a Super Admin can change hours.') + '</span>' +
+      '<span id="cmsVolHrsTotal" style="font-weight:800;color:#0E7490;"></span>' +
+    '</div></div>';
+  document.body.appendChild(ov);
+  document.getElementById('cmsVolHrsClose').addEventListener('click', function(){ ov.remove(); });
+  ov.addEventListener('click', function(e){ if (e.target === ov) ov.remove(); });
+  var types = ['Community event', 'Outreach', 'Training', 'Office help', 'IEP meeting', 'Other'];
+  var inp = 'padding:6px;border:1px solid #CBD5E1;border-radius:6px;font:inherit;font-size:.86rem;';
+  var entryRow = function(vid, e){
+    if (!can) return '<div style="display:flex;gap:14px;font-size:.88rem;padding:4px 0 4px 4px;color:#334155;"><span>' + rsEscape(e.timeIn || '') + '–' + rsEscape(e.timeOut || '') + '</span><span style="color:#64748B;">' + rsEscape(e.serviceType || '') + '</span><span style="margin-left:auto;font-weight:700;">' + _vdHrs(e.hours) + ' h</span></div>';
+    return '<div class="cmsVolHrsRow" data-vid="' + rsEscape(vid) + '" data-id="' + rsEscape(e.id || '') + '" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 0;">' +
+      '<input type="time" class="hrIn" value="' + rsEscape(e.timeIn || '') + '" style="' + inp + 'width:112px;" aria-label="Time in">' +
+      '<span style="color:#94A3B8;">to</span>' +
+      '<input type="time" class="hrOut" value="' + rsEscape(e.timeOut || '') + '" style="' + inp + 'width:112px;" aria-label="Time out">' +
+      '<select class="hrType" style="' + inp + 'flex:1;min-width:130px;" aria-label="Type">' + types.map(function(t){ return '<option' + (t === (e.serviceType || 'Community event') ? ' selected' : '') + '>' + t + '</option>'; }).join('') + '</select>' +
+      (e.id ? '<span style="width:52px;text-align:right;font-weight:700;color:#334155;">' + _vdHrs(e.hours) + ' h</span>' : '') +
+      '<button type="button" class="btn btn-primary hrSave" style="font-size:.76rem;padding:6px 10px;">' + (e.id ? 'Save' : 'Add') + '</button>' +
+      (e.id ? '<button type="button" class="btn btn-ghost hrDel" style="font-size:.76rem;padding:6px 10px;color:#B91C1C;">Remove</button>' : '<button type="button" class="btn btn-ghost hrCancel" style="font-size:.76rem;padding:6px 10px;">Cancel</button>') +
+    '</div>';
+  };
+  var call = firebase.functions().httpsCallable('staffAdjustVolunteerHours');
+  var load = function(){
+    window._volLoadDayHours(r).then(function(H){
+      window._volDayHours = H;
+      document.getElementById('cmsVolHrsDay').textContent = H.day + (r.time ? ' · ' + r.time : '') + (r.leadName ? ' · Lead: ' + r.leadName : '');
+      var rank = function(p){ return p.attended ? 0 : p.confirmed ? 1 : 2; };
+      var ps = (r.participants || []).filter(function(p){ return p.confirmed || p.attended || (H.byVol[p.volunteerId || p.id] || []).length; })
+        .sort(function(a, b){ return rank(a) - rank(b) || String(a.name || '').localeCompare(String(b.name || '')); });
+      var grand = 0, withHrs = 0;
+      var html = ps.map(function(p){
+        var vid = p.volunteerId || p.id, L = H.byVol[vid] || [];
+        var tot = L.reduce(function(a, e){ return a + (Number(e.hours) || 0); }, 0);
+        grand += tot; if (L.length) withHrs++;
+        return '<div style="padding:10px 0;border-bottom:1px solid #F1F5F9;">' +
+          '<div style="display:flex;align-items:baseline;gap:8px;">' +
+            '<div style="font-weight:700;flex:1;">' + rsEscape(p.name || '') + (L.open ? ' <span class="vac-badge vb-contacted" style="vertical-align:middle;">checked in now</span>' : '') + '</div>' +
+            '<div style="font-weight:800;color:' + (tot ? '#0E7490' : '#94A3B8') + ';">' + (tot ? _vdHrs(tot) + ' h' : 'no hours') + '</div>' +
+          '</div>' +
+          '<div class="cmsVolHrsList" data-vid="' + rsEscape(vid) + '">' + L.map(function(e){ return entryRow(vid, e); }).join('') + '</div>' +
+          (can ? '<a href="javascript:void(0)" class="cmsVolHrsAdd" data-vid="' + rsEscape(vid) + '" style="font-size:.8rem;">+ Add entry</a>' : '') +
+        '</div>';
+      }).join('');
+      document.getElementById('cmsVolHrsBody').innerHTML = html || '<div style="color:#64748B;padding:18px 0;">No one is confirmed on this request yet.</div>';
+      document.getElementById('cmsVolHrsTotal').textContent = _vdHrs(grand) + ' h total · ' + withHrs + ' of ' + ps.length + ' logged';
+      if (can) wire();
+    });
+  };
+  var wireRow = function(rowEl){
+    var vid = rowEl.getAttribute('data-vid'), id = rowEl.getAttribute('data-id');
+    var p = (r.participants || []).find(function(x){ return (x.volunteerId || x.id) === vid; }) || {};
+    var go = async function(action){
+      var msg = document.getElementById('cmsVolHrsMsg');
+      if (action === 'delete' && !confirm('Remove this entry for ' + (p.name || 'this volunteer') + '?')) return;
+      msg.style.color = '#64748B'; msg.textContent = 'Saving…';
+      try {
+        await call({ volunteerId: vid, requestId: reqId, action: action, entryId: id || '', serviceDate: window._volDayHours.day,
+          serviceType: rowEl.querySelector('.hrType').value, serviceDetail: r.title || '',
+          timeIn: rowEl.querySelector('.hrIn').value, timeOut: rowEl.querySelector('.hrOut').value });
+        msg.style.color = '#15803D';
+        msg.textContent = 'Hours ' + (action === 'add' ? 'added' : action === 'edit' ? 'updated' : 'removed') + ' for ' + (p.name || 'the volunteer') + '.';
+        load();
+      } catch (e) { msg.style.color = '#B91C1C'; msg.textContent = (p.name ? p.name + ': ' : '') + ((e && e.message) || 'Could not save.'); }
+    };
+    rowEl.querySelector('.hrSave').addEventListener('click', function(){ go(id ? 'edit' : 'add'); });
+    var del = rowEl.querySelector('.hrDel'); if (del) del.addEventListener('click', function(){ go('delete'); });
+    var cx = rowEl.querySelector('.hrCancel'); if (cx) cx.addEventListener('click', function(){ rowEl.remove(); });
+  };
+  var wire = function(){
+    Array.prototype.forEach.call(ov.querySelectorAll('.cmsVolHrsRow'), wireRow);
+    Array.prototype.forEach.call(ov.querySelectorAll('.cmsVolHrsAdd'), function(a){
+      a.addEventListener('click', function(){
+        var list = ov.querySelector('.cmsVolHrsList[data-vid="' + a.getAttribute('data-vid') + '"]');
+        var tmp = document.createElement('div'); tmp.innerHTML = entryRow(a.getAttribute('data-vid'), {});
+        var rowEl = tmp.firstChild; list.appendChild(rowEl); wireRow(rowEl); rowEl.querySelector('.hrIn').focus();
+      });
+    });
+  };
+  load();
 };
 
 /* On-screen roster (v155.12-STAGE, Daniel: "view on screen not only print").
