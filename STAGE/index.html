@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.20-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.21-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -50088,7 +50088,33 @@ window.cmsVolHoursSheet = function(reqId) {
           (can ? '<a href="javascript:void(0)" class="cmsVolHrsAdd" data-vid="' + rsEscape(vid) + '" style="font-size:.8rem;">+ Add entry</a>' : '') +
         '</div>';
       }).join('');
-      document.getElementById('cmsVolHrsBody').innerHTML = html || '<div style="color:#64748B;padding:18px 0;">No one is confirmed on this request yet.</div>';
+      // Check everyone out (v155.21): only people still checked in. Anyone who
+      // already checked out keeps their own time (the server checks it again).
+      var openPs = ps.filter(function(p){ return (H.byVol[p.volunteerId || p.id] || []).open; });
+      var nowHst = new Date(Date.now() - 10 * 3600 * 1000).toISOString().slice(11, 16);
+      var bar = (can && openPs.length) ? '<div style="background:#ECFEFF;border:1px solid #A5F3FC;border-radius:10px;padding:10px 12px;margin:8px 0 4px;">' +
+        '<div style="font-weight:700;color:#0E7490;">' + openPs.length + ' still checked in: ' + rsEscape(openPs.map(function(p){ return p.name || ''; }).join(', ')) + '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">' +
+          '<label style="font-size:.84rem;color:#334155;">Time they left <input type="time" id="cmsVolHrsOutAll" value="' + nowHst + '" style="' + inp + 'width:120px;"></label>' +
+          '<button type="button" class="btn btn-primary" id="cmsVolHrsOutAllBtn" style="font-size:.8rem;padding:6px 12px;">Check everyone out</button>' +
+        '</div>' +
+        '<div style="font-size:.78rem;color:#64748B;margin-top:4px;">Anyone who already checked out keeps their own time.</div></div>' : '';
+      document.getElementById('cmsVolHrsBody').innerHTML = bar + (html || '<div style="color:#64748B;padding:18px 0;">No one is confirmed on this request yet.</div>');
+      var oab = document.getElementById('cmsVolHrsOutAllBtn');
+      if (oab) oab.addEventListener('click', async function(){
+        var t = document.getElementById('cmsVolHrsOutAll').value, msg = document.getElementById('cmsVolHrsMsg');
+        if (!t) { msg.style.color = '#B91C1C'; msg.textContent = 'Pick the time they left.'; return; }
+        oab.disabled = true; msg.style.color = '#64748B'; msg.textContent = 'Checking out…';
+        try {
+          var res = await firebase.functions().httpsCallable('staffCheckOutAll')({ requestId: reqId, timeOut: t });
+          var d = res.data || {}, parts = [];
+          if ((d.closed || []).length) parts.push('Checked out ' + d.closed.length + ': ' + d.closed.map(function(c){ return c.name + ' ' + _vdHrs(c.hours) + ' h'; }).join(', ') + '.');
+          if ((d.skipped || []).length) parts.push('Not changed: ' + d.skipped.map(function(c){ return c.name + ' (' + c.reason + ')'; }).join('; '));
+          msg.style.color = (d.skipped || []).length ? '#B45309' : '#15803D';
+          msg.textContent = parts.join(' ') || 'No one was still checked in.';
+          load();
+        } catch (e) { oab.disabled = false; msg.style.color = '#B91C1C'; msg.textContent = (e && e.message) || 'Could not check out.'; }
+      });
       document.getElementById('cmsVolHrsTotal').textContent = _vdHrs(grand) + ' h total · ' + withHrs + ' of ' + ps.length + ' logged';
       if (can) wire();
     }).catch(function(e){ document.getElementById('cmsVolHrsBody').innerHTML = '<div style="color:#B91C1C;padding:18px 0;">Could not load hours: ' + rsEscape((e && e.message) || '') + '</div>'; });
