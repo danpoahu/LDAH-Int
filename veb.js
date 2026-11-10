@@ -203,6 +203,8 @@
       + (S.id && S.active ? '<button class="btn btn-ghost" onclick="VEB.unpublish()">Hide from website</button>' : '<button class="btn btn-ghost veb-pub" onclick="VEB.save(true)">Publish to website…</button>') + '</div>'
       + '<p class="veb-muted">Saving keeps the event hidden from ldahawaii.org. Publish puts it on the website straight away.</p>'
       + '</div><div class="veb-side"><div class="veb-lbl">Each island\'s local time</div><div id="vebTz"></div></div></div>'
+      + (isPtc(S.series) ? '' : '<div class="veb-lbl" style="margin-top:18px">Pick a design</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px">' + TEMPLATES.map(function (t) { var on = S.template === t[0];
+          return '<button type="button" onclick="VEB.pickDesign(\'' + t[0] + '\')" style="padding:8px 16px;border-radius:999px;font-weight:700;cursor:pointer;border:2px solid ' + (on ? '#0F766E;background:#0F766E;color:#fff' : '#cbd5e1;background:#fff;color:#0f172a') + '">' + t[1] + '</button>'; }).join('') + '</div>')
       + '<div class="veb-lbl" style="margin-top:18px">Flyers</div><p id="vebFlyerNote" class="veb-muted">Click Make flyers to draw all four.</p><div id="vebFlyers" class="veb-flyers"></div>'
       + '<div class="veb-lbl" style="margin-top:22px">Events made with the builder</div><div id="vebList" class="veb-muted">Loading…</div>';
     readForm(); tzTable(); loadList();
@@ -355,6 +357,8 @@
     monthChanged: onMonthChange,
     // A different design can leave the chosen month without a flyer; render() greys those months out.
     templateChanged: function () { readForm(); render(); markDirty(); },
+    // The buttons above the flyers: switch design and redraw straight away.
+    pickDesign: function (t) { readForm(); S.template = t; render(); markDirty(); makeFlyers(); },
     // Switching series swaps the design set and, while dates are untouched, the default sessions.
     seriesChanged: function () {
       readForm();
