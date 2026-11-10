@@ -6232,7 +6232,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.55</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.56</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -50059,7 +50059,11 @@ window.cmsVolHoursSheet = function(reqId) {
           '<button type="button" class="btn btn-primary" id="cmsVolHrsOutAllBtn" style="font-size:.8rem;padding:6px 12px;">Check everyone out</button>' +
         '</div>' +
         '<div style="font-size:.78rem;color:#64748B;margin-top:4px;">Anyone who already checked out keeps their own time.</div></div>' : '';
-      document.getElementById('cmsVolHrsBody').innerHTML = bar + (html || '<div style="color:#64748B;padding:18px 0;">No one is confirmed on this request yet.</div>');
+      // Thank-you email (v155.22): once attendance is saved and hours reviewed.
+      var tyBar = (can && withHrs && !openPs.length) ? '<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:10px 12px;margin:12px 0 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+        '<div style="flex:1;min-width:200px;font-size:.86rem;color:#14532D;"><b>Hours reviewed?</b> Send each volunteer a thank-you with their hours for this event and their ' + H.day.slice(0, 4) + ' total.' + (r.thankYouSentAt ? ' <span style="color:#64748B;">(sent before)</span>' : '') + '</div>' +
+        '<button type="button" class="btn btn-primary" style="font-size:.8rem;padding:6px 12px;" onclick="cmsVolThankYou(\'' + rsEscape(reqId) + '\')">Send thank-you</button></div>' : '';
+      document.getElementById('cmsVolHrsBody').innerHTML = bar + (html || '<div style="color:#64748B;padding:18px 0;">No one is confirmed on this request yet.</div>') + tyBar;
       var oab = document.getElementById('cmsVolHrsOutAllBtn');
       if (oab) oab.addEventListener('click', async function(){
         var t = document.getElementById('cmsVolHrsOutAll').value, msg = document.getElementById('cmsVolHrsMsg');
@@ -50110,6 +50114,69 @@ window.cmsVolHoursSheet = function(reqId) {
     });
   };
   load();
+};
+
+/* Thank-you email (v155.22-STAGE, Daniel 2026-11-10: "next time we do this and
+   attendance is saved and hours reviewed then we can send this out"). One email
+   per volunteer, signed by the Lead, sent by sendVolunteerThankYou. */
+window.cmsVolThankYou = function(reqId) {
+  var r = (window._cmsVolRequests || []).find(function(x){ return x.id === reqId; });
+  var H = window._volDayHours;
+  if (!r || !H) return;
+  var ppl = (r.participants || []).map(function(p){
+    var vid = p.volunteerId || p.id, L = H.byVol[vid] || [];
+    return { vid: vid, name: p.name || '', email: p.email || '', hrs: L.reduce(function(a, e){ return a + (Number(e.hours) || 0); }, 0), sent: p.thankYouSentAt };
+  }).filter(function(x){ return x.hrs > 0; }).sort(function(a, b){ return a.name.localeCompare(b.name); });
+  var wd = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(H.day + 'T12:00:00Z').getUTCDay()];
+  var defOpen = 'Mahalo for giving your ' + wd + ' to LDAH at ' + (r.title || 'our event') + '. Every hour you give helps us keep our support free for Hawaiʻi families, and it went so well because of you.';
+  var defNext = /sodexo/i.test(r.title || '') ? 'We have more Sodexo games coming up this season and into next year. I will send each one as it opens so you can pick the nights that work for you.' : 'We have more volunteer events coming up. I will send each one as it opens so you can pick the ones that work for you.';
+  var fld = 'width:100%;padding:8px;border:1px solid #CBD5E1;border-radius:8px;font:inherit;font-size:.88rem;';
+  var old = document.getElementById('cmsVolTyOverlay'); if (old) old.remove();
+  var ov = document.createElement('div');
+  ov.id = 'cmsVolTyOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML = '<div style="background:#fff;max-width:620px;width:100%;max-height:88vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.3);">' +
+    '<div style="background:linear-gradient(135deg,#166534,#16A34A);color:#fff;padding:14px 18px;"><div style="font-weight:700;">Send thank-you</div><div style="font-size:.82rem;opacity:.9;">From ' + rsEscape(r.leadName || 'the lead') + ' &middot; ' + rsEscape(r.title || '') + '</div></div>' +
+    '<div style="padding:12px 18px;overflow-y:auto;flex:1;">' +
+      '<div style="font-size:.76rem;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Who gets it</div>' +
+      ppl.map(function(x){ return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:.9rem;"><input type="checkbox" class="tyPick" value="' + rsEscape(x.vid) + '"' + (x.sent ? '' : ' checked') + '> <b>' + rsEscape(x.name) + '</b> <span style="color:#0E7490;">' + _vdHrs(x.hrs) + ' h</span>' + (x.sent ? ' <span class="vac-badge" style="background:#E2E8F0;color:#475569;">already sent</span>' : '') + (/@/.test(x.email) ? '' : ' <span style="color:#B91C1C;font-size:.8rem;">no email</span>') + '</label>'; }).join('') +
+      '<label style="display:block;margin-top:12px;font-size:.78rem;font-weight:700;color:#475569;">Subject ({first} = their first name)<input id="tySubject" style="' + fld + '" value="' + rsEscape('Mahalo for volunteering with LDAH, {first}') + '"></label>' +
+      '<label style="display:block;margin-top:10px;font-size:.78rem;font-weight:700;color:#475569;">Opening<textarea id="tyOpening" rows="4" style="' + fld + '">' + rsEscape(defOpen) + '</textarea></label>' +
+      '<label style="display:block;margin-top:10px;font-size:.78rem;font-weight:700;color:#475569;">What’s next<textarea id="tyNext" rows="3" style="' + fld + '">' + rsEscape(defNext) + '</textarea></label>' +
+      '<div style="font-size:.78rem;color:#64748B;margin-top:8px;">Each email shows their hours for this event, their year total, and an Invite a friend to volunteer button.</div>' +
+    '</div>' +
+    '<div style="padding:10px 18px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+      '<span id="tyMsg" style="font-size:.82rem;color:#64748B;flex:1;min-width:160px;"></span>' +
+      '<button type="button" class="btn btn-ghost" style="font-size:.84rem;" onclick="document.getElementById(\'cmsVolTyOverlay\').remove()">Cancel</button>' +
+      '<button type="button" class="btn btn-ghost" id="tyPreview" style="font-size:.84rem;">Preview</button>' +
+      '<button type="button" class="btn btn-primary" id="tySend" style="font-size:.84rem;">Send</button>' +
+    '</div></div>';
+  document.body.appendChild(ov);
+  var call = firebase.functions().httpsCallable('sendVolunteerThankYou');
+  var args = function(){
+    return { requestId: reqId, serviceDate: H.day,
+      volunteerIds: Array.prototype.map.call(ov.querySelectorAll('.tyPick:checked'), function(c){ return c.value; }),
+      subject: document.getElementById('tySubject').value, opening: document.getElementById('tyOpening').value, nextUp: document.getElementById('tyNext').value };
+  };
+  var msg = document.getElementById('tyMsg');
+  document.getElementById('tyPreview').addEventListener('click', async function(){
+    var a = args(); if (!a.volunteerIds.length) { msg.style.color = '#B91C1C'; msg.textContent = 'Tick at least one person.'; return; }
+    var w = window.open('', '_blank'); msg.style.color = '#64748B'; msg.textContent = 'Building preview…';
+    try { var res = await call(Object.assign(a, { preview: true })); w.document.write(res.data.html); w.document.close(); msg.textContent = 'Preview opened (' + res.data.name + ').'; }
+    catch (e) { if (w) w.close(); msg.style.color = '#B91C1C'; msg.textContent = (e && e.message) || 'Could not preview.'; }
+  });
+  document.getElementById('tySend').addEventListener('click', async function(){
+    var a = args(); if (!a.volunteerIds.length) { msg.style.color = '#B91C1C'; msg.textContent = 'Tick at least one person.'; return; }
+    if (!confirm('Send the thank-you to ' + a.volunteerIds.length + ' volunteer' + (a.volunteerIds.length === 1 ? '' : 's') + '?')) return;
+    var b = this; b.disabled = true; msg.style.color = '#64748B'; msg.textContent = 'Sending…';
+    try {
+      var res = await call(a), d = res.data || {};
+      var bad = (d.failed || []).map(function(f){ var p = ppl.find(function(x){ return x.vid === f.id; }); return (p ? p.name : f.id) + ' (' + f.reason + ')'; });
+      _showToast('Thank-you sent to ' + (d.sent || []).length + '.' + (bad.length ? ' Not sent: ' + bad.join(', ') : ''), bad.length ? '#B45309' : '#15803D');
+      ov.remove();
+      await cmsLoadVolunteerRequests();
+    } catch (e) { b.disabled = false; msg.style.color = '#B91C1C'; msg.textContent = (e && e.message) || 'Could not send.'; }
+  });
 };
 
 /* On-screen roster (v155.12-STAGE, Daniel: "view on screen not only print").
