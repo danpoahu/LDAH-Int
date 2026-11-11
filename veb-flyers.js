@@ -46,7 +46,8 @@
   function badges(spec, partner) {
     var b = (spec.sponsors || []).slice(); if (partner && b.indexOf('Pacific Island Partners') < 0) b.push('Pacific Island Partners');
     if (!partner && b.indexOf('Zoom') < 0) b.push('Zoom');
-    return b.slice(0, 3).map(function (x) { return '<span>' + esc(x) + '</span>'; }).join('');
+    var L = spec.sponsorLogos || {};   // name -> { url, dark }: real logo art instead of the name
+    return b.slice(0, 3).map(function (x) { return L[x] ? '<span class="vfx-logo' + (L[x].dark ? ' dk' : '') + '"><img src="' + L[x].url + '" alt="' + esc(x) + '"></span>' : '<span>' + esc(x) + '</span>'; }).join('');
   }
   function qrImg(spec, partner) { var u = partner ? spec.qrPartner : spec.qrHst; return u ? '<img src="' + u + '" alt="QR">' : '<span>QR</span>'; }
   function phone(partner) { return partner ? '+1 808-536-9684' : '808-536-9684'; }
@@ -14745,3 +14746,106 @@ VEBFlyers.registerSet('PC', 8, (function () {
 
   VEBFlyers.registerSet('PC', 12, { name: 'Cocoa by the window: red paper window frame, coloured lights, falling paper stars, cocoa mugs on the sill', fonts: 'family=Yeseva+One&family=Quicksand:wght@500;600;700', css: css, fn: fn });
 })();
+
+/* ---- Guest speaker and callout boxes (placed where a flyer has room) ---- */
+/* Callout boxes for any flyer design: a "Guest speaker" box and a few short friendly lines.
+   They are placed AFTER a design is drawn, only where there is open room: no text, no logo or QR,
+   no card or panel, and (first try) no drawn artwork. The guest speaker box is tried again over
+   background art if there is no clean room; plain callouts are simply left off when nothing fits.
+   VEBFlyers.decorate(doc, root, { presenter: 'Name' | '', callouts: ['Free for families', ...], seed: 'any string' })
+   Returns the list of texts that were placed. */
+VEBFlyers.CALLOUT_PRESETS = ['Free for families', 'Bring your questions', 'Join from your phone or computer', 'Parents and caregivers welcome'];
+VEBFlyers.css += '\n.vfx-co{position:absolute;z-index:60;box-sizing:border-box;background:#fff;color:#1d2430;border-radius:1.4cqw;padding:1.1cqw 1.8cqw;font-family:Poppins,Arial,sans-serif;font-weight:700;line-height:1.15;text-align:center;box-shadow:0 .5cqw 1.2cqw rgba(0,0,0,.22);white-space:nowrap}'
+  + '.vfx-co b{display:block;font-size:.62em;letter-spacing:.14em;font-weight:800;margin-bottom:.3cqw}';
+VEBFlyers.calloutPick = function (list, seed, n) { // the same pick for every variant of one event
+  var r = VEBFlyers._rand(seed), a = list.slice();
+  for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(r() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a.slice(0, n == null ? 2 : n);
+};
+VEBFlyers._rand = function (seed) {
+  var h = 2166136261; String(seed || 'x').split('').forEach(function (c) { h = Math.imul(h ^ c.charCodeAt(0), 16777619); });
+  var s = (h >>> 0) % 2147483646 + 1; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+};
+VEBFlyers.decorate = function (doc, root, o) {
+  if (VEBFlyers.fitLogos) VEBFlyers.fitLogos(doc, root);
+  var items = [];
+  if (o.presenter) items.push({ k: 'GUEST SPEAKER', t: o.presenter, must: true });
+  (o.callouts || []).forEach(function (t) { if (t) items.push({ k: '', t: t }); });
+  [].forEach.call(root.querySelectorAll('.vfx-co'), function (e) { e.remove(); });
+  if (!items.length) return [];
+  var R = root.getBoundingClientRect(), W = R.width, H = R.height, u = W / 100, N = 60, cs = W / N, rows = Math.ceil(H / cs);
+  var win = doc.defaultView, sq = H / W < 1.1;
+  function grid() { return new Uint8Array(N * rows); }
+  function mark(g, r, pad) {
+    var x0 = Math.max(0, Math.floor((r.left - R.left - pad) / cs)), x1 = Math.min(N - 1, Math.floor((r.right - R.left + pad) / cs));
+    var y0 = Math.max(0, Math.floor((r.top - R.top - pad) / cs)), y1 = Math.min(rows - 1, Math.floor((r.bottom - R.top + pad) / cs));
+    for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) g[y * N + x] = 1;
+  }
+  var tx = grid(), soft = grid(), hard = grid();   // tx = text + logos only; soft = + cards; hard = + drawn artwork
+  var tw = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  while (tw.nextNode()) { var n = tw.currentNode; if (!n.textContent.trim() || n.parentElement.closest('svg')) continue;
+    var rg = doc.createRange(); rg.selectNodeContents(n); [].forEach.call(rg.getClientRects(), function (r) { mark(tx, r, 1.2 * u); mark(soft, r, 2 * u); mark(hard, r, 2 * u); }); }
+  [].forEach.call(root.querySelectorAll('*'), function (e) {
+    if (e.closest('svg') && e.tagName.toLowerCase() !== 'svg') {
+      // shapes inside a decoration layer: count only the mid-sized ones (objects), not full-bleed skies or specks
+      var r = e.getBoundingClientRect(), a = r.width * r.height;
+      if (/^text$/i.test(e.tagName) || (a > W * H * 0.0015 && a < W * H * 0.3 && /^(path|circle|ellipse|rect|polygon|g|use|image)$/i.test(e.tagName))) mark(hard, r, u);
+      return;
+    }
+    var r2 = e.getBoundingClientRect(), a2 = r2.width * r2.height; if (!a2) return;
+    if (e.tagName.toLowerCase() === 'img') { mark(tx, r2, u); mark(soft, r2, 1.5 * u); mark(hard, r2, 1.5 * u); return; }
+    if (e.tagName.toLowerCase() === 'svg') { if (a2 < W * H * 0.4) mark(hard, r2, u); return; }
+    if (a2 > W * H * 0.4) return;   // full-bleed backgrounds and big colour fields are fair game
+    var cs2 = win.getComputedStyle(e), bg = cs2.backgroundColor, hasBg = bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg);
+    if (hasBg || cs2.backgroundImage !== 'none' || parseFloat(cs2.borderTopWidth) > 0 || cs2.boxShadow !== 'none') { mark(soft, r2, u); mark(hard, r2, u); }
+  });
+  // accent colour = colour of the biggest text on the flyer
+  var accent = '#0F766E', best = 0;
+  [].forEach.call(root.querySelectorAll('*'), function (e) { if (e.closest('svg') || !e.childNodes.length) return;
+    var own = [].some.call(e.childNodes, function (c) { return c.nodeType === 3 && c.textContent.trim(); }); if (!own) return;
+    var fs = parseFloat(win.getComputedStyle(e).fontSize); if (fs > best) { best = fs; accent = win.getComputedStyle(e).color; } });
+  var m = accent.match(/\d+(\.\d+)?/g) || [15, 118, 110], lum = (0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2]) / 255;
+  if (lum > 0.72) accent = '#1d2430';
+  var rnd = VEBFlyers._rand((o.seed || '') + '|' + (sq ? 'sq' : 'lt')), placed = [];
+  items.forEach(function (it) {
+    var el = doc.createElement('div'); el.className = 'vfx-co'; el.style.border = (0.45 * u) + 'px solid ' + accent;
+    el.innerHTML = (it.k ? '<b style="color:' + accent + '">' + it.k + '</b>' : '') + String(it.t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    el.style.left = '0px'; el.style.top = '0px'; el.style.visibility = 'hidden'; root.appendChild(el);
+    var b, cw, ch, edge = Math.ceil(2.5 * u / cs);
+    function size(k) { el.style.whiteSpace = 'nowrap'; el.style.width = ''; el.style.fontSize = ((sq ? 3.1 : 2.9) * (it.must ? 1.15 : 1) * k) + 'cqw';
+      b = el.getBoundingClientRect(); if (b.width > W * 0.6) { el.style.whiteSpace = 'normal'; el.style.width = (W * 0.44) + 'px'; b = el.getBoundingClientRect(); }
+      cw = Math.ceil(b.width / cs) + 1; ch = Math.ceil(b.height / cs) + 1; }
+    function find(g) { var c = [];
+      for (var y = edge; y + ch <= rows - edge; y++) for (var x = edge; x + cw <= N - edge; x++) {
+        var ok = true; for (var yy = y; yy < y + ch && ok; yy++) for (var xx = x; xx < x + cw; xx++) if (g[yy * N + xx]) { ok = false; break; }
+        if (ok) c.push([x, y]); }
+      return c; }
+    var c = [], steps = it.must ? [[1, hard], [0.85, hard], [0.72, hard], [1, soft], [0.85, soft], [0.72, soft], [0.6, soft], [0.72, tx], [0.6, tx]] : [[1, hard], [0.85, hard]];
+    for (var si = 0; si < steps.length && !c.length; si++) { size(steps[si][0]); c = find(steps[si][1]); }
+    if (!c.length) { el.remove(); return; }
+    var p = c[Math.floor(rnd() * c.length)];
+    el.style.left = (p[0] * cs + (cw * cs - b.width) / 2) + 'px'; el.style.top = (p[1] * cs + (ch * cs - b.height) / 2) + 'px';
+    el.style.transform = 'rotate(' + ((rnd() * 5 - 2.5).toFixed(1)) + 'deg)'; el.style.visibility = '';
+    var rr = el.getBoundingClientRect(); mark(hard, rr, 2 * u); mark(soft, rr, 2 * u); mark(tx, rr, 1.5 * u); placed.push(it.t);
+  });
+  return placed;
+};
+
+/* ---- Sponsor logos (art in sponsor-logos/, next to this file) ---- */
+VEBFlyers.SPONSORS = [{"name": "IDEAs that Work", "file": "ideas-that-work.png", "dark": false}, {"name": "Aloha United Way", "file": "aloha-united-way.png", "dark": false}, {"name": "Aloha United Way (new logo)", "file": "aloha-united-way-2026-white.png", "dark": true}, {"name": "Pacific Island Partners", "file": "pacific-island-partners.png", "dark": false}, {"name": "Pacific Island Partners (with name)", "file": "pacific-island-partners-full.png", "dark": false}, {"name": "Ke Ola Mamo", "file": "ke-ola-mamo.png", "dark": false}, {"name": "Office of Hawaiian Affairs", "file": "office-of-hawaiian-affairs.png", "dark": false}, {"name": "Hawaiʻi Dept. of Education", "file": "hawaii-department-of-education.png", "dark": false}, {"name": "Sustainable Molokaʻi", "file": "sustainable-molokai.png", "dark": false}, {"name": "Palace Theater Hilo", "file": "palace-theater-hilo.png", "dark": false}, {"name": "SEAC", "file": "seac-hawaii.png", "dark": false}, {"name": "Foodland", "file": "foodland.png", "dark": false}, {"name": "Hawaiʻi Dept. of Health", "file": "hawaii-department-of-health.png", "dark": false}, {"name": "Hawaiʻi Pacific University", "file": "hawaii-pacific-university.png", "dark": false}, {"name": "Family Hui Hawaiʻi", "file": "family-hui-hawaii.png", "dark": false}, {"name": "State Farm", "file": "state-farm.png", "dark": false}, {"name": "ICAN", "file": "ican.png", "dark": false}, {"name": "Midro's Den", "file": "midros-den.png", "dark": false}, {"name": "HNR", "file": "hnr.png", "dark": false}, {"name": "MEAN Hawaiʻi", "file": "mean-hawaii.png", "dark": false}, {"name": "Ewa Beach Floral", "file": "ewa-beach-floral.png", "dark": false}, {"name": "Necessitea", "file": "necessitea.png", "dark": false}, {"name": "HHH Newz", "file": "hhh-newz.png", "dark": false}];
+VEBFlyers.css += '\n.vfx-logo{display:inline-flex!important;align-items:center!important;justify-content:center!important;background:#fff!important;padding:.35cqw .7cqw!important;line-height:0!important;border-radius:.6cqw}.vfx-logo.dk{background:#1d2430!important}.vfx-logo img{height:3.3cqw!important;width:auto!important;max-width:13cqw!important;display:block!important;object-fit:contain}';
+
+/* Logos in the sponsor row: if a design's badge row is too small for the art, shrink that row's logos evenly
+   until each one sits inside the flyer and inside the row's own box. Called before callouts are placed. */
+VEBFlyers.fitLogos = function (doc, root) {
+  var R = root.getBoundingClientRect(), u = R.width / 100, rows = [];
+  [].forEach.call(root.querySelectorAll('.vfx-logo'), function (l) { var row = l.parentElement; if (rows.indexOf(row) < 0) rows.push(row); });
+  rows.forEach(function (row) {
+    var imgs = [].map.call(row.querySelectorAll('.vfx-logo img'), function (i) { return i; }), box = row.parentElement || row;
+    function bad() { var B = box.getBoundingClientRect(), W2 = row.getBoundingClientRect();
+      return imgs.some(function (i) { var r = i.parentElement.getBoundingClientRect();
+        return r.left < R.left + u || r.right > R.right - u || r.top < R.top + u || r.bottom > R.bottom - u
+          || r.right > Math.max(B.right, W2.right) + 1 || r.bottom > Math.max(B.bottom, W2.bottom) + 1; }); }
+    for (var h = 3.3; h >= 1.7 && bad(); h -= 0.2) imgs.forEach(function (i) { i.style.setProperty('height', h.toFixed(1) + 'cqw', 'important'); i.style.setProperty('max-width', (h * 4).toFixed(1) + 'cqw', 'important'); });
+  });
+};

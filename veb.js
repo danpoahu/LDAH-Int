@@ -44,7 +44,7 @@
     var now = new Date(), m = now.getMonth() + 2, y = now.getFullYear(); if (m > 12) { m -= 12; y++; }
     if (!theme('Learning Labs', m, 'A')) { m = 1; y = now.getFullYear() + 1; }
     var w = wednesdays(y, m);
-    return { id: null, active: false, series: 'Learning Labs', template: 'A', month: m, year: y, presenter: '', grant: '', sponsors: ['IDEAs that Work'], partnerPages: true, autoDates: true,
+    return { id: null, active: false, series: 'Learning Labs', template: 'A', month: m, year: y, presenter: '', showPresenter: false, callouts: (F().CALLOUT_PRESETS || []).slice(), customCallouts: ['', ''], grant: '', sponsors: ['IDEAs that Work'], partnerPages: true, autoDates: true,
       sessions: [{ date: w[1], start: '17:00', end: '18:00', lesson: '', desc: '' }, { date: w[3] || w[2], start: '17:00', end: '18:00', lesson: '', desc: '' }] };
   }
   function t12(hhmm) { var p = hhmm.split(':').map(Number), ap = p[0] >= 12 ? 'PM' : 'AM'; return ((p[0] % 12) || 12) + ':' + pad(p[1]) + ' ' + ap; }
@@ -117,8 +117,9 @@
     await doc.fonts.ready;
     await Promise.all([].map.call(box.querySelectorAll('img'), function (im) { return im.complete ? Promise.resolve() : new Promise(function (r) { im.onload = im.onerror = r; }); }));
     await new Promise(function (r) { setTimeout(r, 120); });
-    var node = box.firstElementChild;
+    var node = box.firstElementChild, placed = F().decorate ? F().decorate(doc, node, spec.deco || {}) : [];
     var issues = qaCheck(doc, node);
+    if (spec.deco && spec.deco.presenter && placed.indexOf(spec.deco.presenter) < 0) issues.push('No room for the Guest speaker box on this one');
     var url = await w.htmlToImage.toJpeg(node, { quality: 0.92, pixelRatio: 1, width: size.w, height: size.h, cacheBust: true, backgroundColor: '#ffffff', fontEmbedCSS: await getFontCss() });
     return { url: url, issues: issues };
   }
@@ -128,6 +129,9 @@
     var $ = function (id) { return document.getElementById(id); };
     S.series = $('vebSeries').value; S.month = +$('vebMonth').value; S.year = +$('vebYear').value;
     S.presenter = $('vebPresenter').value.trim(); S.grant = $('vebGrant').value.trim();
+    S.showPresenter = !!($('vebShowPresenter') && $('vebShowPresenter').checked);
+    S.callouts = [].map.call(document.querySelectorAll('.veb-callout:checked'), function (c) { return c.value; });
+    S.customCallouts = [].map.call(document.querySelectorAll('.veb-callout-own'), function (c) { return c.value.trim(); });
     S.partnerPages = $('vebPartner').checked;
     S.sponsors = [].map.call(document.querySelectorAll('.veb-sponsor:checked'), function (c) { return c.value; });
     S.sessions = [].map.call(document.querySelectorAll('.veb-sess'), function (row) {
@@ -146,7 +150,11 @@
     return p;
   }
   function spec() {
-    return { series: S.series, template: S.template, month: S.month, year: S.year, sponsors: S.sponsors, sessions: S.sessions, presenter: S.presenter,
+    // Parent Talk Café designs print the presenter themselves; Learning Labs gets a Guest speaker box.
+    var own = (S.customCallouts || []).filter(Boolean), pool = (F().calloutPick ? F().calloutPick(S.callouts || [], (S.id || '') + S.series + S.month + S.year, 9) : []);
+    var deco = { presenter: S.showPresenter && !isPtc(S.series) ? S.presenter : '', callouts: own.concat(pool).slice(0, Math.max(2, own.length)), seed: (S.id || '') + S.series + S.month + S.year };
+    var logos = {}; (F().SPONSORS || []).forEach(function (x) { logos[x.name] = { url: new URL('sponsor-logos/' + x.file, location.href).href, dark: x.dark }; });
+    return { deco: deco, sponsorLogos: logos, series: S.series, template: S.template, month: S.month, year: S.year, sponsors: S.sponsors, sessions: S.sessions, presenter: S.showPresenter ? S.presenter : '',
       logoUrl: 'https://www.ldahawaii.org/logo_blue.png', pipUrl: 'https://www.ldahawaii.org/assets/images/wp/Pacific-Island-Partners-Logo.png',
       qrHst: window._cmsQRPngForUrl('https://www.ldahawaii.org/events.html?eventId=' + S.id + '&autoOpen=1&src=flyer-qr'),
       qrPartner: window._cmsQRPngForUrl('https://www.ldahawaii.org/events.html?eventId=' + S.id + '&autoOpen=1&src=flyer-partner') };
@@ -188,6 +196,9 @@
       + 'function fit(){var f=parent.document.getElementById("vebPickFrame");if(f)f.style.height=document.body.scrollHeight+"px";}window.addEventListener("load",fit);if(document.fonts)document.fonts.ready.then(fit);setTimeout(fit,50);<\/script></body></html>';
     var fr = document.getElementById('vebPickFrame');
     if (!fr) { fr = document.createElement('iframe'); fr.id = 'vebPickFrame'; fr.setAttribute('title', 'Flyer designs'); fr.style.cssText = 'width:100%;border:0;display:block;height:240px'; box.innerHTML = ''; box.appendChild(fr); }
+    // Show the guest speaker and callout boxes in the previews too, placed the same way as on the real flyer.
+    fr.onload = function () { var d = fr.contentDocument; (d.fonts ? d.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () {
+      if (F().decorate) [].forEach.call(d.querySelectorAll('.c .f'), function (f) { if (f.firstElementChild) F().decorate(d, f.firstElementChild, sp.deco || {}); }); }, 60); }); };
     fr.srcdoc = doc;
     var t = theme(S.series, S.month, S.template), n = document.getElementById('vebTheme'); if (n) n.textContent = t ? t.name : 'No design for this month yet';
   }
@@ -210,7 +221,10 @@
   function render() {
     var body = document.getElementById('vebBody'); if (!body) return;
     var mOpts = MONTHS.map(function (m, i) { var has = !!theme(S.series, i+1, 'A'); return '<option value="' + (i+1) + '"' + (S.month === i+1 ? ' selected' : '') + (has ? '' : ' disabled') + '>' + m + (has ? '' : ' (no design yet)') + '</option>'; }).join('');
-    var spons = ['IDEAs that Work', 'Ke Ola Mamo'].map(function (x) { return '<label class="veb-chk"><input type="checkbox" class="veb-sponsor" value="' + esc(x) + '"' + (S.sponsors.indexOf(x) >= 0 ? ' checked' : '') + ' onchange="VEB.changed()"> ' + esc(x) + '</label>'; }).join('');
+    // Every sponsor / funder / partner seen on LDAH flyers, with its logo art. Up to three fit on a flyer.
+    var spons = (F().SPONSORS || []).map(function (x) { var on = S.sponsors.indexOf(x.name) >= 0;
+      return '<label class="veb-logo' + (on ? ' on' : '') + '" title="' + esc(x.name) + '"><input type="checkbox" class="veb-sponsor" value="' + esc(x.name) + '"' + (on ? ' checked' : '') + ' onchange="VEB.sponsorTicked(this)">'
+        + '<span class="veb-logo-art' + (x.dark ? ' dk' : '') + '"><img src="sponsor-logos/' + esc(x.file) + '" alt="" loading="lazy"></span><span class="veb-logo-n">' + esc(x.name) + '</span></label>'; }).join('');
     body.innerHTML =
       '<div class="veb-wrap"><div class="veb-form">'
       + (S.id ? '<div class="veb-editing">Editing: ' + esc(S.title || 'saved event') + ' <span class="veb-pill ' + (S.active ? 'live' : '') + '">' + (S.active ? 'On the website' : 'Hidden draft') + '</span> <a href="javascript:void(0)" onclick="VEB.newEvent()">Start a new event</a></div>' : '')
@@ -223,7 +237,11 @@
       + '<datalist id="vebLessons">' + LESSONS.map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist>'
       + '<div class="veb-row2"><label>Presenter<input id="vebPresenter" value="' + esc(S.presenter) + '" oninput="VEB.changed()"></label>'
       + '<label>Grant / Program<input id="vebGrant" value="' + esc(S.grant) + '" oninput="VEB.changed()" placeholder="For example: HI-PTI"></label></div>'
-      + '<div class="veb-lbl">Sponsor logos on the flyer</div><div>' + spons + '</div>'
+      + '<label class="veb-chk" style="margin:-2px 0 10px"><input type="checkbox" id="vebShowPresenter"' + (S.showPresenter ? ' checked' : '') + ' onchange="VEB.changed()"> Show the presenter on the flyer (guest speaker)</label>'
+      + '<div class="veb-lbl">Callout boxes <span class="veb-muted" style="font-weight:400">(two are picked at random and shown where the flyer has room)</span></div><div>'
+      + (F().CALLOUT_PRESETS || []).map(function (c) { return '<label class="veb-chk"><input type="checkbox" class="veb-callout" value="' + esc(c) + '"' + ((S.callouts || []).indexOf(c) >= 0 ? ' checked' : '') + ' onchange="VEB.changed()"> ' + esc(c) + '</label>'; }).join('') + '</div>'
+      + '<div class="veb-row2" style="margin-top:6px">' + [0, 1].map(function (i) { return '<label>Your own callout ' + (i + 1) + '<input class="veb-callout-own" maxlength="32" value="' + esc((S.customCallouts || [])[i] || '') + '" oninput="VEB.changed()" placeholder="For example: Spanish interpreter available"></label>'; }).join('') + '</div>'
+      + '<div class="veb-lbl">Sponsor logos on the flyer <span class="veb-muted" style="font-weight:400">(tick up to 3)</span></div><div class="veb-logos">' + spons + '</div>'
       + '<label class="veb-chk" style="margin-top:8px"><input type="checkbox" id="vebPartner"' + (S.partnerPages ? ' checked' : '') + ' onchange="VEB.changed()"> Also list it on the six partner island pages</label>'
       + '<div class="veb-btns"><button class="btn" onclick="VEB.makeFlyers()">Make flyers</button>'
       + '<button class="btn btn-ghost" onclick="VEB.save(false)">Save as hidden draft</button>'
@@ -278,7 +296,7 @@
       signupDates: signupDates, customQuestions: [], showGroupField: false, infoOnly: false, archived: false,
       partnerPages: S.partnerPages ? PARTNER_PAGES.slice() : [], sponsors: S.sponsors, presenterName: S.presenter,
       builtWith: 'veb',
-      vebSpec: { series: S.series, template: S.template || 'A', month: S.month, year: S.year, presenter: S.presenter, grant: S.grant, sponsors: S.sponsors, partnerPages: S.partnerPages, sessions: S.sessions },
+      vebSpec: { series: S.series, template: S.template || 'A', month: S.month, year: S.year, presenter: S.presenter, showPresenter: !!S.showPresenter, callouts: S.callouts || [], customCallouts: S.customCallouts || [], grant: S.grant, sponsors: S.sponsors, partnerPages: S.partnerPages, sessions: S.sessions },
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     Object.keys(urls).forEach(function (k) { pl[k] = urls[k]; });
@@ -347,7 +365,8 @@
     try {
       var snap = await db().collection('events').doc(id).get(); if (!snap.exists) return toast('That event no longer exists.', '#DC2626');
       var x = snap.data(), v = x.vebSpec || {};
-      S = { id: id, active: x.active !== false, title: x.title, series: v.series || 'Learning Labs', template: v.template || 'A', month: v.month || 1, year: v.year || 2027, presenter: v.presenter || '', grant: v.grant || '',
+      S = { id: id, active: x.active !== false, title: x.title, series: v.series || 'Learning Labs', template: v.template || 'A', month: v.month || 1, year: v.year || 2027, presenter: v.presenter || '', showPresenter: v.showPresenter != null ? !!v.showPresenter : isPtc(v.series) && !!v.presenter,
+        callouts: v.callouts || [], customCallouts: v.customCallouts || ['', ''], grant: v.grant || '',
         sponsors: v.sponsors || ['IDEAs that Work'], partnerPages: v.partnerPages !== false, autoDates: false, sessions: (v.sessions || []).map(function (s) { return Object.assign({}, s); }) };
       images = {}; VARIANTS.forEach(function (vv) { if (x[vv.field]) images[vv.key] = x[vv.field]; }); dirty = true;
       render(); var n = document.getElementById('vebFlyerNote'); if (n) n.textContent = 'These are the saved flyers. Make the flyers again after any change.';
@@ -355,7 +374,8 @@
     } catch (e) { toast('Could not open it: ' + e.message, '#DC2626'); }
   }
 
-  var CSS = '#vebBody{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px 20px;max-width:1240px;box-shadow:0 2px 10px rgba(15,23,42,.06)}.veb-wrap{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}.veb-form{flex:1 1 520px;max-width:720px}.veb-side{flex:1 1 300px;max-width:440px;position:sticky;top:70px}'
+  var CSS = '.veb-logos{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;max-height:330px;overflow:auto;padding:2px}.veb-logo{display:flex!important;flex-direction:column;align-items:center;gap:4px;margin:0!important;padding:6px;border:2px solid #e2e8f0;border-radius:9px;cursor:pointer;background:#fff;position:relative}.veb-logo:hover{border-color:#94a3b8}.veb-logo.on{border-color:#0F766E;background:#ecfdf5}.veb-logo input{position:absolute;top:5px;left:5px;margin:0}.veb-logo-art{height:46px;width:100%;display:flex;align-items:center;justify-content:center;border-radius:5px}.veb-logo-art.dk{background:#1d2430}.veb-logo-art img{max-height:42px;max-width:92px;object-fit:contain}.veb-logo-n{font-size:.7rem;font-weight:600;color:#334155;text-align:center;line-height:1.15}'
+    + '#vebBody{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px 20px;max-width:1240px;box-shadow:0 2px 10px rgba(15,23,42,.06)}.veb-wrap{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}.veb-form{flex:1 1 520px;max-width:720px}.veb-side{flex:1 1 300px;max-width:440px;position:sticky;top:70px}'
     + '.veb-form label{display:block;font-size:.8rem;font-weight:600;color:#334155;margin:0 0 10px}.veb-form input:not([type=checkbox]),.veb-form select{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit;font-weight:400;font-size:.9rem}'
     + '.veb-row3{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px}.veb-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
     + '.veb-sess{border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px 2px;margin:0 0 10px;background:#f8fafc}.veb-sess-h{font-weight:700;font-size:.85rem;color:#0f172a;margin-bottom:8px}.veb-sess-h a{font-weight:500;font-size:.78rem;margin-left:8px}'
@@ -377,6 +397,11 @@
       if (!S) S = fresh();
       render();
     },
+    sponsorTicked: function (cb) {
+      var n = document.querySelectorAll('.veb-sponsor:checked').length;
+      if (cb.checked && n > 3) { cb.checked = false; toast('Up to 3 logos fit on a flyer. Untick one first.', '#B45309'); return; }
+      cb.closest('.veb-logo').classList.toggle('on', cb.checked); VEB.changed();
+    },
     changed: function () { readForm(); tzTable(); markDirty(); clearTimeout(pickTimer); pickTimer = setTimeout(drawPicker, 700); },
     datesTouched: function () { S.autoDates = false; VEB.changed(); },
     monthChanged: onMonthChange,
@@ -385,7 +410,7 @@
     pickDesign: function (t) { readForm(); if (S.template === t) return; S.template = t; var had = Object.keys(images).length; render(); markDirty(); if (had) makeFlyers(); },
     // Switching series swaps the design set and, while dates are untouched, the default sessions.
     seriesChanged: function () {
-      readForm();
+      readForm(); S.showPresenter = isPtc(S.series);
       if (S.autoDates) { var dd = defaultDates(S.series, S.year, S.month);
         S.sessions = dd.map(function (d, i) { var o = S.sessions[i] || { start: '17:00', end: '18:00', lesson: '', desc: '' }; return { date: d, start: o.start, end: o.end, lesson: o.lesson, desc: o.desc }; }); }
       render(); markDirty();
