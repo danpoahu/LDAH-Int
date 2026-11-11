@@ -31,8 +31,9 @@
   function wednesdays(y, m) { var out = []; for (var d = 1; d <= 31; d++) { var x = new Date(y, m-1, d); if (x.getMonth() !== m-1) break; if (x.getDay() === 3) out.push(ymd(x)); } return out; }
   // Learning Labs has three looks to pick from: A = monthly scenes, B = Bold Modern, C = Island Papercut.
   var TEMPLATES = [['A', 'Monthly scenes'], ['B', 'Bold Modern'], ['C', 'Island Papercut']];
+  // Parent Talk Café has its own three: A = ptc monthly, B = themes['PB'+m], C = themes['PC'+m].
   function theme(series, m, tpl) {
-    if (!isPtc(series) && (tpl === 'B' || tpl === 'C')) return F().themes[tpl + m];
+    if (tpl === 'B' || tpl === 'C') return F().themes[(isPtc(series) ? 'P' : '') + tpl + m];
     return F().themeFor ? F().themeFor(series, m) : F().themes[m];
   }
   function isPtc(series) { return series === 'Parent Talk Café'; }
@@ -125,7 +126,7 @@
   /* ---------- form ---------- */
   function readForm() {
     var $ = function (id) { return document.getElementById(id); };
-    S.series = $('vebSeries').value; S.template = isPtc(S.series) ? 'A' : ($('vebTemplate') ? $('vebTemplate').value : 'A'); S.month = +$('vebMonth').value; S.year = +$('vebYear').value;
+    S.series = $('vebSeries').value; S.month = +$('vebMonth').value; S.year = +$('vebYear').value;
     S.presenter = $('vebPresenter').value.trim(); S.grant = $('vebGrant').value.trim();
     S.partnerPages = $('vebPartner').checked;
     S.sponsors = [].map.call(document.querySelectorAll('.veb-sponsor:checked'), function (c) { return c.value; });
@@ -160,7 +161,35 @@
       document.querySelectorAll('.veb-sess .vs-date').forEach(function (inp, i) { inp.value = dd[i] || dd[dd.length - 1] || ''; });
       readForm();
     }
-    tzTable(); markDirty();
+    tzTable(); drawPicker(); markDirty();
+  }
+  /* ---------- design picker: the Hawaiʻi letter flyer in each of the three designs, click to choose ---------- */
+  var pickTimer = null;
+  function drawPicker() {
+    var box = document.getElementById('vebPick'); if (!box || !S) return;
+    var opts = TEMPLATES.filter(function (t) { return theme(S.series, S.month, t[0]); });
+    if (opts.length && !theme(S.series, S.month, S.template)) S.template = 'A';
+    var ss = S.sessions.filter(function (s) { return s.date && s.start && s.end && s.end > s.start; });
+    if (!ss.length) ss = defaultDates(S.series, S.year, S.month).map(function (d) { return { date: d, start: '17:00', end: '18:00' }; });
+    var sp = spec();
+    sp.sessions = ss.map(function (s, i) { return { date: s.date, start: s.start, end: s.end, lesson: s.lesson || ('Your lesson ' + (i + 1)), desc: s.desc || '' }; });
+    var cells = opts.map(function (t) {
+      var th = theme(S.series, S.month, t[0]), on = S.template === t[0], html = '';
+      try { html = th.fn(sp, false, false); } catch (e) { html = '<div style="padding:20px">Preview not available</div>'; }
+      return '<div class="c' + (on ? ' on' : '') + '" data-t="' + t[0] + '" title="' + esc(th.name) + '"><div class="f">' + html + '</div><div class="n">' + (on ? '&#10003; ' : '') + t[1] + '</div></div>';
+    }).join('');
+    var doc = '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="' + F().fontsHref + '">'
+      + (F().extraFonts || []).map(function (h) { return '<link rel="stylesheet" href="' + h + '">'; }).join('')
+      + '<style>html,body{margin:0;background:transparent;font-family:-apple-system,Segoe UI,sans-serif}' + F().css
+      + '.g{display:grid;grid-template-columns:repeat(' + Math.max(opts.length, 1) + ',minmax(0,1fr));gap:8px;align-items:start}'
+      + '.c{cursor:pointer;border:3px solid transparent;border-radius:9px;padding:3px;transition:border-color .15s}.c:hover{border-color:#94a3b8}.c.on{border-color:#0F766E;background:#ecfdf5}'
+      + '.c .f{pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18)}.c .n{font-size:12px;font-weight:700;text-align:center;color:#0f172a;margin:5px 0 2px}.c.on .n{color:#0F766E}</style></head>'
+      + '<body><div class="g">' + cells + '</div><script>document.addEventListener("click",function(e){var c=e.target.closest("[data-t]");if(c&&parent.VEB)parent.VEB.pickDesign(c.getAttribute("data-t"));});'
+      + 'function fit(){var f=parent.document.getElementById("vebPickFrame");if(f)f.style.height=document.body.scrollHeight+"px";}window.addEventListener("load",fit);if(document.fonts)document.fonts.ready.then(fit);setTimeout(fit,50);<\/script></body></html>';
+    var fr = document.getElementById('vebPickFrame');
+    if (!fr) { fr = document.createElement('iframe'); fr.id = 'vebPickFrame'; fr.setAttribute('title', 'Flyer designs'); fr.style.cssText = 'width:100%;border:0;display:block;height:240px'; box.innerHTML = ''; box.appendChild(fr); }
+    fr.srcdoc = doc;
+    var t = theme(S.series, S.month, S.template), n = document.getElementById('vebTheme'); if (n) n.textContent = t ? t.name : 'No design for this month yet';
   }
   function tzTable() {
     var el = document.getElementById('vebTz'); if (!el) return;
@@ -180,7 +209,7 @@
   }
   function render() {
     var body = document.getElementById('vebBody'); if (!body) return;
-    var mOpts = MONTHS.map(function (m, i) { var has = !!theme(S.series, i+1, S.template); return '<option value="' + (i+1) + '"' + (S.month === i+1 ? ' selected' : '') + (has ? '' : ' disabled') + '>' + m + (has ? '' : ' (no design yet)') + '</option>'; }).join('');
+    var mOpts = MONTHS.map(function (m, i) { var has = !!theme(S.series, i+1, 'A'); return '<option value="' + (i+1) + '"' + (S.month === i+1 ? ' selected' : '') + (has ? '' : ' disabled') + '>' + m + (has ? '' : ' (no design yet)') + '</option>'; }).join('');
     var spons = ['IDEAs that Work', 'Ke Ola Mamo'].map(function (x) { return '<label class="veb-chk"><input type="checkbox" class="veb-sponsor" value="' + esc(x) + '"' + (S.sponsors.indexOf(x) >= 0 ? ' checked' : '') + ' onchange="VEB.changed()"> ' + esc(x) + '</label>'; }).join('');
     body.innerHTML =
       '<div class="veb-wrap"><div class="veb-form">'
@@ -188,8 +217,6 @@
       + '<div class="veb-row3"><label>Series *<select id="vebSeries" onchange="VEB.seriesChanged()"><option' + (S.series === 'Learning Labs' ? ' selected' : '') + '>Learning Labs</option><option' + (S.series === 'Parent Talk Café' ? ' selected' : '') + '>Parent Talk Café</option></select></label>'
       + '<label>Month *<select id="vebMonth" onchange="VEB.monthChanged()">' + mOpts + '</select></label>'
       + '<label>Year *<input type="number" id="vebYear" min="2026" max="2035" value="' + S.year + '" onchange="VEB.monthChanged()"></label></div>'
-      + '<label>Design *<select id="vebTemplate" onchange="VEB.templateChanged()"' + (isPtc(S.series) ? ' disabled' : '') + '>' + TEMPLATES.map(function (t) { return '<option value="' + t[0] + '"' + ((isPtc(S.series) ? 'A' : S.template) === t[0] ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('') + '</select></label>'
-      + (isPtc(S.series) ? '<p class="veb-muted" style="margin:-6px 0 8px">Parent Talk Café has one design per month.</p>' : '')
       + '<div class="veb-theme">Flyer theme: <b id="vebTheme">' + esc((theme(S.series, S.month, S.template) || {}).name || 'No design for this month yet') + '</b></div>'
       + '<div id="vebSessions">' + S.sessions.map(sessRow).join('') + '</div>'
       + (S.sessions.length < 2 ? '<button class="btn btn-ghost veb-small" onclick="VEB.addSession()">Add a session</button>' : '')
@@ -202,12 +229,10 @@
       + '<button class="btn btn-ghost" onclick="VEB.save(false)">Save as hidden draft</button>'
       + (S.id && S.active ? '<button class="btn btn-ghost" onclick="VEB.unpublish()">Hide from website</button>' : '<button class="btn btn-ghost veb-pub" onclick="VEB.save(true)">Publish to website…</button>') + '</div>'
       + '<p class="veb-muted">Saving keeps the event hidden from ldahawaii.org. Publish puts it on the website straight away.</p>'
-      + '</div><div class="veb-side"><div class="veb-lbl">Each island\'s local time</div><div id="vebTz"></div></div></div>'
-      + (isPtc(S.series) ? '' : '<div class="veb-lbl" style="margin-top:18px">Pick a design</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px">' + TEMPLATES.map(function (t) { var on = S.template === t[0];
-          return '<button type="button" onclick="VEB.pickDesign(\'' + t[0] + '\')" style="padding:8px 16px;border-radius:999px;font-weight:700;cursor:pointer;border:2px solid ' + (on ? '#0F766E;background:#0F766E;color:#fff' : '#cbd5e1;background:#fff;color:#0f172a') + '">' + t[1] + '</button>'; }).join('') + '</div>')
+      + '</div><div class="veb-side"><div class="veb-lbl">Pick a design <span class="veb-muted" style="font-weight:400">(click one)</span></div><div id="vebPick" class="veb-pick"></div><div class="veb-lbl" style="margin-top:14px">Each island\'s local time</div><div id="vebTz"></div></div></div>'
       + '<div class="veb-lbl" style="margin-top:18px">Flyers</div><p id="vebFlyerNote" class="veb-muted">Click Make flyers to draw all four.</p><div id="vebFlyers" class="veb-flyers"></div>'
       + '<div class="veb-lbl" style="margin-top:22px">Events made with the builder</div><div id="vebList" class="veb-muted">Loading…</div>';
-    readForm(); tzTable(); loadList();
+    readForm(); tzTable(); drawPicker(); loadList();
     if (Object.keys(images).length) showFlyers(null);
   }
   function showFlyers(issuesByVariant) {
@@ -352,13 +377,12 @@
       if (!S) S = fresh();
       render();
     },
-    changed: function () { readForm(); tzTable(); markDirty(); },
+    changed: function () { readForm(); tzTable(); markDirty(); clearTimeout(pickTimer); pickTimer = setTimeout(drawPicker, 700); },
     datesTouched: function () { S.autoDates = false; VEB.changed(); },
     monthChanged: onMonthChange,
     // A different design can leave the chosen month without a flyer; render() greys those months out.
-    templateChanged: function () { readForm(); render(); markDirty(); },
     // The buttons above the flyers: switch design and redraw straight away.
-    pickDesign: function (t) { readForm(); S.template = t; render(); markDirty(); makeFlyers(); },
+    pickDesign: function (t) { readForm(); if (S.template === t) return; S.template = t; var had = Object.keys(images).length; render(); markDirty(); if (had) makeFlyers(); },
     // Switching series swaps the design set and, while dates are untouched, the default sessions.
     seriesChanged: function () {
       readForm();
