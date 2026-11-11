@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.31-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.32-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11727,6 +11727,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
         <button class="cms-tab" data-voltab="applications" onclick="cmsSwitchVolunteersTab('applications')">Applications <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'View all volunteer applications submitted through the website.<br><br><b>Status workflow:</b><br>New → Contacted → Interviewing → Accepted/Declined<br><br>Click status buttons to update. Add admin notes for internal tracking.')">i</span></button>
         <button class="cms-tab" data-voltab="requests" onclick="cmsSwitchVolunteersTab('requests')">Help Requests <span id="cmsVolReqCountBadge" style="display:none;background:#F97316;color:#fff;font-size:.7rem;font-weight:800;border-radius:999px;padding:1px 8px;margin-left:4px;">0</span></button>
         <button class="cms-tab" data-voltab="opportunities" onclick="cmsSwitchVolunteersTab('opportunities')">Opportunities <span class="cms-ib cms-ib-light" onclick="event.stopPropagation();cmsIbShow(this,'<b>To create an opportunity:</b><br>1. Click Add Opportunity<br>2. Enter title and description<br>3. Set requirements and dates<br>4. Upload an image if available<br>5. Click Save<br><br>Drag cards to reorder how they appear on the website.')">i</span></button>
+        <button class="cms-tab" data-voltab="office" onclick="cmsSwitchVolunteersTab('office')">In-Office Help <span class="cms-ib cms-ib-light" onclick="event.stopPropagation();cmsIbShow(this,'<b>Office volunteer days:</b><br>1. Tick the weekdays the office takes volunteers<br>2. Set the hours and how many can be in at once<br>3. Turn on Take sign-ups and click Save<br>4. Add Special volunteer days for one-off dates<br><br>Volunteers sign up on the website. Who is coming shows at the bottom.')">i</span></button>
       </div>
       </div>
 
@@ -11799,6 +11800,19 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
         <div id="cmsVolunteersAppsCards">
           <div class="cms-empty"><p>Loading applications...</p></div>
         </div>
+      </div>
+
+      <!-- In-Office Help (2026-11-10): office volunteer days, special days and sign-ups.
+           All reads and writes go through the officeVolunteerAdmin function. -->
+      <div id="cmsVolunteersOfficePane" style="display:none;">
+        <div class="cms-toolbar" style="flex-wrap:wrap;gap:10px;align-items:center;">
+          <div style="font-weight:700;color:#0F172A;">Office volunteer days</div>
+          <span id="ovhSaved" style="font-size:.8rem;color:#64748B;"></span>
+          <div style="flex:1"></div>
+          <a class="btn btn-ghost" style="font-size:.82rem;" href="https://www.ldahawaii.org/STAGE/volunteer-office.html" target="_blank" rel="noopener">Open the sign-up page</a>
+          <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsLoadOfficeHelp()">Refresh</button>
+        </div>
+        <div id="ovhBody"><div class="cms-empty"><p>Loading…</p></div></div>
       </div>
 
       <!-- Application detail (2026-10-02): opened from an Applications card -->
@@ -48794,8 +48808,207 @@ var _cmsVolunteerOpps = [];
 var _cmsVolunteerApps = [];
 var _cmsVolAppFilter = 'all';
 
+/* ══ In-Office Help (2026-11-10) ══════════════════════════════════════════
+   Staff set the weekdays, hours, head count and tasks for office volunteering,
+   add special volunteer days, and see who signed up on the website
+   (www.ldahawaii.org/STAGE/volunteer-office.html). Everything goes through the
+   officeVolunteerAdmin function; the collections are server-only. */
+var _ovh = { data: null, draft: null, busy: false, confirmDay: '', confirmCancel: '' };
+var _OVH_WD = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function _ovhEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+var _OVH_MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function _ovhMin(h) { var a = String(h || '').split(':'); return (+a[0]) * 60 + (+a[1] || 0); }
+function _ovhHm(m) { return (m < 600 ? '0' : '') + Math.floor(m / 60) + ':' + (m % 60 < 10 ? '0' : '') + (m % 60); }
+function _ovhT(m) { var h = Math.floor(m / 60), mm = m % 60; return (h % 12 || 12) + ':' + (mm < 10 ? '0' : '') + mm + (h < 12 ? ' am' : ' pm'); }
+function _ovhRange(a, b) { return _ovhT(_ovhMin(a)) + '–' + _ovhT(_ovhMin(b)); }
+function _ovhDay(k) { var a = k.split('-'), d = new Date(+a[0], +a[1] - 1, +a[2], 12); return _OVH_WD[d.getDay()].slice(0, 3) + ', ' + _OVH_MO[d.getMonth()] + ' ' + d.getDate(); }
+function _ovhAdd(k, n) { var a = k.split('-'), d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2] + n)); return d.toISOString().slice(0, 10); }
+function _ovhWd(k) { var a = k.split('-'); return new Date(Date.UTC(+a[0], +a[1] - 1, +a[2])).getUTCDay(); }
+function _ovhOpts(lo, hi, sel) { var h = ''; for (var m = lo; m <= hi; m += 30) h += '<option value="' + _ovhHm(m) + '"' + (_ovhHm(m) === sel ? ' selected' : '') + '>' + _ovhT(m) + '</option>'; return h; }
+
+async function _ovhCall(payload) {
+  var res = await firebase.functions().httpsCallable('officeVolunteerAdmin')(payload);
+  return res && res.data;
+}
+async function cmsLoadOfficeHelp() {
+  var body = document.getElementById('ovhBody'); if (!body) return;
+  if (!_ovh.data) body.innerHTML = '<div class="cms-empty"><p>Loading…</p></div>';
+  try {
+    _ovh.data = await _ovhCall({ action: 'get' });
+    _ovh.draft = JSON.parse(JSON.stringify(_ovh.data.settings));
+    _ovhRender();
+  } catch (e) {
+    console.warn('[office help] load failed', e);
+    body.innerHTML = '<div class="cms-empty"><p>Couldn’t load office help: ' + _ovhEsc(e.message || String(e)) + '</p></div>';
+  }
+}
+function _ovhMsg(id, text, ok) { var el = document.getElementById(id); if (el) { el.textContent = text || ''; el.style.color = ok ? '#15803D' : '#B91C1C'; } }
+
+function _ovhRender() {
+  var d = _ovh.data, st = _ovh.draft, body = document.getElementById('ovhBody'); if (!d || !body) return;
+  var saved = document.getElementById('ovhSaved');
+  if (saved) saved.textContent = d.updatedAt ? 'Last saved ' + new Date(d.updatedAt).toLocaleString('en-US', { timeZone: 'Pacific/Honolulu', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + (d.updatedBy ? ' by ' + d.updatedBy : '') : 'Not set up yet';
+  var inp = 'padding:6px 8px;border:1px solid #CBD5E1;border-radius:6px;font:inherit;font-size:.86rem;';
+  var card = 'background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px;margin:0 0 14px;';
+  var h = '';
+
+  /* 1. Weekly office days */
+  var live = st.active && st.openDays.length;
+  h += '<div style="' + card + '">';
+  h += '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:8px;"><b style="font-size:1rem;color:#0F172A;">Weekly office days</b>' +
+       '<span style="font-size:.76rem;font-weight:700;border-radius:999px;padding:2px 10px;' + (live ? 'background:#ECFDF3;color:#15803D;">Open on the website' : 'background:#F1F5F9;color:#64748B;">Not open on the website') + '</span></div>';
+  h += '<label style="display:flex;align-items:center;gap:8px;font-size:.9rem;margin:4px 0 12px;cursor:pointer;"><input type="checkbox" id="ovhActive"' + (st.active ? ' checked' : '') + ' onchange="_ovh.draft.active=this.checked"> Take sign-ups for these weekdays on the website</label>';
+  h += '<div style="font-size:.8rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Open days</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">';
+  [1, 2, 3, 4, 5, 6].forEach(function (w) {
+    var on = st.openDays.indexOf(w) >= 0;
+    h += '<button type="button" class="btn ' + (on ? 'btn-primary' : 'btn-ghost') + '" style="font-size:.8rem;padding:6px 12px;" onclick="_ovhToggleDay(' + w + ')" aria-pressed="' + on + '">' + _OVH_WD[w] + '</button>';
+  });
+  h += '</div>';
+  h += '<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:12px;">' +
+       '<label style="font-size:.82rem;color:#475569;">From<br><select id="ovhFrom" style="' + inp + '" onchange="_ovh.draft.from=this.value">' + _ovhOpts(420, 960, st.from) + '</select></label>' +
+       '<label style="font-size:.82rem;color:#475569;">To<br><select id="ovhTo" style="' + inp + '" onchange="_ovh.draft.to=this.value">' + _ovhOpts(540, 1080, st.to) + '</select></label>' +
+       '<label style="font-size:.82rem;color:#475569;">Volunteers at once<br><input id="ovhMax" type="number" min="1" max="20" value="' + st.maxAtOnce + '" style="' + inp + 'width:80px;" onchange="_ovh.draft.maxAtOnce=+this.value||1"></label></div>';
+  h += '<div style="font-size:.8rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Tasks volunteers see (reference only)</div><div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">';
+  st.tasks.forEach(function (t, i) {
+    h += '<div style="display:flex;gap:8px;align-items:center;"><input style="' + inp + 'width:180px;" value="' + _ovhEsc(t.name) + '" onchange="_ovh.draft.tasks[' + i + '].name=this.value" aria-label="Task name">' +
+         '<input style="' + inp + 'flex:1;min-width:0;" value="' + _ovhEsc(t.note || '') + '" placeholder="Short description" onchange="_ovh.draft.tasks[' + i + '].note=this.value" aria-label="Task description">' +
+         '<button type="button" class="btn btn-ghost" style="font-size:.76rem;padding:6px 10px;" onclick="_ovh.draft.tasks.splice(' + i + ',1);_ovhRender()" aria-label="Remove task">Remove</button></div>';
+  });
+  h += '</div><button type="button" class="btn btn-ghost" style="font-size:.78rem;padding:6px 10px;margin-bottom:12px;" onclick="_ovh.draft.tasks.push({name:\'\',note:\'\'});_ovhRender()">+ Add a task</button>';
+  h += '<div style="display:flex;gap:10px;align-items:center;"><button type="button" class="btn btn-primary" onclick="_ovhSave()">Save office days</button><span id="ovhSaveMsg" style="font-size:.84rem;"></span></div>';
+  h += '</div>';
+
+  /* 2. Special volunteer days */
+  h += '<div style="' + card + '"><b style="font-size:1rem;color:#0F172A;">Special volunteer days</b>' +
+       '<div style="font-size:.84rem;color:#64748B;margin:2px 0 10px;">One-off dates, such as event prep or a big mailing. Any day of the week, with their own hours and number of volunteers. They show on the website as soon as you add them.</div>';
+  h += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:6px;">' +
+       '<label style="font-size:.82rem;color:#475569;">Date<br><input type="date" id="ovhSpDate" style="' + inp + '" min="' + d.today + '"></label>' +
+       '<label style="font-size:.82rem;color:#475569;">From<br><select id="ovhSpFrom" style="' + inp + '">' + _ovhOpts(420, 1020, '09:00') + '</select></label>' +
+       '<label style="font-size:.82rem;color:#475569;">To<br><select id="ovhSpTo" style="' + inp + '">' + _ovhOpts(480, 1080, '12:00') + '</select></label>' +
+       '<label style="font-size:.82rem;color:#475569;flex:1;min-width:220px;">What it’s for<br><input id="ovhSpNote" maxlength="120" style="' + inp + 'width:100%;" placeholder="Nutcracker event prep: folders and name tags"></label>' +
+       '<label style="font-size:.82rem;color:#475569;">Volunteers needed<br><input type="number" id="ovhSpMax" min="1" max="50" value="4" style="' + inp + 'width:80px;"></label>' +
+       '<button type="button" class="btn btn-primary" onclick="_ovhAddDay()">Add this day</button></div>';
+  h += '<div id="ovhSpMsg" style="font-size:.84rem;min-height:1.1em;margin-bottom:6px;"></div>';
+  var cnt = {}; (d.signups || []).forEach(function (s) { if (s.kind === 'special') cnt[s.specialDayId] = (cnt[s.specialDayId] || 0) + 1; });
+  h += (d.special || []).map(function (sp) {
+    var past = sp.date < d.today, n = cnt[sp.id] || 0;
+    var right = _ovh.confirmDay === sp.id
+      ? '<span style="font-size:.8rem;color:#B91C1C;">' + n + ' signed up will be cancelled.</span> <button type="button" class="btn btn-coral" style="font-size:.76rem;padding:6px 10px;" onclick="_ovhRemoveDay(\'' + sp.id + '\',true)">Remove anyway</button> <button type="button" class="btn btn-ghost" style="font-size:.76rem;padding:6px 10px;" onclick="_ovh.confirmDay=\'\';_ovhRender()">Keep</button>'
+      : '<button type="button" class="btn btn-ghost" style="font-size:.76rem;padding:6px 10px;" onclick="_ovhRemoveDay(\'' + sp.id + '\',false)">Remove</button>';
+    return '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;border:1px solid #DDD6FE;background:' + (past ? '#F8FAFC' : '#F5F3FF') + ';border-radius:10px;margin-top:6px;">' +
+      '<b style="color:#5B21B6;min-width:110px;">' + _ovhDay(sp.date) + '</b><span style="font-size:.86rem;">' + _ovhRange(sp.from, sp.to) + '</span>' +
+      '<span style="flex:1;min-width:160px;font-size:.86rem;color:#334155;">' + _ovhEsc(sp.note) + (past ? ' <i style="color:#94A3B8;">(past)</i>' : '') + '</span>' +
+      '<span style="font-size:.8rem;font-weight:700;color:#5B21B6;">' + n + ' of ' + sp.max + ' signed up</span>' + right + '</div>';
+  }).join('') || '<div style="font-size:.86rem;color:#94A3B8;">No special days yet.</div>';
+  h += '</div>';
+
+  /* 3. Who's coming: the next 14 days */
+  var sig = d.signups || [];
+  function who(s) { return _ovhEsc(((s.firstName || '') + ' ' + (s.lastName || '')).trim() || s.email); }
+  h += '<div style="' + card + '"><b style="font-size:1rem;color:#0F172A;">Who’s coming (next 2 weeks)</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-top:10px;">';
+  var any = false;
+  for (var i = 0; i < 14; i++) {
+    var k = _ovhAdd(d.today, i), wd = _ovhWd(k);
+    var rows = sig.filter(function (s) { return s.kind === 'weekly' ? s.weekday === wd : s.date === k; }).sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+    var spd = (d.special || []).filter(function (x) { return x.date === k; });
+    var open = (st.active && st.openDays.indexOf(wd) >= 0) || spd.length;
+    if (!rows.length && !open) continue;
+    any = true;
+    h += '<div style="border:1px solid #E2E8F0;border-radius:10px;padding:8px;background:#F8FAFC;"><div style="font-weight:700;font-size:.84rem;color:#0F172A;margin-bottom:4px;">' + (i === 0 ? 'Today, ' : '') + _ovhDay(k) + '</div>' +
+      (spd.length ? '<div style="font-size:.74rem;color:#5B21B6;margin-bottom:4px;">' + spd.map(function (x) { return _ovhEsc(x.note.split(':')[0]); }).join(', ') + '</div>' : '') +
+      (rows.length ? rows.map(function (s) {
+        var c = s.kind === 'special' ? '#7C3AED' : s.kind === 'once' ? '#F97316' : '#0891B2';
+        return '<div style="border-left:3px solid ' + c + ';background:#fff;border-radius:6px;padding:4px 6px;margin-top:4px;font-size:.78rem;"><b>' + _ovhRange(s.start, s.end) + '</b><br>' + who(s) + '</div>';
+      }).join('') : '<div style="font-size:.76rem;color:#94A3B8;">Nobody yet</div>') + '</div>';
+  }
+  if (!any) h += '<div style="font-size:.86rem;color:#94A3B8;">No open days or sign-ups in the next 2 weeks.</div>';
+  h += '</div><div style="display:flex;gap:14px;font-size:.76rem;color:#64748B;margin-top:8px;"><span><b style="color:#0891B2;">|</b> Every week</span><span><b style="color:#F97316;">|</b> Just once</span><span><b style="color:#7C3AED;">|</b> Special day</span></div></div>';
+
+  /* 4. All sign-ups */
+  h += '<div style="' + card + '"><b style="font-size:1rem;color:#0F172A;">All sign-ups (' + sig.length + ')</b>';
+  if (!sig.length) h += '<div style="font-size:.86rem;color:#94A3B8;margin-top:6px;">Nobody has signed up yet.</div>';
+  else {
+    h += '<div style="overflow-x:auto;margin-top:8px;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;"><thead><tr style="text-align:left;color:#64748B;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;"><th style="padding:6px;">Volunteer</th><th style="padding:6px;">When</th><th style="padding:6px;">Contact</th><th style="padding:6px;">Notes</th><th style="padding:6px;">Signed up</th><th></th></tr></thead><tbody>';
+    sig.forEach(function (s) {
+      var when = s.kind === 'weekly' ? 'Every ' + _OVH_WD[s.weekday] + ', ' + _ovhRange(s.start, s.end)
+        : _ovhDay(s.date) + ', ' + _ovhRange(s.start, s.end) + (s.kind === 'special' ? '<br><span style="color:#5B21B6;font-size:.78rem;">' + _ovhEsc(s.specialNote || 'Special day') + '</span>' : ' <span style="color:#C2410C;font-size:.78rem;">(once)</span>');
+      var tag = s.volunteerId ? '<span style="font-size:.7rem;font-weight:700;background:#ECFDF3;color:#15803D;border-radius:999px;padding:1px 7px;">On roster</span>'
+        : (s.isNew ? '<span style="font-size:.7rem;font-weight:700;background:#FFF7ED;color:#C2410C;border-radius:999px;padding:1px 7px;">New</span>' : '<span style="font-size:.7rem;font-weight:700;background:#FEF2F2;color:#B91C1C;border-radius:999px;padding:1px 7px;" title="Said they already volunteer, but the email is not on the roster">Email not on roster</span>');
+      var act = _ovh.confirmCancel === s.id
+        ? '<button type="button" class="btn btn-coral" style="font-size:.74rem;padding:5px 9px;" onclick="_ovhCancel(\'' + s.id + '\')">Yes, cancel</button> <button type="button" class="btn btn-ghost" style="font-size:.74rem;padding:5px 9px;" onclick="_ovh.confirmCancel=\'\';_ovhRender()">Keep</button>'
+        : '<button type="button" class="btn btn-ghost" style="font-size:.74rem;padding:5px 9px;" onclick="_ovh.confirmCancel=\'' + s.id + '\';_ovhRender()">Cancel</button>';
+      h += '<tr style="border-top:1px solid #F1F5F9;vertical-align:top;"><td style="padding:6px;"><b>' + who(s) + '</b><br>' + tag + '</td><td style="padding:6px;">' + when + '</td>' +
+        '<td style="padding:6px;"><a href="mailto:' + _ovhEsc(s.email) + '">' + _ovhEsc(s.email) + '</a>' + (s.phone ? '<br><a href="tel:' + _ovhEsc(s.phone.replace(/[^\d+]/g, '')) + '">' + _ovhEsc(s.phone) + '</a>' : '') + '</td>' +
+        '<td style="padding:6px;max-width:220px;color:#475569;">' + _ovhEsc(s.notes || '') + '</td>' +
+        '<td style="padding:6px;white-space:nowrap;color:#64748B;">' + (s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-US', { timeZone: 'Pacific/Honolulu', month: 'short', day: 'numeric' }) : '') + '</td>' +
+        '<td style="padding:6px;white-space:nowrap;">' + act + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+  h += '</div>';
+  body.innerHTML = h;
+}
+function _ovhToggleDay(w) {
+  var a = _ovh.draft.openDays, i = a.indexOf(w);
+  if (i >= 0) a.splice(i, 1); else { a.push(w); a.sort(); }
+  _ovhRender();
+}
+async function _ovhSave() {
+  if (_ovh.busy) return;
+  var st = _ovh.draft;
+  st.tasks = st.tasks.filter(function (t) { return String(t.name || '').trim(); });
+  if (_ovhMin(st.to) - _ovhMin(st.from) < 60) { _ovhMsg('ovhSaveMsg', 'Office hours must be at least an hour long.'); return; }
+  if (st.active && !st.openDays.length) { _ovhMsg('ovhSaveMsg', 'Pick at least one open day, or untick Take sign-ups.'); return; }
+  _ovh.busy = true; _ovhMsg('ovhSaveMsg', 'Saving…', true);
+  try {
+    _ovh.data = await _ovhCall({ action: 'saveSettings', settings: st });
+    _ovh.draft = JSON.parse(JSON.stringify(_ovh.data.settings));
+    _ovhRender(); _ovhMsg('ovhSaveMsg', 'Saved.', true);
+  } catch (e) { _ovhMsg('ovhSaveMsg', e.message || 'Couldn’t save.'); }
+  _ovh.busy = false;
+}
+async function _ovhAddDay() {
+  if (_ovh.busy) return;
+  var g = function (id) { return (document.getElementById(id).value || '').trim(); };
+  var day = { date: g('ovhSpDate'), from: g('ovhSpFrom'), to: g('ovhSpTo'), note: g('ovhSpNote'), max: +g('ovhSpMax') };
+  if (!day.date) { _ovhMsg('ovhSpMsg', 'Pick a date.'); return; }
+  if (day.date < _ovh.data.today) { _ovhMsg('ovhSpMsg', 'That date has passed.'); return; }
+  if (_ovhMin(day.to) - _ovhMin(day.from) < 60) { _ovhMsg('ovhSpMsg', 'Make it at least an hour long.'); return; }
+  if (!day.note) { _ovhMsg('ovhSpMsg', 'Say what the day is for.'); return; }
+  if (!(day.max >= 1)) { _ovhMsg('ovhSpMsg', 'Say how many volunteers you need.'); return; }
+  _ovh.busy = true; _ovhMsg('ovhSpMsg', 'Adding…', true);
+  try {
+    var keep = JSON.parse(JSON.stringify(_ovh.draft));
+    _ovh.data = await _ovhCall({ action: 'addDay', day: day });
+    _ovh.draft = keep; _ovhRender(); _ovhMsg('ovhSpMsg', 'Added. It’s on the website now.', true);
+  } catch (e) { _ovhMsg('ovhSpMsg', e.message || 'Couldn’t add the day.'); }
+  _ovh.busy = false;
+}
+async function _ovhRemoveDay(id, confirmed) {
+  if (_ovh.busy) return;
+  _ovh.busy = true;
+  try {
+    var keep = JSON.parse(JSON.stringify(_ovh.draft));
+    var r = await _ovhCall({ action: 'removeDay', id: id, confirm: confirmed === true });
+    if (r && r.needsConfirm) { _ovh.confirmDay = id; }
+    else { _ovh.confirmDay = ''; _ovh.data = r; }
+    _ovh.draft = keep; _ovhRender();
+  } catch (e) { _ovhMsg('ovhSpMsg', e.message || 'Couldn’t remove the day.'); }
+  _ovh.busy = false;
+}
+async function _ovhCancel(id) {
+  if (_ovh.busy) return;
+  _ovh.busy = true;
+  try {
+    var keep = JSON.parse(JSON.stringify(_ovh.draft));
+    _ovh.data = await _ovhCall({ action: 'cancelSignup', id: id });
+    _ovh.confirmCancel = ''; _ovh.draft = keep; _ovhRender();
+  } catch (e) { console.warn('[office help] cancel failed', e); }
+  _ovh.busy = false;
+}
+
 function cmsSwitchVolunteersTab(tab) {
-  var panes = { roster: 'cmsVolunteersRosterPane', requests: 'cmsVolunteersRequestsPane', opportunities: 'cmsVolunteersOppsPane', applications: 'cmsVolunteersAppsPane' };
+  var panes = { roster: 'cmsVolunteersRosterPane', requests: 'cmsVolunteersRequestsPane', opportunities: 'cmsVolunteersOppsPane', applications: 'cmsVolunteersAppsPane', office: 'cmsVolunteersOfficePane' };
   Object.keys(panes).forEach(function(k) {
     var el = document.getElementById(panes[k]);
     if (el) el.style.display = (k === tab) ? '' : 'none';
@@ -48806,6 +49019,7 @@ function cmsSwitchVolunteersTab(tab) {
   if (tab === 'roster' && typeof cmsRenderRoster === 'function') cmsRenderRoster();
   if (tab === 'requests' && typeof cmsLoadVolunteerRequests === 'function') cmsLoadVolunteerRequests();
   if (tab === 'applications' && typeof _cmsVolAppsRefresh === 'function') _cmsVolAppsRefresh();
+  if (tab === 'office' && typeof cmsLoadOfficeHelp === 'function') cmsLoadOfficeHelp();
 }
 
 window.cmsLoadVolunteers = async function() {
