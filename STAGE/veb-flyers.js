@@ -9506,3 +9506,5242 @@ VEBFlyers.registerSet('C', 8, (function () {
 
   VEBFlyers.registerSet('C', 12, { name: 'Starry night: Norfolk pines strung with lights, gold paper star, star date badges', fonts: 'family=Mali:wght@500;600;700&family=Nunito:wght@600;700;800;900', css: css, fn: fn });
 })();
+
+/* ---- Parent Talk Café design choices B (Bold Modern café) and C (Island Papercut café) ---- */
+
+/* ---- PTC design B month 01 ---- */
+/* Set PB · January · Parent Talk Café "Stacked TALK": a charcoal column runs down the left edge carrying
+   an oversized stacked T / A / L / K in tomato red and cream, joining the charcoal footer in an L.
+   Cream page, flush-left condensed title, round tomato café badge with a flat geometric steaming cup. */
+VEBFlyers.registerSet('PB', 1, (function () {
+  var COAL = '#26272B', CREAM = '#F5ECDD', TOMATO = '#E5432D', SOFT = '#6B6560', LINE = '#D9CBB4', PALE = '#FF8A6E';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  /* round series badge: flat geometric cup, three steam strokes, title on the top arc */
+  function badge(x, y, s) {
+    var v = '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + TOMATO + '"/>'
+      + '<circle cx="50" cy="50" r="44.5" fill="none" stroke="' + CREAM + '" stroke-width="1.1"/>'
+      + '<path id="pb01-arc" d="M15 52 A35 35 0 0 1 85 52" fill="none"/>'
+      + '<text font-family="Anton,Impact,sans-serif" font-size="10.4" letter-spacing="1.3" fill="' + CREAM + '"><textPath href="#pb01-arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<path d="M41 47 c-3.5 -4 3.5 -6 0 -10.5 M50 46 c-3.5 -4 3.5 -6 0 -10.5 M59 47 c-3.5 -4 3.5 -6 0 -10.5" fill="none" stroke="' + CREAM + '" stroke-width="2.6" stroke-linecap="round"/>'
+      + '<path d="M33 52 H67 V61 a11 11 0 0 1 -11 11 H44 a11 11 0 0 1 -11 -11 Z" fill="' + CREAM + '"/>'
+      + '<circle cx="68" cy="59" r="5.2" fill="none" stroke="' + CREAM + '" stroke-width="3"/>'
+      + '<rect x="26" y="74.5" width="48" height="3.6" rx="1.8" fill="' + CREAM + '"/>'
+      + '<rect x="33" y="55.5" width="34" height="3" fill="' + COAL + '"/>'
+      + '<circle cx="23" cy="73" r="1.6" fill="' + CREAM + '"/><circle cx="77" cy="73" r="1.6" fill="' + CREAM + '"/>'
+      + '</svg>';
+    return box('pb01-badge', x, y, s, s, v);
+  }
+  /* charcoal column + footer, stacked letters (decoration only) */
+  function deco(HH, o) {
+    var s = '<svg class="pb01-deco" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true">';
+    s += '<rect width="100" height="' + f(HH) + '" fill="' + CREAM + '"/>';
+    s += '<rect width="' + f(o.cw) + '" height="' + f(HH) + '" fill="' + COAL + '"/>';
+    s += '<rect y="' + f(o.footY) + '" width="100" height="' + f(HH - o.footY) + '" fill="' + COAL + '"/>';
+    s += '<rect x="' + f(o.cw) + '" y="' + f(o.footY) + '" width="' + f(100 - o.cw) + '" height=".8" fill="' + TOMATO + '"/>';
+    var L = ['T', 'A', 'L', 'K'], cols = [TOMATO, TOMATO, CREAM, TOMATO];
+    L.forEach(function (c, i) {
+      s += '<text x="' + f(o.cw / 2) + '" y="' + f(o.ly + i * o.step) + '" text-anchor="middle" font-family="Anton,Impact,sans-serif" font-size="' + f(o.lfs) + '" fill="' + cols[i] + '">' + c + '</text>';
+    });
+    (o.rules || []).forEach(function (r) { s += '<rect x="' + f(r[0]) + '" y="' + f(r[1]) + '" width="' + f(r[2]) + '" height="' + f(r[3] || .3) + '" fill="' + (r[4] || COAL) + '"/>'; });
+    return s + '</svg>';
+  }
+  return {
+    name: 'Stacked TALK: charcoal column of giant letters, cream page, tomato café badge',
+    fonts: 'family=Anton&family=DM+Sans:wght@500;600;700;800',
+    css: [
+      '.pb01{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + CREAM + ';color:' + COAL + ';font-family:"DM Sans",Arial,sans-serif}',
+      '.pb01.sq{aspect-ratio:1/1}',
+      '.pb01 *{box-sizing:border-box}',
+      '.pb01 .pb01-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb01>div{position:absolute;z-index:2}',
+      '.pb01 .pb01-badge{pointer-events:none}.pb01 .pb01-badge svg{width:100%;height:100%;display:block}',
+      '.pb01 .pb01-logo{background:#fff;display:flex;align-items:center;justify-content:center;padding:.9cqw;border:.25cqw solid ' + COAL + '}',
+      '.pb01 .pb01-logo img{max-width:100%;max-height:100%;display:block}',
+      '.pb01 .pb01-kick{font-weight:700;font-size:1.3cqw;letter-spacing:.14em;line-height:1.45;color:' + SOFT + ';white-space:nowrap}',
+      '.pb01 .pb01-ttl{font-family:Anton,Impact,sans-serif;text-transform:uppercase;line-height:1.02;letter-spacing:.005em;white-space:nowrap;color:' + COAL + '}',
+      '.pb01 .pb01-ttl b{font-weight:400;color:' + TOMATO + '}',
+      '.pb01 .pb01-mo{display:flex;align-items:center;gap:1.4cqw;white-space:nowrap}',
+      '.pb01 .pb01-mo .m{font-weight:800;font-size:3cqw;letter-spacing:-.01em}',
+      '.pb01 .pb01-mo .z{background:' + TOMATO + ';color:#fff;font-weight:800;font-size:1.45cqw;letter-spacing:.12em;padding:.55cqw 1.1cqw}',
+      '.pb01 .pb01-wh{font-weight:600;font-size:1.6cqw;line-height:1.3;color:' + SOFT + ';display:flex;align-items:center;gap:1cqw;white-space:nowrap}',
+      '.pb01 .pb01-wh i{display:block;width:1.3cqw;height:1.3cqw;border-radius:50%;background:' + TOMATO + ';flex:none}',
+      '.pb01 .pb01-lb{font-weight:800;font-size:1.35cqw;letter-spacing:.2em;color:' + TOMATO + ';white-space:nowrap}',
+      '.pb01 .pb01-tp{font-weight:800;line-height:1.06;letter-spacing:-.02em}',
+      '.pb01 .pb01-ds{font-weight:500;line-height:1.3;color:' + SOFT + '}',
+      '.pb01 .pb01-pr{font-weight:600;line-height:1.3;white-space:nowrap}.pb01 .pb01-pr b{font-weight:800;color:' + TOMATO + '}',
+      /* date block */
+      '.pb01 .pb01-dt{display:flex;align-items:center;gap:2cqw}',
+      '.pb01 .pb01-dt .n{font-family:Anton,Impact,sans-serif;color:' + TOMATO + ';line-height:.9}',
+      '.pb01 .pb01-dt .w{font-weight:800;letter-spacing:.12em;line-height:1.3;white-space:nowrap}',
+      '.pb01 .pb01-dt .t{font-weight:700;white-space:nowrap;margin-top:.4cqw}',
+      /* two-session entries */
+      '.pb01 .pb01-se{display:flex;gap:2.2cqw;align-items:flex-start}',
+      '.pb01 .pb01-se .n{font-family:Anton,Impact,sans-serif;color:' + TOMATO + ';line-height:.92;flex:none}',
+      '.pb01 .pb01-se .w{font-weight:800;letter-spacing:.12em;white-space:nowrap}',
+      '.pb01 .pb01-se .t{font-weight:700;white-space:nowrap;margin-top:.25cqw}',
+      '.pb01 .pb01-se .tp{font-weight:800;line-height:1.08;letter-spacing:-.015em;margin-top:.8cqw}',
+      '.pb01 .pb01-se .ds{font-weight:500;line-height:1.3;color:' + SOFT + ';margin-top:.4cqw}',
+      /* partner topics + table */
+      '.pb01 .pb01-ls div{display:flex;gap:1.4cqw;font-weight:800;line-height:1.3;white-space:nowrap}',
+      '.pb01 .pb01-ls b{color:' + TOMATO + ';font-family:Anton,Impact,sans-serif;font-weight:400}',
+      '.pb01 .pb01-tb .r{display:grid;grid-template-columns:40% 35% 25%;align-items:center;border-bottom:.15cqw solid ' + LINE + ';padding:0 1.2cqw}',
+      '.pb01 .pb01-tb .r.th{font-weight:800;letter-spacing:.14em;color:' + SOFT + ';border-bottom:.35cqw solid ' + COAL + '}',
+      '.pb01 .pb01-tb .l{font-weight:800;white-space:nowrap}',
+      '.pb01 .pb01-tb .d{font-weight:600;white-space:nowrap}',
+      '.pb01 .pb01-tb .t{font-family:Anton,Impact,sans-serif;text-align:right;white-space:nowrap;letter-spacing:.02em}',
+      '.pb01 .pb01-tb .r.h{background:' + TOMATO + ';color:#fff;border-bottom-color:' + TOMATO + '}',
+      /* footer */
+      '.pb01 .pb01-ft{color:' + CREAM + '}',
+      '.pb01 .pb01-ft .rg{font-weight:800;letter-spacing:-.01em;line-height:1.05;white-space:nowrap}',
+      '.pb01 .pb01-ft .rg span{color:' + PALE + '}',
+      '.pb01 .pb01-ft .sm{font-weight:500;line-height:1.35;color:#D9D2C6;white-space:nowrap}',
+      '.pb01 .pb01-ft .bd{display:flex;gap:1cqw}',
+      '.pb01 .pb01-ft .bd span{font-weight:700;font-size:1.2cqw;letter-spacing:.08em;text-transform:uppercase;border:.15cqw solid ' + PALE + ';color:' + CREAM + ';padding:.35cqw .8cqw;white-space:nowrap}',
+      '.pb01 .pb01-qr{background:#fff;padding:.5cqw;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:' + COAL + '}',
+      '.pb01 .pb01-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var HH = sq ? 100 : 129.41, month = H.MONTHS[spec.month - 1];
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop(), first = words.join(' ');
+      var kick = partner ? 'FOR FAMILIES<br>ACROSS THE PACIFIC' : 'PARENT TRAINING &amp;<br>INFORMATION CENTER';
+      var logo = '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">';
+      var pres = spec.presenter ? 'Presented by <b>' + H.esc(spec.presenter) + '</b>' : '';
+      var out = '<div class="vfx pb01' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">';
+      function title(x, y, fs, one) { return box('pb01-ttl', x, y, null, null, (first ? first + (one ? ' ' : '<br>') : '') + '<b>' + last + '</b>', 'font-size:' + f(fs) + 'cqw'); }
+      function mo(x, y, sc) {
+        return box('pb01-mo', x, y, null, null, '<span class="m" style="font-size:' + f(3 * sc) + 'cqw">' + month + ' ' + spec.year + '</span><span class="z" style="font-size:' + f(1.45 * sc) + 'cqw">ON ZOOM</span>');
+      }
+      function where(x, y, fs) { return box('pb01-wh', x, y, null, null, '<i></i>' + H.esc(H.PTC_WHERE), 'font-size:' + f(fs) + 'cqw'); }
+      function foot(y, qs, sc) {
+        return box('pb01-ft', sq ? 5 : 6, y, 72, null, '<div class="rg" style="font-size:' + f(3.4 * sc) + 'cqw">REGISTER at <span>LDAHawaii.org</span></div>'
+          + '<div class="sm" style="font-size:' + f(1.5 * sc) + 'cqw;margin-top:' + f(.7 * sc) + 'cqw">Get your Zoom link, scan the QR code, or call ' + H.phone(partner) + '</div>'
+          + '<div class="bd" style="margin-top:' + f(1 * sc) + 'cqw">' + H.badges(spec, partner) + '</div>')
+          + box('pb01-qr', (sq ? 95 : 94) - qs, HH - qs - (sq ? 2 : 2.4), qs, qs, H.qrImg(spec, partner));
+      }
+      /* one session: label, topic, desc, presenter, date block */
+      function soloBlock(x, y, w, sc, gapDate) {
+        var s = S[0], h = '';
+        h += box('pb01-lb', x, y, null, null, 'ON THE MENU THIS MONTH', 'font-size:' + f(1.35 * sc) + 'cqw');
+        h += box('pb01-tp', x, y + 2.6 * sc, w, null, s.lesson
+          + (s.desc ? '<div class="pb01-ds" style="font-size:' + f(2.05 * sc) + 'cqw;margin-top:' + f(1.2 * sc) + 'cqw;letter-spacing:0;font-weight:500">' + s.desc + '</div>' : '')
+          + (pres ? '<div class="pb01-pr" style="font-size:' + f(2.05 * sc) + 'cqw;margin-top:' + f(.6 * sc) + 'cqw;letter-spacing:0">' + pres + '</div>' : ''), 'font-size:' + f(5.5 * sc) + 'cqw');
+        h += box('pb01-dt', x, gapDate, w, null, '<div class="n" style="font-size:' + f(17 * sc) + 'cqw">' + s.day + '</div><div><div class="w" style="font-size:' + f(1.9 * sc) + 'cqw">' + ({Sun:'SUNDAY',Mon:'MONDAY',Tue:'TUESDAY',Wed:'WEDNESDAY',Thu:'THURSDAY',Fri:'FRIDAY',Sat:'SATURDAY'})[s.dow] + '<br>' + s.monFull.toUpperCase() + ' ' + spec.year + '</div><div class="t" style="font-size:' + f(2.7 * sc) + 'cqw">' + s.time + '</div></div>');
+        return h;
+      }
+      function twoStack(x, y, w, sc, step) {
+        return S.map(function (s, i) {
+          return box('pb01-se', x, y + i * step, w, null, '<div class="n" style="font-size:' + f(12 * sc) + 'cqw">' + s.day + '</div><div><div class="w" style="font-size:' + f(1.5 * sc) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.monFull.toUpperCase() + '</div><div class="t" style="font-size:' + f(2.1 * sc) + 'cqw">' + s.time + '</div><div class="tp" style="font-size:' + f(4 * sc) + 'cqw">' + s.lesson + '</div>' + (s.desc ? '<div class="ds" style="font-size:' + f(1.75 * sc) + 'cqw">' + s.desc + '</div>' : '') + '</div>');
+        }).join('');
+      }
+      function twoCols(x, y, w, sc) {
+        var cw = (w - 4) / 2;
+        return S.map(function (s, i) {
+          return box('pb01-se', x + i * (cw + 4), y, cw, null, '<div><div style="display:flex;align-items:flex-end;gap:1.4cqw"><div class="n" style="font-size:' + f(10 * sc) + 'cqw">' + s.day + '</div><div class="w" style="font-size:' + f(1.45 * sc) + 'cqw;line-height:1.3;padding-bottom:.3cqw">' + s.dow.toUpperCase() + '<br>' + s.monFull.toUpperCase() + '</div></div><div class="t" style="font-size:' + f(1.85 * sc) + 'cqw;margin-top:1cqw">' + s.time + '</div><div class="tp" style="font-size:' + f(2.75 * sc) + 'cqw">' + s.lesson + '</div>' + (s.desc ? '<div class="ds" style="font-size:' + f(1.6 * sc) + 'cqw">' + s.desc + '</div>' : '') + '</div>');
+        }).join('');
+      }
+      function topics(x, y, w, sc) {
+        if (solo) {
+          return box('pb01-tp', x, y, w, null, '<div class="pb01-lb" style="font-size:' + f(1.3 * sc) + 'cqw;margin-bottom:' + f(.8 * sc) + 'cqw">ON THE MENU</div>' + S[0].lesson
+            + (pres ? '<div class="pb01-pr" style="font-size:' + f(1.85 * sc) + 'cqw;margin-top:' + f(.7 * sc) + 'cqw;letter-spacing:0">' + pres + '</div>' : ''), 'font-size:' + f(3.4 * sc) + 'cqw');
+        }
+        return box('pb01-ls', x, y, w, null, '<div class="pb01-lb" style="font-size:' + f(1.3 * sc) + 'cqw;margin-bottom:' + f(.6 * sc) + 'cqw;display:block">ON THE MENU</div>' + S.map(function (s, i) { return '<div style="font-size:' + f(2.8 * sc) + 'cqw"><b>0' + (i + 1) + '</b><span>' + s.lesson + '</span></div>'; }).join(''));
+      }
+      function table(x, y, w, rh, sc) {
+        var rows = H.zoneRows(spec.sessions);
+        var h = '<div class="r th" style="height:' + f(rh * .8) + 'cqw;font-size:' + f(1.25 * sc) + 'cqw"><span>WHERE YOU ARE</span><span>DAY</span><span style="text-align:right">YOUR TIME</span></div>';
+        h += rows.map(function (r) {
+          return '<div class="r' + (r.home ? ' h' : '') + '" style="height:' + f(rh) + 'cqw"><span class="l" style="font-size:' + f(2.05 * sc) + 'cqw">' + r.label + '</span><span class="d" style="font-size:' + f(1.75 * sc) + 'cqw">' + r.days + '</span><span class="t" style="font-size:' + f(2.35 * sc) + 'cqw">' + r.time + '</span></div>';
+        }).join('');
+        return box('pb01-tb', x, y, w, null, h);
+      }
+
+      if (!sq && !partner) {
+        out += deco(HH, { cw: 21, footY: 113.5, ly: 29.4, step: 26.7, lfs: 29, rules: [[26, 55, 68]] });
+        out += box('pb01-logo', 26, 5, 15, 15, logo);
+        out += box('pb01-kick', 43.5, 6.2, null, null, kick);
+        out += badge(73, 3.5, 22);
+        out += title(26, 24.5, 9.6) + mo(26, 45.6, 1) + where(26, 50.7, 1.6);
+        if (solo) out += soloBlock(26, 59, 68, 1, 92.5);
+        else out += twoStack(26, 59.5, 68, 1, 26.5);
+        out += foot(116.4, 11, 1);
+      } else if (!sq && partner) {
+        out += deco(HH, { cw: 21, footY: 113.5, ly: 29.4, step: 26.7, lfs: 29, rules: [[26, 64, 68]] });
+        out += box('pb01-logo', 26, 5, 23, 13, logo);
+        out += box('pb01-kick', 51.5, 6.2, null, null, kick);
+        out += badge(75, 3.5, 20);
+        out += title(26, 21.5, 7.6, true) + mo(26, 32.8, 1) + where(26, 38, 1.6);
+        out += topics(26, 43, 68, 1);
+        out += table(26, 64.5, 68, 6, 1);
+        out += foot(116.4, 11, 1);
+      } else if (sq && !partner) {
+        out += deco(HH, { cw: 16, footY: 86.5, ly: 22.4, step: 20.2, lfs: 21.4, rules: [[21, 36.5, 74]] });
+        out += box('pb01-logo', 21, 4, 11.5, 11.5, logo);
+        out += box('pb01-kick', 34.5, 5, null, null, kick).replace('style="', 'style="font-size:1.2cqw;');
+        out += badge(79, 3, 16.5);
+        out += title(21, 17.5, 6.6, true) + mo(21, 26.6, .85) + where(21, 31.6, 1.45);
+        if (solo) {
+          out += box('pb01-lb', 21, 39.2, null, null, 'ON THE MENU THIS MONTH', 'font-size:1.2cqw');
+          out += box('pb01-tp', 21, 41.8, 73, null, S[0].lesson + (S[0].desc ? '<div class="pb01-ds" style="font-size:1.75cqw;margin-top:.9cqw;letter-spacing:0;font-weight:500">' + S[0].desc + '</div>' : ''), 'font-size:4.7cqw');
+          out += box('pb01-dt', 21, 64.5, 73, null, '<div class="n" style="font-size:16cqw">' + S[0].day + '</div><div><div class="w" style="font-size:1.6cqw">' + S[0].dow.toUpperCase() + ' · ' + S[0].monFull.toUpperCase() + ' ' + spec.year + '</div><div class="t" style="font-size:2.4cqw">' + S[0].time + '</div>' + (pres ? '<div class="pb01-pr" style="font-size:1.75cqw;margin-top:.6cqw">' + pres + '</div>' : '') + '</div>');
+        } else out += twoCols(21, 41, 74, 1.22);
+        out += foot(88.6, 9.4, .88);
+      } else {
+        out += deco(HH, { cw: 16, footY: 86.5, ly: 22.4, step: 20.2, lfs: 21.4, rules: [[21, 33.3, 74]] });
+        out += box('pb01-logo', 21, 4, 18, 10.5, logo);
+        out += box('pb01-kick', 41.5, 5, null, null, kick).replace('style="', 'style="font-size:1.2cqw;');
+        out += badge(81, 3, 14.5);
+        out += title(21, 16.2, 5.6, true) + where(21, 24.8, 1.35);
+        out += box('pb01-mo', 21, 28.6, null, null, '<span class="m" style="font-size:2.2cqw">' + month + ' ' + spec.year + '</span><span class="z" style="font-size:1.2cqw">ON ZOOM</span>');
+        if (solo) out += box('pb01-tp', 21, 35.5, 74, null, S[0].lesson + (pres ? '<div class="pb01-pr" style="font-size:1.6cqw;letter-spacing:0;margin-top:.5cqw">' + pres + '</div>' : ''), 'font-size:2.6cqw');
+        else out += box('pb01-ls', 21, 35, 74, null, S.map(function (s, i) { return '<div style="font-size:2.1cqw"><b>0' + (i + 1) + '</b><span>' + s.lesson + '</span></div>'; }).join(''));
+        out += table(21, 45.6, 74, 4.85, .9);
+        out += foot(88.6, 9.4, .88);
+      }
+      return out + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 02 ---- */
+/* Set PB · February · Parent Talk Café "Speech bubbles": a conversation drawn in flat geometry on blush.
+   A big burgundy speech bubble carries the title, a gold round bubble holds the café badge, a cream
+   "reply" bubble with its tail pointing back holds the topic and time, and a gold typing-dots bubble chimes in. */
+VEBFlyers.registerSet('PB', 2, (function () {
+  var WINE = '#6B1631', DEEP = '#4A0C20', BLUSH = '#F6D3D6', CREAM = '#FFF5F1', GOLD = '#E3A62B', ROSE = '#C9637A', SOFT = '#7E4A57';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  /* rounded rectangle speech bubble with a triangular tail on the top or bottom edge */
+  function bubble(x, y, w, h, r, t, fill, extra) {
+    var R = x + w, B = y + h, d = 'M' + f(x + r) + ' ' + f(y);
+    if (t && t.side === 't') d += ' L' + f(t.a) + ' ' + f(y) + ' L' + f(t.tx) + ' ' + f(t.ty) + ' L' + f(t.b) + ' ' + f(y);
+    d += ' L' + f(R - r) + ' ' + f(y) + ' A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(R) + ' ' + f(y + r)
+      + ' L' + f(R) + ' ' + f(B - r) + ' A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(R - r) + ' ' + f(B);
+    if (t && t.side === 'b') d += ' L' + f(t.b) + ' ' + f(B) + ' L' + f(t.tx) + ' ' + f(t.ty) + ' L' + f(t.a) + ' ' + f(B);
+    d += ' L' + f(x + r) + ' ' + f(B) + ' A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(x) + ' ' + f(B - r)
+      + ' L' + f(x) + ' ' + f(y + r) + ' A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(x + r) + ' ' + f(y) + ' Z';
+    return '<path d="' + d + '" fill="' + fill + '"' + (extra || '') + '/>';
+  }
+  /* round bubble (circle + tail) and the three-dot "typing" bubble */
+  function roundBubble(cx, cy, r, tx, ty, fill) {
+    var a = Math.atan2(ty - cy, tx - cx), s = .42;
+    return '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + fill + '"/>'
+      + '<path d="M' + f(cx + r * Math.cos(a - s)) + ' ' + f(cy + r * Math.sin(a - s)) + ' L' + f(tx) + ' ' + f(ty) + ' L' + f(cx + r * Math.cos(a + s)) + ' ' + f(cy + r * Math.sin(a + s)) + ' Z" fill="' + fill + '"/>';
+  }
+  function typing(x, y, w, h, tail) {
+    var r = h / 2, s = bubble(x, y, w, h, r, tail, GOLD), i;
+    for (i = 0; i < 3; i++) s += '<circle cx="' + f(x + w / 2 + (i - 1) * w * .24) + '" cy="' + f(y + h / 2) + '" r="' + f(h * .14) + '" fill="' + WINE + '"/>';
+    return s;
+  }
+  function badge(x, y, s) {
+    var v = '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + WINE + '"/>'
+      + '<circle cx="50" cy="50" r="44" fill="none" stroke="' + GOLD + '" stroke-width="1.4"/>'
+      + '<path id="pb02-arc" d="M15 53 A35 35 0 0 1 85 53" fill="none"/>'
+      + '<text font-family="Bricolage Grotesque,Arial,sans-serif" font-weight="800" font-size="9.6" letter-spacing=".9" fill="' + CREAM + '"><textPath href="#pb02-arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<path d="M42 47.5 c-3.5 -4 3.5 -6 0 -10.5 M50.5 46.5 c-3.5 -4 3.5 -6 0 -10.5 M59 47.5 c-3.5 -4 3.5 -6 0 -10.5" fill="none" stroke="' + GOLD + '" stroke-width="2.6" stroke-linecap="round"/>'
+      + '<path d="M33 52 H67 V60 a12 12 0 0 1 -12 12 H45 a12 12 0 0 1 -12 -12 Z" fill="' + BLUSH + '"/>'
+      + '<path d="M67 54.5 a5.5 5.5 0 0 1 0 11" fill="none" stroke="' + BLUSH + '" stroke-width="3.2"/>'
+      + '<path d="M44 60 a4 4 0 0 1 6 -1.8 a4 4 0 0 1 6 1.8 c0 3.5 -6 6.5 -6 6.5 s-6 -3 -6 -6.5 Z" fill="' + ROSE + '"/>'
+      + '<rect x="25" y="74.5" width="50" height="3.6" rx="1.8" fill="' + GOLD + '"/>'
+      + '</svg>';
+    return box('pb02-badge', x, y, s, s, v);
+  }
+  return {
+    name: 'Speech bubbles: burgundy title bubble, gold badge bubble, cream reply bubble on blush',
+    fonts: 'family=Bricolage+Grotesque:wght@500;600;700;800',
+    css: [
+      '.pb02{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + BLUSH + ';color:' + WINE + ';font-family:"Bricolage Grotesque",Arial,sans-serif}',
+      '.pb02.sq{aspect-ratio:1/1}',
+      '.pb02 *{box-sizing:border-box}',
+      '.pb02 .pb02-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb02>div{position:absolute;z-index:2}',
+      '.pb02 .pb02-badge{pointer-events:none}.pb02 .pb02-badge svg{width:100%;height:100%;display:block}',
+      '.pb02 .pb02-logo{background:#fff;display:flex;align-items:center;justify-content:center;padding:.9cqw;border-radius:1.6cqw}',
+      '.pb02 .pb02-logo img{max-width:100%;max-height:100%;display:block}',
+      '.pb02 .pb02-kick{font-weight:700;font-size:1.3cqw;letter-spacing:.14em;line-height:1.45;color:' + SOFT + ';white-space:nowrap}',
+      '.pb02 .pb02-ttl{color:' + CREAM + ';font-weight:800;line-height:.98;letter-spacing:-.035em;white-space:nowrap}',
+      '.pb02 .pb02-ttl b{color:' + GOLD + ';font-weight:800}',
+      '.pb02 .pb02-ttl .mo{display:flex;align-items:center;gap:1.3cqw;letter-spacing:0;line-height:1;white-space:nowrap}',
+      '.pb02 .pb02-ttl .mo .m{font-weight:700;color:' + BLUSH + '}',
+      '.pb02 .pb02-ttl .mo .z{background:' + GOLD + ';color:' + DEEP + ';font-weight:800;letter-spacing:.1em;padding:.5cqw 1.1cqw;border-radius:5cqw}',
+      '.pb02 .pb02-ttl .wh{font-weight:600;line-height:1.3;letter-spacing:0;color:#F1C9CF;white-space:nowrap}',
+      '.pb02 .pb02-lb{font-weight:800;letter-spacing:.18em;color:' + ROSE + ';white-space:nowrap}',
+      '.pb02 .pb02-tp{font-weight:800;line-height:1.04;letter-spacing:-.025em;color:' + WINE + '}',
+      '.pb02 .pb02-ds{font-weight:500;line-height:1.3;color:' + SOFT + ';letter-spacing:0}',
+      '.pb02 .pb02-pr{font-weight:600;line-height:1.3;letter-spacing:0;color:' + WINE + ';white-space:nowrap}.pb02 .pb02-pr b{font-weight:800;color:' + ROSE + '}',
+      '.pb02 .pb02-when{display:flex;align-items:center;gap:1.4cqw;white-space:nowrap}',
+      '.pb02 .pb02-when .c{background:' + WINE + ';color:' + CREAM + ';font-weight:800;letter-spacing:.06em;padding:.6cqw 1.4cqw;border-radius:5cqw}',
+      '.pb02 .pb02-when .c b{color:' + GOLD + '}',
+      '.pb02 .pb02-when .t{font-weight:800;color:' + WINE + '}',
+      /* two sessions: side by side in the reply bubble */
+      '.pb02 .pb02-se .hd{display:flex;align-items:flex-end;gap:1.2cqw}',
+      '.pb02 .pb02-se .n{font-weight:800;line-height:.8;letter-spacing:-.05em;color:' + ROSE + '}',
+      '.pb02 .pb02-se .w{font-weight:800;letter-spacing:.12em;line-height:1.3;white-space:nowrap}',
+      '.pb02 .pb02-se .t{font-weight:700;white-space:nowrap;margin-top:.9cqw}',
+      '.pb02 .pb02-se .tp{font-weight:800;line-height:1.06;letter-spacing:-.02em;margin-top:.6cqw}',
+      '.pb02 .pb02-se .ds{font-weight:500;line-height:1.3;color:' + SOFT + ';margin-top:.4cqw}',
+      /* partner topics + table */
+      '.pb02 .pb02-ls div{display:flex;gap:1.3cqw;font-weight:800;line-height:1.32;white-space:nowrap;letter-spacing:-.01em}',
+      '.pb02 .pb02-ls b{color:' + ROSE + '}',
+      '.pb02 .pb02-tb .r{display:grid;grid-template-columns:39% 36% 25%;align-items:center;padding:0 1.4cqw;border-radius:5cqw}',
+      '.pb02 .pb02-tb .r:nth-child(odd):not(.h){background:' + BLUSH + '}',
+      '.pb02 .pb02-tb .r.th{font-weight:800;letter-spacing:.14em;color:' + ROSE + ';background:none!important}',
+      '.pb02 .pb02-tb .l{font-weight:800;white-space:nowrap}',
+      '.pb02 .pb02-tb .d{font-weight:600;white-space:nowrap;color:' + SOFT + '}',
+      '.pb02 .pb02-tb .t{font-weight:800;text-align:right;white-space:nowrap}',
+      '.pb02 .pb02-tb .r.h{background:' + WINE + ';color:' + CREAM + '}.pb02 .pb02-tb .r.h .d{color:' + BLUSH + '}.pb02 .pb02-tb .r.h .t{color:' + GOLD + '}',
+      /* footer */
+      '.pb02 .pb02-ft{color:' + CREAM + '}',
+      '.pb02 .pb02-ft .rg{font-weight:800;letter-spacing:-.02em;line-height:1.05;white-space:nowrap}',
+      '.pb02 .pb02-ft .rg span{color:' + GOLD + '}',
+      '.pb02 .pb02-ft .sm{font-weight:500;line-height:1.35;color:#F1C9CF;white-space:nowrap}',
+      '.pb02 .pb02-ft .bd{display:flex;gap:1cqw}',
+      '.pb02 .pb02-ft .bd span{font-weight:700;font-size:1.2cqw;letter-spacing:.08em;text-transform:uppercase;border:.15cqw solid ' + GOLD + ';color:' + CREAM + ';padding:.35cqw .9cqw;border-radius:5cqw;white-space:nowrap}',
+      '.pb02 .pb02-qr{background:#fff;padding:.5cqw;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:' + WINE + ';border-radius:1cqw}',
+      '.pb02 .pb02-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var HH = sq ? 100 : 129.41, month = H.MONTHS[spec.month - 1];
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop(), first = words.join(' ');
+      var kick = partner ? 'FOR FAMILIES<br>ACROSS THE PACIFIC' : 'PARENT TRAINING &amp;<br>INFORMATION CENTER';
+      var logo = '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">';
+      var pres = spec.presenter ? 'Presented by <b>' + H.esc(spec.presenter) + '</b>' : '';
+      var out = '<div class="vfx pb02' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">';
+      function svg(inner, footY) {
+        return '<svg class="pb02-deco" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true">'
+          + '<rect width="100" height="' + f(HH) + '" fill="' + BLUSH + '"/>' + inner
+          + '<rect y="' + f(footY) + '" width="100" height="' + f(HH - footY) + '" fill="' + WINE + '"/>'
+          + '<rect y="' + f(footY) + '" width="100" height=".7" fill="' + GOLD + '"/></svg>';
+      }
+      function title(x, y, fs, one, mfs) {
+        return box('pb02-ttl', x, y, null, null, (first ? first + (one ? ' ' : '<br>') : '') + '<b>' + last + '</b>'
+          + '<div class="mo" style="margin-top:' + f(mfs * .9) + 'cqw"><span class="m" style="font-size:' + f(mfs * 1.3) + 'cqw">' + month + ' ' + spec.year + '</span><span class="z" style="font-size:' + f(mfs * .62) + 'cqw">ON ZOOM</span></div>'
+          + '<div class="wh" style="font-size:' + f(mfs * .7) + 'cqw;margin-top:' + f(mfs * .55) + 'cqw">' + H.esc(H.PTC_WHERE) + '</div>', 'font-size:' + f(fs) + 'cqw');
+      }
+      function foot(y, qs, sc) {
+        return box('pb02-ft', sq ? 5 : 6, y, 74, null, '<div class="rg" style="font-size:' + f(3.4 * sc) + 'cqw">REGISTER at <span>LDAHawaii.org</span></div>'
+          + '<div class="sm" style="font-size:' + f(1.5 * sc) + 'cqw;margin-top:' + f(.7 * sc) + 'cqw">Get your Zoom link, scan the QR code, or call ' + H.phone(partner) + '</div>'
+          + '<div class="bd" style="margin-top:' + f(1 * sc) + 'cqw">' + H.badges(spec, partner) + '</div>')
+          + box('pb02-qr', (sq ? 95 : 94) - qs, HH - qs - (sq ? 2 : 2.4), qs, qs, H.qrImg(spec, partner));
+      }
+      function when(s, sc) {
+        return '<div class="pb02-when" style="margin-top:' + f(1.8 * sc) + 'cqw"><span class="c" style="font-size:' + f(1.9 * sc) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.mon.toUpperCase() + ' <b>' + s.day + '</b></span><span class="t" style="font-size:' + f(2.5 * sc) + 'cqw">' + s.time + '</span></div>';
+      }
+      function soloTalk(x, y, w, sc, lbl) {
+        var s = S[0];
+        return box('pb02-tp', x, y, w, null, '<div class="pb02-lb" style="font-size:' + f(1.35 * sc) + 'cqw;margin-bottom:' + f(1 * sc) + 'cqw">' + lbl + '</div>' + s.lesson
+          + (s.desc ? '<div class="pb02-ds" style="font-size:' + f(2 * sc) + 'cqw;margin-top:' + f(1.1 * sc) + 'cqw">' + s.desc + '</div>' : '')
+          + (pres ? '<div class="pb02-pr" style="font-size:' + f(2 * sc) + 'cqw;margin-top:' + f(.5 * sc) + 'cqw">' + pres + '</div>' : '')
+          + when(s, sc), 'font-size:' + f(5.4 * sc) + 'cqw');
+      }
+      function twoTalk(x, y, w, sc, gap) {
+        var cw = (w - gap) / 2;
+        return S.map(function (s, i) {
+          return box('pb02-se', x + i * (cw + gap), y, cw, null, '<div class="hd"><div class="n" style="font-size:' + f(9 * sc) + 'cqw">' + s.day + '</div><div class="w" style="font-size:' + f(1.45 * sc) + 'cqw">' + s.dow.toUpperCase() + '<br>' + s.monFull.toUpperCase() + '</div></div>'
+            + '<div class="t" style="font-size:' + f(1.95 * sc) + 'cqw">' + s.time + '</div><div class="tp" style="font-size:' + f(3.1 * sc) + 'cqw">' + s.lesson + '</div>' + (s.desc ? '<div class="ds" style="font-size:' + f(1.65 * sc) + 'cqw">' + s.desc + '</div>' : ''));
+        }).join('');
+      }
+      function topics(x, y, w, sc) {
+        if (solo) return box('pb02-tp', x, y, w, null, S[0].lesson + (pres ? '<div class="pb02-pr" style="font-size:' + f(1.8 * sc) + 'cqw;margin-top:' + f(.5 * sc) + 'cqw">' + pres + '</div>' : ''), 'font-size:' + f(3.3 * sc) + 'cqw');
+        return box('pb02-ls', x, y, w, null, S.map(function (s, i) { return '<div style="font-size:' + f(2.6 * sc) + 'cqw"><b>0' + (i + 1) + '</b><span>' + s.lesson + '</span></div>'; }).join(''));
+      }
+      function table(x, y, w, rh, sc) {
+        var rows = H.zoneRows(spec.sessions);
+        var h = '<div class="r th" style="height:' + f(rh * .8) + 'cqw;font-size:' + f(1.2 * sc) + 'cqw"><span>WHERE YOU ARE</span><span>DAY</span><span style="text-align:right">YOUR TIME</span></div>';
+        h += rows.map(function (r) {
+          return '<div class="r' + (r.home ? ' h' : '') + '" style="height:' + f(rh) + 'cqw"><span class="l" style="font-size:' + f(2 * sc) + 'cqw">' + r.label + '</span><span class="d" style="font-size:' + f(1.75 * sc) + 'cqw">' + r.days + '</span><span class="t" style="font-size:' + f(2.2 * sc) + 'cqw">' + r.time + '</span></div>';
+        }).join('');
+        return box('pb02-tb', x, y, w, null, h);
+      }
+
+      if (!sq && !partner) {
+        out += svg(roundBubble(80, 16, 15.5, 63, 34, GOLD)
+          + bubble(6, 22, 70, 38, 6, { side: 'b', a: 14, b: 27, tx: 11, ty: 67 }, WINE)
+          + typing(80, 41, 14, 8, { side: 'b', a: 84, b: 89, tx: 82, ty: 52 })
+          + bubble(10, 65, 84, 46, 6, { side: 't', a: 76, b: 88, tx: 92, ty: 57 }, CREAM), 114);
+        out += box('pb02-logo', 6, 4.5, 15, 15, logo);
+        out += box('pb02-kick', 23.5, 6, null, null, kick);
+        out += badge(69, 5, 22);
+        out += title(11.5, 26.2, 10.6, false, 2.15);
+        if (solo) out += soloTalk(16, 70, 72, 1.12, 'LET’S TALK ABOUT');
+        else out += twoTalk(16, 72.5, 72, 1.25, 6);
+        out += foot(116.6, 11, 1);
+      } else if (!sq && partner) {
+        out += svg(roundBubble(80, 15, 14.5, 64, 31, GOLD)
+          + bubble(6, 21, 62, 28, 6, { side: 'b', a: 14, b: 26, tx: 11, ty: 56 }, WINE)
+          + typing(76, 34, 14, 8, { side: 'b', a: 80, b: 85, tx: 78, ty: 45 })
+          + bubble(6, 55, 88, 56, 6, { side: 't', a: 74, b: 86, tx: 90, ty: 47.5 }, CREAM), 114);
+        out += box('pb02-logo', 6, 4.5, 23, 13, logo);
+        out += box('pb02-kick', 31, 6, null, null, kick);
+        out += badge(69, 4, 22);
+        out += title(11, 24.5, 7.2, false, 1.9);
+        out += topics(11, 58.5, 78, 1);
+        out += table(10, 67.6, 80, 5.3, 1);
+        out += foot(116.6, 11, 1);
+      } else if (sq && !partner) {
+        out += svg(roundBubble(86, 13, 11.5, 74, 26, GOLD)
+          + bubble(5, 19, 60, 29, 5, { side: 'b', a: 11, b: 21, tx: 8, ty: 55 }, WINE)
+          + typing(71, 32, 13, 7.5, { side: 'b', a: 75, b: 80, tx: 73, ty: 42.5 })
+          + bubble(5, 54, 90, 30, 5, { side: 't', a: 76, b: 86, tx: 91, ty: 46 }, CREAM), 87);
+        out += box('pb02-logo', 5, 4, 11.5, 11.5, logo);
+        out += box('pb02-kick', 18.5, 5.2, null, null, kick).replace('style="', 'style="font-size:1.2cqw;');
+        out += badge(78, 5, 16);
+        out += title(9.5, 22.5, 7.2, false, 1.7);
+        if (solo) {
+          var s0 = S[0];
+          out += box('pb02-tp', 10, 59.5, 53, null, '<div class="pb02-lb" style="font-size:1.2cqw;margin-bottom:.9cqw">LET’S TALK ABOUT</div>' + s0.lesson + (s0.desc ? '<div class="pb02-ds" style="font-size:1.75cqw;margin-top:1cqw">' + s0.desc + '</div>' : ''), 'font-size:4.3cqw');
+          out += box('pb02-se', 67, 60, 25, null, '<div class="hd"><div class="n" style="font-size:10cqw">' + s0.day + '</div><div class="w" style="font-size:1.4cqw">' + s0.dow.toUpperCase() + '<br>' + s0.monFull.toUpperCase() + '</div></div><div class="t" style="font-size:1.85cqw">' + s0.time + '</div>' + (pres ? '<div class="pb02-pr" style="font-size:1.5cqw;margin-top:.9cqw;white-space:normal">' + pres + '</div>' : ''));
+        } else out += twoTalk(10, 58.3, 80, 1.1, 6);
+        out += foot(88.7, 9.2, .88);
+      } else {
+        out += svg(roundBubble(88, 11, 9.5, 78, 22, GOLD)
+          + bubble(5, 16.5, 68, 18, 5, { side: 'b', a: 11, b: 20, tx: 8, ty: 39.5 }, WINE)
+          + bubble(5, 41.5, 90, 44, 5, { side: 't', a: 78, b: 87, tx: 91, ty: 34 }, CREAM), 87);
+        out += box('pb02-logo', 5, 3.5, 18, 10.5, logo);
+        out += box('pb02-kick', 25, 4.8, null, null, kick).replace('style="', 'style="font-size:1.2cqw;');
+        out += badge(80.5, 3.5, 15);
+        out += title(9, 18.6, 5.5, true, 1.55);
+        out += topics(9, 44.3, 82, .82);
+        out += table(8, solo ? 51.4 : 51.8, 84, 4.12, .88);
+        out += foot(88.7, 9.2, .88);
+      }
+      return out + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 03 ---- */
+/* Set PB · March · Parent Talk Café "Café floor": an emerald + cream checkerboard (the café floor) fills the
+   top; logo, kicker and the black café badge sit in its grid cells. A black title band, cream menu area
+   where every date is a pair of floor tiles (emerald day + black weekday), a small checker strip, emerald footer. */
+VEBFlyers.registerSet('PB', 3, (function () {
+  var EM = '#0B7A4B', CREAM = '#F6F0E1', INK = '#141414', MINT = '#9FEBC4', SOFT = '#5A5A52', LINE = '#D8D0BC';
+  var C = 100 / 12;
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function checker(y0, y1, c, a, b) {
+    var s = '<rect y="' + f(y0) + '" width="100" height="' + f(y1 - y0) + '" fill="' + b + '"/>', r, k;
+    for (r = 0; y0 + r * c < y1 - .01; r++) for (k = 0; k * c < 100 - .01; k++) if ((r + k) % 2 === 0) s += '<rect x="' + f(k * c) + '" y="' + f(y0 + r * c) + '" width="' + f(c + .02) + '" height="' + f(Math.min(c, y1 - y0 - r * c) + .02) + '" fill="' + a + '"/>';
+    return s;
+  }
+  function badge(x, y, s) {
+    var v = '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + INK + '"/>'
+      + '<circle cx="50" cy="50" r="44" fill="none" stroke="' + CREAM + '" stroke-width="1.2" stroke-dasharray="3.5 2.2"/>'
+      + '<path id="pb03-arc" d="M14 53 A36 36 0 0 1 86 53" fill="none"/>'
+      + '<text font-family="Big Shoulders Display,Impact,sans-serif" font-weight="900" font-size="11.5" letter-spacing="1.6" fill="' + CREAM + '"><textPath href="#pb03-arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<path d="M42 47 c-3.5 -4 3.5 -6 0 -10.5 M50.5 46 c-3.5 -4 3.5 -6 0 -10.5 M59 47 c-3.5 -4 3.5 -6 0 -10.5" fill="none" stroke="' + MINT + '" stroke-width="2.6" stroke-linecap="round"/>'
+      + '<path d="M33 52 H67 V60 a12 12 0 0 1 -12 12 H45 a12 12 0 0 1 -12 -12 Z" fill="' + EM + '"/>'
+      + '<rect x="33" y="52" width="8.5" height="5" fill="' + CREAM + '"/><rect x="50" y="52" width="8.5" height="5" fill="' + CREAM + '"/><rect x="41.5" y="57" width="8.5" height="5" fill="' + CREAM + '"/><rect x="58.5" y="57" width="8.5" height="5" fill="' + CREAM + '"/>'
+      + '<path d="M67 54.5 a5.5 5.5 0 0 1 0 11" fill="none" stroke="' + EM + '" stroke-width="3.2"/>'
+      + '<rect x="25" y="74.5" width="50" height="3.6" rx="1.8" fill="' + CREAM + '"/>'
+      + '</svg>';
+    return box('pb03-badge', x, y, s, s, v);
+  }
+  return {
+    name: 'Café floor: emerald and cream checkerboard, black title band, tile dates',
+    fonts: 'family=Big+Shoulders+Display:wght@700;800;900&family=Lexend:wght@400;500;600;700;800',
+    css: [
+      '.pb03{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + CREAM + ';color:' + INK + ';font-family:Lexend,Arial,sans-serif}',
+      '.pb03.sq{aspect-ratio:1/1}',
+      '.pb03 *{box-sizing:border-box}',
+      '.pb03 .pb03-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb03>div{position:absolute;z-index:2}',
+      '.pb03 .pb03-badge{pointer-events:none}.pb03 .pb03-badge svg{width:100%;height:100%;display:block}',
+      '.pb03 .pb03-logo{background:#fff;display:flex;align-items:center;justify-content:center;padding:1cqw}',
+      '.pb03 .pb03-logo img{max-width:100%;max-height:100%;display:block}',
+      '.pb03 .pb03-kick{background:' + INK + ';color:' + CREAM + ';font-weight:700;letter-spacing:.15em;line-height:1.45;white-space:nowrap;display:flex;align-items:center;padding:0 1.6cqw}',
+      '.pb03 .pb03-ttl{font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:900;color:' + CREAM + ';text-transform:uppercase;line-height:1.1;letter-spacing:.01em;white-space:nowrap}',
+      '.pb03 .pb03-ttl b{color:' + MINT + ';font-weight:900}',
+      '.pb03 .pb03-mo{display:flex;align-items:center;gap:1.4cqw;white-space:nowrap;color:' + CREAM + '}',
+      '.pb03 .pb03-mo .m{font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;letter-spacing:.06em}',
+      '.pb03 .pb03-mo .z{background:' + EM + ';color:' + CREAM + ';font-weight:800;letter-spacing:.14em;padding:.5cqw 1.1cqw}',
+      '.pb03 .pb03-wh{font-weight:600;line-height:1.3;color:' + SOFT + ';white-space:nowrap;display:flex;align-items:center;gap:1cqw}',
+      '.pb03 .pb03-wh i{display:block;width:1.2cqw;height:1.2cqw;background:' + EM + ';flex:none}',
+      '.pb03 .pb03-lb{font-weight:800;letter-spacing:.18em;color:' + EM + ';white-space:nowrap}',
+      '.pb03 .pb03-tp{font-weight:700;line-height:1.1;letter-spacing:-.025em}',
+      '.pb03 .pb03-ds{font-weight:500;line-height:1.3;color:' + SOFT + ';letter-spacing:0}',
+      '.pb03 .pb03-pr{font-weight:600;line-height:1.3;letter-spacing:0;white-space:nowrap}.pb03 .pb03-pr b{font-weight:800;color:' + EM + '}',
+      /* tile date: emerald day tile + black weekday tile */
+      '.pb03 .pb03-tl{display:flex;flex:none}',
+      '.pb03 .pb03-tl .d,.pb03 .pb03-tl .w{display:flex;flex-direction:column;align-items:center;justify-content:center}',
+      '.pb03 .pb03-tl .d{background:' + EM + ';color:' + CREAM + ';font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:900;line-height:1}',
+      '.pb03 .pb03-tl .w{background:' + INK + ';color:' + CREAM + ';font-weight:800;letter-spacing:.12em;line-height:1.35;text-align:center}',
+      '.pb03 .pb03-se{display:flex;gap:2.2cqw;align-items:flex-start}',
+      '.pb03 .pb03-se .t{font-weight:800;white-space:nowrap;color:' + EM + '}',
+      '.pb03 .pb03-se .tp{font-weight:700;line-height:1.1;letter-spacing:-.02em;margin-top:.5cqw}',
+      '.pb03 .pb03-se .ds{font-weight:500;line-height:1.3;color:' + SOFT + ';margin-top:.4cqw}',
+      '.pb03 .pb03-tm{font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;letter-spacing:.02em;white-space:nowrap;line-height:1.05}',
+      /* partner topics + table */
+      '.pb03 .pb03-ls div{display:flex;gap:1.3cqw;font-weight:800;line-height:1.32;white-space:nowrap;letter-spacing:-.01em}',
+      '.pb03 .pb03-ls b{color:' + EM + ';font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:900}',
+      '.pb03 .pb03-tb .r{display:grid;grid-template-columns:40% 35% 25%;align-items:center;padding:0 1.4cqw;border-bottom:.15cqw solid ' + LINE + '}',
+      '.pb03 .pb03-tb .r.th{font-weight:800;letter-spacing:.14em;color:' + EM + ';border-bottom:.35cqw solid ' + INK + '}',
+      '.pb03 .pb03-tb .l{font-weight:800;white-space:nowrap;display:flex;align-items:center;gap:1cqw}',
+      '.pb03 .pb03-tb .l i{display:block;width:1cqw;height:1cqw;background:' + EM + ';flex:none}',
+      '.pb03 .pb03-tb .d{font-weight:600;white-space:nowrap;color:' + SOFT + '}',
+      '.pb03 .pb03-tb .t{font-family:"Big Shoulders Display",Impact,sans-serif;font-weight:800;letter-spacing:.03em;text-align:right;white-space:nowrap}',
+      '.pb03 .pb03-tb .r.h{background:' + INK + ';color:' + CREAM + ';border-bottom-color:' + INK + '}.pb03 .pb03-tb .r.h .d{color:#CFC8B6}.pb03 .pb03-tb .r.h .t{color:' + MINT + '}.pb03 .pb03-tb .r.h .l i{background:' + MINT + '}',
+      /* footer */
+      '.pb03 .pb03-ft{color:' + CREAM + '}',
+      '.pb03 .pb03-ft .rg{font-weight:800;letter-spacing:-.01em;line-height:1.05;white-space:nowrap}',
+      '.pb03 .pb03-ft .rg span{color:' + MINT + '}',
+      '.pb03 .pb03-ft .sm{font-weight:500;line-height:1.35;color:#D8F2E4;white-space:nowrap}',
+      '.pb03 .pb03-ft .bd{display:flex;gap:1cqw}',
+      '.pb03 .pb03-ft .bd span{font-weight:700;font-size:1.2cqw;letter-spacing:.08em;text-transform:uppercase;background:' + INK + ';color:' + CREAM + ';padding:.45cqw .9cqw;white-space:nowrap}',
+      '.pb03 .pb03-qr{background:#fff;padding:.5cqw;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:' + INK + '}',
+      '.pb03 .pb03-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var HH = sq ? 100 : 129.41, month = H.MONTHS[spec.month - 1];
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop(), first = words.join(' ');
+      var kick = partner ? 'FOR FAMILIES<br>ACROSS THE PACIFIC' : 'PARENT TRAINING &amp;<br>INFORMATION CENTER';
+      var logo = '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">';
+      var pres = spec.presenter ? 'Presented by <b>' + H.esc(spec.presenter) + '</b>' : '';
+      var out = '<div class="vfx pb03' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">';
+      /* o: floor (checker end), band [y0,y1], strip y, footY */
+      function deco(o) {
+        return '<svg class="pb03-deco" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true">'
+          + '<rect width="100" height="' + f(HH) + '" fill="' + CREAM + '"/>'
+          + checker(0, o.floor, o.cell, EM, CREAM)
+          + '<rect y="' + f(o.b0) + '" width="100" height="' + f(o.b1 - o.b0) + '" fill="' + INK + '"/>'
+          + checker(o.strip, o.footY, o.footY - o.strip, EM, INK)
+          + '<rect y="' + f(o.footY) + '" width="100" height="' + f(HH - o.footY) + '" fill="' + EM + '"/></svg>';
+      }
+      function title(x, y, fs) { return box('pb03-ttl', x, y, null, null, (first ? first + ' ' : '') + '<b>' + last + '</b>', 'font-size:' + f(fs) + 'cqw'); }
+      function mo(x, y, sc) {
+        return box('pb03-mo', x, y, null, null, '<span class="m" style="font-size:' + f(3.3 * sc) + 'cqw">' + month.toUpperCase() + ' ' + spec.year + '</span><span class="z" style="font-size:' + f(1.4 * sc) + 'cqw">ON ZOOM</span>');
+      }
+      function where(x, y, fs) { return box('pb03-wh', x, y, null, null, '<i></i>' + H.esc(H.PTC_WHERE), 'font-size:' + f(fs) + 'cqw'); }
+      function tile(s, t, sc) {
+        return '<div class="pb03-tl"><div class="d" style="width:' + f(t) + 'cqw;height:' + f(t) + 'cqw;font-size:' + f(t * .62) + 'cqw">' + s.day + '</div><div class="w" style="width:' + f(t) + 'cqw;height:' + f(t) + 'cqw;font-size:' + f(1.45 * sc) + 'cqw">' + s.dow.toUpperCase() + '<br>' + s.mon.toUpperCase() + '</div></div>';
+      }
+      function foot(y, qs, sc) {
+        return box('pb03-ft', sq ? 4.2 : 8.33, y, 72, null, '<div class="rg" style="font-size:' + f(3.4 * sc) + 'cqw">REGISTER at <span>LDAHawaii.org</span></div>'
+          + '<div class="sm" style="font-size:' + f(1.5 * sc) + 'cqw;margin-top:' + f(.7 * sc) + 'cqw">Get your Zoom link, scan the QR code, or call ' + H.phone(partner) + '</div>'
+          + '<div class="bd" style="margin-top:' + f(1 * sc) + 'cqw">' + H.badges(spec, partner) + '</div>')
+          + box('pb03-qr', (sq ? 95.8 : 91.67) - qs, HH - qs - (sq ? 1.8 : 2.4), qs, qs, H.qrImg(spec, partner));
+      }
+      function sessRows(x, y, w, sc, t, step) {
+        return S.map(function (s, i) {
+          return box('pb03-se', x, y + i * step, w, null, tile(s, t, sc) + '<div><div class="t" style="font-size:' + f(2.1 * sc) + 'cqw">' + s.time + '</div><div class="tp" style="font-size:' + f(3.7 * sc) + 'cqw">' + s.lesson + '</div>' + (s.desc ? '<div class="ds" style="font-size:' + f(1.75 * sc) + 'cqw">' + s.desc + '</div>' : '') + '</div>');
+        }).join('');
+      }
+      function sessCols(x, y, w, sc, t) {
+        var cw = (w - 4) / 2;
+        return S.map(function (s, i) {
+          return box('pb03-se', x + i * (cw + 4), y, cw, null, '<div>' + tile(s, t, sc) + '<div class="t" style="font-size:' + f(1.9 * sc) + 'cqw;margin-top:1.2cqw">' + s.time + '</div><div class="tp" style="font-size:' + f(3 * sc) + 'cqw">' + s.lesson + '</div>' + (s.desc ? '<div class="ds" style="font-size:' + f(1.6 * sc) + 'cqw">' + s.desc + '</div>' : '') + '</div>');
+        }).join('');
+      }
+      function soloBlock(x, y, w, sc, t, dy) {
+        var s = S[0];
+        return box('pb03-tp', x, y, w, null, '<div class="pb03-lb" style="font-size:' + f(1.35 * sc) + 'cqw;margin-bottom:' + f(1 * sc) + 'cqw">TODAY’S SPECIAL</div>' + s.lesson
+          + (s.desc ? '<div class="pb03-ds" style="font-size:' + f(2.05 * sc) + 'cqw;margin-top:' + f(1.1 * sc) + 'cqw">' + s.desc + '</div>' : ''), 'font-size:' + f(5.4 * sc) + 'cqw')
+          + box('pb03-se', x, dy, w, null, tile(s, t, sc) + '<div style="align-self:center"><div class="pb03-tm" style="font-size:' + f(4.4 * sc) + 'cqw">' + s.time + '</div>' + (pres ? '<div class="pb03-pr" style="font-size:' + f(1.95 * sc) + 'cqw;margin-top:' + f(.6 * sc) + 'cqw">' + pres + '</div>' : '') + '</div>', 'align-items:center');
+      }
+      function topics(x, y, w, sc) {
+        if (solo) return box('pb03-tp', x, y, w, null, S[0].lesson + (pres ? '<div class="pb03-pr" style="font-size:' + f(1.8 * sc) + 'cqw;margin-top:' + f(.5 * sc) + 'cqw">' + pres + '</div>' : ''), 'font-size:' + f(3.4 * sc) + 'cqw');
+        return box('pb03-ls', x, y, w, null, S.map(function (s, i) { return '<div style="font-size:' + f(2.7 * sc) + 'cqw"><b>0' + (i + 1) + '</b><span>' + s.lesson + '</span></div>'; }).join(''));
+      }
+      function table(x, y, w, rh, sc) {
+        var rows = H.zoneRows(spec.sessions);
+        var h = '<div class="r th" style="height:' + f(rh * .75) + 'cqw;font-size:' + f(1.2 * sc) + 'cqw"><span>WHERE YOU ARE</span><span>DAY</span><span style="text-align:right">YOUR TIME</span></div>';
+        h += rows.map(function (r) {
+          return '<div class="r' + (r.home ? ' h' : '') + '" style="height:' + f(rh) + 'cqw"><span class="l" style="font-size:' + f(2 * sc) + 'cqw"><i></i>' + r.label + '</span><span class="d" style="font-size:' + f(1.75 * sc) + 'cqw">' + r.days + '</span><span class="t" style="font-size:' + f(2.7 * sc) + 'cqw">' + r.time + '</span></div>';
+        }).join('');
+        return box('pb03-tb', x, y, w, null, h);
+      }
+
+      if (!sq && !partner) {
+        out += deco({ floor: 4 * C, cell: C, b0: 4 * C, b1: 7 * C, strip: 13 * C, footY: 13 * C + C / 2 });
+        out += box('pb03-logo', C, C, 2 * C, 2 * C, logo);
+        out += box('pb03-kick', 3 * C, 2 * C, 4 * C, C, kick, 'font-size:1.3cqw');
+        out += badge(8 * C, C / 2, 3 * C);
+        out += title(C, 4 * C + 2.2, 12.6);
+        out += mo(C, 6 * C - 1.2, 1);
+        out += where(C, 7 * C + 2.8, 1.6);
+        if (solo) out += soloBlock(C, 7 * C + 8, 10 * C, 1.1, 15, 91);
+        else out += sessRows(C, 7 * C + 8.6, 10 * C, 1.12, 15, 23.5);
+        out += foot(13.5 * C + 2.6, 11, 1);
+      } else if (!sq && partner) {
+        out += deco({ floor: 3 * C, cell: C, b0: 3 * C, b1: 5.5 * C, strip: 13 * C, footY: 13 * C + C / 2 });
+        out += box('pb03-logo', C, C, 3 * C, 2 * C, logo);
+        out += box('pb03-kick', 4 * C, 2 * C, 4 * C, C, kick, 'font-size:1.3cqw');
+        out += badge(8.5 * C, C / 4, 2.5 * C);
+        out += title(C, 3 * C + 1.6, 10.4);
+        out += mo(C, 3 * C + 13.4, .95);
+        out += where(C, 5.5 * C + 2.6, 1.55);
+        out += topics(C, 5.5 * C + 7.4, 10 * C, 1);
+        out += table(C, 5.5 * C + 18, 10 * C, 5.55, 1);
+        out += foot(13.5 * C + 2.6, 11, 1);
+      } else if (sq && !partner) {
+        out += deco({ floor: 2 * C, cell: C, b0: 2 * C, b1: 4 * C, strip: 81.25, footY: 85.42 });
+        out += box('pb03-logo', C / 2, C / 4, 1.5 * C, 1.5 * C, logo);
+        out += box('pb03-kick', 2 * C, C, 4 * C, C, kick, 'font-size:1.2cqw');
+        out += badge(8.75 * C, C / 4, 2.25 * C);
+        out += title(C / 2, 2 * C + .9, 8.8);
+        out += mo(C / 2, 3 * C + 2.6, .8);
+        out += where(C / 2, 4 * C + 2, 1.4);
+        if (solo) {
+          var s0 = S[0];
+          out += box('pb03-tp', C / 2, 4 * C + 6.6, 91, null, '<div class="pb03-lb" style="font-size:1.2cqw;margin-bottom:.8cqw">TODAY’S SPECIAL</div>' + s0.lesson + (s0.desc ? '<div class="pb03-ds" style="font-size:1.75cqw;margin-top:.8cqw">' + s0.desc + '</div>' : ''), 'font-size:5.2cqw');
+          out += box('pb03-se', C / 2, 64.2, 91, null, tile(s0, 14.5, .95) + '<div style="align-self:center"><div class="pb03-tm" style="font-size:4.2cqw">' + s0.time + '</div>' + (pres ? '<div class="pb03-pr" style="font-size:1.8cqw;margin-top:.5cqw">' + pres + '</div>' : '') + '</div>', 'align-items:center');
+        } else out += sessCols(C / 2, 4 * C + 7.4, 91, 1.3, 13.5);
+        out += foot(87.4, 9.4, .88);
+      } else {
+        out += deco({ floor: 12.5, cell: 6.25, b0: 12.5, b1: 27, strip: 81.25, footY: 85.42 });
+        out += box('pb03-logo', 4.17, 1.6, 18.75, 10.9, logo);
+        out += box('pb03-kick', 25, 6.25, 31.25, 6.25, kick, 'font-size:1.15cqw');
+        out += badge(81.5, 1.2, 15.5);
+        out += title(4.17, 13.6, 7.6);
+        out += mo(4.17, 22.1, .78);
+        out += where(4.17, 28.6, 1.35);
+        out += topics(4.17, 32.6, 91.6, .82);
+        out += table(4.17, 41, 91.6, 5.05, .86);
+        out += foot(87.4, 9.4, .88);
+      }
+      return out + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 04 ---- */
+/* Set PB · April · Parent Talk Café "Saucers": big flat quarter-circle saucers on a peach page. A sky-blue
+   saucer with concentric rims fills the top-right corner and cradles the café badge; every date sits on a
+   butter-yellow quarter-circle tile; a butter saucer peeks up behind the QR in the navy footer. */
+VEBFlyers.registerSet('PB', 4, (function () {
+  var PEACH = '#FFD9C4', PEACH2 = '#FBBF9E', SKY = '#86C7EE', SKY2 = '#B9E0F7', SKYD = '#2A78B3', BUTTER = '#FFE07A', NAVY = '#22314F', WHITE = '#FFFCF7', SOFT = '#6A5A55';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  /* quarter circle centred on a corner (cx, cy), quadrant q: 'bl' fills down-left etc. */
+  function quarter(cx, cy, r, q, fill, stroke) {
+    var sx = q.indexOf('l') >= 0 ? -1 : 1, sy = q.indexOf('t') >= 0 ? -1 : 1;
+    var a = [cx + sx * r, cy], b = [cx, cy + sy * r], sweep = (sx * sy > 0) ? 1 : 0;
+    return '<path d="M' + f(cx) + ' ' + f(cy) + ' L' + f(a[0]) + ' ' + f(a[1]) + ' A' + f(r) + ' ' + f(r) + ' 0 0 ' + sweep + ' ' + f(b[0]) + ' ' + f(b[1]) + ' Z" fill="' + (fill || 'none') + '"' + (stroke ? ' stroke="' + stroke[0] + '" stroke-width="' + stroke[1] + '"' : '') + '/>';
+  }
+  function saucer(cx, cy, r, q) {
+    return quarter(cx, cy, r, q, SKY) + quarter(cx, cy, r * .8, q, null, [WHITE, .7]) + quarter(cx, cy, r * .66, q, SKY2) + quarter(cx, cy, r * .54, q, null, [SKY, .5]);
+  }
+  function badge(x, y, s) {
+    var v = '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + NAVY + '"/>'
+      + '<circle cx="50" cy="50" r="44" fill="none" stroke="' + BUTTER + '" stroke-width="1.3"/>'
+      + '<path id="pb04-arc" d="M15 53 A35 35 0 0 1 85 53" fill="none"/>'
+      + '<text font-family="Fredoka,Arial,sans-serif" font-weight="700" font-size="10" letter-spacing="1" fill="' + WHITE + '"><textPath href="#pb04-arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<path d="M42 47.5 c-3.5 -4 3.5 -6 0 -10.5 M50.5 46.5 c-3.5 -4 3.5 -6 0 -10.5 M59 47.5 c-3.5 -4 3.5 -6 0 -10.5" fill="none" stroke="' + SKY + '" stroke-width="2.6" stroke-linecap="round"/>'
+      + '<path d="M33 52 H67 V59 a13 13 0 0 1 -13 13 H46 a13 13 0 0 1 -13 -13 Z" fill="' + PEACH + '"/>'
+      + '<path d="M67 54.5 a5.5 5.5 0 0 1 0 11" fill="none" stroke="' + PEACH + '" stroke-width="3.2"/>'
+      + '<path d="M33 52 H67 V56 H33 Z" fill="' + BUTTER + '"/>'
+      + '<ellipse cx="50" cy="76" rx="25" ry="3.2" fill="' + BUTTER + '"/>'
+      + '</svg>';
+    return box('pb04-badge', x, y, s, s, v);
+  }
+  return {
+    name: 'Saucers: sky-blue and butter quarter circles on peach, navy type',
+    fonts: 'family=Fredoka:wght@500;600;700&family=Nunito:wght@500;600;700;800;900',
+    css: [
+      '.pb04{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + PEACH + ';color:' + NAVY + ';font-family:Nunito,Arial,sans-serif}',
+      '.pb04.sq{aspect-ratio:1/1}',
+      '.pb04 *{box-sizing:border-box}',
+      '.pb04 .pb04-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb04>div{position:absolute;z-index:2}',
+      '.pb04 .pb04-badge{pointer-events:none}.pb04 .pb04-badge svg{width:100%;height:100%;display:block}',
+      '.pb04 .pb04-logo{background:#fff;display:flex;align-items:center;justify-content:center;padding:.9cqw;border-radius:0 3cqw 0 0}',
+      '.pb04 .pb04-logo img{max-width:100%;max-height:100%;display:block}',
+      '.pb04 .pb04-kick{font-weight:800;letter-spacing:.15em;line-height:1.45;color:' + SOFT + ';white-space:nowrap}',
+      '.pb04 .pb04-ttl{font-family:Fredoka,Arial,sans-serif;font-weight:700;line-height:.98;letter-spacing:-.01em;white-space:nowrap;color:' + NAVY + '}',
+      '.pb04 .pb04-ttl b{font-weight:700;color:' + SKYD + '}',
+      '.pb04 .pb04-mo{display:flex;align-items:center;gap:1.4cqw;white-space:nowrap}',
+      '.pb04 .pb04-mo .m{font-family:Fredoka,Arial,sans-serif;font-weight:600}',
+      '.pb04 .pb04-mo .z{background:' + NAVY + ';color:' + BUTTER + ';font-weight:900;letter-spacing:.12em;padding:.55cqw 1.4cqw .55cqw 1.1cqw;border-radius:0 5cqw 5cqw 0}',
+      '.pb04 .pb04-wh{font-weight:700;line-height:1.3;color:' + SOFT + ';white-space:nowrap;display:flex;align-items:center;gap:1cqw}',
+      '.pb04 .pb04-wh i{display:block;width:1.5cqw;height:1.5cqw;background:' + SKYD + ';border-radius:0 100% 0 0;flex:none}',
+      '.pb04 .pb04-lb{font-weight:900;letter-spacing:.18em;color:' + SKYD + ';white-space:nowrap}',
+      '.pb04 .pb04-tp{font-family:Fredoka,Arial,sans-serif;font-weight:600;line-height:1.08;letter-spacing:-.005em}',
+      '.pb04 .pb04-ds{font-family:Nunito,Arial,sans-serif;font-weight:600;line-height:1.3;color:' + SOFT + '}',
+      '.pb04 .pb04-pr{font-family:Nunito,Arial,sans-serif;font-weight:700;line-height:1.3;white-space:nowrap}.pb04 .pb04-pr b{font-weight:900;color:' + SKYD + '}',
+      /* quarter-circle date tile */
+      '.pb04 .pb04-q{position:relative;flex:none;background:' + BUTTER + ';border-radius:0 100% 0 0}',
+      '.pb04 .pb04-q span{position:absolute;left:12%;bottom:6%;font-family:Fredoka,Arial,sans-serif;font-weight:700;line-height:1;color:' + NAVY + '}',
+      '.pb04 .pb04-se{display:flex;gap:2.2cqw;align-items:flex-end}',
+      '.pb04 .pb04-se .w{font-weight:900;letter-spacing:.13em;line-height:1.3;white-space:nowrap}',
+      '.pb04 .pb04-se .t{font-weight:800;white-space:nowrap;color:' + SKYD + '}',
+      '.pb04 .pb04-se .tp{margin-top:.8cqw}',
+      '.pb04 .pb04-se .ds{margin-top:.4cqw}',
+      '.pb04 .pb04-tm{font-family:Fredoka,Arial,sans-serif;font-weight:600;white-space:nowrap;line-height:1.1}',
+      /* partner topics + table */
+      '.pb04 .pb04-ls div{display:flex;gap:1.3cqw;align-items:center;font-family:Fredoka,Arial,sans-serif;font-weight:600;line-height:1.35;white-space:nowrap}',
+      '.pb04 .pb04-ls i{display:block;width:1.8cqw;height:1.8cqw;background:' + SKYD + ';border-radius:0 100% 0 0;flex:none}',
+      '.pb04 .pb04-tb .r{display:grid;grid-template-columns:40% 35% 25%;align-items:center;padding:0 2cqw 0 1.4cqw;border-radius:0 5cqw 5cqw 0}',
+      '.pb04 .pb04-tb .r:nth-child(even):not(.h){background:rgba(255,252,247,.55)}',
+      '.pb04 .pb04-tb .r.th{font-weight:900;letter-spacing:.14em;color:' + SKYD + '}',
+      '.pb04 .pb04-tb .l{font-weight:800;white-space:nowrap}',
+      '.pb04 .pb04-tb .d{font-weight:700;white-space:nowrap;color:' + SOFT + '}',
+      '.pb04 .pb04-tb .t{font-family:Fredoka,Arial,sans-serif;font-weight:600;text-align:right;white-space:nowrap}',
+      '.pb04 .pb04-tb .r.h{background:' + NAVY + ';color:' + WHITE + '}.pb04 .pb04-tb .r.h .d{color:' + SKY2 + '}.pb04 .pb04-tb .r.h .t{color:' + BUTTER + '}',
+      /* footer */
+      '.pb04 .pb04-ft{color:' + WHITE + '}',
+      '.pb04 .pb04-ft .rg{font-family:Fredoka,Arial,sans-serif;font-weight:700;line-height:1.05;white-space:nowrap}',
+      '.pb04 .pb04-ft .rg span{color:' + BUTTER + '}',
+      '.pb04 .pb04-ft .sm{font-weight:600;line-height:1.35;color:' + SKY2 + ';white-space:nowrap}',
+      '.pb04 .pb04-ft .bd{display:flex;gap:1cqw}',
+      '.pb04 .pb04-ft .bd span{font-weight:800;font-size:1.2cqw;letter-spacing:.08em;text-transform:uppercase;border:.15cqw solid ' + SKY + ';color:' + WHITE + ';padding:.35cqw 1cqw .35cqw .8cqw;border-radius:0 5cqw 5cqw 0;white-space:nowrap}',
+      '.pb04 .pb04-qr{background:#fff;padding:.5cqw;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:2cqw;color:' + NAVY + '}',
+      '.pb04 .pb04-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var HH = sq ? 100 : 129.41, month = H.MONTHS[spec.month - 1];
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop(), first = words.join(' ');
+      var kick = partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER';
+      var logo = '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">';
+      var pres = spec.presenter ? 'Presented by <b>' + H.esc(spec.presenter) + '</b>' : '';
+      var FULL = { Sun: 'SUNDAY', Mon: 'MONDAY', Tue: 'TUESDAY', Wed: 'WEDNESDAY', Thu: 'THURSDAY', Fri: 'FRIDAY', Sat: 'SATURDAY' };
+      var out = '<div class="vfx pb04' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">';
+      function deco(o) {
+        return '<svg class="pb04-deco" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true">'
+          + '<rect width="100" height="' + f(HH) + '" fill="' + PEACH + '"/>'
+          + saucer(100, 0, o.r, 'bl')
+          + (o.side ? quarter(100, o.side[0], o.side[1], 'tl', BUTTER) + quarter(100, o.side[0], o.side[1] * .62, 'tl', PEACH2) : '')
+          + '<rect y="' + f(o.footY) + '" width="100" height="' + f(HH - o.footY) + '" fill="' + NAVY + '"/>'
+          + quarter(100, HH, o.fr, 'tl', BUTTER) + quarter(100, HH, o.fr * .78, 'tl', null, [NAVY, .6])
+          + '</svg>';
+      }
+      function title(x, y, fs, one) { return box('pb04-ttl', x, y, null, null, (first ? first + (one ? ' ' : '<br>') : '') + '<b>' + last + '</b>', 'font-size:' + f(fs) + 'cqw'); }
+      function mo(x, y, sc) {
+        return box('pb04-mo', x, y, null, null, '<span class="m" style="font-size:' + f(3.3 * sc) + 'cqw">' + month + ' ' + spec.year + '</span><span class="z" style="font-size:' + f(1.4 * sc) + 'cqw">ON ZOOM</span>');
+      }
+      function where(x, y, fs) { return box('pb04-wh', x, y, null, null, '<i></i>' + H.esc(H.PTC_WHERE), 'font-size:' + f(fs) + 'cqw'); }
+      function q(s, t) { return '<div class="pb04-q" style="width:' + f(t) + 'cqw;height:' + f(t) + 'cqw"><span style="font-size:' + f(t * .5) + 'cqw">' + s.day + '</span></div>'; }
+      function foot(y, qs, sc) {
+        return box('pb04-ft', sq ? 5 : 6, y, 72, null, '<div class="rg" style="font-size:' + f(3.6 * sc) + 'cqw">REGISTER at <span>LDAHawaii.org</span></div>'
+          + '<div class="sm" style="font-size:' + f(1.5 * sc) + 'cqw;margin-top:' + f(.7 * sc) + 'cqw">Get your Zoom link, scan the QR code, or call ' + H.phone(partner) + '</div>'
+          + '<div class="bd" style="margin-top:' + f(1 * sc) + 'cqw">' + H.badges(spec, partner) + '</div>')
+          + box('pb04-qr', (sq ? 95 : 94) - qs, HH - qs - (sq ? 2 : 2.4), qs, qs, H.qrImg(spec, partner));
+      }
+      function soloBlock(x, y, w, sc, t, dy) {
+        var s = S[0];
+        return box('pb04-tp', x, y, w, null, '<div class="pb04-lb" style="font-size:' + f(1.4 * sc) + 'cqw;margin-bottom:' + f(1 * sc) + 'cqw;font-family:Nunito,Arial,sans-serif">POUR A CUP AND JOIN US</div>' + s.lesson
+          + (s.desc ? '<div class="pb04-ds" style="font-size:' + f(2.1 * sc) + 'cqw;margin-top:' + f(1.1 * sc) + 'cqw">' + s.desc + '</div>' : '')
+          + (pres ? '<div class="pb04-pr" style="font-size:' + f(2.1 * sc) + 'cqw;margin-top:' + f(.4 * sc) + 'cqw">' + pres + '</div>' : ''), 'font-size:' + f(5.8 * sc) + 'cqw')
+          + box('pb04-se', x, dy, w, null, q(s, t) + '<div style="padding-bottom:' + f(.6 * sc) + 'cqw"><div class="w" style="font-size:' + f(1.7 * sc) + 'cqw">' + FULL[s.dow] + ' · ' + s.monFull.toUpperCase() + ' ' + s.day + '</div><div class="pb04-tm" style="font-size:' + f(4.4 * sc) + 'cqw;margin-top:' + f(.3 * sc) + 'cqw">' + s.time + '</div></div>');
+      }
+      function twoCols(x, y, w, sc, t, gap) {
+        var cw = (w - gap) / 2;
+        return S.map(function (s, i) {
+          return box('pb04-se', x + i * (cw + gap), y, cw, null, '<div><div style="display:flex;align-items:flex-end;gap:1.6cqw">' + q(s, t) + '<div class="w" style="font-size:' + f(1.5 * sc) + 'cqw;padding-bottom:.4cqw">' + s.dow.toUpperCase() + '<br>' + s.monFull.toUpperCase() + '</div></div>'
+            + '<div class="t" style="font-size:' + f(2 * sc) + 'cqw;margin-top:' + f(1.4 * sc) + 'cqw">' + s.time + '</div><div class="pb04-tp tp" style="font-size:' + f(3.4 * sc) + 'cqw">' + s.lesson + '</div>' + (s.desc ? '<div class="pb04-ds ds" style="font-size:' + f(1.75 * sc) + 'cqw">' + s.desc + '</div>' : '') + '</div>');
+        }).join('');
+      }
+      function topics(x, y, w, sc) {
+        if (solo) return box('pb04-tp', x, y, w, null, S[0].lesson + (pres ? '<div class="pb04-pr" style="font-size:' + f(1.85 * sc) + 'cqw;margin-top:' + f(.5 * sc) + 'cqw">' + pres + '</div>' : ''), 'font-size:' + f(3.6 * sc) + 'cqw');
+        return box('pb04-ls', x, y, w, null, S.map(function (s) { return '<div style="font-size:' + f(2.8 * sc) + 'cqw"><i></i><span>' + s.lesson + '</span></div>'; }).join(''));
+      }
+      function table(x, y, w, rh, sc) {
+        var rows = H.zoneRows(spec.sessions);
+        var h = '<div class="r th" style="height:' + f(rh * .75) + 'cqw;font-size:' + f(1.2 * sc) + 'cqw"><span>WHERE YOU ARE</span><span>DAY</span><span style="text-align:right">YOUR TIME</span></div>';
+        h += rows.map(function (r) {
+          return '<div class="r' + (r.home ? ' h' : '') + '" style="height:' + f(rh) + 'cqw"><span class="l" style="font-size:' + f(2.05 * sc) + 'cqw">' + r.label + '</span><span class="d" style="font-size:' + f(1.8 * sc) + 'cqw">' + r.days + '</span><span class="t" style="font-size:' + f(2.5 * sc) + 'cqw">' + r.time + '</span></div>';
+        }).join('');
+        return box('pb04-tb', x, y, w, null, h);
+      }
+
+      if (!sq && !partner) {
+        out += deco({ r: 46, footY: 113.5, fr: 19, side: [64, 15] });
+        out += box('pb04-logo', 6, 5, 15, 15, logo);
+        out += box('pb04-kick', 6, 21.8, null, null, kick, 'font-size:1.3cqw');
+        out += badge(69, 4.5, 25);
+        out += title(6, 31, 10.4) + mo(6, 53, 1) + where(6, 59, 1.6);
+        if (solo) out += soloBlock(6, 66, 88, 1, 17, 93.2);
+        else out += twoCols(6, 67, 88, 1.25, 17, 6);
+        out += foot(116.6, 11, 1);
+      } else if (!sq && partner) {
+        out += deco({ r: 40, footY: 113.5, fr: 19 });
+        out += box('pb04-logo', 6, 5, 23, 13, logo);
+        out += box('pb04-kick', 6, 19.8, null, null, kick, 'font-size:1.3cqw');
+        out += badge(72.5, 4, 21);
+        out += title(6, 25.5, 8.4) + mo(6, 44.2, .95) + where(6, 49.6, 1.5);
+        out += topics(6, 54.5, 88, 1);
+        out += table(6, 66, 88, 5.6, 1);
+        out += foot(116.6, 11, 1);
+      } else if (sq && !partner) {
+        out += deco({ r: 40, footY: 86.5, fr: 15.5 });
+        out += box('pb04-logo', 5, 5, 12, 12, logo);
+        out += box('pb04-kick', 19, 6.2, null, null, 'PARENT TRAINING &amp;<br>INFORMATION CENTER', 'font-size:1.2cqw');
+        out += badge(76, 3.5, 20);
+        out += title(5, 21, 7.8) + mo(5, 38.6, .82) + where(5, 43.6, 1.4);
+        if (solo) {
+          var s0 = S[0];
+          out += box('pb04-tp', 5, 49, 90, null, s0.lesson + (s0.desc ? '<div class="pb04-ds" style="font-size:1.75cqw;margin-top:.8cqw">' + s0.desc + '</div>' : ''), 'font-size:4.8cqw');
+          out += box('pb04-se', 5, 66.5, 90, null, q(s0, 15.5) + '<div style="padding-bottom:.5cqw"><div class="w" style="font-size:1.5cqw">' + FULL[s0.dow] + ' · ' + s0.monFull.toUpperCase() + ' ' + s0.day + '</div><div class="pb04-tm" style="font-size:3.9cqw;margin-top:.2cqw">' + s0.time + '</div>' + (pres ? '<div class="pb04-pr" style="font-size:1.7cqw;margin-top:.4cqw">' + pres + '</div>' : '') + '</div>');
+        } else out += twoCols(5, 49.5, 90, 1.1, 13.5, 6);
+        out += foot(88.7, 9.2, .88);
+      } else {
+        out += deco({ r: 30, footY: 86.5, fr: 15.5 });
+        out += box('pb04-logo', 5, 4, 18, 10.5, logo);
+        out += box('pb04-kick', 25, 5.4, null, null, 'FOR FAMILIES<br>ACROSS THE PACIFIC', 'font-size:1.2cqw');
+        out += badge(80.5, 2.5, 16);
+        out += title(5, 17, 6.2, true) + mo(5, 24.8, .78) + where(5, 29.6, 1.35);
+        out += topics(5, 33.6, 90, .8);
+        out += table(5, solo ? 43.4 : 42.6, 90, 4.9, .88);
+        out += foot(88.7, 9.2, .88);
+      }
+      return out + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 05 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) - May: "Awning". A mint + white striped café awning with a
+   scalloped edge crowns the poster; everything below is built from vertical bands: the date is a tall
+   magenta column, two sessions are two side-by-side columns, and the partner time table is seven
+   vertical awning stripes (one per island). Mint / magenta / white. */
+VEBFlyers.registerSet('PB', 5, (function () {
+  var INK = '#22132b', MAG = '#d4127a', MINT = '#4fd8a8', MINTD = '#0e7f5e', PALE = '#eefaf4', WHITE = '#ffffff';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function bx(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function rect(x, y, w, h, c, extra) { return '<rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '" fill="' + c + '"' + (extra || '') + '/>'; }
+  function circ(cx, cy, r, c) { return '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + c + '"/>'; }
+  /* striped awning: n stripes across, height h, scallops hang below */
+  function awning(h, n) {
+    var w = 100 / n, s = rect(0, 0, 100, h, WHITE);
+    for (var i = 0; i < n; i++) { var c = i % 2 ? WHITE : MINT; s += rect(i * w, 0, w, h, c) + circ(i * w + w / 2, h, w / 2, c); }
+    return s + rect(0, 0, 100, 1.1, MAG);
+  }
+  /* the series mark: round PARENT TALK CAFE badge with a flat geometric steaming cup */
+  function badge(cls, x, y, d) {
+    var s = '<svg viewBox="0 0 100 100" aria-hidden="true"><defs><path id="pb05arc" d="M 14,50 A 36,36 0 1,1 86,50"/></defs>'
+      + '<circle cx="50" cy="50" r="49" fill="' + MAG + '"/><circle cx="50" cy="50" r="44.5" fill="none" stroke="' + WHITE + '" stroke-width="1.2"/>'
+      + '<circle cx="50" cy="50" r="27" fill="' + MINT + '"/>'
+      + '<text font-family="Anton,sans-serif" font-size="11.2" fill="' + WHITE + '" letter-spacing="1.1"><textPath href="#pb05arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<g fill="' + WHITE + '"><circle cx="38" cy="85" r="1.8"/><circle cx="50" cy="87.5" r="1.8"/><circle cx="62" cy="85" r="1.8"/></g>'
+      /* steam */
+      + '<g fill="none" stroke="' + WHITE + '" stroke-width="2.6" stroke-linecap="round"><path d="M42 41 q-3 -4 0 -8 q3 -4 0 -8"/><path d="M50 41 q-3 -4 0 -8 q3 -4 0 -8"/><path d="M58 41 q-3 -4 0 -8 q3 -4 0 -8"/></g>'
+      /* cup + handle + saucer */
+      + '<path d="M36 44 h28 v6 a14 12 0 0 1 -28 0 z" fill="' + INK + '"/><circle cx="66" cy="49.5" r="4.6" fill="none" stroke="' + INK + '" stroke-width="2.6"/>'
+      + '<rect x="30" y="62.5" width="40" height="3.4" rx="1.7" fill="' + INK + '"/></svg>';
+    return bx(cls, x, y, d, s, 'height:' + f(d) + 'cqw');
+  }
+  return {
+    name: 'Awning: mint and white café awning stripes, vertical magenta date columns',
+    fonts: 'family=Anton&family=DM+Sans:wght@400;500;700;800',
+    css: [
+      '.pb05{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + PALE + ';color:' + INK + ';font-family:"DM Sans",sans-serif}',
+      '.pb05.sq{aspect-ratio:1/1}',
+      '.pb05 *{box-sizing:border-box}',
+      '.pb05 .pb05-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb05>div{position:absolute;z-index:2}',
+      '.pb05 .pb05-badge svg{width:100%;height:100%;display:block}',
+      '.pb05 .pb05-logo{background:#fff;border:.45cqw solid ' + INK + ';display:flex;align-items:center;justify-content:center}',
+      '.pb05 .pb05-logo img{width:80%;height:auto;display:block}',
+      '.pb05 .pb05-kick{font-weight:800;font-size:1.7cqw;letter-spacing:.18em;color:' + MAG + ';white-space:nowrap}',
+      '.pb05 .pb05-t1{font-family:Anton,sans-serif;line-height:1;white-space:nowrap;text-transform:uppercase;letter-spacing:.01em}',
+      '.pb05 .pb05-t2{font-family:Anton,sans-serif;line-height:1;white-space:nowrap;color:' + MAG + ';letter-spacing:.01em;text-transform:uppercase}',
+      '.pb05 .pb05-mo{white-space:nowrap}',
+      '.pb05 .pb05-mo b{display:block;font-family:Anton,sans-serif;font-weight:400;line-height:1.05;letter-spacing:.02em}',
+      '.pb05 .pb05-mo i{display:inline-block;font-style:normal;font-weight:800;letter-spacing:.16em;background:' + MINT + ';color:' + INK + ';padding:.6cqw 1.5cqw;margin-top:.9cqw}',
+      /* date column */
+      '.pb05 .pb05-dc{color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}',
+      '.pb05 .pb05-dc .w{font-weight:800;letter-spacing:.24em}',
+      '.pb05 .pb05-dc .n{font-family:Anton,sans-serif;line-height:1.5}',
+      '.pb05 .pb05-dc .t{font-weight:700;letter-spacing:.04em;line-height:1.3}',
+      /* topic */
+      '.pb05 .pb05-tp .lb{font-weight:800;letter-spacing:.2em;color:' + MINTD + '}',
+      '.pb05 .pb05-tp .ln{font-weight:800;line-height:1.08;letter-spacing:-.01em}',
+      '.pb05 .pb05-tp .ds{font-weight:500;margin-top:.8cqw}',
+      '.pb05 .pb05-tp .pr{font-weight:700;margin-top:1.2cqw;display:inline-block;border-left:.9cqw solid ' + MAG + ';padding-left:1.4cqw}',
+      '.pb05 .pb05-tp .pr b{color:' + MAG + '}',
+      '.pb05 .pb05-wh{font-weight:700;letter-spacing:.01em;white-space:nowrap}',
+      '.pb05 .pb05-wh b{color:' + MAG + '}',
+      /* session columns */
+      '.pb05 .pb05-col .hd{display:flex;align-items:center;gap:2cqw;color:#fff;padding:0 2.2cqw}',
+      '.pb05 .pb05-col .hd .n{font-family:Anton,sans-serif;line-height:1}',
+      '.pb05 .pb05-col .hd .w{font-weight:800;letter-spacing:.16em;line-height:1.35}',
+      '.pb05 .pb05-col .ln{font-weight:800;line-height:1.1;margin-top:1.6cqw}',
+      '.pb05 .pb05-col .ds{font-weight:500;margin-top:.7cqw}',
+      /* partner lessons + stripe table */
+      '.pb05 .pb05-ls div{display:flex;align-items:flex-start;gap:1.4cqw;font-weight:800;line-height:1.1;margin-bottom:.9cqw}',
+      '.pb05 .pb05-ls span{flex:none;background:' + MAG + ';color:#fff;font-family:Anton,sans-serif;font-weight:400;padding:.1em .35em;line-height:1.15}',
+      '.pb05 .pb05-cap{font-weight:800;letter-spacing:.18em;white-space:nowrap}',
+      '.pb05 .pb05-cap b{color:' + MAG + '}',
+      '.pb05 .pb05-st{display:grid;grid-template-columns:repeat(7,1fr)}',
+      '.pb05 .pb05-st>div{display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:flex-start;padding:1.4cqw .5cqw 0}',
+      '.pb05 .pb05-st>div:nth-child(odd){background:' + MINT + '}',
+      '.pb05 .pb05-st>div:nth-child(even){background:#fff}',
+      '.pb05 .pb05-st>div.h{background:' + MAG + ';color:#fff}',
+      '.pb05 .pb05-st .l{font-weight:800;line-height:1.12;min-height:2.3em;display:flex;align-items:center}',
+      '.pb05 .pb05-st .d{font-weight:500;line-height:1.2;margin-top:.6em}',
+      '.pb05 .pb05-st .t{font-family:Anton,sans-serif;line-height:1.1;margin-top:.5em;white-space:nowrap}',
+      /* footer */
+      '.pb05 .pb05-ft{background:' + INK + ';color:#fff;display:flex;align-items:center;gap:3cqw}',
+      '.pb05 .pb05-ft .rg{flex:1;min-width:0}',
+      '.pb05 .pb05-ft .rg b{display:block;font-family:Anton,sans-serif;font-weight:400;line-height:1.1;letter-spacing:.02em;white-space:nowrap}',
+      '.pb05 .pb05-ft .rg b em{font-style:normal;color:' + MINT + '}',
+      '.pb05 .pb05-ft .rg small{display:block;margin-top:.5cqw;white-space:nowrap;opacity:.92}',
+      '.pb05 .pb05-bd{display:flex;gap:1cqw;margin-top:1cqw}',
+      '.pb05 .pb05-bd span{border:.2cqw solid ' + MINT + ';padding:.3cqw 1.2cqw;font-size:1.4cqw;font-weight:700;letter-spacing:.06em;white-space:nowrap}',
+      '.pb05 .pb05-qr{flex:none;background:#fff;padding:.6cqw;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:' + INK + '}',
+      '.pb05 .pb05-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var Hh = sq ? 100 : 129.41, deco = '', o = '';
+      var mon = H.MONTHS[spec.month - 1].toUpperCase();
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' ');
+      var last = words.pop(), first = words.join(' ');
+      var pres = spec.presenter ? '<div class="pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+      var kick = partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER';
+      var where = H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>');
+      function logo(x, y, w, h) {
+        return bx('pb05-logo', x, y, w, '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'height:' + f(h) + 'cqw');
+      }
+      function foot(y, h, qr, fs, sm) {
+        return bx('pb05-ft', 0, y, 100, '<div class="rg"><b style="font-size:' + f(fs) + 'cqw">REGISTER at <em>LDAHawaii.org</em></b><small style="font-size:' + f(sm) + 'cqw">Free on Zoom. Scan the QR or call ' + H.phone(partner) + '</small><div class="pb05-bd">' + H.badges(spec, partner) + '</div></div>'
+          + '<div class="pb05-qr" style="width:' + f(qr) + 'cqw;height:' + f(qr) + 'cqw">' + H.qrImg(spec, partner) + '</div>', 'height:' + f(h) + 'cqw;padding:0 5cqw');
+      }
+      function dateCol(x, y, w, h, s, nfs, c) {
+        deco += rect(x, y, w, h, c);
+        return bx('pb05-dc', x, y, w, '<div class="w" style="font-size:' + f(nfs * .11) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.mon.toUpperCase() + '</div><div class="n" style="font-size:' + f(nfs) + 'cqw">' + s.day + '</div><div class="t" style="font-size:' + f(nfs * .115) + 'cqw">' + s.time.replace(' HST', '<br>HST') + '</div>', 'height:' + f(h) + 'cqw');
+      }
+      function topic(x, y, w, s, fs, lb) {
+        return bx('pb05-tp', x, y, w, '<div class="lb" style="font-size:' + f(lb) + 'cqw">THIS MONTH&#8217;S TOPIC</div><div class="ln" style="font-size:' + f(fs) + 'cqw;margin-top:' + f(fs * .25) + 'cqw">' + s.lesson + '</div>'
+          + (s.desc ? '<div class="ds" style="font-size:' + f(fs * .44) + 'cqw">' + s.desc + '</div>' : '') + (pres ? pres.replace('class="pr"', 'class="pr" style="font-size:' + f(fs * .44) + 'cqw"') : ''));
+      }
+      function cols(x, y, w, s, i, hh, nfs, lfs) {
+        var c = i ? MINTD : MAG;
+        deco += rect(x, y, w, hh, c);
+        return bx('pb05-col', x, y, w, '<div class="hd" style="height:' + f(hh) + 'cqw"><span class="n" style="font-size:' + f(nfs) + 'cqw">' + s.day + '</span><span class="w" style="font-size:' + f(nfs * .17) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.mon.toUpperCase() + '<br>' + s.time + '</span></div>'
+          + '<div class="ln" style="font-size:' + f(lfs) + 'cqw">' + s.lesson + '</div>' + (s.desc ? '<div class="ds" style="font-size:' + f(lfs * .55) + 'cqw">' + s.desc + '</div>' : ''));
+      }
+      function stripes(x, y, w, h, fs) {
+        var rows = H.zoneRows(spec.sessions);
+        return bx('pb05-st', x, y, w, rows.map(function (r) {
+          return '<div class="' + (r.home ? 'h' : '') + '"><span class="l">' + r.label + '</span><span class="d">' + r.days.replace(' &amp; ', '<br>&amp; ') + '</span><span class="t" style="font-size:' + f(fs * 1.38) + 'cqw">' + r.time + '</span></div>';
+        }).join(''), 'height:' + f(h) + 'cqw;font-size:' + f(fs) + 'cqw');
+      }
+      function lessons(x, y, w, fs) {
+        return bx('pb05-ls', x, y, w, S.map(function (s, i) { return '<div style="font-size:' + f(fs) + 'cqw"><span>' + (i + 1) + '</span>' + s.lesson + '</div>'; }).join(''));
+      }
+
+      if (!sq) {
+        /* ---------- letter ---------- */
+        deco += awning(14, 10);
+        o += logo(5, 3.2, 20, 12.5) + badge('pb05-badge', 76.5, 2.2, 19.5);
+        o += bx('pb05-kick', 5, 21.4, null, kick);
+        o += bx('pb05-t1', 4.6, 27.6, null, first, 'font-size:13.6cqw');
+        o += bx('pb05-t2', 4.6, partner ? 43.4 : 43.6, null, last, 'font-size:' + (partner ? 21 : 23.5) + 'cqw');
+        o += bx('pb05-mo', partner ? 52 : 57, partner ? 48.2 : 50, null, '<b style="font-size:' + (partner ? 7.4 : 8) + 'cqw">' + mon + ' ' + spec.year + '</b><i style="font-size:1.9cqw">LIVE ON ZOOM</i>');
+        deco += rect(5, partner ? 66.3 : 69.2, 90, .5, INK);
+        if (!partner) {
+          if (solo) {
+            o += dateCol(5, 72.5, 28, 35, S[0], 16, MAG);
+            deco += rect(33, 72.5, 3.5, 35, MINT);
+            o += topic(40, 73, 55, S[0], 5.3, 1.75);
+            o += bx('pb05-wh', 40, 104.6, null, where, 'font-size:1.95cqw');
+          } else {
+            S.forEach(function (s, i) { o += cols(5 + i * 46.5, 72.5, 43.5, s, i, 13, 9.5, 3.7); });
+            o += bx('pb05-wh', 5, 105, null, where, 'font-size:2.1cqw');
+          }
+          o += foot(112, 17.41, 12, 4.1, 1.95);
+        } else {
+          if (solo) o += topic(5, 68.6, 90, S[0], 3.9, 1.7).replace(/<div class="ds"[^]*?<\/div>/, '');
+          else o += bx('pb05-cap', 5, 68.8, null, 'THIS MONTH&#8217;S TOPICS', 'font-size:1.7cqw;color:' + MINTD) + lessons(5, 72.4, 90, 3.15);
+          o += bx('pb05-cap', 5, 85.6, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · <b>ON ZOOM</b>', 'font-size:1.7cqw');
+          o += stripes(5, 88.8, 90, 17, 1.62);
+          o += bx('pb05-wh', 5, 107.4, null, where, 'font-size:1.9cqw');
+          o += foot(112, 17.41, 12, 4.1, 1.95);
+        }
+      } else {
+        /* ---------- square ---------- */
+        deco += awning(9, 12);
+        o += logo(4.5, 2, partner ? 21 : 17, 10.5) + badge('pb05-badge', 81, 1.6, 15.5);
+        o += bx('pb05-kick', 5, 15.2, null, kick, 'font-size:1.55cqw');
+        if (!partner) {
+          o += bx('pb05-t1', 4.6, 20.6, null, first + ' <span style="color:' + MAG + '">' + last + '</span>', 'font-size:10.4cqw');
+          o += bx('pb05-mo', 5, 33.2, null, '<b style="font-size:5cqw;display:inline-block;vertical-align:middle;margin-right:2cqw">' + mon + ' ' + spec.year + '</b><i style="font-size:1.6cqw;vertical-align:middle;margin-top:0">LIVE ON ZOOM</i>');
+          if (solo) {
+            o += dateCol(5, 42, 24, 38.5, S[0], 13, MAG);
+            deco += rect(29, 42, 2.6, 38.5, MINT);
+            o += topic(35, 42.3, 60, S[0], 4.5, 1.5);
+            o += bx('pb05-wh', 35, 77.6, null, where, 'font-size:1.65cqw');
+          } else {
+            S.forEach(function (s, i) { o += cols(5 + i * 46.5, 42.5, 43.5, s, i, 11, 7.6, 3.7); });
+            o += bx('pb05-wh', 5, 77.8, null, where, 'font-size:1.75cqw');
+          }
+          o += foot(84, 16, 10.5, 3.5, 1.6);
+        } else {
+          o += bx('pb05-t1', 4.6, 19.6, null, first + ' <span style="color:' + MAG + '">' + last + '</span>', 'font-size:7.6cqw');
+          o += bx('pb05-mo', 64, 20.6, null, '<b style="font-size:3.6cqw;text-align:right">' + mon + ' ' + spec.year + '</b><i style="font-size:1.35cqw;margin-top:.4cqw;float:right">ON ZOOM</i>');
+          if (solo) o += bx('pb05-tp', 5, 30.4, 90, '<div class="ln" style="font-size:3.4cqw">' + S[0].lesson + '</div>' + (pres ? pres.replace('class="pr"', 'class="pr" style="font-size:1.75cqw;margin-top:.9cqw"') : ''));
+          else o += lessons(5, 30.6, 90, 2.9);
+          o += bx('pb05-cap', 5, 44, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · <b>ON ZOOM</b>', 'font-size:1.45cqw');
+          o += stripes(5, 47, 90, 27, 1.62);
+          o += bx('pb05-wh', 5, 76.4, null, where, 'font-size:1.6cqw');
+          o += foot(84, 16, 10.5, 3.3, 1.5);
+        }
+      }
+      return '<div class="vfx pb05' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pb05-deco" viewBox="0 0 100 ' + f(Hh) + '" preserveAspectRatio="none" aria-hidden="true">' + deco + '</svg>' + o + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 06 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) - June: "Iced". An iced drink taken apart into flat geometry:
+   rising circles (bubbles) hold the dates, stacked horizontal bars hold the topics, and the partner
+   time table is a stack of seven bars. Ocean blue / lime / white. */
+VEBFlyers.registerSet('PB', 6, (function () {
+  var BLUE = '#0b4fc4', DEEP = '#062a6e', SKY = '#4f97f7', LIME = '#c8f03c', WHITE = '#ffffff';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function bx(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function rect(x, y, w, h, c, rx) { return '<rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '"' + (rx ? ' rx="' + f(rx) + '"' : '') + ' fill="' + c + '"/>'; }
+  function circ(cx, cy, r, c) { return '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + c + '"/>'; }
+  function ring(cx, cy, r, c, sw) { return '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="none" stroke="' + c + '" stroke-width="' + f(sw || .45) + '"/>'; }
+  /* seeded bubbles in a box */
+  function bubbles(x, y, w, h, n, seed, rmax) {
+    var s = seed, o = '';
+    function rnd() { s = (s * 9301 + 49297) % 233280; return s / 233280; }
+    for (var i = 0; i < n; i++) { var r = .5 + rnd() * (rmax || 1.6); o += i % 3 ? ring(x + rnd() * w, y + rnd() * h, r, WHITE, .35) : circ(x + rnd() * w, y + rnd() * h, r * .6, SKY); }
+    return o;
+  }
+  /* abstract iced drink: tall rounded bar, ice squares, lime slice circle, straw bar */
+  function drink(x, y, w, h) {
+    var o = '<g transform="rotate(8 ' + f(x + w * .6) + ' ' + f(y) + ')">' + rect(x + w * .58, y - h * .18, w * .07, h * .6, LIME, w * .035) + '</g>';
+    o += rect(x, y, w, h, SKY, w * .12) + rect(x, y + h * .12, w, h * .07, '#78b2fb');
+    o += rect(x + w * .14, y + h * .26, w * .3, w * .3, WHITE) + rect(x + w * .52, y + h * .36, w * .3, w * .3, '#d8e9ff') + rect(x + w * .22, y + h * .5, w * .28, w * .28, '#bcd8ff');
+    o += circ(x + w * .3, y + h * .78, w * .06, WHITE) + circ(x + w * .6, y + h * .7, w * .045, WHITE) + circ(x + w * .7, y + h * .86, w * .07, WHITE);
+    o += circ(x + w * .98, y + h * .06, w * .3, LIME) + circ(x + w * .98, y + h * .06, w * .2, '#e6ff8a');
+    return o;
+  }
+  function badge(cls, x, y, d) {
+    var s = '<svg viewBox="0 0 100 100" aria-hidden="true"><defs><path id="pb06arc" d="M 15,50 A 35,35 0 1,1 85,50"/></defs>'
+      + '<circle cx="50" cy="50" r="49" fill="' + LIME + '"/><circle cx="50" cy="50" r="44" fill="none" stroke="' + DEEP + '" stroke-width="1.3"/>'
+      + '<circle cx="50" cy="53" r="25" fill="' + WHITE + '"/>'
+      + '<text font-family="Space Grotesk,sans-serif" font-weight="700" font-size="10.4" fill="' + DEEP + '" letter-spacing="1.2"><textPath href="#pb06arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<g fill="none" stroke="' + BLUE + '" stroke-width="2.6" stroke-linecap="round"><path d="M43 43 q-3 -4 0 -7.5 q3 -3.5 0 -7"/><path d="M51 43 q-3 -4 0 -7.5 q3 -3.5 0 -7"/></g>'
+      + '<rect x="37" y="45" width="24" height="18" rx="3" fill="' + BLUE + '"/><rect x="37" y="49" width="24" height="3" fill="' + SKY + '"/>'
+      + '<circle cx="64" cy="54" r="4.6" fill="none" stroke="' + BLUE + '" stroke-width="2.6"/>'
+      + '<rect x="31" y="66" width="38" height="3.4" rx="1.7" fill="' + DEEP + '"/>'
+      + '<circle cx="33" cy="85" r="1.8" fill="' + DEEP + '"/><circle cx="50" cy="88" r="1.8" fill="' + DEEP + '"/><circle cx="67" cy="85" r="1.8" fill="' + DEEP + '"/></svg>';
+    return bx(cls, x, y, d, s, 'height:' + f(d) + 'cqw');
+  }
+  return {
+    name: 'Iced: ocean blue poster, date bubbles and stacked topic bars',
+    fonts: 'family=Unbounded:wght@700;900&family=Space+Grotesk:wght@400;500;700',
+    css: [
+      '.pb06{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + BLUE + ';color:#fff;font-family:"Space Grotesk",sans-serif}',
+      '.pb06.sq{aspect-ratio:1/1}',
+      '.pb06 *{box-sizing:border-box}',
+      '.pb06 .pb06-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb06>div{position:absolute;z-index:2}',
+      '.pb06 .pb06-badge svg{width:100%;height:100%;display:block}',
+      '.pb06 .pb06-logo{background:#fff;border-radius:1.4cqw;display:flex;align-items:center;justify-content:center}',
+      '.pb06 .pb06-logo img{width:80%;height:auto;display:block}',
+      '.pb06 .pb06-kick{font-weight:700;font-size:1.7cqw;letter-spacing:.2em;color:' + LIME + ';white-space:nowrap}',
+      '.pb06 .pb06-ttl{font-family:Unbounded,sans-serif;font-weight:900;line-height:1.08;letter-spacing:-.02em;white-space:nowrap;text-transform:uppercase}',
+      '.pb06 .pb06-ttl span{color:' + LIME + '}',
+      '.pb06 .pb06-mo{white-space:nowrap;display:flex;align-items:center;gap:1.8cqw}',
+      '.pb06 .pb06-mo b{font-family:Unbounded,sans-serif;font-weight:700;letter-spacing:.02em}',
+      '.pb06 .pb06-mo i{font-style:normal;font-weight:700;letter-spacing:.16em;border:.3cqw solid ' + LIME + ';color:' + LIME + ';padding:.45cqw 1.4cqw;border-radius:5cqw}',
+      /* date bubble */
+      '.pb06 .pb06-dt{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:' + DEEP + '}',
+      '.pb06 .pb06-dt .w{font-weight:700;letter-spacing:.2em}',
+      '.pb06 .pb06-dt .n{font-family:Unbounded,sans-serif;font-weight:900;line-height:1.25;letter-spacing:-.04em}',
+      '.pb06 .pb06-dt .t{font-weight:700;letter-spacing:.02em;line-height:1.25}',
+      '.pb06 .pb06-tm{font-weight:700;letter-spacing:.06em;color:' + DEEP + ';white-space:nowrap;text-align:center;display:flex;align-items:center;justify-content:center}',
+      /* topic bar */
+      '.pb06 .pb06-tp{color:' + DEEP + '}',
+      '.pb06 .pb06-tp .lb{font-weight:700;letter-spacing:.2em;color:' + BLUE + '}',
+      '.pb06 .pb06-tp .ln{font-weight:700;line-height:1.08;letter-spacing:-.01em}',
+      '.pb06 .pb06-tp .ds{font-weight:500;margin-top:.7cqw}',
+      '.pb06 .pb06-tp .pr{font-weight:700;margin-top:1cqw}',
+      '.pb06 .pb06-tp .pr b{background:' + LIME + ';padding:0 .5em}',
+      '.pb06 .pb06-tp .nb{display:inline-block;font-family:Unbounded,sans-serif;font-weight:900;margin-right:.5em}',
+      '.pb06 .pb06-wh{font-weight:500;white-space:nowrap}',
+      '.pb06 .pb06-wh b{color:' + LIME + ';font-weight:700}',
+      /* bar table */
+      '.pb06 .pb06-cap{font-weight:700;letter-spacing:.18em;white-space:nowrap;color:' + LIME + '}',
+      '.pb06 .pb06-tb .r{display:grid;grid-template-columns:1.25fr 1.1fr .75fr;align-items:center;padding:0 2cqw;white-space:nowrap;border-radius:5cqw;margin-bottom:.55cqw;color:' + DEEP + '}',
+      '.pb06 .pb06-tb .r:nth-child(odd){background:#fff}',
+      '.pb06 .pb06-tb .r:nth-child(even){background:#d9e9ff}',
+      '.pb06 .pb06-tb .r.h{background:' + LIME + '}',
+      '.pb06 .pb06-tb .l{font-weight:700}',
+      '.pb06 .pb06-tb .t{text-align:right;font-family:Unbounded,sans-serif;font-weight:700}',
+      /* footer */
+      '.pb06 .pb06-ft{background:' + LIME + ';color:' + DEEP + ';display:flex;align-items:center;gap:3cqw}',
+      '.pb06 .pb06-ft .rg{flex:1;min-width:0}',
+      '.pb06 .pb06-ft .rg b{display:block;font-family:Unbounded,sans-serif;font-weight:900;line-height:1.15;white-space:nowrap;letter-spacing:-.01em}',
+      '.pb06 .pb06-ft .rg b em{font-style:normal;color:' + BLUE + '}',
+      '.pb06 .pb06-ft .rg small{display:block;margin-top:.5cqw;white-space:nowrap;font-weight:500}',
+      '.pb06 .pb06-bd{display:flex;gap:1cqw;margin-top:1cqw}',
+      '.pb06 .pb06-bd span{background:' + DEEP + ';color:#fff;border-radius:4cqw;padding:.35cqw 1.3cqw;font-size:1.4cqw;font-weight:700;letter-spacing:.06em;white-space:nowrap}',
+      '.pb06 .pb06-qr{flex:none;background:#fff;padding:.6cqw;border-radius:.8cqw;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:2cqw;color:' + DEEP + '}',
+      '.pb06 .pb06-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var Hh = sq ? 100 : 129.41, deco = '', o = '';
+      var mon = H.MONTHS[spec.month - 1].toUpperCase();
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' ');
+      var last = words.pop();
+      var kick = partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER';
+      var where = H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>');
+      function pres(fs) { return spec.presenter ? '<div class="pr" style="font-size:' + f(fs) + 'cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : ''; }
+      function logo(x, y, w, h) { return bx('pb06-logo', x, y, w, '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'height:' + f(h) + 'cqw'); }
+      function title(x, y, fs, lines) {
+        var t = lines === 3 ? words.join('<br>') + '<br><span>' + last + '</span>' : lines === 2 ? words.join(' ') + '<br><span>' + last + '</span>' : words.join(' ') + ' <span>' + last + '</span>';
+        return bx('pb06-ttl', x, y, null, t, 'font-size:' + f(fs) + 'cqw');
+      }
+      function month(x, y, fs, pill) { return bx('pb06-mo', x, y, null, '<b style="font-size:' + f(fs) + 'cqw">' + mon + ' ' + spec.year + '</b><i style="font-size:' + f(fs * .4) + 'cqw">' + pill + '</i>'); }
+      function foot(y, h, qr, fs, sm) {
+        return bx('pb06-ft', 0, y, 100, '<div class="rg"><b style="font-size:' + f(fs) + 'cqw">REGISTER at <em>LDAHawaii.org</em></b><small style="font-size:' + f(sm) + 'cqw">Free on Zoom. Scan the QR or call ' + H.phone(partner) + '</small><div class="pb06-bd">' + H.badges(spec, partner) + '</div></div>'
+          + '<div class="pb06-qr" style="width:' + f(qr) + 'cqw;height:' + f(qr) + 'cqw">' + H.qrImg(spec, partner) + '</div>', 'height:' + f(h) + 'cqw;padding:0 5cqw');
+      }
+      /* date bubble: circle in deco + centered text box */
+      function bubble(cx, cy, r, s, c, withTime) {
+        deco += circ(cx, cy, r, c) + ring(cx, cy, r + 1.4, c, .4);
+        var n = r * .82;
+        return bx('pb06-dt', cx - r, cy - r, r * 2, '<div class="w" style="font-size:' + f(Math.max(1.35, n * .14)) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.mon.toUpperCase() + '</div><div class="n" style="font-size:' + f(n * .78) + 'cqw">' + s.day + '</div>'
+          + (withTime ? '<div class="t" style="font-size:' + f(n * .13) + 'cqw">' + s.time + '</div>' : ''), 'height:' + f(r * 2) + 'cqw');
+      }
+      function topicBar(x, y, w, h, s, fs, c, lb, num) {
+        deco += rect(-3, y, x + w + 3, h, c, h * .5);
+        return bx('pb06-tp', x, y, w - h * .3, (lb ? '<div class="lb" style="font-size:' + f(lb) + 'cqw">THIS MONTH&#8217;S TOPIC</div>' : '')
+          + '<div class="ln" style="font-size:' + f(fs) + 'cqw' + (lb ? ';margin-top:' + f(fs * .2) + 'cqw' : '') + '">' + (num ? '<span class="nb" style="color:' + BLUE + '">' + num + '</span>' : '') + s.lesson + '</div>'
+          + (s.desc ? '<div class="ds" style="font-size:' + f(fs * .45) + 'cqw">' + (num ? s.time + ' · ' : '') + s.desc + '</div>' : (num ? '<div class="ds" style="font-size:' + f(fs * .45) + 'cqw">' + s.time + '</div>' : '')) + pres(fs * .45),
+          'height:' + f(h) + 'cqw;display:flex;flex-direction:column;justify-content:center');
+      }
+      function table(x, y, w, rh, fs) {
+        return bx('pb06-tb', x, y, w, H.zoneRows(spec.sessions).map(function (r) {
+          return '<div class="r' + (r.home ? ' h' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw"><span class="l">' + r.label + '</span><span class="d">' + r.days + '</span><span class="t">' + r.time + '</span></div>';
+        }).join(''));
+      }
+
+      if (!sq) {
+        o += logo(5, 4.5, 20, 12.5) + badge('pb06-badge', 77, 3, 19);
+        o += bx('pb06-kick', 5, 21.2, null, kick);
+        if (!partner) {
+          o += title(4.6, 26, 9.4, 3) + month(5, 61, 4.2, 'LIVE ON ZOOM');
+          deco += bubbles(60, 24, 36, 50, 22, 61, 1.5);
+          if (solo) {
+            o += bubble(77, 44, 15.5, S[0], LIME, true);
+            deco += circ(66, 62.5, 3.2, WHITE) + circ(88.5, 64, 2, SKY);
+            o += topicBar(5, 72, 88, 30, S[0], 5.6, WHITE, 1.75);
+            deco += rect(-3, 103.6, 70, 2.2, LIME, 1.1);
+          } else {
+            o += bubble(75, 38.5, 11.5, S[0], WHITE) + bubble(84, 60.5, 9.6, S[1], LIME);
+            o += topicBar(5, 72.5, 88, 15, S[0], 3.6, WHITE, 0, '1') + topicBar(5, 89.5, 88, 15, S[1], 3.6, LIME, 0, '2');
+          }
+          o += bx('pb06-wh', 5, 107.3, null, where, 'font-size:1.95cqw');
+        } else {
+          o += title(4.6, 26, 8, 3) + month(5, 54.6, 3.8, 'LIVE ON ZOOM');
+          deco += drink(66, 31, 19, 24) + bubbles(58, 24, 38, 34, 14, 62, 1.3);
+          if (solo) o += topicBar(5, 61.5, 88, 15, { lesson: S[0].lesson, desc: '' }, 3.4, WHITE, 1.6);
+          else o += topicBar(5, 61.5, 88, 15, { lesson: '<span class="nb" style="color:' + BLUE + '">1</span>' + S[0].lesson + '<br><span class="nb" style="color:' + BLUE + '">2</span>' + S[1].lesson, desc: '' }, 3.1, WHITE, 1.6).replace('THIS MONTH&#8217;S TOPIC', 'THIS MONTH&#8217;S TOPICS');
+          o += bx('pb06-cap', 5, 78.6, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · ON ZOOM', 'font-size:1.65cqw');
+          o += table(5, 81.6, 90, 3, 1.75);
+          o += bx('pb06-wh', 5, 107.9, null, where, 'font-size:1.8cqw');
+        }
+        o += foot(112, 17.41, 12, 3.6, 1.9);
+      } else {
+        o += logo(4.5, 4, partner ? 21 : 17, 10.5) + badge('pb06-badge', 81, 2.6, 15.5);
+        o += bx('pb06-kick', 5, 17.2, null, kick, 'font-size:1.5cqw');
+        if (!partner) {
+          o += title(4.6, 21, 6.6, 2) + month(5, 39, 3.4, 'LIVE ON ZOOM');
+          deco += bubbles(66, 21, 30, 24, 12, 63, 1.2) + circ(76, 32, 3.4, SKY) + circ(87, 26, 2, LIME);
+          if (solo) {
+            o += topicBar(5, 48, 62, 34, S[0], 4.2, WHITE, 1.45);
+            o += bubble(83, 60, 12.5, S[0], LIME, true);
+          } else {
+            o += topicBar(5, 47, 66, 16.5, S[0], 3.1, WHITE, 0, '1') + topicBar(5, 65.5, 66, 16.5, S[1], 3.1, LIME, 0, '2');
+            o += bubble(85, 55.25, 8.2, S[0], WHITE) + bubble(85, 73.75, 8.2, S[1], LIME);
+          }
+          o += foot(85, 15, 10, 3, 1.55);
+        } else {
+          o += title(4.6, 19.8, 5.4, 1) + month(5, 27.6, 2.9, 'ON ZOOM');
+          deco += bubbles(75, 21, 21, 11, 8, 64, 1);
+          if (solo) o += topicBar(5, 34, 90, 9.5, { lesson: S[0].lesson, desc: '' }, 2.85, WHITE, 0).replace('</div><div class="pr"', '</div><div class="pr"');
+          else o += topicBar(5, 34, 90, 9.5, { lesson: '<span class="nb" style="color:' + BLUE + '">1</span>' + S[0].lesson + '<br><span class="nb" style="color:' + BLUE + '">2</span>' + S[1].lesson, desc: '' }, 2.5, WHITE, 0);
+          o += bx('pb06-cap', 5, 45.2, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · ON ZOOM', 'font-size:1.4cqw');
+          o += table(5, 48, 90, 3.65, 1.6);
+          o += bx('pb06-wh', 5, 79.6, null, where, 'font-size:1.55cqw');
+          o += foot(85, 15, 10, 2.9, 1.5);
+        }
+      }
+      return '<div class="vfx pb06' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pb06-deco" viewBox="0 0 100 ' + f(Hh) + '" preserveAspectRatio="none" aria-hidden="true">' + deco + '</svg>' + o + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 07 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) - July: "Diner". Retro diner signage in flat graphic form:
+   a teal chevron band on top, chunky sign lettering with a hard cherry offset, a strip of cherry chevrons
+   pointing at the month, and dates on arrow plaques. Cherry red / cream / teal. */
+VEBFlyers.registerSet('PB', 7, (function () {
+  var CHERRY = '#d7263d', CREAM = '#fbf0da', TEAL = '#0f7c7a', TEALL = '#2c9893', INK = '#24262b';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function bx(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function rect(x, y, w, h, c) { return '<rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '" fill="' + c + '"/>'; }
+  function poly(pts, c) { return '<polygon points="' + pts.map(function (p) { return f(p[0]) + ',' + f(p[1]); }).join(' ') + '" fill="' + c + '"/>'; }
+  /* teal band with rows of downward chevrons */
+  function band(h, step) {
+    var o = rect(0, 0, 100, h, TEAL);
+    for (var y = -2; y < h; y += step) {
+      var pts = [];
+      for (var x = -step; x <= 100 + step; x += step) pts.push(f(x) + ',' + f(y) , f(x + step / 2) + ',' + f(y + step * .5));
+      o += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + TEALL + '" stroke-width="' + f(step * .2) + '"/>';
+    }
+    return o + rect(0, h - .9, 100, .9, CHERRY);
+  }
+  /* right-pointing chevron strip */
+  function chevs(x0, x1, y, h, c) {
+    var o = '', w = h * .55, step = h * .78;
+    for (var x = x0; x + w <= x1; x += step) o += poly([[x, y], [x + w * .45, y], [x + w, y + h / 2], [x + w * .45, y + h], [x, y + h], [x + w * .55, y + h / 2]], c);
+    return o;
+  }
+  function zig(y, h, c) {
+    var o = [[0, y + h]], n = 25, w = 100 / n;
+    for (var i = 0; i <= n; i++) { o.push([i * w, y + h]); if (i < n) o.push([i * w + w / 2, y]); }
+    o.push([100, y + h]);
+    return poly(o, c);
+  }
+  function plaque(x, y, w, h, c) { return poly([[x - 3, y], [x + w, y], [x + w + h * .32, y + h / 2], [x + w, y + h], [x - 3, y + h]], c); }
+  function badge(cls, x, y, d) {
+    var s = '<svg viewBox="0 0 100 100" aria-hidden="true"><defs><path id="pb07arc" d="M 15,50 A 35,35 0 1,1 85,50"/></defs>'
+      + '<circle cx="50" cy="50" r="49" fill="' + CHERRY + '"/><circle cx="50" cy="50" r="44" fill="none" stroke="' + CREAM + '" stroke-width="1.4" stroke-dasharray="3 2.2"/>'
+      + '<circle cx="50" cy="54" r="24" fill="' + CREAM + '"/>'
+      + '<text font-family="Bungee,sans-serif" font-size="9.6" fill="' + CREAM + '" letter-spacing=".4"><textPath href="#pb07arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<g fill="none" stroke="' + TEAL + '" stroke-width="2.6" stroke-linecap="round"><path d="M44 45 l-3 -4 l3 -4 l-3 -4"/><path d="M52 45 l-3 -4 l3 -4 l-3 -4"/></g>'
+      + '<path d="M36 47 h26 l-3 15 h-20 z" fill="' + TEAL + '"/><rect x="36" y="51" width="26" height="3" fill="' + CHERRY + '"/>'
+      + '<circle cx="63" cy="53" r="4.4" fill="none" stroke="' + TEAL + '" stroke-width="2.6"/>'
+      + '<rect x="31" y="64" width="38" height="3.4" rx="1.7" fill="' + INK + '"/>'
+      + '<polygon points="36,84 40,86 36,88" fill="' + CREAM + '"/><polygon points="48,84 52,86 48,88" fill="' + CREAM + '"/><polygon points="60,84 64,86 60,88" fill="' + CREAM + '"/></svg>';
+    return bx(cls, x, y, d, s, 'height:' + f(d) + 'cqw');
+  }
+  return {
+    name: 'Diner: teal chevron band, chunky sign type, cherry arrow date plaques',
+    fonts: 'family=Bungee&family=Archivo:wght@500;700;800',
+    css: [
+      '.pb07{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + CREAM + ';color:' + INK + ';font-family:Archivo,sans-serif}',
+      '.pb07.sq{aspect-ratio:1/1}',
+      '.pb07 *{box-sizing:border-box}',
+      '.pb07 .pb07-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb07>div{position:absolute;z-index:2}',
+      '.pb07 .pb07-badge svg{width:100%;height:100%;display:block}',
+      '.pb07 .pb07-logo{background:#fff;border:.5cqw solid ' + CREAM + ';border-radius:1cqw;display:flex;align-items:center;justify-content:center}',
+      '.pb07 .pb07-logo img{width:80%;height:auto;display:block}',
+      '.pb07 .pb07-kick{font-weight:800;font-size:1.7cqw;letter-spacing:.2em;color:' + TEAL + ';white-space:nowrap}',
+      '.pb07 .pb07-ttl{font-family:Bungee,sans-serif;white-space:nowrap;line-height:1.08}',
+      '.pb07 .pb07-ttl .a{display:block;color:' + CHERRY + '}',
+      '.pb07 .pb07-ttl .b{display:block;color:' + TEAL + ';text-shadow:.9cqw .9cqw 0 ' + CHERRY + '}',
+      '.pb07 .pb07-ttl .c{color:' + TEAL + ';text-shadow:.45cqw .45cqw 0 ' + CHERRY + '}',
+      '.pb07 .pb07-mo{white-space:nowrap}',
+      '.pb07 .pb07-mo b{display:block;font-family:Bungee,sans-serif;font-weight:400;color:' + INK + ';line-height:1.1}',
+      '.pb07 .pb07-mo i{display:inline-block;font-style:normal;font-weight:800;letter-spacing:.14em;background:' + CHERRY + ';color:' + CREAM + ';padding:.5cqw 1.3cqw;border-radius:5cqw}',
+      /* plaque */
+      '.pb07 .pb07-pl{color:' + CREAM + ';display:flex;flex-direction:column;justify-content:center;text-align:center}',
+      '.pb07 .pb07-pl .w{font-weight:800;letter-spacing:.22em}',
+      '.pb07 .pb07-pl .n{font-family:Bungee,sans-serif;line-height:1.5}',
+      '.pb07 .pb07-pl .t{font-weight:700;letter-spacing:.03em;line-height:1.25}',
+      '.pb07 .pb07-pl.row{flex-direction:row;align-items:center;justify-content:flex-start;gap:1.6cqw;text-align:left}',
+      /* topic */
+      '.pb07 .pb07-tp .lb{font-weight:800;letter-spacing:.2em;color:' + CHERRY + '}',
+      '.pb07 .pb07-tp .ln{font-weight:800;line-height:1.08;letter-spacing:-.01em;color:' + INK + '}',
+      '.pb07 .pb07-tp .ds{font-weight:500;margin-top:.6cqw}',
+      '.pb07 .pb07-tp .pr{font-weight:700;margin-top:1cqw;color:' + TEAL + '}',
+      '.pb07 .pb07-tp .pr b{color:' + CHERRY + '}',
+      '.pb07 .pb07-wh{font-weight:700;white-space:nowrap;color:' + TEAL + '}',
+      '.pb07 .pb07-wh b{color:' + CHERRY + '}',
+      /* partner */
+      '.pb07 .pb07-ls div{font-weight:800;line-height:1.12;display:flex;gap:1.2cqw;align-items:center;margin-bottom:.6cqw}',
+      '.pb07 .pb07-ls i{flex:none;width:.7em;height:.8em;background:' + CHERRY + ';clip-path:polygon(0 0,45% 0,100% 50%,45% 100%,0 100%,55% 50%)}',
+      '.pb07 .pb07-cap{font-weight:800;letter-spacing:.18em;white-space:nowrap;color:' + TEAL + '}',
+      '.pb07 .pb07-tb .r{display:grid;grid-template-columns:1.3fr 1.1fr .7fr;align-items:center;padding:0 1.6cqw;white-space:nowrap;border-bottom:.3cqw solid ' + TEAL + '}',
+      '.pb07 .pb07-tb .r:first-child{border-top:.3cqw solid ' + TEAL + '}',
+      '.pb07 .pb07-tb .r .l{font-weight:800;display:flex;align-items:center;gap:1cqw}',
+      '.pb07 .pb07-tb .r .l i{width:.6em;height:.7em;background:' + TEAL + ';clip-path:polygon(0 0,45% 0,100% 50%,45% 100%,0 100%,55% 50%)}',
+      '.pb07 .pb07-tb .r .t{text-align:right;font-family:Bungee,sans-serif}',
+      '.pb07 .pb07-tb .r.h{background:' + CHERRY + ';color:' + CREAM + '}',
+      '.pb07 .pb07-tb .r.h .l i{background:' + CREAM + '}',
+      /* footer */
+      '.pb07 .pb07-ft{background:' + CHERRY + ';color:' + CREAM + ';display:flex;align-items:center;gap:3cqw}',
+      '.pb07 .pb07-ft .rg{flex:1;min-width:0}',
+      '.pb07 .pb07-ft .rg b{display:block;font-family:Archivo,sans-serif;font-weight:800;line-height:1.15;white-space:nowrap;letter-spacing:.01em}',
+      '.pb07 .pb07-ft .rg b em{font-style:normal;color:#ffd9a0}',
+      '.pb07 .pb07-ft .rg small{display:block;margin-top:.4cqw;white-space:nowrap;font-weight:500}',
+      '.pb07 .pb07-bd{display:flex;gap:1cqw;margin-top:1cqw}',
+      '.pb07 .pb07-bd span{background:' + CREAM + ';color:' + CHERRY + ';border-radius:4cqw;padding:.3cqw 1.3cqw;font-size:1.4cqw;font-weight:800;letter-spacing:.05em;white-space:nowrap}',
+      '.pb07 .pb07-qr{flex:none;background:#fff;padding:.6cqw;border-radius:.6cqw;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:' + INK + '}',
+      '.pb07 .pb07-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var Hh = sq ? 100 : 129.41, deco = '', o = '';
+      var mon = H.MONTHS[spec.month - 1].toUpperCase();
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' ');
+      var last = words.pop(), first = words.join(' ');
+      var kick = partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER';
+      var where = H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>');
+      function pres(fs) { return spec.presenter ? '<div class="pr" style="font-size:' + f(fs) + 'cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : ''; }
+      function logo(x, y, w, h) { return bx('pb07-logo', x, y, w, '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'height:' + f(h) + 'cqw'); }
+      function foot(y, h, qr, fs, sm) {
+        deco += zig(y - 1.6, 1.7, TEAL);
+        return bx('pb07-ft', 0, y, 100, '<div class="rg"><b style="font-size:' + f(fs) + 'cqw">REGISTER at <em>LDAHawaii.org</em></b><small style="font-size:' + f(sm) + 'cqw">Free on Zoom. Scan the QR or call ' + H.phone(partner) + '</small><div class="pb07-bd">' + H.badges(spec, partner) + '</div></div>'
+          + '<div class="pb07-qr" style="width:' + f(qr) + 'cqw;height:' + f(qr) + 'cqw">' + H.qrImg(spec, partner) + '</div>', 'height:' + f(h) + 'cqw;padding:0 5cqw');
+      }
+      function tall(x, y, w, h, s, nfs) {
+        deco += plaque(x, y, w, h, CHERRY);
+        return bx('pb07-pl', x, y, w, '<div class="w" style="font-size:' + f(nfs * .13) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.mon.toUpperCase() + '</div><div class="n" style="font-size:' + f(nfs) + 'cqw">' + s.day + '</div><div class="t" style="font-size:' + f(nfs * .13) + 'cqw">' + s.time.replace(' HST', '<br>HST') + '</div>', 'height:' + f(h) + 'cqw');
+      }
+      function short(x, y, w, h, s, nfs, c) {
+        deco += plaque(x, y, w, h, c);
+        return bx('pb07-pl row', x + 1, y, w, '<div class="n" style="font-size:' + f(nfs) + 'cqw">' + s.day + '</div><div class="w" style="font-size:' + f(nfs * .2) + 'cqw;line-height:1.4">' + s.dow.toUpperCase() + '<br>' + s.mon.toUpperCase() + '</div>', 'height:' + f(h) + 'cqw');
+      }
+      function topic(x, y, w, s, fs, lb, tm, h) {
+        return bx('pb07-tp', x, y, w, (lb ? '<div class="lb" style="font-size:' + f(lb) + 'cqw;margin-bottom:' + f(fs * .2) + 'cqw">THIS MONTH&#8217;S TOPIC</div>' : '')
+          + '<div class="ln" style="font-size:' + f(fs) + 'cqw">' + s.lesson + '</div>'
+          + ((tm || s.desc) ? '<div class="ds" style="font-size:' + f(fs * .46) + 'cqw">' + (tm ? '<b>' + s.time + '</b>' + (s.desc ? ' · ' : '') : '') + s.desc + '</div>' : '') + (lb ? pres(fs * .46) : ''), 'display:flex;flex-direction:column;justify-content:center;height:' + f(h) + 'cqw');
+      }
+      function lessons(x, y, w, fs) {
+        return bx('pb07-ls', x, y, w, S.map(function (s) { return '<div style="font-size:' + f(fs) + 'cqw"><i></i>' + s.lesson + '</div>'; }).join(''));
+      }
+      function table(x, y, w, rh, fs) {
+        return bx('pb07-tb', x, y, w, H.zoneRows(spec.sessions).map(function (r) {
+          return '<div class="r' + (r.home ? ' h' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw"><span class="l"><i></i>' + r.label + '</span><span class="d">' + r.days + '</span><span class="t">' + r.time + '</span></div>';
+        }).join(''));
+      }
+
+      if (!sq) {
+        deco += band(19, 6.5);
+        o += logo(5, 3.2, 20, 12.5) + badge('pb07-badge', 77.5, 2, 19);
+        o += bx('pb07-kick', 5, 22.4, null, kick);
+        o += bx('pb07-ttl', 4.6, 26, null, '<span class="a" style="font-size:8.4cqw">' + first + '</span><span class="b" style="font-size:' + (partner ? 18 : 20) + 'cqw;line-height:1.02;margin-top:2.4cqw">' + last + '</span>');
+        o += bx('pb07-mo', partner ? 70 : 74, partner ? 40.5 : 42, null, '<b style="font-size:5.2cqw">' + mon + '</b><b style="font-size:5.2cqw">' + spec.year + '</b><i style="font-size:1.75cqw;margin-top:.8cqw">ON ZOOM</i>');
+        var cy = partner ? 58.6 : 62.4;
+        deco += chevs(5, 96, cy, 3.4, CHERRY);
+        if (!partner) {
+          if (solo) {
+            o += tall(0, 69.5, 31, 32, S[0], 15);
+            o += topic(45, 69.5, 50, S[0], 4.8, 1.7, false, 32);
+            o += bx('pb07-wh', 5, 104.8, null, where, 'font-size:1.95cqw');
+          } else {
+            S.forEach(function (s, i) {
+              o += short(0, 69 + i * 18, 25, 14.5, s, 9.2, i ? TEAL : CHERRY);
+              o += topic(35, 69 + i * 18, 60, s, 3.5, 0, true, 14.5);
+            });
+            o += bx('pb07-wh', 5, 105.4, null, where, 'font-size:1.95cqw');
+          }
+        } else {
+          if (solo) o += bx('pb07-tp', 5, 64.8, 90, '<div class="lb" style="font-size:1.65cqw">THIS MONTH&#8217;S TOPIC</div><div class="ln" style="font-size:3.6cqw;margin-top:.8cqw">' + S[0].lesson + '</div>' + pres(1.85));
+          else o += bx('pb07-cap', 5, 64.8, null, 'THIS MONTH&#8217;S TOPICS', 'font-size:1.65cqw;color:' + CHERRY) + lessons(5, 68.4, 90, 3.1);
+          o += bx('pb07-cap', 5, 78.8, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · LIVE ON ZOOM', 'font-size:1.65cqw');
+          o += table(5, 81.8, 90, 3.3, 1.75);
+          o += bx('pb07-wh', 5, 106.4, null, where, 'font-size:1.85cqw');
+        }
+        o += foot(111.6, 17.81, 12, 4, 1.9);
+      } else {
+        deco += band(13.5, 5);
+        o += logo(4.5, 2, partner ? 21 : 17, 10) + badge('pb07-badge', 81, 1.4, 15.5);
+        o += bx('pb07-kick', 5, 16.4, null, kick, 'font-size:1.5cqw');
+        if (!partner) {
+          o += bx('pb07-ttl', 4.6, 19.6, null, '<span class="a" style="font-size:6.2cqw">' + first + '</span><span class="b" style="font-size:12.5cqw;line-height:1.02;margin-top:1.4cqw;text-shadow:.7cqw .7cqw 0 ' + CHERRY + '">' + last + '</span>');
+          o += bx('pb07-mo', 62, 28.6, null, '<b style="font-size:4.2cqw">' + mon + ' ' + spec.year + '</b><i style="font-size:1.5cqw;margin-top:.6cqw">LIVE ON ZOOM</i>');
+          deco += chevs(62, 96, 41.4, 2.6, CHERRY);
+          if (solo) {
+            o += tall(0, 46.5, 26, 32.5, S[0], 12);
+            o += topic(40, 46.5, 56, S[0], 3.9, 1.45, false, 28.5);
+            o += bx('pb07-wh', 40, 76.6, null, where, 'font-size:1.6cqw');
+          } else {
+            S.forEach(function (s, i) {
+              o += short(0, 47 + i * 15.5, 21, 12.5, s, 7.4, i ? TEAL : CHERRY);
+              o += topic(30, 47 + i * 15.5, 65, s, 3.1, 0, true, 12.5);
+            });
+            o += bx('pb07-wh', 5, 78, null, where, 'font-size:1.6cqw');
+          }
+          o += foot(84.5, 15.5, 10.5, 3.3, 1.5);
+        } else {
+          o += bx('pb07-ttl', 4.6, 19.4, null, first + ' <span class="c">' + last + '</span>', 'font-size:5.6cqw;color:' + CHERRY);
+          o += bx('pb07-mo', 5, 27.6, null, '<b style="font-size:2.9cqw;display:inline-block;vertical-align:middle;margin-right:1.6cqw">' + mon + ' ' + spec.year + '</b><i style="font-size:1.35cqw;vertical-align:middle">ON ZOOM</i>');
+          deco += chevs(52, 96, 28.4, 2.4, CHERRY);
+          if (solo) o += bx('pb07-tp', 5, 33.6, 90, '<div class="ln" style="font-size:3cqw">' + S[0].lesson + '</div>' + pres(1.6).replace('margin-top:', ''));
+          else o += lessons(5, 33.6, 90, 2.6);
+          o += bx('pb07-cap', 5, 42.4, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · LIVE ON ZOOM', 'font-size:1.4cqw');
+          o += table(5, 45.2, 90, 4.2, 1.6);
+          o += bx('pb07-wh', 5, 77.8, null, where, 'font-size:1.55cqw');
+          o += foot(84.5, 15.5, 10.5, 3.2, 1.45);
+        }
+      }
+      return '<div class="vfx pb07' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pb07-deco" viewBox="0 0 100 ' + f(Hh) + '" preserveAspectRatio="none" aria-hidden="true">' + deco + '</svg>' + o + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 08 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) - August: "Pop Dot". Pop-art halftone: a tangerine Ben-Day
+   dot field fades out of the top corner, the title sits on a hard-offset pop block, and a slanted navy
+   panel carries the dates as tangerine discs ringed with halftone dots. Tangerine / navy / white. */
+VEBFlyers.registerSet('PB', 8, (function () {
+  var TAN = '#ff7a1a', NAVY = '#13235b', WHITE = '#ffffff', PAPER = '#fffaf3', SOFT = '#ffd2a8';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function bx(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function rect(x, y, w, h, c) { return '<rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '" fill="' + c + '"/>'; }
+  function circ(cx, cy, r, c) { return '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + c + '"/>'; }
+  function poly(pts, c) { return '<polygon points="' + pts.map(function (p) { return f(p[0]) + ',' + f(p[1]); }).join(' ') + '" fill="' + c + '"/>'; }
+  /* halftone field: dot size falls off with distance from (cx,cy); only inside box */
+  function halftone(cx, cy, maxR, reach, x0, y0, x1, y1, c, step) {
+    var o = '', row = 0;
+    for (var y = y0; y <= y1; y += step * .866, row++) {
+      for (var x = x0 + (row % 2 ? step / 2 : 0); x <= x1; x += step) {
+        var r = maxR * (1 - Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / reach);
+        if (r > .22) o += '<circle cx="' + f(x) + '" cy="' + f(y) + '" r="' + f(r) + '"/>';
+      }
+    }
+    return '<g fill="' + c + '">' + o + '</g>';
+  }
+  /* ring of halftone dots around a disc (dots shrink outward) */
+  function dotRing(cx, cy, r0, r1, maxR, c) {
+    var o = '';
+    for (var k = 0, rr = r0; rr <= r1; rr += 1.5, k++) {
+      var n = Math.round(2 * Math.PI * rr / 1.6), dr = maxR * (1 - (rr - r0) / (r1 - r0 + 1.2));
+      for (var i = 0; i < n; i++) { var a = (i + (k % 2) * .5) / n * 2 * Math.PI; o += '<circle cx="' + f(cx + rr * Math.cos(a)) + '" cy="' + f(cy + rr * Math.sin(a)) + '" r="' + f(dr) + '"/>'; }
+    }
+    return '<g fill="' + c + '">' + o + '</g>';
+  }
+  function badge(cls, x, y, d) {
+    var s = '<svg viewBox="0 0 100 100" aria-hidden="true"><defs><path id="pb08arc" d="M 15,50 A 35,35 0 1,1 85,50"/></defs>'
+      + '<circle cx="51.5" cy="51.5" r="48" fill="' + NAVY + '"/><circle cx="48.5" cy="48.5" r="48" fill="' + TAN + '"/>'
+      + '<circle cx="48.5" cy="48.5" r="43" fill="none" stroke="' + NAVY + '" stroke-width="1.3"/>'
+      + '<circle cx="48.5" cy="52" r="24" fill="' + WHITE + '"/>'
+      + '<text font-family="Archivo Black,sans-serif" font-size="8.6" fill="' + NAVY + '" letter-spacing=".5" transform="translate(-1.5 -1.5)"><textPath href="#pb08arc" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<g fill="none" stroke="' + TAN + '" stroke-width="2.6" stroke-linecap="round"><path d="M42 43 q-3 -4 0 -7.5 q3 -3.5 0 -7"/><path d="M50 43 q-3 -4 0 -7.5 q3 -3.5 0 -7"/></g>'
+      + '<path d="M35 45 h27 v7 a13.5 11 0 0 1 -27 0 z" fill="' + NAVY + '"/><circle cx="64" cy="51" r="4.4" fill="none" stroke="' + NAVY + '" stroke-width="2.6"/>'
+      + '<rect x="30" y="64" width="37" height="3.4" rx="1.7" fill="' + NAVY + '"/>'
+      + '<g fill="' + NAVY + '"><circle cx="34" cy="84" r="1.8"/><circle cx="48.5" cy="87" r="1.8"/><circle cx="63" cy="84" r="1.8"/></g></svg>';
+    return bx(cls, x, y, d, s, 'height:' + f(d) + 'cqw');
+  }
+  return {
+    name: 'Pop Dot: tangerine halftone field, pop title block, navy panel with dotted date discs',
+    fonts: 'family=Archivo+Black&family=Archivo:wght@500;700;800',
+    css: [
+      '.pb08{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + PAPER + ';color:' + NAVY + ';font-family:Archivo,sans-serif}',
+      '.pb08.sq{aspect-ratio:1/1}',
+      '.pb08 *{box-sizing:border-box}',
+      '.pb08 .pb08-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+      '.pb08>div{position:absolute;z-index:2}',
+      '.pb08 .pb08-badge svg{width:100%;height:100%;display:block}',
+      '.pb08 .pb08-logo{background:#fff;border:.45cqw solid ' + NAVY + ';box-shadow:.8cqw .8cqw 0 ' + TAN + ';display:flex;align-items:center;justify-content:center}',
+      '.pb08 .pb08-logo img{width:80%;height:auto;display:block}',
+      '.pb08 .pb08-kick{font-weight:800;font-size:1.7cqw;letter-spacing:.2em;white-space:nowrap}',
+      '.pb08 .pb08-t1{font-family:"Archivo Black",sans-serif;line-height:1.1;white-space:nowrap;text-transform:uppercase;letter-spacing:-.01em}',
+      '.pb08 .pb08-t1 span{background:' + TAN + ';color:#fff;padding:0 .12em}',
+      '.pb08 .pb08-pop{font-family:"Archivo Black",sans-serif;background:' + TAN + ';color:#fff;box-shadow:1.2cqw 1.2cqw 0 ' + NAVY + ';line-height:1.12;padding:0 .14em;white-space:nowrap;text-transform:uppercase}',
+      '.pb08 .pb08-mo{white-space:nowrap}',
+      '.pb08 .pb08-mo b{display:block;font-family:"Archivo Black",sans-serif;font-weight:400;line-height:1.1}',
+      '.pb08 .pb08-mo i{display:inline-block;font-style:normal;font-weight:800;letter-spacing:.15em;background:' + NAVY + ';color:#fff;padding:.5cqw 1.3cqw}',
+      /* disc date */
+      '.pb08 .pb08-dd{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:' + NAVY + '}',
+      '.pb08 .pb08-dd .w{font-weight:800;letter-spacing:.2em}',
+      '.pb08 .pb08-dd .n{font-family:"Archivo Black",sans-serif;line-height:1.3;letter-spacing:-.03em}',
+      '.pb08 .pb08-dd .t{font-weight:700;line-height:1.2}',
+      /* topic (on navy) */
+      '.pb08 .pb08-tp{color:#fff}',
+      '.pb08 .pb08-tp .lb{font-weight:800;letter-spacing:.2em;color:' + TAN + '}',
+      '.pb08 .pb08-tp .ln{font-weight:800;line-height:1.1;letter-spacing:-.01em}',
+      '.pb08 .pb08-tp .ds{font-weight:500;margin-top:.7cqw;opacity:.92}',
+      '.pb08 .pb08-tp .ds b{color:' + SOFT + '}',
+      '.pb08 .pb08-tp .pr{font-weight:700;margin-top:1.1cqw}',
+      '.pb08 .pb08-tp .pr b{background:' + TAN + ';color:' + NAVY + ';padding:0 .4em}',
+      '.pb08 .pb08-wh{font-weight:700;color:#fff;white-space:nowrap}',
+      '.pb08 .pb08-wh b{color:' + TAN + '}',
+      /* partner table */
+      '.pb08 .pb08-ls div{display:flex;gap:1.2cqw;align-items:center;font-weight:800;line-height:1.12;margin-bottom:.6cqw;color:#fff}',
+      '.pb08 .pb08-ls span{flex:none;width:1.3em;height:1.3em;border-radius:50%;background:' + TAN + ';color:' + NAVY + ';display:flex;align-items:center;justify-content:center;font-family:"Archivo Black",sans-serif;font-size:.75em}',
+      '.pb08 .pb08-cap{font-weight:800;letter-spacing:.18em;white-space:nowrap;color:' + TAN + '}',
+      '.pb08 .pb08-tb .r{display:grid;grid-template-columns:1.3fr 1.1fr .7fr;align-items:center;padding:0 1.6cqw;white-space:nowrap;color:#fff;border-bottom:.25cqw dotted rgba(255,255,255,.55)}',
+      '.pb08 .pb08-tb .r:last-child{border-bottom:0}',
+      '.pb08 .pb08-tb .r .l{font-weight:800}',
+      '.pb08 .pb08-tb .r .t{text-align:right;font-family:"Archivo Black",sans-serif}',
+      '.pb08 .pb08-tb .r.h{background:' + TAN + ';color:' + NAVY + ';border-bottom-color:transparent}',
+      /* footer */
+      '.pb08 .pb08-ft{background:' + TAN + ';color:' + NAVY + ';display:flex;align-items:center;gap:3cqw}',
+      '.pb08 .pb08-ft .rg{flex:1;min-width:0}',
+      '.pb08 .pb08-ft .rg b{display:block;font-family:"Archivo Black",sans-serif;font-weight:400;line-height:1.2;white-space:nowrap}',
+      '.pb08 .pb08-ft .rg b em{font-style:normal;color:#fff}',
+      '.pb08 .pb08-ft .rg small{display:block;margin-top:.3cqw;white-space:nowrap;font-weight:700}',
+      '.pb08 .pb08-bd{display:flex;gap:1cqw;margin-top:1cqw}',
+      '.pb08 .pb08-bd span{background:' + NAVY + ';color:#fff;padding:.3cqw 1.3cqw;font-size:1.4cqw;font-weight:700;letter-spacing:.05em;white-space:nowrap}',
+      '.pb08 .pb08-qr{flex:none;background:#fff;padding:.6cqw;box-shadow:.7cqw .7cqw 0 ' + NAVY + ';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:2cqw;color:' + NAVY + '}',
+      '.pb08 .pb08-qr img{width:100%;height:100%;display:block}'
+    ].join('\n'),
+    fn: function (spec, partner, sq, H) {
+      var S = spec.sessions.map(H.sessInfo), solo = S.length === 1;
+      var Hh = sq ? 100 : 129.41, deco = '', o = '';
+      var mon = H.MONTHS[spec.month - 1].toUpperCase();
+      var words = H.esc(spec.series || 'Parent Talk Café').split(' ');
+      var last = words.pop(), first = words.join(' ');
+      var kick = partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER';
+      var where = H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>');
+      function pres(fs) { return spec.presenter ? '<div class="pr" style="font-size:' + f(fs) + 'cqw">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : ''; }
+      function logo(x, y, w, h) { return bx('pb08-logo', x, y, w, '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'height:' + f(h) + 'cqw'); }
+      function foot(y, h, qr, fs, sm) {
+        return bx('pb08-ft', 0, y, 100, '<div class="rg"><b style="font-size:' + f(fs) + 'cqw">REGISTER at <em>LDAHawaii.org</em></b><small style="font-size:' + f(sm) + 'cqw">Free on Zoom. Scan the QR or call ' + H.phone(partner) + '</small><div class="pb08-bd">' + H.badges(spec, partner) + '</div></div>'
+          + '<div class="pb08-qr" style="width:' + f(qr) + 'cqw;height:' + f(qr) + 'cqw">' + H.qrImg(spec, partner) + '</div>', 'height:' + f(h) + 'cqw;padding:0 5cqw');
+      }
+      function panel(yl, yr, yb) { deco += poly([[0, yl], [100, yr], [100, yb], [0, yb]], NAVY); }
+      function disc(cx, cy, r, s, withTime, ringTo) {
+        deco += dotRing(cx, cy, r + 1.4, ringTo, .62, TAN) + circ(cx, cy, r, TAN);
+        var n = r * .9;
+        return bx('pb08-dd', cx - r, cy - r, r * 2, '<div class="w" style="font-size:' + f(Math.max(1.3, n * .13)) + 'cqw">' + s.dow.toUpperCase() + ' · ' + s.mon.toUpperCase() + '</div><div class="n" style="font-size:' + f(n * .78) + 'cqw">' + s.day + '</div>'
+          + (withTime ? '<div class="t" style="font-size:' + f(n * .12) + 'cqw">' + s.time + '</div>' : ''), 'height:' + f(r * 2) + 'cqw');
+      }
+      function topic(x, y, w, h, s, fs, lb, tm, noPres) {
+        return bx('pb08-tp', x, y, w, (lb ? '<div class="lb" style="font-size:' + f(lb) + 'cqw;margin-bottom:' + f(fs * .22) + 'cqw">THIS MONTH&#8217;S TOPIC</div>' : '')
+          + '<div class="ln" style="font-size:' + f(fs) + 'cqw">' + s.lesson + '</div>'
+          + ((tm || s.desc) ? '<div class="ds" style="font-size:' + f(fs * .47) + 'cqw">' + (tm ? '<b>' + s.time + '</b>' + (s.desc ? ' · ' : '') : '') + s.desc + '</div>' : '') + (noPres ? '' : pres(fs * .47)),
+          'height:' + f(h) + 'cqw;display:flex;flex-direction:column;justify-content:center');
+      }
+      function lessons(x, y, w, fs) {
+        return bx('pb08-ls', x, y, w, S.map(function (s, i) { return '<div style="font-size:' + f(fs) + 'cqw"><span>' + (i + 1) + '</span>' + s.lesson + '</div>'; }).join(''));
+      }
+      function table(x, y, w, rh, fs) {
+        return bx('pb08-tb', x, y, w, H.zoneRows(spec.sessions).map(function (r) {
+          return '<div class="r' + (r.home ? ' h' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw"><span class="l">' + r.label + '</span><span class="d">' + r.days + '</span><span class="t">' + r.time + '</span></div>';
+        }).join(''));
+      }
+
+      if (!sq) {
+        deco += halftone(100, 0, 1.75, 50, 34, 0, 100, 24.5, TAN, 2.7) + halftone(100, 24, 1.3, 22, 88, 25.5, 100, 40, TAN, 2.7);
+        o += logo(5, 4.5, 20, 12.5) + badge('pb08-badge', 76, 3, 20);
+        o += bx('pb08-kick', 5, 22, null, kick);
+        o += bx('pb08-t1', 4.6, 26, null, first, 'font-size:10.4cqw');
+        o += bx('pb08-pop', 5, 40.5, null, last, 'font-size:' + (partner ? 12.5 : 14) + 'cqw');
+        o += bx('pb08-mo', partner ? 52 : 57, 42, null, '<b style="font-size:' + (partner ? 5.6 : 6) + 'cqw">' + mon + '</b><b style="font-size:' + (partner ? 5.6 : 6) + 'cqw">' + spec.year + '</b><i style="font-size:1.75cqw;margin-top:.8cqw">LIVE ON ZOOM</i>');
+        if (!partner) {
+          panel(64, 60, 112);
+          deco += halftone(100, 60, 1.1, 22, 76, 60.5, 100, 70, WHITE, 2.2).replace('<g fill', '<g opacity=".35" fill');
+          if (solo) {
+            o += disc(21, 85, 14, S[0], true, 19.5);
+            o += topic(44, 68.5, 51, 33, S[0], 4.7, 1.7);
+          } else {
+            S.forEach(function (s, i) {
+              var cy = 74.5 + i * 21.5;
+              o += disc(16, cy, 8, s, false, 10);
+              o += topic(32, cy - 8, 63, 16, s, 3.6, 0, true);
+            });
+          }
+          o += bx('pb08-wh', 5, 107.4, null, where, 'font-size:1.95cqw');
+        } else {
+          panel(62.5, 58.5, 112);
+          if (solo) o += topic(5, 63.5, 90, 14, { lesson: S[0].lesson, desc: '' }, 3.5, 1.65);
+          else o += bx('pb08-cap', 5, 65.4, null, 'THIS MONTH&#8217;S TOPICS', 'font-size:1.65cqw') + lessons(5, 69, 90, 3.05);
+          o += bx('pb08-cap', 5, 79, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · ON ZOOM', 'font-size:1.65cqw');
+          o += table(5, 82, 90, 3.3, 1.75);
+          o += bx('pb08-wh', 5, 106.6, null, where, 'font-size:1.85cqw');
+        }
+        o += foot(112, 17.41, 12, 3.6, 1.9);
+      } else {
+        deco += halftone(100, 0, 1.45, 40, 46, 0, 100, 18.5, TAN, 2.3) + halftone(100, 18, 1.1, 16, 86, 19.5, 100, 30, TAN, 2.3);
+        o += logo(4.5, 3.5, partner ? 21 : 17, 10.5) + badge('pb08-badge', 81, 2, 16);
+        o += bx('pb08-kick', 5, 17.6, null, kick, 'font-size:1.5cqw');
+        if (!partner) {
+          o += bx('pb08-t1', 4.6, 21, null, first, 'font-size:7.4cqw');
+          o += bx('pb08-pop', 5, 31.6, null, last, 'font-size:8.4cqw');
+          o += bx('pb08-mo', 41, 32.4, null, '<b style="font-size:4.2cqw">' + mon + ' ' + spec.year + '</b><i style="font-size:1.45cqw;margin-top:.6cqw">LIVE ON ZOOM</i>');
+          panel(48.5, 45, 85);
+          if (solo) {
+            o += disc(18, 66.5, 11, S[0], true, 14.5);
+            o += topic(36, 50.5, 59, 31, S[0], 4, 1.45);
+          } else {
+            S.forEach(function (s, i) {
+              var cy = 57 + i * 15.5;
+              o += disc(13, cy, 6, s, false, 7.4);
+              o += topic(26, cy - 6.8, 69, 13.6, s, 3.1, 0, true);
+            });
+            o += bx('pb08-wh', 26, 81, null, where, 'font-size:1.55cqw');
+          }
+          if (solo) o += bx('pb08-wh', 36, 80.2, null, where, 'font-size:1.55cqw');
+          o += foot(85, 15, 10, 2.9, 1.5);
+        } else {
+          o += bx('pb08-t1', 4.6, 20.4, null, first + ' <span>' + last + '</span>', 'font-size:5.6cqw');
+          o += bx('pb08-mo', 5, 28.4, null, '<b style="font-size:2.9cqw;display:inline-block;vertical-align:middle;margin-right:1.6cqw">' + mon + ' ' + spec.year + '</b><i style="font-size:1.3cqw;vertical-align:middle">ON ZOOM</i>');
+          panel(35, 33, 85);
+          if (solo) o += bx('pb08-tp', 5, 36.4, 90, '<div class="ln" style="font-size:2.9cqw">' + S[0].lesson + '</div>' + pres(1.6));
+          else o += lessons(5, 36.6, 90, 2.55);
+          o += bx('pb08-cap', 5, 45, null, (solo ? 'YOUR LOCAL TIME' : 'BOTH SESSIONS · YOUR LOCAL TIME') + ' · ON ZOOM', 'font-size:1.4cqw');
+          o += table(5, 47.8, 90, 4, 1.6);
+          o += bx('pb08-wh', 5, 77.8, null, where, 'font-size:1.55cqw');
+          o += foot(85, 15, 10, 2.8, 1.45);
+        }
+      }
+      return '<div class="vfx pb08' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pb08-deco" viewBox="0 0 100 ' + f(Hh) + '" preserveAspectRatio="none" aria-hidden="true">' + deco + '</svg>' + o + '</div>';
+    }
+  };
+})());
+
+/* ---- PTC design B month 09 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) · September · "Menu squares": tilted, overlapping flat squares like
+   café menu cards scattered on a cream table. Each session is a burnt-orange menu card with an olive date
+   square knocked askew over its edge; the partner time table is a dotted-leader menu. Olive / cream / burnt orange. */
+VEBFlyers.registerSet('PB', 9, (function () {
+  var C = { cream: '#F5EDD8', olive: '#6F7C2A', deep: '#323A10', org: '#C8561D', pale: '#C9CB8F', ink: '#2B2F12', sun: '#F2B544' };
+  var uid = 0;
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function el(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function sqr(cx, cy, s, rot, col) {
+    return '<rect x="' + f(cx - s / 2) + '" y="' + f(cy - s / 2) + '" width="' + f(s) + '" height="' + f(s) + '" fill="' + col + '" transform="rotate(' + rot + ' ' + f(cx) + ' ' + f(cy) + ')"/>';
+  }
+  /* PTC series mark: round badge, flat geometric cup with three steam strokes */
+  function badge(k) {
+    var id = 'pb09b' + (uid++);
+    return '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + k.ring + '"/><circle cx="50" cy="50" r="32" fill="' + k.face + '"/>'
+      + '<circle cx="50" cy="50" r="45.5" fill="none" stroke="' + k.face + '" stroke-width=".8" stroke-dasharray="1.6 2.2"/>'
+      + '<path id="' + id + 't" d="M13,50 A37,37 0 0 1 87,50" fill="none"/><path id="' + id + 'u" d="M7,50 A43,43 0 0 0 93,50" fill="none"/>'
+      + '<text font-family="Archivo Black,Archivo,sans-serif" font-size="10.5" letter-spacing="1.2" fill="' + k.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="Archivo Black,Archivo,sans-serif" font-size="10.5" letter-spacing="2.4" fill="' + k.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + '<rect x="9.5" y="47" width="6" height="6" fill="' + k.text + '" transform="rotate(45 12.5 50)"/><rect x="84.5" y="47" width="6" height="6" fill="' + k.text + '" transform="rotate(45 87.5 50)"/>'
+      + '<rect x="29" y="68" width="42" height="4.2" rx="2.1" fill="' + k.cup + '"/>'
+      + '<path d="M34,46 H62 V57 A14,10.5 0 0 1 34,57 Z" fill="' + k.cup + '"/>'
+      + '<circle cx="63" cy="54" r="5.2" fill="none" stroke="' + k.cup + '" stroke-width="3.4"/>'
+      + '<rect x="34" y="49" width="28" height="3" fill="' + k.band + '"/>'
+      + [40, 48, 56].map(function (x, i) { return '<path d="M' + x + ',' + (42 - i % 2) + ' c-3.2,-3.6 3.2,-5.2 0,-9 c-3.2,-3.6 3.2,-5.2 0,-8.5" fill="none" stroke="' + k.steam + '" stroke-width="2.6" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+  var css = [
+    '.pb09{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + C.cream + ';color:' + C.ink + ';font-family:Archivo,Inter,sans-serif}',
+    '.pb09.sq{aspect-ratio:1/1}',
+    '.pb09 *{box-sizing:border-box}',
+    '.pb09 .pb09-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pb09>div{position:absolute;z-index:2}',
+    '.pb09 .pb09-logo{background:#fff;display:flex;align-items:center;justify-content:center}',
+    '.pb09 .pb09-logo img{display:block;height:auto}',
+    '.pb09 .pb09-badge svg{display:block;width:100%;height:100%}',
+    '.pb09 .pb09-k{font-weight:700;letter-spacing:.14em;color:' + C.olive + ';white-space:nowrap;line-height:1}',
+    '.pb09 .pb09-m{font-family:"Archivo Black",Archivo,sans-serif;color:' + C.org + ';white-space:nowrap;line-height:1;letter-spacing:.01em}',
+    '.pb09 .pb09-m b{color:' + C.deep + ';font-weight:400}',
+    '.pb09 .pb09-t{font-family:"Archivo Black",Archivo,sans-serif;line-height:.92;letter-spacing:-.03em;color:' + C.deep + ';white-space:nowrap}',
+    '.pb09 .pb09-t i{font-style:normal;color:' + C.org + '}',
+    '.pb09 .pb09-zoom{display:inline-block;vertical-align:middle;font-family:Archivo,sans-serif;font-weight:800;letter-spacing:.1em;background:' + C.olive + ';color:' + C.cream + ';line-height:1;position:relative;top:-.12em;transform:rotate(-4deg)}',
+    /* middle flow */
+    '.pb09 .pb09-mid{display:flex;flex-direction:column;justify-content:center}',
+    '.pb09 .pb09-cds{display:flex}',
+    '.pb09 .pb09-cd{position:relative;display:flex;align-items:center;color:' + C.cream + ';isolation:isolate;min-width:0}',
+    '.pb09 .pb09-cd::before{content:"";position:absolute;inset:0;background:' + C.org + ';z-index:-1}',
+    '.pb09 .pb09-cd.pb09-b::before{background:' + C.olive + '}',
+    '.pb09 .pb09-ds{flex:none;position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:center;justify-content:center;color:' + C.cream + ';line-height:1}',
+    '.pb09 .pb09-ds::before{content:"";position:absolute;inset:0;background:' + C.deep + ';z-index:-1;transform:rotate(7deg)}',
+    '.pb09 .pb09-ds .pb09-w{font-weight:800;letter-spacing:.16em;color:' + C.sun + '}',
+    '.pb09 .pb09-ds .pb09-n{font-family:"Archivo Black",sans-serif;letter-spacing:-.05em;line-height:.9}',
+    '.pb09 .pb09-tx{flex:1;min-width:0}',
+    '.pb09 .pb09-tx .pb09-lb{font-weight:800;letter-spacing:.14em;line-height:1.1;color:' + C.sun + ';white-space:nowrap}',
+    '.pb09 .pb09-tx .pb09-ti{font-family:"Archivo Black",sans-serif;line-height:1.02;letter-spacing:-.015em}',
+    '.pb09 .pb09-tx .pb09-de{font-weight:500;font-style:italic;line-height:1.2}',
+    '.pb09 .pb09-tx .pb09-pr{font-weight:700;line-height:1.2;color:' + C.cream + '}',
+    '.pb09 .pb09-tx .pb09-pr b{font-weight:800;color:' + C.sun + '}',
+    '.pb09 .pb09-pr{font-weight:700;color:' + C.deep + ';line-height:1.2}',
+    '.pb09 .pb09-pr b{color:' + C.org + ';font-weight:800}',
+    '.pb09 .pb09-wh{font-weight:700;color:' + C.olive + ';line-height:1.2;white-space:nowrap;display:flex;align-items:center}',
+    '.pb09 .pb09-wh::before{content:"";flex:none;width:.9em;height:.9em;background:' + C.org + ';transform:rotate(12deg);margin-right:.6em}',
+    /* menu-style local time table */
+    '.pb09 .pb09-th{font-weight:800;letter-spacing:.14em;color:' + C.org + ';white-space:nowrap;line-height:1}',
+    '.pb09 .pb09-tb>div{display:flex;align-items:center;white-space:nowrap;line-height:1;position:relative;isolation:isolate}',
+    '.pb09 .pb09-tb .pb09-l{font-weight:800;flex:none;color:' + C.deep + '}',
+    '.pb09 .pb09-tb .pb09-dt{flex:1;border-bottom:.3cqw dotted ' + C.olive + ';margin:0 1.4cqw;align-self:center;position:relative;top:.35em}',
+    '.pb09 .pb09-tb .pb09-d{font-weight:500;color:' + C.olive + ';flex:none}',
+    '.pb09 .pb09-tb .pb09-t{font-family:"Archivo Black",sans-serif;flex:none;text-align:right;color:' + C.org + '}',
+    '.pb09 .pb09-tb .pb09-h::before{content:"";position:absolute;left:-1.6cqw;right:-1.6cqw;top:0;bottom:0;background:' + C.org + ';z-index:-1;transform:rotate(-.8deg)}',
+    '.pb09 .pb09-tb .pb09-h .pb09-l,.pb09 .pb09-tb .pb09-h .pb09-d,.pb09 .pb09-tb .pb09-h .pb09-t{color:' + C.cream + '}',
+    '.pb09 .pb09-tb .pb09-h .pb09-dt{border-color:' + C.cream + '}',
+    /* footer */
+    '.pb09 .pb09-ft{left:0;right:0;bottom:0;background:' + C.deep + ';color:' + C.cream + '}',
+    '.pb09 .pb09-ft .pb09-rg{position:absolute;font-family:"Archivo Black",sans-serif;line-height:1;white-space:nowrap}',
+    '.pb09 .pb09-ft .pb09-rg span{color:' + C.sun + '}',
+    '.pb09 .pb09-ft .pb09-ph{position:absolute;font-weight:500;line-height:1.25;white-space:nowrap;color:#E3E2C4}',
+    '.pb09 .pb09-ft .pb09-bd{position:absolute;display:flex;gap:1.2cqw;white-space:nowrap}',
+    '.pb09 .pb09-ft .pb09-bd span{background:' + C.olive + ';color:' + C.cream + ';font-weight:700;letter-spacing:.05em;line-height:1}',
+    '.pb09 .pb09-qr{position:absolute;background:#fff;padding:.6cqw;display:flex;align-items:center;justify-content:center;color:' + C.ink + ';font-weight:700}',
+    '.pb09 .pb09-qr img{width:100%;height:100%;display:block}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, Ht = sq ? 100 : 129.4;
+    var month = H.MONTHS[spec.month - 1], X = sq ? 5 : 6, Wd = 100 - 2 * X;
+    var pres = spec.presenter ? H.esc(spec.presenter) : '';
+    var ftTop = sq ? 85 : 112.4;
+    /* decoration: tilted overlapping menu squares behind the badge and at the edges */
+    var bx = sq ? 82 : 81, by = sq ? 12 : 17, bs = sq ? 18 : 25;
+    var deco = '<svg class="pb09-deco" viewBox="0 0 100 ' + Ht + '" aria-hidden="true">'
+      + sqr(bx + 3, by - 1, bs * 1.22, 14, C.olive) + sqr(bx - 2, by + 2, bs * 1.08, -9, C.org) + sqr(bx + 9, by + bs * .55, bs * .42, 28, C.pale)
+      + (sq ? sqr(-2, ftTop - 2, 10, 20, C.org) + (partner ? '' : sqr(102, ftTop - 6, 12, -16, C.olive))
+            : sqr(-3, ftTop - 4, 14, 18, C.org) + sqr(5, ftTop - 1, 6, -12, C.olive) + (partner ? sqr(101, ftTop - 1, 7, 22, C.org) : sqr(103, ftTop - 9, 16, -14, C.pale) + sqr(97, ftTop - 2, 7, 22, C.org)))
+      + '</svg>';
+    var out = '<div class="vfx pb09' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + deco;
+    /* header */
+    if (partner) out += sq ? el('pb09-logo', X, 4.5, 19, '<img src="' + spec.pipUrl + '" alt="" style="width:18cqw">', 'height:10.7cqw')
+                           : el('pb09-logo', X, 5, 25, '<img src="' + spec.pipUrl + '" alt="" style="width:24cqw">', 'height:14cqw');
+    else out += sq ? el('pb09-logo', X, 4.5, 11, '<img src="' + spec.logoUrl + '" alt="" style="width:9cqw">', 'height:12cqw')
+                   : el('pb09-logo', X, 5, 15, '<img src="' + spec.logoUrl + '" alt="" style="width:12.6cqw">', 'height:16.4cqw');
+    var kick = partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER';
+    out += el('pb09-badge', bx - bs / 2, by - bs / 2, bs, badge({ ring: C.deep, face: C.cream, text: C.cream, cup: C.org, band: C.cream, steam: C.olive }), 'height:' + bs + 'cqw');
+    var titleY, tF;
+    if (sq) {
+      var hx = partner ? 27 : 19;
+      out += el('pb09-k', hx, 6, null, kick, 'font-size:1.45cqw');
+      out += el('pb09-m', hx, 9.2, null, month.toUpperCase() + ' <b>' + spec.year + '</b>', 'font-size:3.3cqw');
+      tF = 7.4; titleY = 19.5;
+      out += el('pb09-t', X, titleY, null, 'Parent Talk <i>Café</i>', 'font-size:' + tF + 'cqw');
+      out += el('pb09-zoom', X + 0.4, titleY + 8.6, null, 'LIVE ON ZOOM', 'font-size:1.6cqw;padding:.7cqw 1.2cqw');
+    } else {
+      out += el('pb09-k', X, partner ? 21.8 : 24, null, kick, 'font-size:1.7cqw');
+      out += el('pb09-m', X, partner ? 25 : 27.2, null, month.toUpperCase() + ' <b>' + spec.year + '</b>', 'font-size:' + (partner ? 4.2 : 4.6) + 'cqw');
+      tF = partner ? 9.8 : 11.6; titleY = partner ? 31.5 : 35.5;
+      var zf = tF * .24;
+      out += el('pb09-t', X, titleY, null, 'Parent Talk<br><i>Café</i> <span class="pb09-zoom" style="font-size:' + f(zf) + 'cqw;padding:' + f(zf * .5) + 'cqw ' + f(zf * .8) + 'cqw">ON ZOOM</span>', 'font-size:' + tF + 'cqw');
+    }
+    var midTop = sq ? titleY + 13.4 : titleY + tF * 1.84 + 3.2;
+    var midH = ftTop - midTop - (sq ? 5 : 7.5);
+
+    /* middle: menu cards */
+    var mid = '';
+    function cardHst(s, i) {
+      var big = solo && !sq, dsz = sq ? (solo ? 19 : 13) : (solo ? 22 : 16);
+      var tiF = sq ? (solo ? 5.2 : 3.3) : (solo ? 6.1 : 4.2);
+      var pad = sq ? 2.4 : 3;
+      return '<div class="pb09-cd' + (i ? ' pb09-b' : '') + '" style="margin-left:' + f(dsz * .3) + 'cqw;padding:' + f(pad) + 'cqw ' + f(pad + 1) + 'cqw ' + f(pad) + 'cqw 0;min-height:' + f(dsz - (sq ? 2 : 3)) + 'cqw;transform:rotate(' + (i ? .8 : -.8) + 'deg)">'
+        + '<div class="pb09-ds" style="width:' + dsz + 'cqw;height:' + dsz + 'cqw;margin:' + f(-pad - 1.4) + 'cqw ' + f(sq ? 2.6 : 3.4) + 'cqw ' + f(-pad - 1.4) + 'cqw ' + f(-dsz * .3) + 'cqw">'
+        + '<div class="pb09-w" style="font-size:' + f(dsz * .1) + 'cqw">' + s.dow.toUpperCase() + '</div>'
+        + '<div class="pb09-n" style="font-size:' + f(dsz * (s.day > 9 ? .5 : .6)) + 'cqw;margin:' + f(dsz * .04) + 'cqw 0">' + s.day + '</div>'
+        + '<div class="pb09-w" style="font-size:' + f(dsz * .1) + 'cqw;color:' + C.cream + '">' + s.mon.toUpperCase() + '</div></div>'
+        + '<div class="pb09-tx">'
+        + '<div class="pb09-lb" style="font-size:' + (sq ? 1.6 : (big ? 2.1 : 1.85)) + 'cqw">' + s.monFull.toUpperCase() + ' ' + s.day + ' · ' + s.time + '</div>'
+        + '<div class="pb09-ti" style="font-size:' + f(tiF) + 'cqw;margin-top:' + (big ? 1.2 : .8) + 'cqw">' + s.lesson + '</div>'
+        + (s.desc && (solo || !sq) ? '<div class="pb09-de" style="font-size:' + (sq ? 1.8 : (big ? 2.4 : 1.95)) + 'cqw;margin-top:' + (big ? 1.2 : .7) + 'cqw">' + s.desc + '</div>' : '')
+        + (solo && pres ? '<div class="pb09-pr" style="font-size:' + (sq ? 1.9 : 2.4) + 'cqw;margin-top:' + (big ? 1.4 : .9) + 'cqw">Presented by <b>' + pres + '</b></div>' : '')
+        + '</div></div>';
+    }
+    function cardPartner(s, i) {
+      var tiF = sq ? (solo ? 3.2 : 2.5) : (solo ? 4.4 : 3.3), pad = sq ? 1.9 : 2.6;
+      return '<div class="pb09-cd' + (i ? ' pb09-b' : '') + '" style="flex:1;padding:' + f(pad) + 'cqw ' + f(pad + .8) + 'cqw;transform:rotate(' + (i ? 1 : -1) + 'deg)"><div class="pb09-tx">'
+        + '<div class="pb09-lb" style="font-size:' + (sq ? 1.35 : 1.7) + 'cqw">' + (solo ? 'TODAY’S TOPIC' : 'TOPIC ' + (i + 1)) + '</div>'
+        + '<div class="pb09-ti" style="font-size:' + f(tiF) + 'cqw;margin-top:.7cqw">' + s.lesson + '</div>'
+        + (solo && s.desc ? '<div class="pb09-de" style="font-size:' + (sq ? 1.6 : 2.1) + 'cqw;margin-top:.7cqw">' + s.desc + '</div>' : '')
+        + (solo && pres ? '<div class="pb09-pr" style="font-size:' + (sq ? 1.6 : 2.1) + 'cqw;margin-top:.8cqw">Presented by <b>' + pres + '</b></div>' : '')
+        + '</div></div>';
+    }
+    var presLine = !solo && pres ? '<div class="pb09-pr" style="font-size:' + (sq ? 1.8 : 2.3) + 'cqw;margin-top:' + (sq ? 1.6 : 2.4) + 'cqw">Presented by <b>' + pres + '</b></div>' : '';
+    if (!partner) {
+      mid = S.map(function (s, i) { return '<div class="pb09-cds" style="' + (i ? 'margin-top:' + (sq ? 3.4 : 4.6) + 'cqw;margin-left:' + (sq ? 6 : 5) + 'cqw' : 'margin-right:' + (solo ? 0 : (sq ? 6 : 5)) + 'cqw') + '">' + cardHst(s, i) + '</div>'; }).join('') + presLine;
+    } else {
+      mid = '<div class="pb09-cds" style="gap:' + (sq ? 3 : 3.6) + 'cqw' + (solo ? ';width:' + (sq ? 74 : 86) + 'cqw' : '') + '">' + S.map(cardPartner).join('') + '</div>' + presLine;
+      var rows = H.zoneRows(spec.sessions), rh = sq ? 3.35 : 3.45, fs = sq ? 1.75 : 2.05;
+      mid += '<div class="pb09-th" style="font-size:' + (sq ? 1.35 : 1.6) + 'cqw;margin-top:' + (sq ? 2.6 : 3.6) + 'cqw;margin-bottom:' + (sq ? 1 : 1.3) + 'cqw">ON YOUR ISLAND · LOCAL TIME' + (solo ? '' : ' · BOTH TOPICS') + '</div>';
+      mid += '<div class="pb09-tb">' + rows.map(function (r) {
+        return '<div class="' + (r.home ? 'pb09-h' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw"><span class="pb09-l">' + r.label + '</span><span class="pb09-dt"></span><span class="pb09-d">' + r.days + '</span><span class="pb09-t" style="width:' + (sq ? 12 : 13.5) + 'cqw">' + r.time + '</span></div>';
+      }).join('') + '</div>';
+    }
+    out += el('pb09-mid', X, midTop, Wd, mid, 'height:' + f(midH) + 'cqw');
+    out += el('pb09-wh', X, ftTop - (sq ? 4 : 5.4), null, H.PTC_WHERE, 'font-size:' + (sq ? 1.75 : 2.1) + 'cqw');
+    /* footer */
+    var fh = Ht - ftTop, qr = sq ? 11.5 : 12;
+    var ft = '<div class="pb09-rg" style="left:' + X + 'cqw;top:' + f(fh * .16) + 'cqw;font-size:' + (sq ? 3.3 : 3.7) + 'cqw">REGISTER at <span>LDAHawaii.org</span></div>'
+      + '<div class="pb09-ph" style="left:' + X + 'cqw;top:' + f(fh * .16 + (sq ? 4.4 : 5.2)) + 'cqw;font-size:' + (sq ? 1.6 : 1.9) + 'cqw">Get your Zoom link: scan the QR code or call ' + H.phone(partner) + '</div>'
+      + '<div class="pb09-bd" style="left:' + X + 'cqw;bottom:' + f(fh * .17) + 'cqw;font-size:' + (sq ? 1.35 : 1.55) + 'cqw">' + H.badges(spec, partner).replace(/<span>/g, '<span style="padding:.55cqw 1.3cqw">') + '</div>'
+      + '<div class="pb09-qr" style="right:' + X + 'cqw;top:' + f((fh - qr) / 2) + 'cqw;width:' + qr + 'cqw;height:' + qr + 'cqw;font-size:2cqw">' + H.qrImg(spec, partner) + '</div>';
+    out += '<div class="pb09-ft" style="top:' + ftTop + 'cqw">' + ft + '</div>';
+    return out + '</div>';
+  }
+  return { name: 'Menu squares: tilted overlapping café menu cards and date squares (olive, cream, burnt orange)', fonts: 'family=Archivo+Black&family=Archivo:ital,wght@0,500;0,700;0,800;1,500', css: css, fn: fn };
+})());
+
+/* ---- PTC design B month 10 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) · October · "Crescent split": hard vertical split, a deep-teal panel
+   carries the café badge and GIANT date numerals under flat pumpkin crescent moons; the cream side holds the
+   stacked title and the topic. Partner flyers swap the numerals for a stacked local-time list. Teal / pumpkin / cream. */
+VEBFlyers.registerSet('PB', 10, (function () {
+  var C = { cream: '#F7EEDC', teal: '#11605C', deep: '#0B2E2D', pump: '#EE7A22', soft: '#F6B26B', ink: '#10302F', mist: '#BFD8D2' };
+  var uid = 0;
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function el(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  /* flat crescent: a disc with an offset disc masked out of it (opens toward the bite) */
+  function moon(cx, cy, r, dx, dy, col) {
+    var id = 'pb10m' + (uid++);
+    return '<mask id="' + id + '"><rect x="-50" y="-50" width="250" height="250" fill="#fff"/><circle cx="' + f(cx + dx) + '" cy="' + f(cy + dy) + '" r="' + f(r * .86) + '" fill="#000"/></mask>'
+      + '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + col + '" mask="url(#' + id + ')"/>';
+  }
+  function badge(k) {
+    var id = 'pb10b' + (uid++);
+    return '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + k.ring + '"/><circle cx="50" cy="50" r="32" fill="' + k.face + '"/>'
+      + '<path id="' + id + 't" d="M13,50 A37,37 0 0 1 87,50" fill="none"/><path id="' + id + 'u" d="M7,50 A43,43 0 0 0 93,50" fill="none"/>'
+      + '<text font-family="Bricolage Grotesque,sans-serif" font-weight="800" font-size="11" letter-spacing="1.3" fill="' + k.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="Bricolage Grotesque,sans-serif" font-weight="800" font-size="11" letter-spacing="2.6" fill="' + k.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + '<circle cx="12.5" cy="50" r="2.8" fill="' + k.text + '"/><circle cx="87.5" cy="50" r="2.8" fill="' + k.text + '"/>'
+      /* cup: half-disc bowl on a saucer bar, ring handle, crescent-shaped steam */
+      + '<rect x="28" y="68" width="44" height="4.4" rx="2.2" fill="' + k.cup + '"/>'
+      + '<path d="M33,47 H63 A15,17 0 0 1 33,47 Z" fill="' + k.cup + '"/>'
+      + '<circle cx="64.5" cy="53" r="5.4" fill="none" stroke="' + k.cup + '" stroke-width="3.4"/>'
+      + [41, 48.5, 56].map(function (x, i) { return '<path d="M' + x + ',' + (42 - (i % 2) * 2) + ' c-3.4,-3.8 3.4,-5.4 0,-9.2 c-3.4,-3.8 3.4,-5.4 0,-8.6" fill="none" stroke="' + k.steam + '" stroke-width="2.6" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+  var css = [
+    '.pb10{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + C.cream + ';color:' + C.ink + ';font-family:"Bricolage Grotesque",Inter,sans-serif}',
+    '.pb10.sq{aspect-ratio:1/1}',
+    '.pb10 *{box-sizing:border-box}',
+    '.pb10 .pb10-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pb10>div{position:absolute;z-index:2}',
+    '.pb10 .pb10-logo{background:#fff;display:flex;align-items:center;justify-content:center}',
+    '.pb10 .pb10-logo img{display:block;height:auto}',
+    '.pb10 .pb10-badge svg{display:block;width:100%;height:100%}',
+    '.pb10 .pb10-k{font-weight:700;letter-spacing:.13em;color:' + C.teal + ';white-space:nowrap;line-height:1}',
+    '.pb10 .pb10-m{font-weight:800;color:' + C.pump + ';white-space:nowrap;line-height:1;letter-spacing:-.02em}',
+    '.pb10 .pb10-m b{color:' + C.teal + ';font-weight:400}',
+    '.pb10 .pb10-t{font-weight:800;line-height:.86;letter-spacing:-.045em;color:' + C.deep + ';white-space:nowrap}',
+    '.pb10 .pb10-t i{font-style:normal;color:' + C.pump + '}',
+    '.pb10 .pb10-zoom{display:inline-block;vertical-align:middle;font-weight:800;letter-spacing:.1em;background:' + C.teal + ';color:' + C.cream + ';line-height:1;border-radius:99cqw;position:relative;top:-.1em}',
+    /* left panel: giant numerals */
+    '.pb10 .pb10-lp{display:flex;flex-direction:column;justify-content:center;color:' + C.cream + '}',
+    '.pb10 .pb10-nb{line-height:1}',
+    '.pb10 .pb10-w{position:relative;z-index:1;font-weight:700;letter-spacing:.2em;color:' + C.soft + ';white-space:nowrap}',
+    '.pb10 .pb10-n{font-weight:800;letter-spacing:-.07em;line-height:.8;color:' + C.pump + ';white-space:nowrap}',
+    '.pb10 .pb10-n span{color:' + C.cream + '}',
+    '.pb10 .pb10-tm{font-weight:700;white-space:nowrap;color:' + C.cream + '}',
+    /* partner stacked local-time list */
+    '.pb10 .pb10-th{font-weight:800;letter-spacing:.16em;color:' + C.soft + ';line-height:1.15}',
+    '.pb10 .pb10-zr{border-top:.25cqw solid rgba(247,238,220,.28);line-height:1.12}',
+    '.pb10 .pb10-zr .pb10-zl{font-weight:800;color:' + C.cream + ';white-space:nowrap}',
+    '.pb10 .pb10-zr .pb10-zt{font-weight:500;color:' + C.mist + ';white-space:nowrap}',
+    '.pb10 .pb10-zr .pb10-zt b{font-weight:800;color:' + C.soft + '}',
+    '.pb10 .pb10-zr.pb10-h{background:' + C.pump + ';border-top-color:' + C.pump + ';border-radius:0 99cqw 99cqw 0}',
+    '.pb10 .pb10-zr.pb10-h .pb10-zl,.pb10 .pb10-zr.pb10-h .pb10-zt,.pb10 .pb10-zr.pb10-h .pb10-zt b{color:' + C.deep + '}',
+    /* right column flow */
+    '.pb10 .pb10-rc{display:flex;flex-direction:column;justify-content:center}',
+    '.pb10 .pb10-lb{font-weight:800;letter-spacing:.15em;line-height:1.15;color:' + C.pump + '}',
+    '.pb10 .pb10-ti{font-weight:800;line-height:1;letter-spacing:-.025em;color:' + C.deep + '}',
+    '.pb10 .pb10-de{font-weight:500;line-height:1.2;color:' + C.teal + '}',
+    '.pb10 .pb10-pr{font-weight:700;line-height:1.2;color:' + C.deep + '}',
+    '.pb10 .pb10-pr b{font-weight:800;color:' + C.pump + '}',
+    '.pb10 .pb10-it{border-left:.9cqw solid ' + C.pump + '}',
+    '.pb10 .pb10-it.pb10-b{border-left-color:' + C.teal + '}',
+    '.pb10 .pb10-wh{font-weight:600;line-height:1.25;color:' + C.teal + '}',
+    '.pb10 .pb10-wh b{font-weight:800}',
+    /* footer */
+    '.pb10 .pb10-ft{left:0;right:0;bottom:0;background:' + C.deep + ';color:' + C.cream + '}',
+    '.pb10 .pb10-ft .pb10-rg{position:absolute;font-weight:800;line-height:1;white-space:nowrap;letter-spacing:-.01em}',
+    '.pb10 .pb10-ft .pb10-rg span{color:' + C.pump + '}',
+    '.pb10 .pb10-ft .pb10-ph{position:absolute;font-weight:500;line-height:1.25;white-space:nowrap;color:' + C.mist + '}',
+    '.pb10 .pb10-ft .pb10-bd{position:absolute;display:flex;gap:1.2cqw;white-space:nowrap}',
+    '.pb10 .pb10-ft .pb10-bd span{border:.25cqw solid ' + C.pump + ';color:' + C.soft + ';font-weight:700;letter-spacing:.05em;line-height:1;border-radius:99cqw}',
+    '.pb10 .pb10-qr{position:absolute;background:#fff;padding:.6cqw;display:flex;align-items:center;justify-content:center;color:' + C.ink + ';font-weight:700}',
+    '.pb10 .pb10-qr img{width:100%;height:100%;display:block}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, Ht = sq ? 100 : 129.4;
+    var month = H.MONTHS[spec.month - 1], pres = spec.presenter ? H.esc(spec.presenter) : '';
+    var split = sq ? 38 : 40, X = sq ? 5 : 6, RX = split + (sq ? 4.5 : 5.5), RW = 100 - X - RX;
+    var ftTop = sq ? 84.5 : 112;
+    /* decoration: teal panel + flat crescent moons */
+    var deco = '<svg class="pb10-deco" viewBox="0 0 100 ' + Ht + '" preserveAspectRatio="none" aria-hidden="true">'
+      + '<rect x="0" y="0" width="' + split + '" height="' + Ht + '" fill="' + C.teal + '"/>'
+      + (sq ? moon(100 - 3.5 - 8.5 + 2.4, 12.4, 11.6, -3.4, -.8, C.teal) + (partner ? '' : moon(split - 7, ftTop - 6, 4.2, 1.8, -1, C.cream)) + moon(97.5, 31, 5.5, 2.8, 0, C.pump)
+            : moon(split / 2 - 2.6, (partner ? 22.5 : 25) + 13.5, 17.6, 4.6, -1, C.cream) + moon(101, 33, 11, 5.5, 0, C.pump) + (partner ? '' : moon(split - 8, ftTop - 7.5, 4.6, 2, -1.2, C.pump)) + moon(96, ftTop - 9, 5.5, 2.6, -.8, C.teal))
+      + '</svg>';
+    var out = '<div class="vfx pb10' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + deco;
+    /* logo + badge in the teal panel (squares: badge top-right) */
+    if (partner) out += sq ? el('pb10-logo', X, 4.5, 19, '<img src="' + spec.pipUrl + '" alt="" style="width:18cqw">', 'height:10.7cqw')
+                           : el('pb10-logo', X, 5, 26, '<img src="' + spec.pipUrl + '" alt="" style="width:24.5cqw">', 'height:14cqw');
+    else out += sq ? el('pb10-logo', X, 4.5, 11, '<img src="' + spec.logoUrl + '" alt="" style="width:9cqw">', 'height:12cqw')
+                   : el('pb10-logo', X, 5, 15, '<img src="' + spec.logoUrl + '" alt="" style="width:12.6cqw">', 'height:16.4cqw');
+    var bk = { ring: C.pump, face: C.cream, text: C.deep, cup: C.teal, steam: C.pump };
+    var bs, bxy;
+    if (sq) { bs = 17; bxy = [100 - 3.5 - bs, 3.5]; } else { bs = 27; bxy = [split / 2 - bs / 2, partner ? 22.5 : 25]; }
+    out += el('pb10-badge', bxy[0], bxy[1], bs, badge(bk), 'height:' + bs + 'cqw');
+    var kick = partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER';
+    /* right column header + stacked title */
+    var titleY, tF, tLines;
+    if (sq) {
+      out += el('pb10-k', RX, 5.2, null, kick, 'font-size:1.2cqw');
+      out += el('pb10-m', RX, 8, null, month + ' <b>' + spec.year + '</b>', 'font-size:4cqw');
+      tF = 7.4; titleY = 21.5; tLines = 2;
+      out += el('pb10-t', RX, titleY, null, 'Parent Talk<br><i>Café</i> <span class="pb10-zoom" style="font-size:1.75cqw;padding:.75cqw 1.4cqw">ON ZOOM</span>', 'font-size:' + tF + 'cqw');
+    } else {
+      out += el('pb10-k', RX, 6.2, null, kick, 'font-size:1.5cqw');
+      out += el('pb10-m', RX, 9.4, null, month + ' <b>' + spec.year + '</b>', 'font-size:5.4cqw');
+      tF = partner ? 11.2 : 12.4; titleY = 20; tLines = 3;
+      out += el('pb10-t', RX, titleY, null, 'Parent<br>Talk<br><i>Café</i> <span class="pb10-zoom" style="font-size:' + f(tF * .2) + 'cqw;padding:' + f(tF * .09) + 'cqw ' + f(tF * .15) + 'cqw">ON ZOOM</span>', 'font-size:' + tF + 'cqw');
+    }
+    var rcTop = titleY + tF * .86 * tLines + (sq ? 3 : 4.5), rcBot = ftTop - (sq ? 2.5 : 3.5);
+
+    /* left panel content */
+    var lpTop = sq ? 19 : bxy[1] + bs + 2.5, lpBot = ftTop - (sq ? 3 : 4), lp = '';
+    if (!partner) {
+      lp = S.map(function (s, i) {
+        var nF = sq ? (solo ? 21 : 15) : (solo ? 27 : 17.5);
+        var d = String(s.day), nh = d.length > 1 ? '<span>' + d.charAt(0) + '</span>' + d.slice(1) : d;
+        return '<div class="pb10-nb" style="' + (i ? 'margin-top:' + (sq ? 3 : 4.5) + 'cqw' : '') + '">'
+          + '<div class="pb10-w" style="font-size:' + (sq ? 1.6 : 2) + 'cqw">' + (solo ? H.esc({ Mon: 'MONDAY', Tue: 'TUESDAY', Wed: 'WEDNESDAY', Thu: 'THURSDAY', Fri: 'FRIDAY', Sat: 'SATURDAY', Sun: 'SUNDAY' }[s.dow] || s.dow.toUpperCase()) : s.dow.toUpperCase() + ' · ' + s.mon.toUpperCase()) + '</div>'
+          + '<div class="pb10-n" style="font-size:' + f(nF) + 'cqw;margin:' + f(nF * .08) + 'cqw 0 ' + f(nF * .06) + 'cqw -.4cqw">' + nh + '</div>'
+          + (solo ? '<div class="pb10-w" style="font-size:' + (sq ? 2.6 : 3.4) + 'cqw;color:' + C.cream + ';letter-spacing:.12em;margin-bottom:' + (sq ? 1 : 1.4) + 'cqw">' + s.monFull.toUpperCase() + '</div>' : '')
+          + '<div class="pb10-tm" style="font-size:' + (sq ? (solo ? 1.85 : 1.65) : (solo ? 2.35 : 2.05)) + 'cqw">' + s.time + '</div></div>';
+      }).join('');
+    } else {
+      var rows = H.zoneRows(spec.sessions);
+      lp = '<div class="pb10-th" style="font-size:' + (sq ? 1.3 : 1.55) + 'cqw;margin-bottom:' + (sq ? 1.1 : 1.5) + 'cqw">LOCAL TIME<br>ON YOUR ISLAND</div>'
+        + rows.map(function (r) {
+          return '<div class="pb10-zr' + (r.home ? ' pb10-h' : '') + '" style="padding:' + (sq ? .65 : .85) + 'cqw ' + (sq ? 1 : 1.3) + 'cqw ' + (sq ? .65 : .85) + 'cqw ' + (r.home ? (sq ? 1 : 1.3) : 0) + 'cqw;' + (r.home ? 'margin-left:-' + (sq ? 1 : 1.3) + 'cqw' : '') + '">'
+            + '<div class="pb10-zl" style="font-size:' + (sq ? 1.9 : 2.05) + 'cqw">' + r.label + '</div>'
+            + '<div class="pb10-zt" style="font-size:' + (sq ? 1.65 : 1.8) + 'cqw;margin-top:' + (sq ? .25 : .35) + 'cqw">' + r.days + ' · <b>' + r.time + '</b></div></div>';
+        }).join('');
+    }
+    out += el('pb10-lp', X, lpTop, split - X - (sq ? 3 : 3.5), lp, 'height:' + f(lpBot - lpTop) + 'cqw');
+
+    /* right column: topic(s), presenter, where */
+    var rc = '';
+    S.forEach(function (s, i) {
+      var tiF = sq ? (solo ? 4.4 : 3.4) : (solo ? 5.6 : 4);
+      var lab = partner ? (solo ? 'TODAY’S TOPIC' : 'TOPIC ' + (i + 1)) : (solo ? 'TODAY’S TOPIC' : s.monFull.toUpperCase() + ' ' + s.day);
+      rc += '<div class="pb10-it' + (i ? ' pb10-b' : '') + '" style="padding-left:' + (sq ? 2 : 2.6) + 'cqw;' + (i ? 'margin-top:' + (sq ? 2.6 : 3.6) + 'cqw' : '') + '">'
+        + '<div class="pb10-lb" style="font-size:' + (sq ? 1.35 : 1.7) + 'cqw;' + (i ? 'color:' + C.teal : '') + '">' + lab + '</div>'
+        + '<div class="pb10-ti" style="font-size:' + f(tiF) + 'cqw;margin-top:' + (sq ? .6 : .9) + 'cqw">' + s.lesson + '</div>'
+        + (s.desc && (solo || !sq) ? '<div class="pb10-de" style="font-size:' + (sq ? 1.65 : (solo ? 2.3 : 1.95)) + 'cqw;margin-top:' + (sq ? .6 : .9) + 'cqw">' + s.desc + '</div>' : '')
+        + '</div>';
+    });
+    if (pres) rc += '<div class="pb10-pr" style="font-size:' + (sq ? 1.75 : 2.3) + 'cqw;margin-top:' + (sq ? 2.2 : 3.4) + 'cqw">Presented by <b>' + pres + '</b></div>';
+    rc += '<div class="pb10-wh" style="font-size:' + (sq ? 1.5 : 1.85) + 'cqw;margin-top:' + (sq ? 2.4 : 3.6) + 'cqw">' + (H.PTC_WHERE.indexOf(' @ ') > 0 ? H.PTC_WHERE.replace(' @ ', '<br><b>@ ') + '</b>' : H.PTC_WHERE) + '</div>';
+    out += el('pb10-rc', RX, rcTop, RW, rc, 'height:' + f(rcBot - rcTop) + 'cqw');
+
+    /* footer */
+    var fh = Ht - ftTop, qr = sq ? 11.5 : 12;
+    var ft = '<div class="pb10-rg" style="left:' + X + 'cqw;top:' + f(fh * .16) + 'cqw;font-size:' + (sq ? 3.5 : 3.9) + 'cqw">REGISTER at <span>LDAHawaii.org</span></div>'
+      + '<div class="pb10-ph" style="left:' + X + 'cqw;top:' + f(fh * .16 + (sq ? 4.6 : 5.3)) + 'cqw;font-size:' + (sq ? 1.6 : 1.9) + 'cqw">Get your Zoom link: scan the QR code or call ' + H.phone(partner) + '</div>'
+      + '<div class="pb10-bd" style="left:' + X + 'cqw;bottom:' + f(fh * .17) + 'cqw;font-size:' + (sq ? 1.35 : 1.55) + 'cqw">' + H.badges(spec, partner).replace(/<span>/g, '<span style="padding:.5cqw 1.3cqw">') + '</div>'
+      + '<div class="pb10-qr" style="right:' + X + 'cqw;top:' + f((fh - qr) / 2) + 'cqw;width:' + qr + 'cqw;height:' + qr + 'cqw;font-size:2cqw">' + H.qrImg(spec, partner) + '</div>';
+    out += '<div class="pb10-ft" style="top:' + ftTop + 'cqw">' + ft + '</div>';
+    return out + '</div>';
+  }
+  return { name: 'Crescent split: teal panel with giant date numerals and pumpkin crescent moons (deep teal, pumpkin, cream)', fonts: 'family=Bricolage+Grotesque:wght@400;500;600;700;800', css: css, fn: fn };
+})());
+
+/* ---- PTC design B month 11 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) · November · "Menu board bands": the flyer is a café menu board built
+   from full-width horizontal type bands: espresso band with giant condensed PARENT TALK, cranberry band with CAFÉ,
+   then the topic set like the day's special with dotted price-style leaders to the date. Partner times are
+   striped menu rows. Espresso brown / cranberry / cream. */
+VEBFlyers.registerSet('PB', 11, (function () {
+  var C = { cream: '#F5EBDC', esp: '#3A2417', esp2: '#55382A', cran: '#9C1C36', pink: '#F3A3B1', ink: '#2A1A11', tan: '#D9C3A5' };
+  var uid = 0;
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function el(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function band(cls, y, h, inner, extra) {
+    return '<div class="pb11-band ' + cls + '" style="top:' + f(y) + 'cqw;height:' + f(h) + 'cqw;' + (extra || '') + '">' + inner + '</div>';
+  }
+  function badge(k) {
+    var id = 'pb11b' + (uid++);
+    return '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + k.ring + '"/><circle cx="50" cy="50" r="32" fill="' + k.face + '"/>'
+      + '<circle cx="50" cy="50" r="32" fill="none" stroke="' + k.text + '" stroke-width="1.2"/>'
+      + '<path id="' + id + 't" d="M14,50 A36,36 0 0 1 86,50" fill="none"/><path id="' + id + 'u" d="M7.5,50 A42.5,42.5 0 0 0 92.5,50" fill="none"/>'
+      + '<text font-family="Oswald,sans-serif" font-weight="700" font-size="12.5" letter-spacing="2" fill="' + k.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="Oswald,sans-serif" font-weight="700" font-size="12.5" letter-spacing="3" fill="' + k.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + '<rect x="10" y="47.5" width="5" height="5" fill="' + k.text + '"/><rect x="85" y="47.5" width="5" height="5" fill="' + k.text + '"/>'
+      /* squared-off flat mug: block body, square handle, saucer bar, straight steam bars */
+      + '<rect x="27" y="68" width="46" height="4.4" fill="' + k.cup + '"/>'
+      + '<path d="M34,45 H62 V60 Q62,66 56,66 H40 Q34,66 34,60 Z" fill="' + k.cup + '"/>'
+      + '<path d="M62,49 H67.5 Q70,49 70,51.5 V56.5 Q70,59 67.5,59 H62" fill="none" stroke="' + k.cup + '" stroke-width="3.2"/>'
+      + '<rect x="34" y="50" width="28" height="2.6" fill="' + k.face + '"/>'
+      + [41, 48, 55].map(function (x, i) { return '<path d="M' + x + ',' + (41 - (i % 2) * 2) + ' c-3,-3.4 3,-4.8 0,-8.4 c-3,-3.4 3,-4.8 0,-8" fill="none" stroke="' + k.steam + '" stroke-width="2.5" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+  var css = [
+    '.pb11{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + C.cream + ';color:' + C.ink + ';font-family:"Archivo",Inter,sans-serif}',
+    '.pb11.sq{aspect-ratio:1/1}',
+    '.pb11 *{box-sizing:border-box}',
+    '.pb11 .pb11-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pb11>div{position:absolute;z-index:2}',
+    '.pb11 .pb11-band{left:0;right:0;overflow:hidden}',
+    '.pb11 .pb11-logo{background:#fff;display:flex;align-items:center;justify-content:center;outline:.35cqw solid ' + C.esp + ';outline-offset:.6cqw}',
+    '.pb11 .pb11-logo img{display:block;height:auto}',
+    '.pb11 .pb11-badge svg{display:block;width:100%;height:100%}',
+    '.pb11 .pb11-k{font-weight:700;letter-spacing:.18em;color:' + C.cran + ';white-space:nowrap;line-height:1.35}',
+        /* giant type bands */
+    '.pb11 .pb11-b1{background:' + C.esp + ';color:' + C.cream + '}',
+    '.pb11 .pb11-b2{background:' + C.cran + ';color:' + C.cream + '}',
+    '.pb11 .pb11-big{position:absolute;font-family:Oswald,sans-serif;font-weight:700;line-height:1;letter-spacing:-.005em;white-space:nowrap;text-transform:uppercase}',
+    '.pb11 .pb11-big i{font-style:normal;color:' + C.pink + '}',
+    '.pb11 .pb11-side{position:absolute;text-align:right;white-space:nowrap;line-height:1}',
+    '.pb11 .pb11-side .pb11-mo{font-family:Oswald,sans-serif;font-weight:700;letter-spacing:.02em}',
+    '.pb11 .pb11-side .pb11-zo{font-weight:700;letter-spacing:.22em;color:' + C.pink + '}',
+    '.pb11 .pb11-strip{position:absolute;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:2.4cqw;font-weight:700;letter-spacing:.2em;white-space:nowrap;line-height:1}',
+    '.pb11 .pb11-strip b{display:inline-block;width:.55em;height:.55em;background:' + C.pink + ';transform:rotate(45deg)}',
+    /* cream menu area */
+    '.pb11 .pb11-mid{display:flex;flex-direction:column;justify-content:center}',
+    '.pb11 .pb11-lb{display:flex;align-items:center;gap:1.6cqw;font-weight:700;letter-spacing:.2em;color:' + C.cran + ';white-space:nowrap;line-height:1}',
+    '.pb11 .pb11-lb::before,.pb11 .pb11-lb::after{content:"";flex:1;border-top:.3cqw solid ' + C.esp + '}',
+    '.pb11 .pb11-lb.pb11-l::before{display:none}',
+    '.pb11 .pb11-ti{font-family:Oswald,sans-serif;font-weight:700;text-transform:uppercase;line-height:1.02;letter-spacing:.005em;color:' + C.esp + '}',
+    '.pb11 .pb11-ld{display:flex;align-items:baseline;white-space:nowrap;line-height:1.1}',
+    '.pb11 .pb11-ld .pb11-a{font-family:Oswald,sans-serif;font-weight:600;letter-spacing:.03em;color:' + C.cran + ';text-transform:uppercase}',
+    '.pb11 .pb11-ld .pb11-dt{flex:1;border-bottom:.4cqw dotted ' + C.esp + ';margin:0 1.4cqw;min-width:3cqw}',
+    '.pb11 .pb11-ld .pb11-z{font-family:Oswald,sans-serif;font-weight:700;color:' + C.esp + '}',
+    '.pb11 .pb11-de{font-style:italic;font-weight:500;line-height:1.2;color:' + C.esp2 + '}',
+    '.pb11 .pb11-pr{font-weight:600;line-height:1.2;color:' + C.esp + '}',
+    '.pb11 .pb11-pr b{font-weight:800;color:' + C.cran + '}',
+    '.pb11 .pb11-wh{font-weight:600;line-height:1.2;color:' + C.esp2 + ';text-align:center;white-space:nowrap}',
+    /* partner striped rows */
+    '.pb11 .pb11-tb{left:0;right:0}',
+    '.pb11 .pb11-tb>div{display:flex;align-items:center;white-space:nowrap;line-height:1}',
+    '.pb11 .pb11-tb>div:nth-child(odd){background:rgba(58,36,23,.09)}',
+    '.pb11 .pb11-tb .pb11-c1{font-family:Oswald,sans-serif;font-weight:600;text-transform:uppercase;letter-spacing:.03em;flex:1;color:' + C.esp + '}',
+    '.pb11 .pb11-tb .pb11-c2{font-weight:500;color:' + C.esp2 + ';flex:none}',
+    '.pb11 .pb11-tb .pb11-c3{font-family:Oswald,sans-serif;font-weight:700;flex:none;text-align:right;color:' + C.cran + '}',
+    '.pb11 .pb11-tb>div.pb11-h{background:' + C.cran + '}',
+    '.pb11 .pb11-tb>div.pb11-h span{color:' + C.cream + '}',
+    /* footer */
+    '.pb11 .pb11-ft{left:0;right:0;bottom:0;background:' + C.esp + ';color:' + C.cream + '}',
+    '.pb11 .pb11-ft .pb11-rg{position:absolute;font-family:Oswald,sans-serif;font-weight:700;line-height:1;white-space:nowrap;letter-spacing:.01em}',
+    '.pb11 .pb11-ft .pb11-rg span{color:' + C.pink + '}',
+    '.pb11 .pb11-ft .pb11-ph{position:absolute;font-weight:500;line-height:1.25;white-space:nowrap;color:' + C.tan + '}',
+    '.pb11 .pb11-ft .pb11-bd{position:absolute;display:flex;gap:1.2cqw;white-space:nowrap}',
+    '.pb11 .pb11-ft .pb11-bd span{background:' + C.cran + ';color:' + C.cream + ';font-weight:700;letter-spacing:.06em;line-height:1}',
+    '.pb11 .pb11-qr{position:absolute;background:#fff;padding:.6cqw;display:flex;align-items:center;justify-content:center;color:' + C.ink + ';font-weight:700}',
+    '.pb11 .pb11-qr img{width:100%;height:100%;display:block}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, Ht = sq ? 100 : 129.4;
+    var month = H.MONTHS[spec.month - 1], pres = spec.presenter ? H.esc(spec.presenter) : '';
+    var X = sq ? 5 : 6, Wd = 100 - 2 * X, ftTop = sq ? 85 : 111;
+    var out = '<div class="vfx pb11' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">';
+    /* header: logo, kicker, badge */
+    var hdH = sq ? 18 : (partner ? 23 : 25);
+    if (partner) out += sq ? el('pb11-logo', X, 4, 19, '<img src="' + spec.pipUrl + '" alt="" style="width:18cqw">', 'height:10.7cqw')
+                           : el('pb11-logo', X, 5, 25, '<img src="' + spec.pipUrl + '" alt="" style="width:24cqw">', 'height:14cqw');
+    else out += sq ? el('pb11-logo', X, 3.5, 11, '<img src="' + spec.logoUrl + '" alt="" style="width:9cqw">', 'height:12cqw')
+                   : el('pb11-logo', X, 4, 15, '<img src="' + spec.logoUrl + '" alt="" style="width:12.6cqw">', 'height:16.4cqw');
+    var kick = partner ? 'FOR FAMILIES<br>ACROSS THE PACIFIC' : 'PARENT TRAINING &amp;<br>INFORMATION CENTER';
+    var hx = X + (partner ? (sq ? 22 : 29) : (sq ? 14.5 : 19.5));
+    out += el('pb11-k', hx, sq ? 5 : 6.5, null, kick, 'font-size:' + (sq ? 1.45 : 1.95) + 'cqw');
+    var bs = sq ? 16 : (partner ? 21 : 22.5);
+    out += el('pb11-badge', 100 - X - bs + (sq ? 0 : 1), sq ? 1 : 1.3, bs, badge({ ring: C.cran, face: C.cream, text: C.cream, cup: C.esp, steam: C.cran }), 'height:' + bs + 'cqw');
+
+    /* giant type bands */
+    var y = hdH, b1, b2;
+    if (sq) {
+      b1 = 13;
+      out += band('pb11-b1', y, b1, '<div class="pb11-big" style="left:' + X + 'cqw;top:1.3cqw;font-size:10.6cqw">Parent Talk <i>Café</i></div>');
+      y += b1;
+      b2 = 5.6;
+      out += band('pb11-b2', y, b2, '<div class="pb11-strip" style="top:0;bottom:0;font-size:1.75cqw">' + month.toUpperCase() + ' ' + spec.year + '<b></b>LIVE ON ZOOM</div>');
+      y += b2;
+    } else {
+      var bf = partner ? 13.5 : 16; b1 = bf * (partner ? 1.08 : 1.13); b2 = b1;
+      out += band('pb11-b1', y, b1, '<div class="pb11-big" style="left:' + X + 'cqw;top:' + f(bf * .06) + 'cqw;font-size:' + bf + 'cqw">Parent Talk</div>');
+      y += b1;
+      out += band('pb11-b2', y, b2, '<div class="pb11-big" style="left:' + X + 'cqw;top:' + f(bf * .06) + 'cqw;font-size:' + bf + 'cqw">Café</div>'
+        + '<div class="pb11-side" style="right:' + X + 'cqw;top:' + f(b2 * .2) + 'cqw"><div class="pb11-mo" style="font-size:' + f(bf * .36) + 'cqw">' + month.toUpperCase() + ' ' + spec.year + '</div>'
+        + '<div class="pb11-zo" style="font-size:' + f(bf * .13) + 'cqw;margin-top:' + f(bf * .1) + 'cqw">LIVE ON ZOOM</div></div>');
+      y += b2;
+    }
+
+    /* cream menu area */
+    var midTop = y + (sq ? 2.4 : 3), midBot = ftTop - (sq ? 1.8 : 2.4), mid = '';
+    var lbF = sq ? 1.4 : 1.75;
+    if (!partner) {
+      mid += '<div class="pb11-lb" style="font-size:' + lbF + 'cqw;margin-bottom:' + (sq ? 1.8 : 2.6) + 'cqw">' + (solo ? 'TODAY’S SPECIAL' : 'THIS MONTH’S MENU') + '</div>';
+      S.forEach(function (s, i) {
+        var tiF = sq ? (solo ? 6.2 : 5) : (solo ? 7.4 : 4.9);
+        mid += '<div style="' + (i ? 'margin-top:' + (sq ? 2.4 : 3.4) + 'cqw' : '') + '">'
+          + '<div class="pb11-ti" style="font-size:' + f(tiF) + 'cqw">' + s.lesson + '</div>'
+          + (s.desc && (solo || !sq) ? '<div class="pb11-de" style="font-size:' + (sq ? 1.75 : (solo ? 2.4 : 2)) + 'cqw;margin-top:' + (sq ? .6 : .9) + 'cqw">' + s.desc + '</div>' : '')
+          + '<div class="pb11-ld" style="margin-top:' + (sq ? 1 : 1.5) + 'cqw"><span class="pb11-a" style="font-size:' + (sq ? 2.5 : (solo ? 3.1 : 2.6)) + 'cqw">' + (solo ? H.esc({ Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' }[s.dow] || s.dow) : s.dow) + ', ' + s.monFull + ' ' + s.day + '</span><span class="pb11-dt"></span><span class="pb11-z" style="font-size:' + (sq ? 2.5 : (solo ? 3.1 : 2.6)) + 'cqw">' + s.time + '</span></div>'
+          + '</div>';
+      });
+    } else {
+      mid += '<div class="pb11-lb" style="font-size:' + lbF + 'cqw;margin-bottom:' + (sq ? 1.4 : 2) + 'cqw">' + (solo ? 'TODAY’S SPECIAL' : 'THIS MONTH’S MENU') + '</div>';
+      S.forEach(function (s, i) {
+        var tiF = sq ? (solo ? 3.5 : 2.5) : (solo ? 4.6 : 3.5);
+        mid += '<div class="pb11-ti" style="font-size:' + f(tiF) + 'cqw;' + (i ? 'margin-top:' + (sq ? .9 : 1.3) + 'cqw' : '') + '">' + (solo ? '' : '<span style="color:' + C.cran + '">' + (i + 1) + ' · </span>') + s.lesson + '</div>'
+          + (solo && s.desc ? '<div class="pb11-de" style="font-size:' + (sq ? 1.6 : 2.1) + 'cqw;margin-top:.7cqw">' + s.desc + '</div>' : '');
+      });
+    }
+    if (pres) mid += '<div class="pb11-pr" style="font-size:' + (sq ? 1.75 : 2.3) + 'cqw;margin-top:' + (sq ? 1.4 : 2.2) + 'cqw">Presented by <b>' + pres + '</b></div>';
+    if (partner) {
+      var rows = H.zoneRows(spec.sessions), rh = sq ? 3.4 : 3.45, fs = sq ? 1.7 : 2.05;
+      mid += '<div class="pb11-lb pb11-l" style="font-size:' + lbF + 'cqw;margin:' + (sq ? 1.8 : 2.6) + 'cqw 0 ' + (sq ? .9 : 1.2) + 'cqw">ON YOUR ISLAND · LOCAL TIME</div>';
+      mid += '<div class="pb11-tb" style="margin:0 -' + X + 'cqw">' + rows.map(function (r) {
+        return '<div class="' + (r.home ? 'pb11-h' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw;padding:0 ' + X + 'cqw"><span class="pb11-c1">' + r.label + '</span><span class="pb11-c2" style="width:' + (sq ? 27 : 30) + 'cqw">' + r.days + '</span><span class="pb11-c3" style="width:' + (sq ? 12 : 13) + 'cqw;font-size:' + f(fs * 1.12) + 'cqw">' + r.time + '</span></div>';
+      }).join('') + '</div>';
+    }
+    mid += '<div class="pb11-wh" style="font-size:' + (sq ? 1.6 : 1.95) + 'cqw;margin-top:' + (sq ? 1.8 : 2.8) + 'cqw">' + H.PTC_WHERE + '</div>';
+    out += el('pb11-mid', X, midTop, Wd, mid, 'height:' + f(midBot - midTop) + 'cqw');
+
+    /* footer */
+    var fh = Ht - ftTop, qr = sq ? 11 : 12.4;
+    var ft = '<div class="pb11-rg" style="left:' + X + 'cqw;top:' + f(fh * .15) + 'cqw;font-size:' + (sq ? 3.7 : 4.3) + 'cqw">REGISTER AT <span>LDAHawaii.org</span></div>'
+      + '<div class="pb11-ph" style="left:' + X + 'cqw;top:' + f(fh * .15 + (sq ? 5 : 6)) + 'cqw;font-size:' + (sq ? 1.6 : 1.9) + 'cqw">Get your Zoom link: scan the QR code or call ' + H.phone(partner) + '</div>'
+      + '<div class="pb11-bd" style="left:' + X + 'cqw;bottom:' + f(fh * .15) + 'cqw;font-size:' + (sq ? 1.35 : 1.55) + 'cqw">' + H.badges(spec, partner).replace(/<span>/g, '<span style="padding:.55cqw 1.3cqw">') + '</div>'
+      + '<div class="pb11-qr" style="right:' + X + 'cqw;top:' + f((fh - qr) / 2) + 'cqw;width:' + qr + 'cqw;height:' + qr + 'cqw;font-size:2cqw">' + H.qrImg(spec, partner) + '</div>';
+    out += '<div class="pb11-ft" style="top:' + ftTop + 'cqw">' + ft + '</div>';
+    return out + '</div>';
+  }
+  return { name: 'Menu board bands: giant condensed type bands and dotted-leader menu lines (espresso, cranberry, cream)', fonts: 'family=Oswald:wght@500;600;700&family=Archivo:wght@400;500;600;700;800', css: css, fn: fn };
+})());
+
+/* ---- PTC design B month 12 ---- */
+/* Set PB (Parent Talk Café, Bold Modern) · December · "Peppermint targets": on a midnight-navy field a big
+   concentric target of peppermint red, navy and icy silver rings has the café badge as its bullseye; each session
+   date is its own small red-and-silver target, with flat geometric stars. Midnight navy / icy silver / peppermint red. */
+VEBFlyers.registerSet('PB', 12, (function () {
+  var C = { navy: '#0E1A3A', navy2: '#1A2A55', ice: '#DCE4EE', silver: '#A9B6C8', red: '#E0253F', ink: '#0E1A3A', pale: '#F3F6FA' };
+  var uid = 0;
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function el(cls, x, y, w, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  function rings(cx, cy, rs, cols) {
+    return rs.map(function (r, i) { return '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + cols[i % cols.length] + '"/>'; }).join('');
+  }
+  /* flat geometric star: 4 long points, plus 4 short diagonal points when eight */
+  function star(cx, cy, r, col, eight) {
+    function pts(R, k, rot) {
+      var p = [];
+      for (var i = 0; i < 8; i++) { var a = rot + i * Math.PI / 4, rr = i % 2 ? R * k : R; p.push(f(cx + rr * Math.sin(a)) + ',' + f(cy - rr * Math.cos(a))); }
+      return p.join(' ');
+    }
+    return (eight ? '<polygon points="' + pts(r * .62, .34, Math.PI / 4) + '" fill="' + col + '"/>' : '') + '<polygon points="' + pts(r, .26, 0) + '" fill="' + col + '"/>';
+  }
+  function badge(k) {
+    var id = 'pb12b' + (uid++);
+    return '<svg viewBox="0 0 100 100" aria-hidden="true">'
+      + '<circle cx="50" cy="50" r="49" fill="' + k.ring + '"/><circle cx="50" cy="50" r="32" fill="' + k.face + '"/>'
+      + '<circle cx="50" cy="50" r="28.5" fill="none" stroke="' + k.text + '" stroke-width="1" stroke-dasharray="2 2.4"/>'
+      + '<path id="' + id + 't" d="M13,50 A37,37 0 0 1 87,50" fill="none"/><path id="' + id + 'u" d="M7,50 A43,43 0 0 0 93,50" fill="none"/>'
+      + '<text font-family="Sora,sans-serif" font-weight="800" font-size="10.5" letter-spacing="1.1" fill="' + k.text + '"><textPath href="#' + id + 't" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="Sora,sans-serif" font-weight="800" font-size="10.5" letter-spacing="2.4" fill="' + k.text + '"><textPath href="#' + id + 'u" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + star(12.5, 50, 4.2, k.text) + star(87.5, 50, 4.2, k.text)
+      + '<rect x="28.5" y="68" width="43" height="4.2" rx="2.1" fill="' + k.cup + '"/>'
+      + '<path d="M34,46 H62 V56 A14,11 0 0 1 34,56 Z" fill="' + k.cup + '"/>'
+      + '<rect x="34" y="50" width="28" height="2.6" fill="' + k.face + '"/><rect x="34" y="55" width="28" height="2.6" fill="' + k.face + '"/>'
+      + '<circle cx="63" cy="53" r="5.2" fill="none" stroke="' + k.cup + '" stroke-width="3.3"/>'
+      + [40.5, 48, 55.5].map(function (x, i) { return '<path d="M' + x + ',' + (42 - (i % 2) * 2) + ' c-3.2,-3.6 3.2,-5.2 0,-8.8 c-3.2,-3.6 3.2,-5.2 0,-8.4" fill="none" stroke="' + k.steam + '" stroke-width="2.5" stroke-linecap="round"/>'; }).join('')
+      + '</svg>';
+  }
+  var css = [
+    '.pb12{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:' + C.navy + ';color:' + C.pale + ';font-family:Manrope,Inter,sans-serif}',
+    '.pb12.sq{aspect-ratio:1/1}',
+    '.pb12 *{box-sizing:border-box}',
+    '.pb12 .pb12-deco{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pb12>div{position:absolute;z-index:2}',
+    '.pb12 .pb12-logo{background:#fff;display:flex;align-items:center;justify-content:center;border-radius:50% 50% 50% 50% / 50% 50% 50% 50%}',
+    '.pb12 .pb12-logo.pb12-pip{border-radius:1.4cqw}',
+    '.pb12 .pb12-logo img{display:block;height:auto}',
+    '.pb12 .pb12-badge svg{display:block;width:100%;height:100%}',
+    '.pb12 .pb12-k{font-weight:800;letter-spacing:.16em;color:' + C.silver + ';white-space:nowrap;line-height:1.35}',
+    '.pb12 .pb12-m{font-family:Sora,sans-serif;font-weight:800;color:' + C.red + ';white-space:nowrap;line-height:1;letter-spacing:-.01em}',
+    '.pb12 .pb12-m b{color:' + C.ice + ';font-weight:700}',
+    '.pb12 .pb12-t{font-family:Sora,sans-serif;font-weight:800;line-height:.95;letter-spacing:-.035em;color:' + C.ice + ';white-space:nowrap}',
+    '.pb12 .pb12-t i{font-style:normal;color:' + C.red + '}',
+    '.pb12 .pb12-zoom{display:inline-block;vertical-align:middle;position:relative;top:-.1em;font-family:Manrope,sans-serif;font-weight:800;letter-spacing:.14em;background:' + C.red + ';color:#fff;line-height:1;border-radius:99cqw;white-space:nowrap}',
+    /* middle flow */
+    '.pb12 .pb12-mid{display:flex;flex-direction:column;justify-content:center}',
+    '.pb12 .pb12-s{display:flex;align-items:center}',
+    '.pb12 .pb12-dt{flex:none;border-radius:50%;background:' + C.red + ';box-shadow:0 0 0 .9cqw ' + C.navy + ',0 0 0 1.8cqw ' + C.ice + ';display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;color:#fff}',
+    '.pb12 .pb12-dt .pb12-w{position:relative;z-index:1;font-weight:800;letter-spacing:.16em}',
+    '.pb12 .pb12-dt .pb12-n{font-family:Sora,sans-serif;font-weight:800;letter-spacing:-.05em;line-height:.92}',
+    '.pb12 .pb12-tx{flex:1;min-width:0}',
+    '.pb12 .pb12-lb{font-weight:800;letter-spacing:.14em;line-height:1.15;color:' + C.silver + '}',
+    '.pb12 .pb12-ti{font-family:Sora,sans-serif;font-weight:800;line-height:1.04;letter-spacing:-.02em;color:#fff}',
+    '.pb12 .pb12-de{font-weight:500;line-height:1.2;color:' + C.silver + '}',
+    '.pb12 .pb12-pr{font-weight:700;line-height:1.2;color:' + C.ice + '}',
+    '.pb12 .pb12-pr b{font-weight:800;color:#FF6B7F}',
+    '.pb12 .pb12-wh{font-weight:600;line-height:1.2;color:' + C.silver + ';white-space:nowrap}',
+    '.pb12 .pb12-wh b{color:' + C.ice + ';font-weight:800}',
+    /* partner table */
+    '.pb12 .pb12-th{font-weight:800;letter-spacing:.16em;color:' + C.silver + ';white-space:nowrap;line-height:1}',
+    '.pb12 .pb12-tb>div{display:flex;align-items:center;white-space:nowrap;line-height:1;border-bottom:.2cqw solid rgba(169,182,200,.25)}',
+    '.pb12 .pb12-tb .pb12-o{flex:none;border-radius:50%;border:.45cqw solid ' + C.silver + ';background:' + C.navy + ';box-shadow:inset 0 0 0 .45cqw ' + C.navy + ',inset 0 0 0 2cqw ' + C.red + '}',
+    '.pb12 .pb12-tb .pb12-l{font-weight:800;flex:1;color:' + C.ice + '}',
+    '.pb12 .pb12-tb .pb12-d{font-weight:500;color:' + C.silver + ';flex:none}',
+    '.pb12 .pb12-tb .pb12-t2{font-family:Sora,sans-serif;font-weight:800;flex:none;text-align:right;color:#fff}',
+    '.pb12 .pb12-tb .pb12-h{background:' + C.red + ';border-radius:99cqw;border-bottom-color:transparent}',
+    '.pb12 .pb12-tb .pb12-h .pb12-d{color:#fff}',
+    '.pb12 .pb12-tb .pb12-h .pb12-o{border-color:#fff;box-shadow:inset 0 0 0 .45cqw ' + C.red + ',inset 0 0 0 2cqw #fff;background:' + C.red + '}',
+    /* footer */
+    '.pb12 .pb12-ft{left:0;right:0;bottom:0;background:' + C.ice + ';color:' + C.navy + '}',
+    '.pb12 .pb12-ft .pb12-rg{position:absolute;font-family:Sora,sans-serif;font-weight:800;line-height:1;white-space:nowrap;letter-spacing:-.01em}',
+    '.pb12 .pb12-ft .pb12-rg span{color:' + C.red + '}',
+    '.pb12 .pb12-ft .pb12-ph{position:absolute;font-weight:600;line-height:1.25;white-space:nowrap;color:' + C.navy2 + '}',
+    '.pb12 .pb12-ft .pb12-bd{position:absolute;display:flex;gap:1.2cqw;white-space:nowrap}',
+    '.pb12 .pb12-ft .pb12-bd span{background:' + C.navy + ';color:' + C.ice + ';font-weight:700;letter-spacing:.05em;line-height:1;border-radius:99cqw}',
+    '.pb12 .pb12-qr{position:absolute;background:#fff;padding:.6cqw;display:flex;align-items:center;justify-content:center;color:' + C.ink + ';font-weight:700;outline:.4cqw solid ' + C.navy + '}',
+    '.pb12 .pb12-qr img{width:100%;height:100%;display:block}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), solo = S.length === 1, Ht = sq ? 100 : 129.4;
+    var month = H.MONTHS[spec.month - 1], pres = spec.presenter ? H.esc(spec.presenter) : '';
+    var X = sq ? 5 : 6, Wd = 100 - 2 * X, ftTop = sq ? 85 : 111.5;
+    /* big target with the café badge as bullseye */
+    var T = sq ? { cx: 80, cy: 22.5, r: 18, bs: 18 } : (partner ? { cx: 73, cy: 34, r: 26, bs: 25 } : { cx: 73.5, cy: 37, r: 28.5, bs: 26 });
+    var rr = [T.r, T.r * .86, T.r * .73, T.r * .6].concat([T.bs / 2 + 1.2]);
+    var deco = '<svg class="pb12-deco" viewBox="0 0 100 ' + Ht + '" aria-hidden="true">'
+      + rings(T.cx, T.cy, rr, [C.red, C.navy, C.ice, C.red, C.navy])
+      + '<circle cx="' + f(T.cx) + '" cy="' + f(T.cy) + '" r="' + f(T.r + 2.4) + '" fill="none" stroke="' + C.silver + '" stroke-width=".35" stroke-dasharray="1 1.4"/>'
+      + (sq ? star(56, 7, 2.6, C.ice, true) + star(97, 47, 1.8, C.red) + star(60, 41, 1.6, C.silver)
+            : star(37, 9, 3.4, C.ice, true) + star(96, T.cy + T.r - 6, 2.6, C.red, true) + star(48, T.cy + T.r - 2, 1.8, C.silver) + star(30, 18, 1.6, C.red))
+      + '</svg>';
+    var out = '<div class="vfx pb12' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + deco;
+    out += el('pb12-badge', T.cx - T.bs / 2, T.cy - T.bs / 2, T.bs, badge({ ring: C.navy, face: C.ice, text: C.ice, cup: C.red, steam: C.navy2 }), 'height:' + T.bs + 'cqw');
+    /* header */
+    if (partner) out += sq ? el('pb12-logo pb12-pip', X, 4.5, 19, '<img src="' + spec.pipUrl + '" alt="" style="width:17.5cqw">', 'height:10.7cqw')
+                           : el('pb12-logo pb12-pip', X, 5, 25, '<img src="' + spec.pipUrl + '" alt="" style="width:23.5cqw">', 'height:14cqw');
+    else out += sq ? el('pb12-logo', X, 4, 12.5, '<img src="' + spec.logoUrl + '" alt="" style="width:8.6cqw">', 'height:12.5cqw')
+                   : el('pb12-logo', X, 4.5, 18, '<img src="' + spec.logoUrl + '" alt="" style="width:12.4cqw">', 'height:18cqw');
+    var kick = partner ? 'FOR FAMILIES<br>ACROSS THE PACIFIC' : 'PARENT TRAINING &amp;<br>INFORMATION CENTER';
+    var titleY, tF;
+    if (sq) {
+      var hx = X + (partner ? 21.5 : 15);
+      out += el('pb12-k', hx, 5, null, kick, 'font-size:1.3cqw');
+      out += el('pb12-m', hx, 9.6, null, month + ' <b>' + spec.year + '</b>', 'font-size:3.4cqw');
+      tF = 6; titleY = 20.5;
+      out += el('pb12-t', X, titleY, null, 'Parent Talk<br><i>Café</i> <span class="pb12-zoom" style="font-size:1.6cqw;padding:.8cqw 1.5cqw;letter-spacing:.14em">LIVE ON ZOOM</span>', 'font-size:' + tF + 'cqw');
+    } else {
+      out += el('pb12-k', X, partner ? 21.5 : 25, null, kick, 'font-size:1.6cqw');
+      out += el('pb12-m', X, partner ? 26.3 : 29.8, null, month + ' <b>' + spec.year + '</b>', 'font-size:' + (partner ? 4 : 4.2) + 'cqw');
+      tF = partner ? 7.6 : 8.6; titleY = partner ? 32.5 : 37;
+      out += el('pb12-t', X, titleY, null, 'Parent<br>Talk<br><i>Café</i> <span class="pb12-zoom" style="font-size:' + (partner ? 1.75 : 1.9) + 'cqw;padding:.9cqw 1.6cqw;letter-spacing:.14em">ON ZOOM</span>', 'font-size:' + tF + 'cqw');
+    }
+    var midTop = sq ? 40.5 : (partner ? titleY + tF * .95 * 3 + 3.6 : T.cy + T.r + 3);
+    var midBot = ftTop - (sq ? 2 : 3);
+
+    var mid = '';
+    if (!partner) {
+      S.forEach(function (s, i) {
+        var d = sq ? (solo ? 16 : 11.5) : (solo ? 21 : 15.5), tiF = sq ? (solo ? 4.6 : 3.5) : (solo ? 5.4 : 3.9);
+        mid += '<div class="pb12-s" style="' + (i ? 'margin-top:' + (sq ? 3.2 : 4.4) + 'cqw;' : '') + 'padding-left:1.8cqw">'
+          + '<div class="pb12-dt" style="width:' + d + 'cqw;height:' + d + 'cqw;margin-right:' + (sq ? 4 : 5) + 'cqw">'
+          + '<div class="pb12-w" style="font-size:' + f(d * .095) + 'cqw">' + s.dow.toUpperCase() + '</div>'
+          + '<div class="pb12-n" style="font-size:' + f(d * (s.day > 9 ? .44 : .52)) + 'cqw;margin:' + f(d * .03) + 'cqw 0">' + s.day + '</div>'
+          + '<div class="pb12-w" style="font-size:' + f(d * .095) + 'cqw">' + s.mon.toUpperCase() + '</div></div>'
+          + '<div class="pb12-tx">'
+          + '<div class="pb12-lb" style="font-size:' + (sq ? 1.5 : (solo ? 2 : 1.75)) + 'cqw">' + s.monFull.toUpperCase() + ' ' + s.day + ' · ' + s.time + '</div>'
+          + '<div class="pb12-ti" style="font-size:' + f(tiF) + 'cqw;margin-top:' + (sq ? .7 : 1) + 'cqw">' + s.lesson + '</div>'
+          + (s.desc && (solo || !sq) ? '<div class="pb12-de" style="font-size:' + (sq ? 1.7 : (solo ? 2.3 : 1.95)) + 'cqw;margin-top:' + (sq ? .6 : .9) + 'cqw">' + s.desc + '</div>' : '')
+          + '</div></div>';
+      });
+      if (pres) mid += '<div class="pb12-pr" style="font-size:' + (sq ? 1.8 : 2.35) + 'cqw;margin-top:' + (sq ? 2.4 : 3.4) + 'cqw">Presented by <b>' + pres + '</b></div>';
+    } else {
+      S.forEach(function (s, i) {
+        mid += '<div style="' + (i ? 'margin-top:' + (sq ? .9 : 1.4) + 'cqw' : '') + '">'
+          + (i === 0 ? '<div class="pb12-lb" style="font-size:' + (sq ? 1.3 : 1.6) + 'cqw;margin-bottom:' + (sq ? .6 : .9) + 'cqw">' + (solo ? 'TODAY’S TOPIC' : 'THIS MONTH’S TOPICS') + '</div>' : '')
+          + '<div class="pb12-ti" style="font-size:' + (sq ? (solo ? 2.9 : 2.3) : (solo ? 4.5 : 3.3)) + 'cqw">' + (solo ? '' : '<span style="color:' + C.red + '">' + (i + 1) + '.</span> ') + s.lesson + '</div>'
+          + (solo && s.desc ? '<div class="pb12-de" style="font-size:' + (sq ? 1.5 : 2.1) + 'cqw;margin-top:.6cqw">' + s.desc + '</div>' : '')
+          + '</div>';
+      });
+      if (pres) mid += '<div class="pb12-pr" style="font-size:' + (sq ? 1.55 : 2.15) + 'cqw;margin-top:' + (sq ? 1 : 1.6) + 'cqw">Presented by <b>' + pres + '</b></div>';
+      var rows = H.zoneRows(spec.sessions), rh = sq ? 2.95 : 3.55, fs = sq ? 1.55 : 2;
+      mid += '<div class="pb12-th" style="font-size:' + (sq ? 1.25 : 1.55) + 'cqw;margin:' + (sq ? 1.7 : 2.8) + 'cqw 0 ' + (sq ? .7 : 1) + 'cqw">ON YOUR ISLAND · LOCAL TIME</div>';
+      mid += '<div class="pb12-tb">' + rows.map(function (r) {
+        var o = rh * .52;
+        return '<div class="' + (r.home ? 'pb12-h' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw;padding:0 ' + (sq ? 1.2 : 1.6) + 'cqw 0 ' + (sq ? .8 : 1) + 'cqw"><span class="pb12-o" style="width:' + f(o) + 'cqw;height:' + f(o) + 'cqw;margin-right:' + (sq ? 1.2 : 1.6) + 'cqw"></span><span class="pb12-l">' + r.label + '</span><span class="pb12-d" style="width:' + (sq ? 27 : 30) + 'cqw">' + r.days + '</span><span class="pb12-t2" style="width:' + (sq ? 12 : 13.5) + 'cqw">' + r.time + '</span></div>';
+      }).join('') + '</div>';
+    }
+    mid += '<div class="pb12-wh" style="font-size:' + (sq ? 1.6 : 1.95) + 'cqw;margin-top:' + (sq ? 1.8 : 3) + 'cqw">' + (H.PTC_WHERE.indexOf(' @ ') > 0 ? H.PTC_WHERE.replace(' @ ', ' <b>@ ') + '</b>' : H.PTC_WHERE) + '</div>';
+    out += el('pb12-mid', X, midTop, Wd, mid, 'height:' + f(midBot - midTop) + 'cqw');
+
+    /* footer */
+    var fh = Ht - ftTop, qr = sq ? 11 : 12.2;
+    var ft = '<div class="pb12-rg" style="left:' + X + 'cqw;top:' + f(fh * .16) + 'cqw;font-size:' + (sq ? 3.4 : 3.8) + 'cqw">REGISTER at <span>LDAHawaii.org</span></div>'
+      + '<div class="pb12-ph" style="left:' + X + 'cqw;top:' + f(fh * .16 + (sq ? 4.6 : 5.4)) + 'cqw;font-size:' + (sq ? 1.6 : 1.9) + 'cqw">Get your Zoom link: scan the QR code or call ' + H.phone(partner) + '</div>'
+      + '<div class="pb12-bd" style="left:' + X + 'cqw;bottom:' + f(fh * .16) + 'cqw;font-size:' + (sq ? 1.35 : 1.55) + 'cqw">' + H.badges(spec, partner).replace(/<span>/g, '<span style="padding:.55cqw 1.4cqw">') + '</div>'
+      + '<div class="pb12-qr" style="right:' + X + 'cqw;top:' + f((fh - qr) / 2) + 'cqw;width:' + qr + 'cqw;height:' + qr + 'cqw;font-size:2cqw">' + H.qrImg(spec, partner) + '</div>';
+    out += '<div class="pb12-ft" style="top:' + ftTop + 'cqw">' + ft + '</div>';
+    return out + '</div>';
+  }
+  return { name: 'Peppermint targets: concentric red and silver rings with the café badge as bullseye, geometric stars (midnight navy, icy silver, peppermint red)', fonts: 'family=Sora:wght@600;700;800&family=Manrope:wght@500;600;700;800', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 01 ---- */
+/* Set PC "Island Papercut café", January: seaside café window on a winter night.
+   A teal café wall glows with warm lamp light around a tall arched cut-paper window: navy night sky, a lamp-yellow
+   moon, a little lighthouse island and layered teal swells. Steaming paper mugs sit on the sill.
+   Text sits on cream paper cards pinned to the wall; the round PTC badge hangs top right. 1 unit = 1cqw. */
+VEBFlyers.registerSet('PC', 1, (function () {
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function rng(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + '">' + inner + '</div>';
+  }
+  var C = { wall: '#1f5f63', wall2: '#2a7a7c', navy: '#14294a', navy2: '#1d3a63', teal: '#2f8c8a', teal2: '#4fb0a5', lamp: '#f6c453', lamp2: '#ffe39a', cream: '#fff8e8', ink: '#13304a', wood: '#8a5a3b', wood2: '#a8704a' };
+  var DOWF = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+  function sh(id) { return ' filter="url(#' + id + ')"'; }
+  function wave(y, amp, len, phase, bottom, x0, x1) {
+    var x = x0 - 4 - phase, d = 'M' + f(x) + ' ' + f(y) + ' Q' + f(x + len / 4) + ' ' + f(y - amp) + ' ' + f(x + len / 2) + ' ' + f(y);
+    x += len / 2;
+    while (x < x1 + 4) { d += ' T' + f(x + len / 2) + ' ' + f(y); x += len / 2; }
+    return d + ' L' + f(x) + ' ' + f(bottom) + ' L' + f(x0 - 6) + ' ' + f(bottom) + 'Z';
+  }
+  function star(cx, cy, r, fill) {
+    var d = '';
+    for (var i = 0; i < 10; i++) { var a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; d += (i ? 'L' : 'M') + f(cx + Math.cos(a) * rr) + ' ' + f(cy + Math.sin(a) * rr); }
+    return '<path d="' + d + 'Z" fill="' + fill + '"/>';
+  }
+  // paper mug with a ribbon of steam; (x,y) = bottom centre, s = width
+  function mug(x, y, s, body, band) {
+    var h = s * 0.9, o = '<g' + sh('pc01sh') + '>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y) + '" rx="' + f(s * 0.72) + '" ry="' + f(s * 0.12) + '" fill="#f3e6cc"/>';
+    o += '<path d="M' + f(x + s * 0.42) + ' ' + f(y - h * 0.78) + ' q' + f(s * 0.36) + ' 0 ' + f(s * 0.32) + ' ' + f(h * 0.3) + ' q-' + f(s * 0.03) + ' ' + f(h * 0.28) + ' -' + f(s * 0.36) + ' ' + f(h * 0.3) + '" fill="none" stroke="' + body + '" stroke-width="' + f(s * 0.12) + '"/>';
+    o += '<path d="M' + f(x - s / 2) + ' ' + f(y - h) + ' L' + f(x + s / 2) + ' ' + f(y - h) + ' L' + f(x + s * 0.44) + ' ' + f(y - s * 0.1) + ' Q' + f(x) + ' ' + f(y + s * 0.04) + ' ' + f(x - s * 0.44) + ' ' + f(y - s * 0.1) + 'Z" fill="' + body + '"/>';
+    o += '<rect x="' + f(x - s * 0.48) + '" y="' + f(y - h * 0.62) + '" width="' + f(s * 0.95) + '" height="' + f(h * 0.2) + '" fill="' + band + '"/>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y - h) + '" rx="' + f(s / 2) + '" ry="' + f(s * 0.1) + '" fill="#5b3524"/></g>';
+    for (var i = 0; i < 2; i++) {
+      var sx = x - s * 0.14 + i * s * 0.28, sy = y - h - s * 0.1, k = s * 0.13;
+      o += '<path d="M' + f(sx) + ' ' + f(sy) + ' c' + f(-k) + ' ' + f(-k * 1.6) + ' ' + f(k) + ' ' + f(-k * 2.2) + ' 0 ' + f(-k * 3.6) + ' c' + f(-k * 0.9) + ' ' + f(-k * 1.4) + ' ' + f(k * 0.6) + ' ' + f(-k * 2) + ' 0 ' + f(-k * 3.4) + '" fill="none" stroke="#ffffff" stroke-opacity=".85" stroke-width="' + f(s * 0.08) + '" stroke-linecap="round"/>';
+    }
+    return o;
+  }
+  // the series mark: round PARENT TALK CAFÉ badge with a cut-paper steaming cup
+  function badge(id, ring, ring2, cupC, cupBand) {
+    var s = '<svg viewBox="0 0 100 100"><defs><filter id="' + id + 'b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.3" flood-color="#000" flood-opacity=".3"/></filter>'
+      + '<path id="' + id + 'ta" d="M 13.5 50 A 36.5 36.5 0 0 1 86.5 50"/><path id="' + id + 'tb" d="M 10.5 50 A 39.5 39.5 0 0 0 89.5 50"/></defs>';
+    s += '<circle cx="50" cy="50" r="48" fill="' + ring + '" filter="url(#' + id + 'b)"/>';
+    s += '<circle cx="50" cy="50" r="45.3" fill="none" stroke="' + ring2 + '" stroke-width=".8" stroke-dasharray="1.6 1.6"/>';
+    s += '<text font-family="Fraunces,serif" font-weight="800" font-size="9.6" letter-spacing="1.1" fill="#fff8e8"><textPath href="#' + id + 'ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>';
+    s += '<text font-family="Quicksand,sans-serif" font-weight="700" font-size="6.6" letter-spacing="2.2" fill="' + ring2 + '"><textPath href="#' + id + 'tb" startOffset="50%" text-anchor="middle">LET\'S TALK</textPath></text>';
+    s += '<circle cx="17" cy="57" r="1.5" fill="' + ring2 + '"/><circle cx="83" cy="57" r="1.5" fill="' + ring2 + '"/>';
+    s += '<circle cx="50" cy="50" r="31" fill="#fff8e8" filter="url(#' + id + 'b)"/>';
+    // steam ribbons (paper strips)
+    s += '<g filter="url(#' + id + 'b)" fill="#ffffff">'
+      + '<path d="M42 41 C37 36 46 33 41 27 C38 23 41 21 43 20 C42 23 45 25 44 28 C49 33 41 36 45 41Z"/>'
+      + '<path d="M53 41 C48 35 57 32 52 25 C49 21 52 19 54 18 C53 21 56 24 55 26 C60 32 52 35 56 41Z"/></g>';
+    // saucer + cup
+    s += '<g filter="url(#' + id + 'b)"><ellipse cx="50" cy="67" rx="21" ry="4.6" fill="' + ring2 + '"/>'
+      + '<path d="M65.5 47 c8 0 8 11 -1 12" fill="none" stroke="' + cupC + '" stroke-width="3.2"/>'
+      + '<path d="M33 44 L67 44 L64 60 Q50 68 36 60Z" fill="' + cupC + '"/>'
+      + '<path d="M34.3 50.5 L65.7 50.5 L65 54 L35 54Z" fill="' + cupBand + '"/>'
+      + '<ellipse cx="50" cy="44" rx="17" ry="3.3" fill="#5b3524"/></g>';
+    return s + '</svg>';
+  }
+
+  var L = {
+    lh: { H: 129.41, logo: [5, 4.5, 14, 14], pip: [5, 5, 23, 13.5], kick: [21.5, 8.6], kickP: [30.5, 8.6], bdg: [78.5, 2.6, 18.5],
+          win: [55, 23, 40, 44], tc: [5, 22, 45], s1: [5, 77, 74], s2: [[5, 75.5, 76], [19, 92, 76]], foot: [4, 110.5, 92], mugs: [[64, 6], [86, 7]], cm: [[88, 9], [11, 8]] },
+    lp: { H: 129.41, logo: [5, 4.5, 14, 14], pip: [5, 5, 23, 13.5], kick: [21.5, 8.6], kickP: [30.5, 8.6], bdg: [78.5, 2.6, 18.5],
+          win: [55, 23, 40, 36], tc: [5, 22, 45], tb: [5, 67.5, 90], foot: [4, 110.5, 92], mugs: [[65, 5.5], [86, 6.5]] },
+    sh: { H: 100, logo: [4, 3.5, 11, 11], pip: [4, 4, 18, 10.5], kick: [17, 7.3], kickP: [24.5, 7.3], bdg: [82, 2, 15],
+          win: [62, 21, 34, 54], tc: [4, 17.5, 54], s1: [4, 46, 54], s2: [[4, 45.5, 54], [4, 60, 54]], foot: [3.5, 82, 93], mugs: [[69, 5], [88, 5.5]] },
+    sp: { H: 100, logo: [4, 3.5, 11, 11], pip: [4, 4, 18, 10.5], kick: [17, 7.3], kickP: [24.5, 7.3], bdg: [82, 2, 15],
+          win: [64, 21, 32, 54], tc: [4, 17.5, 56], tb: [4, 44.5, 56], foot: [3.5, 82, 93], mugs: [[70, 4.6], [88, 5]] }
+  };
+
+  var css = [
+    '.pc01{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(10,30,40,.35);background:' + C.wall + ';font-family:Quicksand,sans-serif;color:' + C.ink + '}',
+    '.pc01.sq{aspect-ratio:1/1}', '.pc01 *,.pc01 *:before,.pc01 *:after{box-sizing:border-box}',
+    '.pc01 .pc01-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pc01>div{position:absolute;z-index:3}',
+    '.pc01 .pc01-logo{border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 .4cqw .6cqw rgba(0,0,0,.3),0 0 0 .7cqw ' + C.lamp + '}',
+    '.pc01 .pc01-logo img{width:78%;height:auto;display:block}.pc01 .pc01-logo.pc01-pip{border-radius:1.6cqw}.pc01 .pc01-logo.pc01-pip img{width:90%}',
+    '.pc01 .pc01-k{font-weight:700;font-size:1.6cqw;letter-spacing:.16em;color:' + C.ink + ';white-space:nowrap;background:' + C.lamp2 + ';padding:.7cqw 1.6cqw;border-radius:5cqw;box-shadow:0 .3cqw .5cqw rgba(0,0,0,.3)}',
+    '.pc01.sq .pc01-k{font-size:1.3cqw;padding:.6cqw 1.3cqw}',
+    '.pc01 .pc01-bdg svg{width:100%;height:100%;display:block;overflow:visible}',
+    '.pc01 .pc01-card{background:' + C.cream + ';border-radius:1.4cqw;box-shadow:0 .3cqw .5cqw rgba(0,0,0,.25),.9cqw .9cqw 0 ' + C.lamp + ',.9cqw 1.3cqw .8cqw rgba(0,0,0,.25)}',
+    '.pc01 .pc01-tc{padding:2.6cqw 3.2cqw 2.6cqw}',
+    '.pc01 .pc01-u{font-family:Fraunces,serif;font-style:italic;font-weight:600;font-size:2.9cqw;color:' + C.teal + ';line-height:1.1}',
+    '.pc01 .pc01-t{font-family:Fraunces,serif;font-weight:800;font-size:9.4cqw;line-height:.92;color:' + C.ink + ';letter-spacing:-.01em;margin:.8cqw 0 1.6cqw}',
+    '.pc01 .pc01-t span{display:block}.pc01 .pc01-t span:last-child{color:' + C.teal + '}',
+    '.pc01 .pc01-m{font-weight:700;font-size:2.4cqw;letter-spacing:.13em;color:' + C.ink + ';line-height:1.2}.pc01 .pc01-m b{color:#c4801a}',
+    '.pc01 .pc01-w{text-wrap:balance;margin-top:1.3cqw;padding-top:1.2cqw;border-top:.25cqw dashed #d9c9a3;font-weight:600;font-size:1.85cqw;line-height:1.3;color:#4d6478}',
+    '.pc01 .pc01-pr{font-weight:600;font-size:2.1cqw;color:#4d6478;line-height:1.25;margin-top:.8cqw}.pc01 .pc01-pr b{color:' + C.ink + ';font-weight:700}',
+    '.pc01.sq .pc01-tc{padding:1.9cqw 2.4cqw 1.9cqw}.pc01.sq .pc01-u{font-size:2.1cqw}.pc01.sq .pc01-t{font-size:6.4cqw;margin:.4cqw 0 1cqw}',
+    '.pc01.sq .pc01-t span{display:inline}.pc01.sq .pc01-t span:last-child{display:block}',
+    '.pc01.sq .pc01-m{font-size:1.75cqw}.pc01.sq .pc01-w{font-size:1.45cqw;margin-top:.8cqw;padding-top:.8cqw}',
+    /* topic (one session) */
+    '.pc01 .pc01-s{padding:2.6cqw 3.2cqw 2.4cqw}',
+    '.pc01 .pc01-lb{font-weight:700;font-size:1.7cqw;letter-spacing:.2em;color:#c4801a;line-height:1.2}',
+    '.pc01 .pc01-ti{text-wrap:balance;font-family:Fraunces,serif;font-weight:800;font-size:4.7cqw;line-height:1.06;color:' + C.ink + ';margin:.7cqw 0 .6cqw}',
+    '.pc01 .pc01-ds{font-family:Fraunces,serif;font-style:italic;font-weight:600;font-size:2.3cqw;color:' + C.teal + ';line-height:1.25}',
+    '.pc01 .pc01-dt{display:table;margin-top:1.4cqw;background:' + C.navy + ';color:#fff;border-radius:5cqw;padding:.8cqw 2cqw;font-weight:700;font-size:2.15cqw;line-height:1.2}.pc01 .pc01-dt b{color:' + C.lamp + '}',
+    /* two sessions */
+    '.pc01 .pc01-s2{display:flex;align-items:center;gap:2.4cqw;padding:1.8cqw 2.8cqw 1.8cqw 2cqw}',
+    '.pc01 .pc01-n{flex:none;width:12cqw;height:12cqw;border-radius:50%;background:' + C.navy + ';color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3cqw;line-height:1;box-shadow:0 0 0 .6cqw ' + C.lamp2 + '}',
+    '.pc01 .pc01-n i{font-style:normal;font-weight:700;font-size:1.5cqw;letter-spacing:.14em;line-height:1.2}.pc01 .pc01-n b{font-family:Fraunces,serif;font-weight:800;font-size:5.4cqw;line-height:1;color:' + C.lamp + '}',
+    '.pc01 .pc01-x{flex:1;min-width:0}',
+    '.pc01 .pc01-d{font-weight:700;font-size:2cqw;letter-spacing:.05em;color:#c4801a;line-height:1.2}',
+    '.pc01 .pc01-s2 .pc01-ti{font-size:3.3cqw;margin:.4cqw 0 .3cqw}.pc01 .pc01-s2 .pc01-ds{font-size:1.9cqw}',
+    '.pc01.sq .pc01-s{padding:1.8cqw 2.4cqw 1.8cqw}.pc01.sq .pc01-lb{font-size:1.35cqw}.pc01.sq .pc01-ti{font-size:3.5cqw}.pc01.sq .pc01-ds{font-size:1.75cqw}',
+    '.pc01.sq .pc01-dt{font-size:1.6cqw;margin-top:1cqw;padding:.6cqw 1.5cqw}.pc01.sq .pc01-pr{font-size:1.6cqw;margin-top:.5cqw}',
+    '.pc01.sq .pc01-s2{padding:1.3cqw 2cqw 1.3cqw 1.5cqw;gap:1.8cqw}.pc01.sq .pc01-n{width:9cqw;height:9cqw;box-shadow:0 0 0 .45cqw ' + C.lamp2 + '}.pc01.sq .pc01-n i{font-size:1.15cqw}.pc01.sq .pc01-n b{font-size:4cqw}',
+    '.pc01.sq .pc01-d{font-size:1.5cqw}.pc01.sq .pc01-s2 .pc01-ti{font-size:2.5cqw}.pc01.sq .pc01-s2 .pc01-ds{display:none}',
+    /* partner table */
+    '.pc01 .pc01-tb{padding:2.3cqw 3cqw 2cqw}',
+    '.pc01 .pc01-les{font-family:Fraunces,serif;font-weight:800;font-size:3.1cqw;line-height:1.12;color:' + C.ink + '}',
+    '.pc01 .pc01-les div+div{margin-top:.5cqw}.pc01 .pc01-les i{font-family:Quicksand,sans-serif;font-style:normal;font-weight:700;font-size:.55em;letter-spacing:.14em;color:#c4801a;margin-right:.7em}',
+    '.pc01 .pc01-tb .pc01-pr{margin:.4cqw 0 0}',
+    '.pc01 .pc01-th{font-family:Fraunces,serif;font-style:italic;font-weight:700;font-size:2.5cqw;color:' + C.teal + ';line-height:1.1;margin:1.3cqw 0 .7cqw}',
+    '.pc01 .pc01-r{display:grid;grid-template-columns:1.25fr 1.15fr 1fr;align-items:center;font-size:2cqw;line-height:1.15;padding:.5cqw 1.3cqw;border-top:.2cqw dashed #d9c9a3}',
+    '.pc01 .pc01-r .a{font-weight:700}.pc01 .pc01-r .b{font-weight:600;color:#4d6478}.pc01 .pc01-r .c{font-weight:700;color:' + C.teal + ';text-align:right}',
+    '.pc01 .pc01-r.h{background:' + C.navy + ';color:#fff;border-radius:5cqw;border-top-color:transparent}.pc01 .pc01-r.h .b{color:#cfe0f0}.pc01 .pc01-r.h .c{color:' + C.lamp + '}',
+    '.pc01 .pc01-r.h + .pc01-r{border-top-color:transparent}',
+    '.pc01.sq .pc01-tb{padding:1.6cqw 2.2cqw 1.5cqw}.pc01.sq .pc01-les{font-size:2.3cqw}.pc01.sq .pc01-th{font-size:1.85cqw;margin:.8cqw 0 .4cqw}',
+    '.pc01.sq .pc01-r{font-size:1.45cqw;padding:.38cqw 1cqw}.pc01.sq .pc01-tb .pc01-pr{font-size:1.45cqw}',
+    /* footer */
+    '.pc01 .pc01-ft{display:flex;align-items:center;gap:2.4cqw;padding:1.8cqw 2.4cqw 1.8cqw 3.4cqw;background:' + C.cream + ';border-radius:1.4cqw;box-shadow:0 .4cqw .6cqw rgba(0,0,0,.35),-.9cqw -.9cqw 0 ' + C.teal2 + ',-.9cqw -.6cqw .6cqw rgba(0,0,0,.15)}',
+    '.pc01 .pc01-rg{flex:1;font-weight:600;font-size:2cqw;line-height:1.35;color:#4d6478}',
+    '.pc01 .pc01-rg b{display:block;font-family:Fraunces,serif;font-weight:800;font-size:3.5cqw;line-height:1.1;color:' + C.ink + ';margin-bottom:.3cqw}.pc01 .pc01-rg b i{font-style:normal;color:' + C.teal + '}',
+    '.pc01.partner:not(.sq) .pc01-rg b{font-size:3.05cqw}',
+    '.pc01 .pc01-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border-radius:1cqw;padding:.5cqw;display:grid;place-items:center;font-weight:700;color:' + C.ink + ';box-shadow:0 0 0 .3cqw #e6d6b0}',
+    '.pc01 .pc01-qr img{width:100%;height:100%;display:block}',
+    '.pc01 .pc01-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc01 .pc01-bd span{background:' + C.navy + ';color:#fff;border-radius:5cqw;font-weight:700;font-size:1.5cqw;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}',
+    '.pc01.sq .pc01-ft{padding:1.3cqw 2cqw 1.3cqw 2.6cqw;gap:2cqw}.pc01.sq .pc01-rg{font-size:1.6cqw}.pc01.sq .pc01-rg b{font-size:2.8cqw}.pc01.sq .pc01-qr{width:9cqw;height:9cqw}.pc01.sq .pc01-bd span{font-size:1.25cqw}'
+  ].join('\n');
+
+  function scene(V, HH, n) {
+    var w = V.win, x0 = w[0], y0 = w[1], ww = w[2], wh = w[3], x1 = x0 + ww, y1 = y0 + wh, r = ww / 2, cx = x0 + r, R = rng(11 + Math.round(ww * 7 + wh));
+    var s = '<defs><filter id="pc01sh" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".45" flood-color="#04131c" flood-opacity=".35"/></filter>'
+      + '<radialGradient id="pc01glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="' + C.lamp + '" stop-opacity=".55"/><stop offset=".55" stop-color="' + C.lamp + '" stop-opacity=".14"/><stop offset="1" stop-color="' + C.lamp + '" stop-opacity="0"/></radialGradient>'
+      + '<linearGradient id="pc01sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d1c36"/><stop offset="1" stop-color="#26507a"/></linearGradient>'
+      + '<clipPath id="pc01cl' + Math.round(ww * 10 + wh) + '"><path d="M' + f(x0) + ' ' + f(y1) + ' L' + f(x0) + ' ' + f(y0 + r) + ' A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(x1) + ' ' + f(y0 + r) + ' L' + f(x1) + ' ' + f(y1) + 'Z"/></clipPath>'
+      + '<filter id="pc01gr" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" seed="7"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.1 .9"/></filter></defs>';
+    // wall: vertical paper panels + warm lamp glow around the window
+    for (var i = 0; i < 6; i++) s += '<rect x="' + f(i * 18 - 2) + '" y="0" width="17" height="' + f(HH) + '" fill="' + (i % 2 ? C.wall : '#226669') + '"/>';
+    s += '<ellipse cx="' + f(cx) + '" cy="' + f(y0 + wh * 0.45) + '" rx="' + f(ww * 1.05) + '" ry="' + f(wh * 0.85) + '" fill="url(#pc01glow)"/>';
+    // frame (two paper layers)
+    var arch = function (pad) { return 'M' + f(x0 - pad) + ' ' + f(y1 + pad) + ' L' + f(x0 - pad) + ' ' + f(y0 + r) + ' A' + f(r + pad) + ' ' + f(r + pad) + ' 0 0 1 ' + f(x1 + pad) + ' ' + f(y0 + r) + ' L' + f(x1 + pad) + ' ' + f(y1 + pad) + 'Z'; };
+    s += '<path d="' + arch(2.6) + '" fill="' + C.lamp2 + '"' + sh('pc01sh') + '/>';
+    s += '<path d="' + arch(1.3) + '" fill="#f1dca2"' + sh('pc01sh') + '/>';
+    var cid = 'pc01cl' + Math.round(ww * 10 + wh);
+    s += '<g clip-path="url(#' + cid + ')"><rect x="' + f(x0) + '" y="' + f(y0) + '" width="' + f(ww) + '" height="' + f(wh) + '" fill="url(#pc01sky)"/>';
+    for (i = 0; i < 18; i++) s += star(x0 + 2 + R() * (ww - 4), y0 + 3 + R() * wh * 0.45, 0.35 + R() * 0.5, i % 3 ? '#fff6d6' : C.lamp2);
+    var my = y0 + Math.min(r * 0.75, wh * 0.28), mx = x1 - ww * 0.3, mr = ww * 0.12;
+    s += '<circle cx="' + f(mx) + '" cy="' + f(my) + '" r="' + f(mr * 1.7) + '" fill="' + C.lamp + '" opacity=".16"/>';
+    s += '<circle cx="' + f(mx) + '" cy="' + f(my) + '" r="' + f(mr) + '" fill="' + C.lamp + '"' + sh('pc01sh') + '/><circle cx="' + f(mx + mr * 0.12) + '" cy="' + f(my - mr * 0.1) + '" r="' + f(mr * 0.72) + '" fill="#fbe08f"/><circle cx="' + f(mx - mr * 0.35) + '" cy="' + f(my + mr * 0.3) + '" r="' + f(mr * 0.14) + '" fill="#e9b544"/><circle cx="' + f(mx + mr * 0.3) + '" cy="' + f(my + mr * 0.15) + '" r="' + f(mr * 0.09) + '" fill="#e9b544"/>';
+    var hz = y0 + wh * 0.6;
+    // island + lighthouse
+    var ix = x0 + ww * 0.22;
+    s += '<path d="M' + f(x0 - 2) + ' ' + f(hz + 1) + ' Q' + f(ix - 6) + ' ' + f(hz - 4) + ' ' + f(ix) + ' ' + f(hz - 4.5) + ' Q' + f(ix + 6) + ' ' + f(hz - 4) + ' ' + f(ix + 12) + ' ' + f(hz + 1) + 'Z" fill="#0f2240"' + sh('pc01sh') + '/>';
+    s += '<path d="M' + f(ix - 1.1) + ' ' + f(hz - 4.2) + ' L' + f(ix - 0.7) + ' ' + f(hz - 11) + ' L' + f(ix + 0.7) + ' ' + f(hz - 11) + ' L' + f(ix + 1.1) + ' ' + f(hz - 4.2) + 'Z" fill="#f4efe2"' + sh('pc01sh') + '/>';
+    s += '<rect x="' + f(ix - 1) + '" y="' + f(hz - 8.6) + '" width="2" height="1" fill="#c94f3d"/><rect x="' + f(ix - 1) + '" y="' + f(hz - 6.4) + '" width="2" height="1" fill="#c94f3d"/>';
+    s += '<path d="M' + f(ix) + ' ' + f(hz - 12) + ' L' + f(ix + ww * 0.45) + ' ' + f(hz - 16) + ' L' + f(ix + ww * 0.45) + ' ' + f(hz - 9) + 'Z" fill="' + C.lamp2 + '" opacity=".28"/>';
+    s += '<circle cx="' + f(ix) + '" cy="' + f(hz - 11.8) + '" r=".9" fill="' + C.lamp + '"/><path d="M' + f(ix - 1.2) + ' ' + f(hz - 12.5) + ' L' + f(ix) + ' ' + f(hz - 14) + ' L' + f(ix + 1.2) + ' ' + f(hz - 12.5) + 'Z" fill="#c94f3d"/>';
+    var cols = ['#2b6a88', '#23708a', '#1f7f86', C.teal, '#3a9e98', C.teal2];
+    for (i = 0; i < cols.length; i++) {
+      var y = hz + i * (wh * 0.4 / cols.length) + 0.5, len = 9 + i * 2.5;
+      s += '<path d="' + wave(y, 0.6 + i * 0.25, len, (i * 4.1) % len, y1 + 3, x0, x1) + '" fill="' + cols[i] + '"' + sh('pc01sh') + '/>';
+      if (i === 0) s += '<path d="M' + f(mx - mr * 0.7) + ' ' + f(y + 1.2) + ' h' + f(mr * 1.4) + ' M' + f(mx - mr * 0.45) + ' ' + f(y + 2.4) + ' h' + f(mr * 0.9) + '" stroke="' + C.lamp2 + '" stroke-width=".45" stroke-linecap="round" opacity=".8"/>';
+    }
+    s += '</g>';
+    // window bars (paper muntins)
+    s += '<g fill="#f1dca2"' + sh('pc01sh') + '><rect x="' + f(cx - 0.55) + '" y="' + f(y0) + '" width="1.1" height="' + f(wh) + '"/><rect x="' + f(x0) + '" y="' + f(y0 + r - 0.55) + '" width="' + f(ww) + '" height="1.1"/></g>';
+    // sill + mugs
+    s += '<rect x="' + f(x0 - 5) + '" y="' + f(y1 + 1.6) + '" width="' + f(ww + 10) + '" height="3.4" rx=".6" fill="' + C.wood2 + '"' + sh('pc01sh') + '/>';
+    s += '<rect x="' + f(x0 - 4) + '" y="' + f(y1 + 4.6) + '" width="' + f(ww + 8) + '" height="1.6" fill="' + C.wood + '"' + sh('pc01sh') + '/>';
+    V.mugs.forEach(function (m, k) { s += mug(m[0], y1 + 1.8, m[1], k ? '#e85d4a' : C.lamp, k ? '#fff8e8' : '#e85d4a'); });
+    // counter at the bottom
+    var cy = V.foot[1] - 4;
+    s += '<rect x="-2" y="' + f(cy) + '" width="104" height="' + f(HH - cy + 2) + '" fill="#163f45"' + sh('pc01sh') + '/>';
+    s += '<rect x="-2" y="' + f(cy) + '" width="104" height="2" fill="' + C.wood2 + '"/>';
+    if (V.cm) { var cm = V.cm[n - 1]; s += mug(cm[0], cy + 0.2, cm[1], C.teal2, C.lamp2); }
+    s += '<rect x="0" y="0" width="100" height="' + f(HH) + '" filter="url(#pc01gr)" opacity=".05"/>';
+    return s;
+  }
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H;
+    var pres = spec.presenter ? '<div class="pc01-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var html = '';
+    var lg = partner ? V.pip : V.logo;
+    html += box('pc01-logo' + (partner ? ' pc01-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    var kp = partner ? V.kickP : V.kick;
+    html += box('pc01-k', kp[0], kp[1], null, null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER');
+    html += box('pc01-bdg', V.bdg[0], V.bdg[1], V.bdg[2], V.bdg[2], badge('pc01b', C.navy, C.lamp, C.teal, C.lamp2));
+    var words = H.esc(spec.series || 'Parent Talk Café').split(' ');
+    var tc = V.tc, one = S.length === 1;
+    html += box('pc01-tc pc01-card', tc[0], tc[1], tc[2], null,
+      (partner && !sq ? '' : '<div class="pc01-u">Cozy talk, winter night</div>')
+      + '<div class="pc01-t">' + words.map(function (w) { return '<span>' + w + '</span>'; }).join(sq ? ' ' : '') + '</div>'
+      + '<div class="pc01-m"><b>' + mon.toUpperCase() + '</b> ' + spec.year + ' · ON ZOOM</div>'
+      + '<div class="pc01-w">' + H.esc(H.PTC_WHERE) + '</div>' + (!one && !partner ? pres : ''));
+
+    if (!partner) {
+      if (one) {
+        var s = S[0], p = V.s1;
+        html += box('pc01-s pc01-card', p[0], p[1], p[2], null,
+          '<div class="pc01-lb">THIS MONTH\'S TOPIC</div><div class="pc01-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc01-ds">' + s.desc + '</div>' : '') + pres
+          + '<div class="pc01-dt">' + DOWF[s.dow] + ', ' + s.monFull + ' ' + s.day + ' · <b>' + s.time + '</b></div>');
+      } else {
+        S.forEach(function (s, i) {
+          var p = V.s2[i];
+          html += box('pc01-s2 pc01-card', p[0], p[1], p[2], null,
+            '<div class="pc01-n"><i>' + s.dow.toUpperCase() + '</i><b>' + s.day + '</b><i>' + s.mon.toUpperCase() + '</i></div>'
+            + '<div class="pc01-x"><div class="pc01-d">' + s.time + '</div><div class="pc01-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc01-ds">' + s.desc + '</div>' : '') + '</div>');
+        });
+      }
+    } else {
+      var tb = V.tb, rows = H.zoneRows(spec.sessions);
+      html += box('pc01-tb pc01-card', tb[0], tb[1], tb[2], null,
+        '<div class="pc01-les">' + S.map(function (s, i) { return '<div><i>' + (one ? 'TOPIC' : 'TOPIC ' + (i + 1)) + '</i>' + s.lesson + '</div>'; }).join('') + '</div>' + pres
+        + '<div class="pc01-th">Your local time</div>'
+        + rows.map(function (r) { return '<div class="pc01-r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><span class="b">' + r.days + '</span><span class="c">' + r.time + '</span></div>'; }).join(''));
+    }
+    var ft = V.foot;
+    html += box('pc01-ft', ft[0], ft[1], ft[2], null,
+      '<div class="pc01-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc01-qr">' + H.qrImg(spec, partner) + '</div><div class="pc01-bd">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="vfx pc01' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc01-bg" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none">' + scene(V, HH, S.length) + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Seaside café window on a winter night (paper waves, lamp-lit wall)', fonts: 'family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,600;1,9..144,700&family=Quicksand:wght@500;600;700', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 02 ---- */
+/* Set PC "Island Papercut café", February: tea for two on the lanai.
+   A blush sky over layered mauve hills and a lilac sea, seen from a lanai with cream paper posts, a scalloped
+   valance and a cut-paper railing. Two paper teacups and a teapot sit on the rail cap; their steam turns into
+   floating paper hearts. Centred composition: lace-doily title card, topic card(s) below the tea band. */
+VEBFlyers.registerSet('PC', 2, (function () {
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function rng(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + '">' + inner + '</div>';
+  }
+  var C = { blush: '#f6d3d8', blush2: '#fbe8e6', mauve: '#9b6b93', mauve2: '#7d4f77', deep: '#4a2a45', rose: '#d9677f', rose2: '#eb98a8', cream: '#fff7f1', lilac: '#c7a9cf', wood: '#c8a49b' };
+  var DOWF = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+  var SH = ' filter="url(#pc02sh)"';
+  function hill(pts, bottom) {
+    var d = 'M' + f(pts[0][0]) + ' ' + f(pts[0][1]);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      d += ' C' + f(p1[0] + (p2[0] - p0[0]) / 6) + ' ' + f(p1[1] + (p2[1] - p0[1]) / 6) + ' ' + f(p2[0] - (p3[0] - p1[0]) / 6) + ' ' + f(p2[1] - (p3[1] - p1[1]) / 6) + ' ' + f(p2[0]) + ' ' + f(p2[1]);
+    }
+    return d + ' L' + f(pts[pts.length - 1][0]) + ' ' + f(bottom) + ' L' + f(pts[0][0]) + ' ' + f(bottom) + 'Z';
+  }
+  function heartD(cx, cy, s) {
+    var P = function (x, y) { return f(cx + x * s) + ' ' + f(cy + y * s); };
+    return 'M' + P(0, 0.9) + ' C' + P(-0.6, 0.45) + ' ' + P(-1, 0.1) + ' ' + P(-1, -0.3) + ' C' + P(-1, -0.78) + ' ' + P(-0.42, -0.98) + ' ' + P(0, -0.52)
+      + ' C' + P(0.42, -0.98) + ' ' + P(1, -0.78) + ' ' + P(1, -0.3) + ' C' + P(1, 0.1) + ' ' + P(0.6, 0.45) + ' ' + P(0, 0.9) + 'Z';
+  }
+  // two-layer paper heart, slightly tilted
+  function heart(cx, cy, s, rot, a, b) {
+    return '<g transform="rotate(' + f(rot) + ' ' + f(cx) + ' ' + f(cy) + ')"><path d="' + heartD(cx, cy, s) + '" fill="' + a + '"' + SH + '/><path d="' + heartD(cx + s * 0.06, cy - s * 0.04, s * 0.62) + '" fill="' + b + '"/></g>';
+  }
+  // paper teacup on a saucer; (x,y) = saucer centre, s = cup width, dir = handle side (1 right, -1 left)
+  function teacup(x, y, s, dir, body, trim) {
+    var h = s * 0.55, o = '<g' + SH + '>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y) + '" rx="' + f(s * 0.78) + '" ry="' + f(s * 0.13) + '" fill="' + C.cream + '"/>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y - s * 0.02) + '" rx="' + f(s * 0.42) + '" ry="' + f(s * 0.07) + '" fill="' + trim + '"/>';
+    var hx = x + dir * s * 0.46;
+    o += '<path d="M' + f(hx) + ' ' + f(y - h * 0.85) + ' c' + f(dir * s * 0.26) + ' 0 ' + f(dir * s * 0.26) + ' ' + f(h * 0.5) + ' ' + f(-dir * s * 0.08) + ' ' + f(h * 0.62) + '" fill="none" stroke="' + body + '" stroke-width="' + f(s * 0.08) + '" stroke-linecap="round"/>';
+    o += '<path d="M' + f(x - s / 2) + ' ' + f(y - h) + ' L' + f(x + s / 2) + ' ' + f(y - h) + ' C' + f(x + s / 2) + ' ' + f(y - h * 0.3) + ' ' + f(x + s * 0.3) + ' ' + f(y - s * 0.03) + ' ' + f(x) + ' ' + f(y - s * 0.03) + ' C' + f(x - s * 0.3) + ' ' + f(y - s * 0.03) + ' ' + f(x - s / 2) + ' ' + f(y - h * 0.3) + ' ' + f(x - s / 2) + ' ' + f(y - h) + 'Z" fill="' + body + '"/>';
+    o += '<path d="M' + f(x - s * 0.49) + ' ' + f(y - h * 0.8) + ' L' + f(x + s * 0.49) + ' ' + f(y - h * 0.8) + '" stroke="' + trim + '" stroke-width="' + f(s * 0.05) + '"/>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y - h) + '" rx="' + f(s / 2) + '" ry="' + f(s * 0.09) + '" fill="#b06a4f"/>';
+    o += '<path d="' + heartD(x, y - h * 0.42, s * 0.11) + '" fill="' + trim + '"/></g>';
+    return o;
+  }
+  function teapot(x, y, s) {
+    var o = '<g' + SH + '>';
+    o += '<path d="M' + f(x + s * 0.38) + ' ' + f(y - s * 0.3) + ' C' + f(x + s * 0.6) + ' ' + f(y - s * 0.32) + ' ' + f(x + s * 0.62) + ' ' + f(y - s * 0.55) + ' ' + f(x + s * 0.78) + ' ' + f(y - s * 0.66) + ' L' + f(x + s * 0.8) + ' ' + f(y - s * 0.6) + ' C' + f(x + s * 0.7) + ' ' + f(y - s * 0.45) + ' ' + f(x + s * 0.66) + ' ' + f(y - s * 0.2) + ' ' + f(x + s * 0.36) + ' ' + f(y - s * 0.12) + 'Z" fill="' + C.mauve + '"/>';
+    o += '<path d="M' + f(x - s * 0.4) + ' ' + f(y - s * 0.52) + ' c' + f(-s * 0.32) + ' ' + f(s * 0.02) + ' ' + f(-s * 0.32) + ' ' + f(s * 0.36) + ' ' + f(-s * 0.02) + ' ' + f(s * 0.4) + '" fill="none" stroke="' + C.mauve + '" stroke-width="' + f(s * 0.07) + '" stroke-linecap="round"/>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y - s * 0.32) + '" rx="' + f(s * 0.45) + '" ry="' + f(s * 0.33) + '" fill="' + C.mauve2 + '"/>';
+    o += '<rect x="' + f(x - s * 0.44) + '" y="' + f(y - s * 0.38) + '" width="' + f(s * 0.88) + '" height="' + f(s * 0.09) + '" fill="' + C.rose2 + '"/>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y - s * 0.62) + '" rx="' + f(s * 0.22) + '" ry="' + f(s * 0.07) + '" fill="' + C.mauve + '"/><circle cx="' + f(x) + '" cy="' + f(y - s * 0.71) + '" r="' + f(s * 0.06) + '" fill="' + C.rose + '"/>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y) + '" rx="' + f(s * 0.3) + '" ry="' + f(s * 0.05) + '" fill="' + C.mauve2 + '"/></g>';
+    return o;
+  }
+  // short steam ribbon whose top drifts outward into three small paper hearts
+  function steamHearts(x, yBot, k, dir, seed) {
+    var o = '', R = rng(seed);
+    o += '<path d="M' + f(x) + ' ' + f(yBot) + ' c' + f(-k * 0.8) + ' ' + f(-k * 1.1) + ' ' + f(k * 0.8) + ' ' + f(-k * 1.6) + ' ' + f(dir * k * 0.4) + ' ' + f(-k * 2.6) + '" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="' + f(k * 0.32) + '" stroke-linecap="round"/>';
+    for (var i = 0; i < 3; i++) o += heart(x + dir * k * (0.9 + i * 1.5), yBot - k * (3.4 + i * 1.25), k * (0.78 - i * 0.12), dir * (8 + R() * 14), i % 2 ? C.rose : C.rose2, i % 2 ? C.rose2 : C.cream);
+    return o;
+  }
+  function badge(id) {
+    var s = '<svg viewBox="0 0 100 100"><defs><filter id="' + id + 'b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.3" flood-color="#3a1630" flood-opacity=".3"/></filter>'
+      + '<path id="' + id + 'ta" d="M 13.5 50 A 36.5 36.5 0 0 1 86.5 50"/><path id="' + id + 'tb" d="M 10.5 50 A 39.5 39.5 0 0 0 89.5 50"/></defs>';
+    s += '<circle cx="50" cy="50" r="48" fill="' + C.mauve2 + '" filter="url(#' + id + 'b)"/>';
+    s += '<circle cx="50" cy="50" r="45.3" fill="none" stroke="' + C.rose2 + '" stroke-width=".8" stroke-dasharray="1.6 1.6"/>';
+    s += '<text font-family="Playfair Display,serif" font-weight="800" font-size="9.4" letter-spacing="1.1" fill="' + C.cream + '"><textPath href="#' + id + 'ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>';
+    s += '<text font-family="Nunito,sans-serif" font-weight="800" font-size="6.4" letter-spacing="2.2" fill="' + C.rose2 + '"><textPath href="#' + id + 'tb" startOffset="50%" text-anchor="middle">LET\'S TALK</textPath></text>';
+    s += '<path d="' + heartD(17, 57, 2) + '" fill="' + C.rose2 + '"/><path d="' + heartD(83, 57, 2) + '" fill="' + C.rose2 + '"/>';
+    s += '<circle cx="50" cy="50" r="31" fill="' + C.cream + '" filter="url(#' + id + 'b)"/>';
+    s += '<g filter="url(#' + id + 'b)" fill="#ffffff"><path d="M42 41 C37 36 46 33 41 27 C38 23 41 21 43 20 C42 23 45 25 44 28 C49 33 41 36 45 41Z"/>'
+      + '<path d="M53 41 C48 35 57 32 52 25 C49 21 52 19 54 18 C53 21 56 24 55 26 C60 32 52 35 56 41Z"/></g>';
+    s += '<g filter="url(#' + id + 'b)"><ellipse cx="50" cy="67" rx="21" ry="4.6" fill="' + C.blush + '"/>'
+      + '<path d="M65.5 47 c8 0 8 11 -1 12" fill="none" stroke="' + C.rose + '" stroke-width="3.2"/>'
+      + '<path d="M33 44 L67 44 L64 60 Q50 68 36 60Z" fill="' + C.rose + '"/>'
+      + '<path d="' + heartD(50, 52.5, 4) + '" fill="' + C.cream + '"/>'
+      + '<ellipse cx="50" cy="44" rx="17" ry="3.3" fill="#7a3f33"/></g>';
+    return s + '</svg>';
+  }
+
+  // rail = y of the rail cap; band cups = [x, y, size, dir]; hearts = free-floating [x, y, s]
+  var L = {
+    lh: { H: 129.41, logo: [6, 6, 13.5, 13.5], pip: [6, 6.5, 22.5, 13], kick: [21.5, 10.3], kickP: [30.5, 10.3], bdg: [77, 4, 18],
+          tc: [12, 22, 76], rail: 66.5, hills: 47, cups: [[25, 66.5, 13, -1], [75, 66.5, 13, 1]], pot: [50, 66.5, 11],
+          s1: [9, 72, 82], s2: [[6, 72, 43, 31], [51, 72, 43, 31]], foot: [4, 110, 92],
+          hearts: [[6, 30, 2.2], [93.5, 33, 2], [7, 52, 1.6], [94, 56, 1.8], [5.5, 100, 1.5], [94.5, 102, 1.6], [44, 50.5, 1.2], [56, 49.5, 1.4]] },
+    lp: { H: 129.41, logo: [6, 6, 13.5, 13.5], pip: [6, 6.5, 22.5, 13], kick: [21.5, 10.3], kickP: [30.5, 10.3], bdg: [77, 4, 18],
+          tc: [12, 22, 76], rail: 64.5, hills: 46, cups: [[25, 64.5, 12, -1], [75, 64.5, 12, 1]], pot: [50, 64.5, 10],
+          tb: [6, 69, 88], foot: [4, 110, 92],
+          hearts: [[6, 30, 2.2], [93.5, 33, 2], [7, 52, 1.6], [94, 55, 1.8], [44, 49.5, 1.2], [56, 48.5, 1.4]] },
+    sh: { H: 100, logo: [4, 4.5, 11, 11], pip: [4, 5, 18, 10.5], kick: [17, 8.3], kickP: [24.5, 8.3], bdg: [83, 3, 14],
+          tc: [18, 18, 64], rail: 49, hills: 36, cups: [[11, 49, 9, -1], [89, 49, 9, 1]], pot: [77, 49, 7],
+          s1: [10, 51.5, 80], s2: [[5, 51.5, 44, 21], [51, 51.5, 44, 21]], foot: [3.5, 83, 93],
+          hearts: [[8, 25, 1.8], [91.5, 27, 1.6], [7, 37, 1.2], [93, 38, 1.3]] },
+    sp: { H: 100, logo: [4, 4.5, 11, 11], pip: [4, 5, 18, 10.5], kick: [17, 8.3], kickP: [24.5, 8.3], bdg: [83, 3, 14],
+          tc: [18, 18, 64], rail: 47, hills: 35, cups: [[11, 47, 8, -1], [89, 47, 8, 1]], pot: null,
+          tb: [5, 47.5, 90], foot: [3.5, 83, 93],
+          hearts: [[8, 25, 1.8], [91.5, 27, 1.6], [7, 36, 1.1], [93, 37, 1.2]] }
+  };
+
+  var css = [
+    '.pc02{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(74,42,69,.3);background:' + C.blush + ';font-family:Nunito,sans-serif;color:' + C.deep + '}',
+    '.pc02.sq{aspect-ratio:1/1}', '.pc02 *,.pc02 *:before,.pc02 *:after{box-sizing:border-box}',
+    '.pc02 .pc02-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pc02>div{position:absolute;z-index:3}',
+    '.pc02 .pc02-logo{border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 .4cqw .6cqw rgba(74,42,69,.3),0 0 0 .7cqw ' + C.rose2 + '}',
+    '.pc02 .pc02-logo img{width:78%;height:auto;display:block}.pc02 .pc02-logo.pc02-pip{border-radius:1.6cqw}.pc02 .pc02-logo.pc02-pip img{width:90%}',
+    '.pc02 .pc02-k{font-weight:800;font-size:1.55cqw;letter-spacing:.16em;color:' + C.cream + ';white-space:nowrap;background:' + C.mauve2 + ';padding:.7cqw 1.6cqw;border-radius:5cqw;box-shadow:0 .3cqw .5cqw rgba(74,42,69,.3)}',
+    '.pc02.sq .pc02-k{font-size:1.25cqw;padding:.6cqw 1.3cqw}',
+    '.pc02 .pc02-bdg svg{width:100%;height:100%;display:block;overflow:visible}',
+    '.pc02 .pc02-card{background:' + C.cream + ';border-radius:1.6cqw;box-shadow:0 .3cqw .5cqw rgba(74,42,69,.25),0 .9cqw 0 ' + C.rose2 + ',0 1.3cqw .8cqw rgba(74,42,69,.25)}',
+    '.pc02 .pc02-tc{padding:3cqw 3cqw 2.6cqw;text-align:center}',
+    '.pc02 .pc02-u{font-family:Caveat,cursive;font-weight:700;font-size:4cqw;color:' + C.rose + ';line-height:1}',
+    '.pc02 .pc02-t{font-family:"Playfair Display",serif;font-weight:800;font-size:8.2cqw;line-height:1;color:' + C.deep + ';margin:.4cqw 0 1.3cqw;white-space:nowrap}',
+    '.pc02 .pc02-t span{font-style:italic;color:' + C.mauve + '}',
+    '.pc02 .pc02-m{font-weight:800;font-size:2.3cqw;letter-spacing:.16em;color:' + C.deep + ';line-height:1.2}.pc02 .pc02-m b{color:' + C.rose + '}',
+    '.pc02 .pc02-w{text-wrap:balance;margin:1.2cqw auto 0;padding-top:1.1cqw;border-top:.25cqw dotted ' + C.rose2 + ';font-weight:700;font-size:1.85cqw;line-height:1.3;color:' + C.mauve + ';max-width:90%}',
+    '.pc02 .pc02-pr{font-weight:700;font-size:2.1cqw;color:' + C.mauve + ';line-height:1.25;margin-top:.8cqw}.pc02 .pc02-pr b{color:' + C.deep + ';font-weight:800}',
+    '.pc02.sq .pc02-tc{padding:2cqw 2.4cqw 1.8cqw}.pc02.sq .pc02-u{font-size:3cqw}.pc02.sq .pc02-t{font-size:6.6cqw;margin:.2cqw 0 .9cqw}',
+    '.pc02.sq .pc02-m{font-size:1.75cqw}.pc02.sq .pc02-w{font-size:1.45cqw;margin-top:.8cqw;padding-top:.7cqw}',
+    /* one-session topic card */
+    '.pc02 .pc02-s{padding:2.8cqw 4cqw 2.8cqw;text-align:center}',
+    '.pc02 .pc02-lb{font-weight:800;font-size:1.7cqw;letter-spacing:.22em;color:' + C.rose + ';line-height:1.2}',
+    '.pc02 .pc02-ti{text-wrap:balance;font-family:"Playfair Display",serif;font-weight:800;font-size:5cqw;line-height:1.08;color:' + C.deep + ';margin:.8cqw 0 .6cqw}',
+    '.pc02 .pc02-ds{font-family:Caveat,cursive;font-weight:700;font-size:3.2cqw;color:' + C.mauve + ';line-height:1.1}',
+    '.pc02 .pc02-dt{display:table;margin:1.5cqw auto 0;background:' + C.mauve2 + ';color:#fff;border-radius:5cqw;padding:.85cqw 2.4cqw;font-weight:800;font-size:2.15cqw;line-height:1.2}.pc02 .pc02-dt b{color:' + C.blush + '}',
+    /* two side-by-side session cards */
+    '.pc02 .pc02-s2{padding:2.4cqw 2.4cqw 2.4cqw;text-align:center;display:flex;flex-direction:column;align-items:center}',
+    '.pc02 .pc02-n{width:12cqw;height:11cqw;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;line-height:1;gap:.2cqw}',
+    '.pc02 .pc02-n svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}',
+    '.pc02 .pc02-n i,.pc02 .pc02-n b{position:relative;font-style:normal}.pc02 .pc02-n i{font-weight:800;font-size:1.45cqw;letter-spacing:.14em;margin-top:-1.6cqw;line-height:1.5}.pc02 .pc02-n b{font-family:"Playfair Display",serif;font-weight:800;font-size:4.6cqw;line-height:.95}',
+    '.pc02 .pc02-d{font-weight:800;font-size:2cqw;letter-spacing:.04em;color:' + C.rose + ';line-height:1.2;margin-top:1cqw}',
+    '.pc02 .pc02-s2 .pc02-ti{font-size:3.4cqw;margin:.6cqw 0 .5cqw}.pc02 .pc02-s2 .pc02-ds{font-size:2.6cqw}',
+    '.pc02.sq .pc02-s{padding:2cqw 3cqw 2cqw}.pc02.sq .pc02-lb{font-size:1.35cqw}.pc02.sq .pc02-ti{font-size:3.6cqw;margin:.5cqw 0 .4cqw}.pc02.sq .pc02-ds{font-size:2.4cqw}',
+    '.pc02.sq .pc02-dt{font-size:1.6cqw;margin:1cqw auto 0;padding:.6cqw 1.7cqw}.pc02.sq .pc02-pr{font-size:1.6cqw;margin-top:.5cqw}',
+    '.pc02.sq .pc02-s2{padding:1.5cqw 2cqw 1.6cqw}.pc02.sq .pc02-n{width:9cqw;height:8.2cqw}.pc02.sq .pc02-n i{font-size:1.1cqw;margin-top:-1cqw}.pc02.sq .pc02-n b{font-size:3.4cqw}',
+    '.pc02.sq .pc02-d{font-size:1.55cqw;margin-top:.6cqw}.pc02.sq .pc02-s2 .pc02-ti{font-size:2.6cqw;margin:.4cqw 0 0}.pc02.sq .pc02-s2 .pc02-ds{display:none}',
+    /* partner times */
+    '.pc02 .pc02-tb{padding:2.4cqw 3.4cqw 2.2cqw;text-align:center}',
+    '.pc02 .pc02-les{font-family:"Playfair Display",serif;font-weight:800;font-size:3.2cqw;line-height:1.12;color:' + C.deep + '}',
+    '.pc02 .pc02-les div+div{margin-top:.5cqw}.pc02 .pc02-les i{font-family:Nunito,sans-serif;font-style:normal;font-weight:800;font-size:.52em;letter-spacing:.16em;color:' + C.rose + ';margin-right:.7em}',
+    '.pc02 .pc02-tb .pc02-pr{margin:.4cqw 0 0}',
+    '.pc02 .pc02-th{font-family:Caveat,cursive;font-weight:700;font-size:3.4cqw;color:' + C.mauve + ';line-height:1;margin:1.2cqw 0 .8cqw}',
+    '.pc02 .pc02-g{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.8cqw 1cqw;text-align:left}',
+    '.pc02 .pc02-r{display:grid;grid-template-columns:1fr auto;column-gap:1cqw;align-items:baseline;padding:.8cqw 1.4cqw;border-radius:1.2cqw;background:' + C.blush2 + ';line-height:1.2}',
+    '.pc02 .pc02-r .a{font-weight:800;font-size:2.05cqw}.pc02 .pc02-r .c{font-weight:800;font-size:2.05cqw;color:' + C.rose + ';text-align:right;white-space:nowrap}.pc02 .pc02-r .a{grid-column:1 / 3}.pc02 .pc02-r .b{grid-row:2;font-weight:700;font-size:1.7cqw;color:' + C.mauve + '}.pc02 .pc02-r .c{grid-row:2}',
+    '.pc02 .pc02-r.h{background:' + C.mauve2 + ';color:#fff}.pc02 .pc02-r.h .b{color:' + C.blush + '}.pc02 .pc02-r.h .c{color:#fff}',
+    '.pc02 .pc02-r.h{grid-column:1 / 4;grid-template-columns:auto 1fr auto;column-gap:2cqw}.pc02 .pc02-r.h .a,.pc02 .pc02-r.h .b,.pc02 .pc02-r.h .c{grid-column:auto;grid-row:1}.pc02 .pc02-r.h .b{font-size:2cqw;color:' + C.blush + '}',
+    '.pc02.sq .pc02-tb{padding:1.6cqw 2.4cqw 1.6cqw}.pc02.sq .pc02-les{font-size:2.3cqw}.pc02.sq .pc02-th{font-size:2.4cqw;margin:.6cqw 0 .5cqw}.pc02.sq .pc02-tb .pc02-pr{font-size:1.45cqw}',
+    '.pc02.sq .pc02-g{grid-template-columns:1fr 1fr 1fr;gap:.5cqw .8cqw}.pc02.sq .pc02-r{padding:.45cqw 1cqw;border-radius:.9cqw}.pc02.sq .pc02-r .a,.pc02.sq .pc02-r .c{font-size:1.45cqw}.pc02.sq .pc02-r .b{font-size:1.25cqw}',
+    '.pc02.sq .pc02-r.h .b{font-size:1.4cqw}',
+    /* footer */
+    '.pc02 .pc02-ft{display:flex;align-items:center;gap:2.4cqw;padding:1.8cqw 2.4cqw 1.8cqw 3.4cqw;background:' + C.cream + ';border-radius:1.6cqw;box-shadow:0 .4cqw .6cqw rgba(74,42,69,.35),0 -.9cqw 0 ' + C.lilac + '}',
+    '.pc02 .pc02-rg{flex:1;font-weight:700;font-size:2cqw;line-height:1.35;color:' + C.mauve + '}',
+    '.pc02 .pc02-rg b{display:block;font-family:"Playfair Display",serif;font-weight:800;font-size:3.5cqw;line-height:1.1;color:' + C.deep + ';margin-bottom:.3cqw}.pc02 .pc02-rg b i{font-style:italic;color:' + C.rose + '}',
+    '.pc02.partner:not(.sq) .pc02-rg b{font-size:3.1cqw}',
+    '.pc02 .pc02-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border-radius:1cqw;padding:.5cqw;display:grid;place-items:center;font-weight:800;color:' + C.deep + ';box-shadow:0 0 0 .3cqw ' + C.blush + '}',
+    '.pc02 .pc02-qr img{width:100%;height:100%;display:block}',
+    '.pc02 .pc02-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc02 .pc02-bd span{background:' + C.mauve2 + ';color:#fff;border-radius:5cqw;font-weight:800;font-size:1.5cqw;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}',
+    '.pc02.sq .pc02-ft{padding:1.3cqw 2cqw 1.3cqw 2.6cqw;gap:2cqw}.pc02.sq .pc02-rg{font-size:1.6cqw}.pc02.sq .pc02-rg b{font-size:2.8cqw}.pc02.sq .pc02-qr{width:9cqw;height:9cqw}.pc02.sq .pc02-bd span{font-size:1.25cqw}'
+  ].join('\n');
+
+  function scene(V, HH) {
+    var s = '<defs><filter id="pc02sh" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".45" flood-color="#3a1630" flood-opacity=".3"/></filter>'
+      + '<linearGradient id="pc02sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3c6cf"/><stop offset=".6" stop-color="#fbe2dc"/><stop offset="1" stop-color="#fdeee6"/></linearGradient>'
+      + '<filter id="pc02gr" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" seed="3"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.1 .9"/></filter></defs>';
+    var rail = V.rail, hy = V.hills, i;
+    s += '<rect x="0" y="0" width="100" height="' + f(HH) + '" fill="url(#pc02sky)"/>';
+    // soft sun + paper clouds
+    s += '<circle cx="50" cy="' + f(hy - 4) + '" r="9" fill="#fff4ea" opacity=".9"' + SH + '/>';
+    // layered hills and lilac sea behind the rail
+    s += '<path d="' + hill([[-4, hy + 2], [12, hy - 4], [28, hy - 1], [42, hy + 3], [60, hy + 1], [76, hy - 5], [92, hy - 2], [104, hy + 1]], rail + 4) + '" fill="' + C.lilac + '"' + SH + '/>';
+    s += '<path d="' + hill([[-4, hy + 6], [10, hy + 3], [26, hy + 7], [50, hy + 9], [70, hy + 6], [88, hy + 3.5], [104, hy + 6]], rail + 4) + '" fill="#b48cb4"' + SH + '/>';
+    s += '<rect x="-2" y="' + f(hy + 9.5) + '" width="104" height="' + f(rail - hy - 6) + '" fill="#e2c6e0"' + SH + '/>';
+    // lanai floor + balusters below the rail
+    s += '<rect x="-2" y="' + f(rail) + '" width="104" height="' + f(HH - rail + 2) + '" fill="#ead2d2"/>';
+    for (i = 0; i < 26; i++) { var bx = 1 + i * 4; s += '<rect x="' + f(bx) + '" y="' + f(rail + 1) + '" width="1.8" height="' + f(HH - rail) + '" rx=".5" fill="' + C.cream + '"' + SH + '/>'; }
+    s += '<rect x="-2" y="' + f(rail - 1.2) + '" width="104" height="3" rx=".6" fill="' + C.cream + '"' + SH + '/>';
+    s += '<rect x="-2" y="' + f(rail + 1.8) + '" width="104" height=".9" fill="' + C.wood + '"/>';
+    // posts + scalloped valance
+    s += '<rect x="-1" y="0" width="3.6" height="' + f(HH) + '" fill="' + C.cream + '"' + SH + '/><rect x="97.4" y="0" width="3.6" height="' + f(HH) + '" fill="' + C.cream + '"' + SH + '/>';
+    s += '<rect x="-2" y="0" width="104" height="2.2" fill="' + C.mauve2 + '"' + SH + '/>';
+    var v = 'M-2 2';
+    for (i = 0; i < 17; i++) v += ' a3.1 2.4 0 0 0 6.2 0';
+    s += '<path d="' + v + ' L104 1 L-2 1Z" fill="' + C.rose2 + '"' + SH + '/>';
+    // lace doily behind the title card
+    var tc = V.tc, dx = tc[0] - 1.6, dw = tc[2] + 3.2, dy = tc[1] - 1.6, nn = Math.round(dw / 4.2), st = dw / nn;
+    var dd = 'M' + f(dx) + ' ' + f(dy + 2);
+    for (i = 0; i < nn; i++) dd += ' a' + f(st / 2) + ' ' + f(st / 2) + ' 0 0 1 ' + f(st) + ' 0';
+    s += '<path d="' + dd + ' L' + f(dx + dw) + ' ' + f(dy + 14) + ' L' + f(dx) + ' ' + f(dy + 14) + 'Z" fill="#fff"' + SH + '/>';
+    for (i = 0; i < nn; i++) s += '<circle cx="' + f(dx + st * (i + 0.5)) + '" cy="' + f(dy + 1.6) + '" r="' + f(st * 0.14) + '" fill="' + C.blush + '"/>';
+    // floating hearts
+    V.hearts.forEach(function (h, k) { s += heart(h[0], h[1], h[2], (k % 2 ? 14 : -12), k % 3 ? C.rose2 : C.rose, k % 3 ? C.cream : C.rose2); });
+    // tea for two on the rail cap
+    V.cups.forEach(function (c, k) {
+      s += steamHearts(c[0], c[1] - c[2] * 0.64, c[2] * 0.15, c[3], 7 + k * 5);
+      s += teacup(c[0], c[1] - 0.6, c[2], c[3], k ? C.rose : C.mauve, k ? C.cream : C.rose2);
+    });
+    if (V.pot) s += teapot(V.pot[0], V.pot[1] - 0.6, V.pot[2]);
+    s += '<rect x="0" y="0" width="100" height="' + f(HH) + '" filter="url(#pc02gr)" opacity=".05"/>';
+    return s;
+  }
+
+  function dateHeart() { return '<svg viewBox="0 0 24 22"><path d="M12 21 C5 16 0 12 0 6.6 C0 1.5 6.5 -1 12 4.6 C17.5 -1 24 1.5 24 6.6 C24 12 19 16 12 21Z" fill="' + C.rose + '"/></svg>'; }
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H, one = S.length === 1;
+    var pres = spec.presenter ? '<div class="pc02-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var html = '';
+    var lg = partner ? V.pip : V.logo;
+    html += box('pc02-logo' + (partner ? ' pc02-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    var kp = partner ? V.kickP : V.kick;
+    html += box('pc02-k', kp[0], kp[1], null, null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER');
+    html += box('pc02-bdg', V.bdg[0], V.bdg[1], V.bdg[2], V.bdg[2], badge('pc02b'));
+    var tc = V.tc;
+    html += box('pc02-tc pc02-card', tc[0], tc[1], tc[2], null,
+      '<div class="pc02-u">Tea for two, talk for all</div>'
+      + '<div class="pc02-t">' + H.seriesTitle(spec.series || 'Parent Talk Café') + '</div>'
+      + '<div class="pc02-m"><b>' + mon.toUpperCase() + '</b> ' + spec.year + ' · ON ZOOM</div>'
+      + '<div class="pc02-w">' + H.esc(H.PTC_WHERE) + '</div>' + (!one && !partner ? pres : ''));
+
+    if (!partner) {
+      if (one) {
+        var s = S[0], p = V.s1;
+        html += box('pc02-s pc02-card', p[0], p[1], p[2], null,
+          '<div class="pc02-lb">THIS MONTH\'S TOPIC</div><div class="pc02-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc02-ds">' + s.desc + '</div>' : '') + pres
+          + '<div class="pc02-dt">' + DOWF[s.dow] + ', ' + s.monFull + ' ' + s.day + ' · <b>' + s.time + '</b></div>');
+      } else {
+        S.forEach(function (s, i) {
+          var p = V.s2[i];
+          html += box('pc02-s2 pc02-card', p[0], p[1], p[2], p[3],
+            '<div class="pc02-n">' + dateHeart() + '<i>' + s.dow.toUpperCase() + '</i><b>' + s.day + '</b></div>'
+            + '<div class="pc02-d">' + s.mon + ' ' + s.day + ' · ' + s.time + '</div><div class="pc02-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc02-ds">' + s.desc + '</div>' : ''));
+        });
+      }
+    } else {
+      var tb = V.tb, rows = H.zoneRows(spec.sessions), home = rows.filter(function (r) { return r.home; }), rest = rows.filter(function (r) { return !r.home; });
+      html += box('pc02-tb pc02-card', tb[0], tb[1], tb[2], null,
+        '<div class="pc02-les">' + S.map(function (s, i) { return '<div><i>' + (one ? 'TOPIC' : 'TOPIC ' + (i + 1)) + '</i>' + s.lesson + '</div>'; }).join('') + '</div>' + pres
+        + '<div class="pc02-th">Pour a cup at your local time</div><div class="pc02-g">'
+        + home.concat(rest).map(function (r) { return '<div class="pc02-r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><span class="b">' + r.days + '</span><span class="c">' + r.time + '</span></div>'; }).join('') + '</div>');
+    }
+    var ft = V.foot;
+    html += box('pc02-ft', ft[0], ft[1], ft[2], null,
+      '<div class="pc02-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc02-qr">' + H.qrImg(spec, partner) + '</div><div class="pc02-bd">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="vfx pc02' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc02-bg" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none">' + scene(V, HH) + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Tea for two on the lanai (paper teacups, floating paper hearts)', fonts: 'family=Playfair+Display:ital,wght@0,700;0,800;1,700;1,800&family=Nunito:wght@600;700;800&family=Caveat:wght@700', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 03 ---- */
+/* Set PC "Island Papercut café", March: spring garden café table.
+   A lemon-sky garden with layered green hedges and a white paper picket fence. Along the bottom runs a café table
+   in a green gingham cloth with a scalloped hem; on it a lemon paper kettle steams and seedlings sprout from white
+   pots, climbing the left side under a paper sun and butterflies. Text cards stack in the right-hand column. */
+VEBFlyers.registerSet('PC', 3, (function () {
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function rng(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + '">' + inner + '</div>';
+  }
+  var C = { leaf: '#3f9a4a', leaf2: '#6cbf55', leaf3: '#a7d77a', deep: '#1f5e34', ink: '#1d4a2c', lemon: '#f7d84a', lemon2: '#fff3b0', white: '#fffef7', sky: '#fdf8d8', pot: '#f4f1e6' };
+  var DOWF = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+  var SH = ' filter="url(#pc03sh)"';
+  function hill(pts, bottom) {
+    var d = 'M' + f(pts[0][0]) + ' ' + f(pts[0][1]);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      d += ' C' + f(p1[0] + (p2[0] - p0[0]) / 6) + ' ' + f(p1[1] + (p2[1] - p0[1]) / 6) + ' ' + f(p2[0] - (p3[0] - p1[0]) / 6) + ' ' + f(p2[1] - (p3[1] - p1[1]) / 6) + ' ' + f(p2[0]) + ' ' + f(p2[1]);
+    }
+    return d + ' L' + f(pts[pts.length - 1][0]) + ' ' + f(bottom) + ' L' + f(pts[0][0]) + ' ' + f(bottom) + 'Z';
+  }
+  // leaf shape: base at (x,y), length l, angle a (deg, 0 = up)
+  function leaf(x, y, l, a, fill) {
+    return '<path transform="rotate(' + f(a) + ' ' + f(x) + ' ' + f(y) + ')" d="M' + f(x) + ' ' + f(y) + ' C' + f(x - l * 0.42) + ' ' + f(y - l * 0.3) + ' ' + f(x - l * 0.3) + ' ' + f(y - l * 0.85) + ' ' + f(x) + ' ' + f(y - l) + ' C' + f(x + l * 0.3) + ' ' + f(y - l * 0.85) + ' ' + f(x + l * 0.42) + ' ' + f(y - l * 0.3) + ' ' + f(x) + ' ' + f(y) + 'Z" fill="' + fill + '"' + SH + '/>';
+  }
+  // seedling in a white pot: pot bottom centre (x,y), pot width w, stem height h
+  function sprout(x, y, w, h, seed) {
+    var R = rng(seed), o = '', top = y - w * 0.8 - h;
+    o += '<path d="M' + f(x) + ' ' + f(y - w * 0.75) + ' C' + f(x - w * 0.15) + ' ' + f(y - w * 0.75 - h * 0.4) + ' ' + f(x + w * 0.15) + ' ' + f(top + h * 0.3) + ' ' + f(x) + ' ' + f(top) + '" fill="none" stroke="' + C.leaf + '" stroke-width="' + f(w * 0.07) + '" stroke-linecap="round"/>';
+    var n = Math.max(2, Math.round(h / (w * 0.55)));
+    for (var i = 0; i < n; i++) {
+      var t = (i + 1) / (n + 0.4), ly = y - w * 0.75 - h * t, side = i % 2 ? 1 : -1;
+      o += leaf(x, ly, w * (0.55 + R() * 0.2) * (1 - t * 0.25), side * (52 + R() * 18), i % 3 === 1 ? C.leaf2 : (i % 3 ? C.leaf3 : C.leaf));
+    }
+    o += leaf(x, top + 0.3, w * 0.42, -18, C.leaf2) + leaf(x, top + 0.3, w * 0.42, 22, C.leaf);
+    o += '<g' + SH + '><path d="M' + f(x - w / 2) + ' ' + f(y - w * 0.8) + ' L' + f(x + w / 2) + ' ' + f(y - w * 0.8) + ' L' + f(x + w * 0.38) + ' ' + f(y) + ' L' + f(x - w * 0.38) + ' ' + f(y) + 'Z" fill="' + C.pot + '"/>'
+      + '<rect x="' + f(x - w * 0.56) + '" y="' + f(y - w * 0.86) + '" width="' + f(w * 1.12) + '" height="' + f(w * 0.2) + '" rx="' + f(w * 0.05) + '" fill="' + C.white + '"/>'
+      + '<rect x="' + f(x - w * 0.44) + '" y="' + f(y - w * 0.42) + '" width="' + f(w * 0.88) + '" height="' + f(w * 0.12) + '" fill="' + C.leaf2 + '"/></g>';
+    return o;
+  }
+  // lemon paper kettle; (x,y) = base centre, s = body width; spout to the left
+  function kettle(x, y, s) {
+    var h = s * 0.62, o = '<g' + SH + '>';
+    o += '<path d="M' + f(x - s * 0.18) + ' ' + f(y - h * 1.12) + ' C' + f(x - s * 0.2) + ' ' + f(y - h * 1.75) + ' ' + f(x + s * 0.2) + ' ' + f(y - h * 1.75) + ' ' + f(x + s * 0.18) + ' ' + f(y - h * 1.12) + '" fill="none" stroke="' + C.deep + '" stroke-width="' + f(s * 0.06) + '" stroke-linecap="round"/>';
+    o += '<path d="M' + f(x - s * 0.36) + ' ' + f(y - h * 0.45) + ' C' + f(x - s * 0.55) + ' ' + f(y - h * 0.5) + ' ' + f(x - s * 0.58) + ' ' + f(y - h * 0.9) + ' ' + f(x - s * 0.78) + ' ' + f(y - h * 1.02) + ' L' + f(x - s * 0.74) + ' ' + f(y - h * 1.12) + ' C' + f(x - s * 0.62) + ' ' + f(y - h * 1.1) + ' ' + f(x - s * 0.5) + ' ' + f(y - h * 0.82) + ' ' + f(x - s * 0.34) + ' ' + f(y - h * 0.78) + 'Z" fill="#e8c232"/>';
+    o += '<path d="M' + f(x - s / 2) + ' ' + f(y - s * 0.04) + ' C' + f(x - s * 0.52) + ' ' + f(y - h * 0.8) + ' ' + f(x - s * 0.34) + ' ' + f(y - h * 1.08) + ' ' + f(x) + ' ' + f(y - h * 1.08) + ' C' + f(x + s * 0.34) + ' ' + f(y - h * 1.08) + ' ' + f(x + s * 0.52) + ' ' + f(y - h * 0.8) + ' ' + f(x + s / 2) + ' ' + f(y - s * 0.04) + ' Q' + f(x) + ' ' + f(y + s * 0.03) + ' ' + f(x - s / 2) + ' ' + f(y - s * 0.04) + 'Z" fill="' + C.lemon + '"/>';
+    o += '<path d="M' + f(x - s * 0.49) + ' ' + f(y - h * 0.38) + ' Q' + f(x) + ' ' + f(y - h * 0.3) + ' ' + f(x + s * 0.49) + ' ' + f(y - h * 0.38) + ' L' + f(x + s * 0.5) + ' ' + f(y - h * 0.24) + ' Q' + f(x) + ' ' + f(y - h * 0.16) + ' ' + f(x - s * 0.5) + ' ' + f(y - h * 0.24) + 'Z" fill="' + C.leaf + '"/>';
+    o += '<ellipse cx="' + f(x) + '" cy="' + f(y - h * 1.07) + '" rx="' + f(s * 0.24) + '" ry="' + f(s * 0.06) + '" fill="#e8c232"/><circle cx="' + f(x) + '" cy="' + f(y - h * 1.17) + '" r="' + f(s * 0.05) + '" fill="' + C.deep + '"/>';
+    o += '<path d="M' + f(x - s * 0.3) + ' ' + f(y - h * 0.62) + ' q' + f(s * 0.04) + ' ' + f(-h * 0.25) + ' ' + f(s * 0.18) + ' ' + f(-h * 0.32) + '" stroke="#fff" stroke-opacity=".75" stroke-width="' + f(s * 0.035) + '" fill="none" stroke-linecap="round"/>';
+    o += '</g>';
+    // steam from the spout
+    var sx = x - s * 0.78, sy = y - h * 1.14, k = s * 0.1;
+    o += '<path d="M' + f(sx) + ' ' + f(sy) + ' c' + f(-k) + ' ' + f(-k * 1.2) + ' ' + f(k * 0.4) + ' ' + f(-k * 2.2) + ' ' + f(-k * 0.2) + ' ' + f(-k * 3.4) + ' c' + f(-k * 0.6) + ' ' + f(-k * 1.2) + ' ' + f(k * 0.9) + ' ' + f(-k * 2) + ' ' + f(k * 0.3) + ' ' + f(-k * 3.4) + '" fill="none" stroke="#fff" stroke-width="' + f(k * 0.42) + '" stroke-linecap="round"' + SH + '/>';
+    o += '<path d="M' + f(sx + k * 1.4) + ' ' + f(sy - k * 0.6) + ' c' + f(-k * 0.8) + ' ' + f(-k * 1.1) + ' ' + f(k * 0.5) + ' ' + f(-k * 2) + ' ' + f(-k * 0.1) + ' ' + f(-k * 3) + '" fill="none" stroke="#fff" stroke-width="' + f(k * 0.32) + '" stroke-linecap="round"' + SH + '/>';
+    return o;
+  }
+  function butterfly(x, y, s, rot) {
+    return '<g transform="rotate(' + f(rot) + ' ' + f(x) + ' ' + f(y) + ')"' + SH + '>'
+      + '<ellipse cx="' + f(x - s * 0.5) + '" cy="' + f(y - s * 0.3) + '" rx="' + f(s * 0.55) + '" ry="' + f(s * 0.42) + '" fill="' + C.lemon + '"/>'
+      + '<ellipse cx="' + f(x + s * 0.5) + '" cy="' + f(y - s * 0.3) + '" rx="' + f(s * 0.55) + '" ry="' + f(s * 0.42) + '" fill="' + C.lemon + '"/>'
+      + '<ellipse cx="' + f(x - s * 0.36) + '" cy="' + f(y + s * 0.32) + '" rx="' + f(s * 0.36) + '" ry="' + f(s * 0.28) + '" fill="#f2c230"/>'
+      + '<ellipse cx="' + f(x + s * 0.36) + '" cy="' + f(y + s * 0.32) + '" rx="' + f(s * 0.36) + '" ry="' + f(s * 0.28) + '" fill="#f2c230"/>'
+      + '<rect x="' + f(x - s * 0.07) + '" y="' + f(y - s * 0.6) + '" width="' + f(s * 0.14) + '" height="' + f(s * 1.2) + '" rx="' + f(s * 0.07) + '" fill="' + C.deep + '"/></g>';
+  }
+  function sun(cx, cy, r) {
+    var o = '<g' + SH + '>', i, d = '';
+    for (i = 0; i < 12; i++) { var a = i * Math.PI / 6, a1 = a - 0.13, a2 = a + 0.13; d += 'M' + f(cx + Math.cos(a1) * r * 1.08) + ' ' + f(cy + Math.sin(a1) * r * 1.08) + ' L' + f(cx + Math.cos(a) * r * 1.5) + ' ' + f(cy + Math.sin(a) * r * 1.5) + ' L' + f(cx + Math.cos(a2) * r * 1.08) + ' ' + f(cy + Math.sin(a2) * r * 1.08) + 'Z '; }
+    o += '<path d="' + d + '" fill="' + C.lemon + '"/>';
+    o += '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + C.lemon + '"/><circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.74) + '" fill="#fbe57a"/></g>';
+    return o;
+  }
+  function badge(id) {
+    var s = '<svg viewBox="0 0 100 100"><defs><filter id="' + id + 'b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.3" flood-color="#0f2a16" flood-opacity=".3"/></filter>'
+      + '<path id="' + id + 'ta" d="M 13.5 50 A 36.5 36.5 0 0 1 86.5 50"/><path id="' + id + 'tb" d="M 10.5 50 A 39.5 39.5 0 0 0 89.5 50"/></defs>';
+    s += '<circle cx="50" cy="50" r="48" fill="' + C.leaf + '" filter="url(#' + id + 'b)"/>';
+    s += '<circle cx="50" cy="50" r="45.3" fill="none" stroke="' + C.lemon2 + '" stroke-width=".8" stroke-dasharray="1.6 1.6"/>';
+    s += '<text font-family="Fredoka,sans-serif" font-weight="700" font-size="9.8" letter-spacing="1" fill="#fff"><textPath href="#' + id + 'ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>';
+    s += '<text font-family="Fredoka,sans-serif" font-weight="600" font-size="6.6" letter-spacing="2.2" fill="' + C.lemon2 + '"><textPath href="#' + id + 'tb" startOffset="50%" text-anchor="middle">LET\'S TALK</textPath></text>';
+    s += '<circle cx="17" cy="57" r="1.6" fill="' + C.lemon + '"/><circle cx="83" cy="57" r="1.6" fill="' + C.lemon + '"/>';
+    s += '<circle cx="50" cy="50" r="31" fill="' + C.white + '" filter="url(#' + id + 'b)"/>';
+    s += '<g filter="url(#' + id + 'b)" fill="#ffffff"><path d="M42 41 C37 36 46 33 41 27 C38 23 41 21 43 20 C42 23 45 25 44 28 C49 33 41 36 45 41Z"/>'
+      + '<path d="M53 41 C48 35 57 32 52 25 C49 21 52 19 54 18 C53 21 56 24 55 26 C60 32 52 35 56 41Z"/></g>';
+    s += '<path d="M40.5 27 C39 22 43 20 46 21 C45 24 43 26 40.5 27Z M56 23 C58 19 62 19 63 21 C61 23 58 24 56 23Z" fill="' + C.leaf2 + '"/>';
+    s += '<g filter="url(#' + id + 'b)"><ellipse cx="50" cy="67" rx="21" ry="4.6" fill="' + C.leaf3 + '"/>'
+      + '<path d="M65.5 47 c8 0 8 11 -1 12" fill="none" stroke="' + C.lemon + '" stroke-width="3.2"/>'
+      + '<path d="M33 44 L67 44 L64 60 Q50 68 36 60Z" fill="' + C.lemon + '"/>'
+      + '<path d="M34.3 50.5 L65.7 50.5 L65 54 L35 54Z" fill="' + C.leaf + '"/>'
+      + '<ellipse cx="50" cy="44" rx="17" ry="3.3" fill="#6b4a22"/></g>';
+    return s + '</svg>';
+  }
+
+  // table = y of the table top; kettle [x, size]; pots [x, potW, stemH]; flies = butterflies [x, y, s, rot]
+  var L = {
+    lh: { H: 129.41, logo: [5, 4.5, 14, 14], pip: [5, 5, 23, 13.5], kick: [21.5, 8.6], kickP: [30.5, 8.6], bdg: [78.5, 2.6, 18.5],
+          col: [39, 56], tc: 22, s1: 59, s2: [59, 81.5, 20.5], table: 104.5, foot: [4, 111.5, 92], sun: [19, 33, 6.5],
+          kettle: [20, 22], pots: [[6.5, 6, 40], [32.5, 5.5, 26]], flies: [[11, 50, 2.2, -18], [27, 62, 1.8, 14]], hedge: 70, fence: 84 },
+    lp: { H: 129.41, logo: [5, 4.5, 14, 14], pip: [5, 5, 23, 13.5], kick: [21.5, 8.6], kickP: [30.5, 8.6], bdg: [78.5, 2.6, 18.5],
+          col: [39, 56], tc: 22, tb: 60, table: 104.5, foot: [4, 111.5, 92], sun: [19, 33, 6.5],
+          kettle: [20, 22], pots: [[6.5, 6, 40], [32.5, 5.5, 26]], flies: [[11, 50, 2.2, -18], [27, 62, 1.8, 14]], hedge: 70, fence: 84 },
+    sh: { H: 100, logo: [4, 3.5, 11, 11], pip: [4, 4, 18, 10.5], kick: [17, 7.3], kickP: [24.5, 7.3], bdg: [82, 2, 15],
+          col: [38, 58.5], tc: 17.5, s1: 41, s2: [41, 60.5, 18], table: 79.5, foot: [3.5, 84, 93], sun: [17, 27, 5],
+          kettle: [19, 17], pots: [[5.5, 4.6, 24], [32, 4.2, 15]], flies: [[29, 40, 1.6, 16]], hedge: 54, fence: 64 },
+    sp: { H: 100, logo: [4, 3.5, 11, 11], pip: [4, 4, 18, 10.5], kick: [17, 7.3], kickP: [24.5, 7.3], bdg: [82, 2, 15],
+          col: [38, 58.5], tc: 17.5, tb: 40.5, table: 79.5, foot: [3.5, 84, 93], sun: [17, 27, 5],
+          kettle: [19, 17], pots: [[5.5, 4.6, 24], [32, 4.2, 15]], flies: [[30, 38, 1.6, 16]], hedge: 54, fence: 64 }
+  };
+
+  var css = [
+    '.pc03{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(31,94,52,.3);background:' + C.sky + ';font-family:Nunito,sans-serif;color:' + C.ink + '}',
+    '.pc03.sq{aspect-ratio:1/1}', '.pc03 *,.pc03 *:before,.pc03 *:after{box-sizing:border-box}',
+    '.pc03 .pc03-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pc03>div{position:absolute;z-index:3}',
+    '.pc03 .pc03-logo{border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 .4cqw .6cqw rgba(31,94,52,.3),0 0 0 .7cqw ' + C.leaf2 + '}',
+    '.pc03 .pc03-logo img{width:78%;height:auto;display:block}.pc03 .pc03-logo.pc03-pip{border-radius:1.6cqw}.pc03 .pc03-logo.pc03-pip img{width:90%}',
+    '.pc03 .pc03-k{font-weight:800;font-size:1.55cqw;letter-spacing:.16em;color:#fff;white-space:nowrap;background:' + C.leaf + ';padding:.7cqw 1.6cqw;border-radius:5cqw;box-shadow:0 .3cqw .5cqw rgba(31,94,52,.3)}',
+    '.pc03.sq .pc03-k{font-size:1.25cqw;padding:.6cqw 1.3cqw}',
+    '.pc03 .pc03-bdg svg{width:100%;height:100%;display:block;overflow:visible}',
+    '.pc03 .pc03-card{background:' + C.white + ';border-radius:1.4cqw;box-shadow:0 .3cqw .5cqw rgba(31,94,52,.25),-.9cqw .9cqw 0 ' + C.lemon + ',-.9cqw 1.3cqw .8cqw rgba(31,94,52,.22)}',
+    '.pc03 .pc03-tc{padding:2.5cqw 3cqw 2.4cqw}',
+    '.pc03 .pc03-u{font-weight:800;font-size:1.75cqw;letter-spacing:.2em;color:' + C.leaf + ';line-height:1.2;position:relative;z-index:2}',
+    '.pc03 .pc03-t{font-family:Fredoka,sans-serif;font-weight:700;font-size:8.2cqw;line-height:.98;color:' + C.deep + ';margin:.6cqw 0 1.2cqw}',
+    '.pc03 .pc03-t span{color:' + C.leaf + '}',
+    '.pc03 .pc03-m{display:table;font-weight:800;font-size:2.2cqw;letter-spacing:.12em;color:' + C.ink + ';line-height:1.2;background:' + C.lemon2 + ';padding:.5cqw 1.4cqw;border-radius:5cqw}',
+    '.pc03 .pc03-w{text-wrap:balance;margin-top:1.2cqw;font-weight:700;font-size:1.85cqw;line-height:1.3;color:#4f7a5a}',
+    '.pc03 .pc03-pr{font-weight:700;font-size:2cqw;color:#4f7a5a;line-height:1.25;margin-top:.8cqw}.pc03 .pc03-pr b{color:' + C.ink + ';font-weight:800}',
+    '.pc03.sq .pc03-tc{padding:1.8cqw 2.4cqw 1.7cqw}.pc03.sq .pc03-u{font-size:1.3cqw}.pc03.sq .pc03-t{font-size:5.5cqw;margin:.3cqw 0 .9cqw;white-space:nowrap}',
+    '.pc03.sq .pc03-m{font-size:1.6cqw;padding:.4cqw 1.1cqw}.pc03.sq .pc03-w{font-size:1.4cqw;margin-top:.8cqw}',
+    /* one session */
+    '.pc03 .pc03-s{padding:2.6cqw 3cqw 2.6cqw}',
+    '.pc03 .pc03-lb{display:flex;align-items:center;gap:1cqw;font-weight:800;font-size:1.7cqw;letter-spacing:.2em;color:' + C.leaf + ';line-height:1.2}',
+    '.pc03 .pc03-lb:after{content:"";flex:1;height:.25cqw;background:repeating-linear-gradient(90deg,' + C.leaf3 + ' 0 1cqw,transparent 1cqw 1.8cqw)}',
+    '.pc03 .pc03-ti{text-wrap:balance;font-family:Fredoka,sans-serif;font-weight:700;font-size:5cqw;line-height:1.06;color:' + C.deep + ';margin:1cqw 0 .8cqw}',
+    '.pc03 .pc03-ds{font-weight:700;font-size:2.2cqw;color:' + C.leaf + ';line-height:1.3}',
+    '.pc03 .pc03-when{display:flex;align-items:stretch;margin-top:1.8cqw;border-radius:1.2cqw;overflow:hidden;box-shadow:0 0 0 .3cqw ' + C.leaf3 + '}',
+    '.pc03 .pc03-cal{flex:none;width:11cqw;background:' + C.leaf + ';color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:.8cqw 0;line-height:1}',
+    '.pc03 .pc03-cal i{font-style:normal;font-weight:800;font-size:1.5cqw;letter-spacing:.14em;line-height:1.3}.pc03 .pc03-cal b{font-family:Fredoka,sans-serif;font-weight:700;font-size:5cqw;line-height:1}',
+    '.pc03 .pc03-wt{flex:1;background:' + C.lemon2 + ';padding:1cqw 1.8cqw;display:flex;flex-direction:column;justify-content:center;font-weight:800;font-size:2.3cqw;line-height:1.25;color:' + C.ink + '}.pc03 .pc03-wt span{font-weight:700;font-size:.85em;color:#4f7a5a}',
+    /* two sessions */
+    '.pc03 .pc03-s2{display:flex;align-items:center;gap:2.2cqw;padding:1.8cqw 2.6cqw 1.8cqw 1.8cqw}',
+    '.pc03 .pc03-s2 .pc03-cal{width:11cqw;align-self:stretch;border-radius:1.1cqw}',
+    '.pc03 .pc03-x{flex:1;min-width:0}',
+    '.pc03 .pc03-d{font-weight:800;font-size:1.9cqw;letter-spacing:.04em;color:' + C.leaf + ';line-height:1.2}',
+    '.pc03 .pc03-s2 .pc03-ti{font-size:3.3cqw;margin:.4cqw 0 .3cqw}.pc03 .pc03-s2 .pc03-ds{font-size:1.85cqw}',
+    '.pc03.sq .pc03-s{padding:1.8cqw 2.4cqw 1.8cqw}.pc03.sq .pc03-lb{font-size:1.3cqw}.pc03.sq .pc03-ti{font-size:3.5cqw;margin:.6cqw 0 .5cqw}.pc03.sq .pc03-ds{font-size:1.6cqw}',
+    '.pc03.sq .pc03-when{margin-top:1.1cqw}.pc03.sq .pc03-cal{width:8cqw;padding:.5cqw 0}.pc03.sq .pc03-cal i{font-size:1.1cqw}.pc03.sq .pc03-cal b{font-size:3.5cqw}.pc03.sq .pc03-wt{font-size:1.65cqw;padding:.6cqw 1.3cqw}',
+    '.pc03.sq .pc03-pr{font-size:1.5cqw;margin-top:.5cqw}',
+    '.pc03.sq .pc03-s2{padding:1.2cqw 1.8cqw 1.2cqw 1.3cqw;gap:1.6cqw}.pc03.sq .pc03-s2 .pc03-cal{width:8cqw}',
+    '.pc03.sq .pc03-d{font-size:1.45cqw}.pc03.sq .pc03-s2 .pc03-ti{font-size:2.5cqw}.pc03.sq .pc03-s2 .pc03-ds{display:none}',
+    /* partner table */
+    '.pc03 .pc03-tb{padding:2.3cqw 2.8cqw 2.2cqw}',
+    '.pc03 .pc03-les{font-family:Fredoka,sans-serif;font-weight:700;font-size:3cqw;line-height:1.1;color:' + C.deep + '}',
+    '.pc03 .pc03-les div+div{margin-top:.6cqw}.pc03 .pc03-les i{display:block;font-family:Nunito,sans-serif;font-style:normal;font-weight:800;font-size:.5em;letter-spacing:.18em;color:' + C.leaf + ';margin-bottom:.1em}',
+    '.pc03 .pc03-tb .pc03-pr{margin:.6cqw 0 0}',
+    '.pc03 .pc03-th{display:flex;align-items:center;gap:1cqw;font-weight:800;font-size:1.7cqw;letter-spacing:.18em;color:' + C.leaf + ';line-height:1.2;margin:1.5cqw 0 .8cqw}',
+    '.pc03 .pc03-th:after{content:"";flex:1;height:.25cqw;background:repeating-linear-gradient(90deg,' + C.leaf3 + ' 0 1cqw,transparent 1cqw 1.8cqw)}',
+    '.pc03 .pc03-r{display:grid;grid-template-columns:1fr auto;align-items:baseline;column-gap:.8cqw;font-size:1.75cqw;line-height:1.15;padding:.7cqw 1cqw}',
+    '.pc03 .pc03-r:nth-child(odd){background:#f3f9e9;border-radius:.8cqw}',
+    '.pc03 .pc03-r .a{font-weight:800}.pc03 .pc03-r .c{font-weight:800;color:' + C.leaf + ';text-align:right;white-space:nowrap}.pc03 .pc03-r .b{grid-column:1 / 3;font-weight:700;font-size:.82em;color:#5f8569}',
+    '.pc03 .pc03-r.h{background:' + C.lemon + ' !important;border-radius:.8cqw}.pc03 .pc03-r.h .c{color:' + C.deep + '}.pc03 .pc03-r.h .b{color:' + C.ink + '}',
+    '.pc03.sq .pc03-tb{padding:1.5cqw 2cqw 1.5cqw}.pc03.sq .pc03-les{font-size:2.15cqw}.pc03.sq .pc03-th{font-size:1.2cqw;margin:.9cqw 0 .4cqw}.pc03.sq .pc03-tb .pc03-pr{font-size:1.4cqw;margin-top:.3cqw}',
+    '.pc03 .pc03-g{display:grid;grid-template-columns:1fr 1fr;column-gap:.8cqw}.pc03 .pc03-r:nth-child(odd){background:none}.pc03 .pc03-r:nth-child(4n+1),.pc03 .pc03-r:nth-child(4n+2){background:#f3f9e9;border-radius:.8cqw}',
+    '.pc03.sq .pc03-g{column-gap:.6cqw}.pc03.sq .pc03-r{font-size:1.4cqw;padding:.4cqw .8cqw}.pc03.sq .pc03-r:nth-child(odd){background:none}.pc03.sq .pc03-r:nth-child(4n+1),.pc03.sq .pc03-r:nth-child(4n+2){background:#f3f9e9;border-radius:.6cqw}',
+    /* footer */
+    '.pc03 .pc03-ft{display:flex;align-items:center;gap:2.4cqw;padding:1.8cqw 2.4cqw 1.8cqw 3.4cqw;background:' + C.white + ';border-radius:1.4cqw;box-shadow:0 .4cqw .6cqw rgba(31,94,52,.35),0 -.9cqw 0 ' + C.leaf2 + '}',
+    '.pc03 .pc03-rg{flex:1;font-weight:700;font-size:2cqw;line-height:1.35;color:#4f7a5a}',
+    '.pc03 .pc03-rg b{display:block;font-family:Fredoka,sans-serif;font-weight:700;font-size:3.6cqw;line-height:1.1;color:' + C.deep + ';margin-bottom:.3cqw}.pc03 .pc03-rg b i{font-style:normal;color:' + C.leaf + '}',
+    '.pc03.partner:not(.sq) .pc03-rg b{font-size:3.2cqw}',
+    '.pc03 .pc03-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border-radius:1cqw;padding:.5cqw;display:grid;place-items:center;font-weight:800;color:' + C.ink + ';box-shadow:0 0 0 .3cqw ' + C.leaf3 + '}',
+    '.pc03 .pc03-qr img{width:100%;height:100%;display:block}',
+    '.pc03 .pc03-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc03 .pc03-bd span{background:' + C.leaf + ';color:#fff;border-radius:5cqw;font-weight:800;font-size:1.5cqw;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}',
+    '.pc03.sq .pc03-ft{padding:1.2cqw 2cqw 1.2cqw 2.6cqw;gap:2cqw}.pc03.sq .pc03-rg{font-size:1.55cqw}.pc03.sq .pc03-rg b{font-size:2.8cqw}.pc03.sq .pc03-qr{width:8.6cqw;height:8.6cqw}.pc03.sq .pc03-bd span{font-size:1.25cqw}'
+  ].join('\n');
+
+  function scene(V, HH) {
+    var s = '<defs><filter id="pc03sh" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".45" flood-color="#173d20" flood-opacity=".3"/></filter>'
+      + '<linearGradient id="pc03sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fdf3c4"/><stop offset=".55" stop-color="#fbf9e6"/><stop offset="1" stop-color="#eef7df"/></linearGradient>'
+      + '<filter id="pc03gr" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" seed="9"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.1 .9"/></filter></defs>';
+    var i, T = V.table, hd = V.hedge, fe = V.fence;
+    s += '<rect x="0" y="0" width="100" height="' + f(HH) + '" fill="url(#pc03sky)"/>';
+    s += sun(V.sun[0], V.sun[1], V.sun[2]);
+    // layered hedges
+    s += '<path d="' + hill([[-4, hd + 3], [8, hd - 3], [20, hd + 1], [34, hd - 4], [50, hd], [66, hd - 5], [82, hd - 1], [104, hd - 4]], T + 2) + '" fill="' + C.leaf3 + '"' + SH + '/>';
+    s += '<path d="' + hill([[-4, hd + 9], [12, hd + 5], [26, hd + 9], [44, hd + 6], [62, hd + 10], [80, hd + 5], [104, hd + 8]], T + 2) + '" fill="' + C.leaf2 + '"' + SH + '/>';
+    // white picket fence
+    var fp = '';
+    for (i = 0; i < 21; i++) { var px = -1 + i * 5; fp += 'M' + f(px) + ' ' + f(T + 1) + ' L' + f(px) + ' ' + f(fe + 1.5) + ' L' + f(px + 1.4) + ' ' + f(fe) + ' L' + f(px + 2.8) + ' ' + f(fe + 1.5) + ' L' + f(px + 2.8) + ' ' + f(T + 1) + 'Z '; }
+    s += '<path d="' + fp + '" fill="#ffffff"' + SH + '/>';
+    s += '<rect x="-2" y="' + f(fe + 4) + '" width="104" height="1.4" fill="#ffffff"' + SH + '/><rect x="-2" y="' + f(T - 6) + '" width="104" height="1.4" fill="#ffffff"' + SH + '/>';
+    // butterflies, sprouts and kettle on the table
+    V.flies.forEach(function (b) { s += butterfly(b[0], b[1], b[2], b[3]); });
+    s += kettle(V.kettle[0], T + 0.2, V.kettle[1]);
+    V.pots.forEach(function (p, k) { s += sprout(p[0], T + 0.2, p[1], p[2], 5 + k * 7); });
+    // table + gingham cloth with scalloped hem
+    var hem = T + 4.2;
+    s += '<rect x="-2" y="' + f(T) + '" width="104" height="' + f(HH - T + 2) + '" fill="#ffffff"' + SH + '/>';
+    for (i = 0; i < 26; i++) s += '<rect x="' + f(i * 4) + '" y="' + f(T) + '" width="2" height="' + f(HH - T) + '" fill="' + C.leaf2 + '" opacity=".35"/>';
+    for (i = 0; T + 0.6 + i * 4 < HH; i++) s += '<rect x="0" y="' + f(T + 0.6 + i * 4) + '" width="100" height="2" fill="' + C.leaf2 + '" opacity=".35"/>';
+    var sc = 'M-2 ' + f(hem);
+    for (i = 0; i < 26; i++) sc += ' a2 1.6 0 0 0 4 0';
+    s += '<path d="' + sc + ' L102 ' + f(HH + 2) + ' L-2 ' + f(HH + 2) + 'Z" fill="' + C.leaf + '"' + SH + '/>';
+    s += '<rect x="-2" y="' + f(T - 0.4) + '" width="104" height="1" fill="#ffffff"/>';
+    s += '<rect x="0" y="0" width="100" height="' + f(HH) + '" filter="url(#pc03gr)" opacity=".05"/>';
+    return s;
+  }
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H, one = S.length === 1;
+    var pres = spec.presenter ? '<div class="pc03-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var html = '', cx = V.col[0], cw = V.col[1];
+    var lg = partner ? V.pip : V.logo;
+    html += box('pc03-logo' + (partner ? ' pc03-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    var kp = partner ? V.kickP : V.kick;
+    html += box('pc03-k', kp[0], kp[1], null, null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER');
+    html += box('pc03-bdg', V.bdg[0], V.bdg[1], V.bdg[2], V.bdg[2], badge('pc03b'));
+    var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop();
+    html += box('pc03-tc pc03-card', cx, V.tc, cw, null,
+      '<div class="pc03-u">FRESH BREW, FRESH STARTS</div>'
+      + '<div class="pc03-t">' + words.join(' ') + (sq ? ' ' : '<br>') + '<span>' + last + '</span></div>'
+      + '<div class="pc03-m">' + mon.toUpperCase() + ' ' + spec.year + ' · ON ZOOM</div>'
+      + '<div class="pc03-w">' + H.esc(H.PTC_WHERE) + '</div>' + (!one && !partner ? pres : ''));
+
+    if (!partner) {
+      if (one) {
+        var s = S[0];
+        html += box('pc03-s pc03-card', cx, V.s1, cw, null,
+          '<div class="pc03-lb">THIS MONTH\'S TOPIC</div><div class="pc03-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc03-ds">' + s.desc + '</div>' : '') + pres
+          + '<div class="pc03-when"><div class="pc03-cal"><i>' + s.mon.toUpperCase() + '</i><b>' + s.day + '</b></div><div class="pc03-wt">' + DOWF[s.dow] + ', ' + s.monFull + ' ' + s.day + '<span>' + s.time + '</span></div></div>');
+      } else {
+        S.forEach(function (s, i) {
+          html += box('pc03-s2 pc03-card', cx, V.s2[i], cw, V.s2[2],
+            '<div class="pc03-cal"><i>' + s.dow.toUpperCase() + '</i><b>' + s.day + '</b><i>' + s.mon.toUpperCase() + '</i></div>'
+            + '<div class="pc03-x"><div class="pc03-d">' + s.time + '</div><div class="pc03-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc03-ds">' + s.desc + '</div>' : '') + '</div>');
+        });
+      }
+    } else {
+      var rows = H.zoneRows(spec.sessions);
+      html += box('pc03-tb pc03-card', cx, V.tb, cw, null,
+        '<div class="pc03-les">' + S.map(function (s, i) { return '<div><i>' + (one ? 'TOPIC' : 'TOPIC ' + (i + 1)) + '</i>' + s.lesson + '</div>'; }).join('') + '</div>' + pres
+        + '<div class="pc03-th">YOUR LOCAL TIME</div><div class="pc03-g">'
+        + rows.map(function (r) { return '<div class="pc03-r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><span class="c">' + r.time + '</span><span class="b">' + r.days + '</span></div>'; }).join('') + '</div>');
+    }
+    var ft = V.foot;
+    html += box('pc03-ft', ft[0], ft[1], ft[2], null,
+      '<div class="pc03-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc03-qr">' + H.qrImg(spec, partner) + '</div><div class="pc03-bd">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="vfx pc03' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc03-bg" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none">' + scene(V, HH) + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Spring garden café table (paper kettle, sprouting seedlings)', fonts: 'family=Fredoka:wght@600;700&family=Nunito:wght@600;700;800', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 04 ---- */
+/* Set PC "Island Papercut café", April: Kona coffee farm hillside.
+   A warm cream sky over a layered blue-green volcano; a cut-paper hillside climbs from lower left to upper right,
+   striped with rows of round coffee trees dotted in red cherries, a little red-roofed farm shack on the ridge.
+   A big foreground coffee branch heavy with red cherries reaches in from the right edge. Cards follow the slope:
+   title card top left, topic card lower left. 1 unit = 1cqw. */
+VEBFlyers.registerSet('PC', 4, (function () {
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function rng(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (h != null ? 'height:' + f(h) + 'cqw;' : '') + '">' + inner + '</div>';
+  }
+  var C = { cream: '#fbf1de', card: '#fffaf0', green: '#2e6b3a', green2: '#4f8a3c', olive: '#86a842', pale: '#c6d98a', cherry: '#c8323c', cherry2: '#e2575c', brown: '#5a3825', brown2: '#8a5a3a', ink: '#3e2618', mist: '#9db7b0' };
+  var DOWF = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+  var SH = ' filter="url(#pc04sh)"';
+  function hill(pts, bottom) {
+    var d = 'M' + f(pts[0][0]) + ' ' + f(pts[0][1]);
+    for (var i = 0; i < pts.length - 1; i++) {
+      var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      d += ' C' + f(p1[0] + (p2[0] - p0[0]) / 6) + ' ' + f(p1[1] + (p2[1] - p0[1]) / 6) + ' ' + f(p2[0] - (p3[0] - p1[0]) / 6) + ' ' + f(p2[1] - (p3[1] - p1[1]) / 6) + ' ' + f(p2[0]) + ' ' + f(p2[1]);
+    }
+    return d + ' L' + f(pts[pts.length - 1][0]) + ' ' + f(bottom) + ' L' + f(pts[0][0]) + ' ' + f(bottom) + 'Z';
+  }
+  // round coffee tree with cherries; (x,y) = base, r = crown radius
+  function tree(x, y, r, R, dark) {
+    var o = '<g' + SH + '>', cy = y - r * 0.95;
+    o += '<rect x="' + f(x - r * 0.08) + '" y="' + f(cy) + '" width="' + f(r * 0.16) + '" height="' + f(r * 0.95) + '" fill="' + C.brown + '"/>';
+    o += '<circle cx="' + f(x - r * 0.42) + '" cy="' + f(cy + r * 0.12) + '" r="' + f(r * 0.62) + '" fill="' + dark + '"/><circle cx="' + f(x + r * 0.42) + '" cy="' + f(cy + r * 0.12) + '" r="' + f(r * 0.62) + '" fill="' + dark + '"/>';
+    o += '<circle cx="' + f(x) + '" cy="' + f(cy - r * 0.2) + '" r="' + f(r * 0.72) + '" fill="' + dark + '"/></g>';
+    o += '<circle cx="' + f(x - r * 0.15) + '" cy="' + f(cy - r * 0.45) + '" r="' + f(r * 0.3) + '" fill="#ffffff" opacity=".12"/>';
+    var n = Math.max(3, Math.round(r * 2.2));
+    for (var i = 0; i < n; i++) { var a = R() * Math.PI * 2, d = Math.sqrt(R()) * r * 0.75; o += '<circle cx="' + f(x + Math.cos(a) * d) + '" cy="' + f(cy + Math.sin(a) * d * 0.8) + '" r="' + f(Math.max(0.28, r * 0.09)) + '" fill="' + (i % 4 ? C.cherry : C.cherry2) + '"/>'; }
+    return o;
+  }
+  // glossy coffee leaf: base (x,y), length l, angle a (deg, 0 = pointing right)
+  function leaf(x, y, l, a, fill) {
+    var w = l * 0.3;
+    return '<g transform="rotate(' + f(a) + ' ' + f(x) + ' ' + f(y) + ')"' + SH + '><path d="M' + f(x) + ' ' + f(y) + ' C' + f(x + l * 0.25) + ' ' + f(y - w) + ' ' + f(x + l * 0.7) + ' ' + f(y - w * 0.9) + ' ' + f(x + l) + ' ' + f(y) + ' C' + f(x + l * 0.7) + ' ' + f(y + w * 0.9) + ' ' + f(x + l * 0.25) + ' ' + f(y + w) + ' ' + f(x) + ' ' + f(y) + 'Z" fill="' + fill + '"/>'
+      + '<path d="M' + f(x + l * 0.08) + ' ' + f(y) + ' Q' + f(x + l * 0.5) + ' ' + f(y - w * 0.12) + ' ' + f(x + l * 0.92) + ' ' + f(y) + '" stroke="#ffffff" stroke-opacity=".3" stroke-width="' + f(l * 0.03) + '" fill="none"/></g>';
+  }
+  function cherries(x, y, r, n, seed) {
+    var R = rng(seed), o = '';
+    for (var i = 0; i < n; i++) {
+      var a = (i / n) * Math.PI * 2 + R() * 0.5, d = r * (0.9 + R() * 0.4), cx = x + Math.cos(a) * d * 0.9, cy = y + Math.sin(a) * d * 0.6, col = i === n - 1 ? '#e7a93a' : (i % 3 === 2 ? C.cherry2 : C.cherry);
+      o += '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="' + col + '"' + SH + '/><circle cx="' + f(cx - r * 0.3) + '" cy="' + f(cy - r * 0.35) + '" r="' + f(r * 0.28) + '" fill="#fff" opacity=".45"/>';
+    }
+    return o;
+  }
+  // foreground branch reaching in from the right edge: starts at (x0,y0), length len heading left/down
+  function branch(x0, y0, len, s) {
+    var o = '', x1 = x0 - len * 0.55, y1 = y0 + len * 0.55, cx = x0 - len * 0.1, cy = y0 + len * 0.45;
+    o += '<path d="M' + f(x0 + 2) + ' ' + f(y0) + ' Q' + f(cx) + ' ' + f(cy) + ' ' + f(x1) + ' ' + f(y1) + '" stroke="' + C.brown2 + '" stroke-width="' + f(s * 0.55) + '" fill="none" stroke-linecap="round"' + SH + '/>';
+    for (var i = 0; i < 4; i++) {
+      var t = 0.2 + i * 0.24, bx = (1 - t) * (1 - t) * (x0 + 2) + 2 * (1 - t) * t * cx + t * t * x1, by = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * cy + t * t * y1;
+      o += leaf(bx, by, s * 7.5 * (1 - t * 0.3), -150 + i * 6, i % 2 ? C.green : C.green2);
+      o += leaf(bx, by, s * 7 * (1 - t * 0.3), 35 + i * 10, i % 2 ? C.green2 : C.green);
+      o += cherries(bx - s * 0.4, by + s * 1.5, s * 0.95, 5, 3 + i * 11);
+    }
+    o += leaf(x1, y1, s * 5, 115, C.green2);
+    return o;
+  }
+  function shack(x, y, s) {
+    return '<g' + SH + '><rect x="' + f(x - s / 2) + '" y="' + f(y - s * 0.55) + '" width="' + f(s) + '" height="' + f(s * 0.55) + '" fill="#f3e6cc"/>'
+      + '<path d="M' + f(x - s * 0.66) + ' ' + f(y - s * 0.5) + ' L' + f(x) + ' ' + f(y - s * 0.95) + ' L' + f(x + s * 0.66) + ' ' + f(y - s * 0.5) + 'Z" fill="' + C.cherry + '"/>'
+      + '<rect x="' + f(x - s * 0.12) + '" y="' + f(y - s * 0.32) + '" width="' + f(s * 0.24) + '" height="' + f(s * 0.32) + '" fill="' + C.brown + '"/>'
+      + '<rect x="' + f(x + s * 0.2) + '" y="' + f(y - s * 0.42) + '" width="' + f(s * 0.18) + '" height="' + f(s * 0.14) + '" fill="#f7cf63"/></g>';
+  }
+  function badge(id) {
+    var s = '<svg viewBox="0 0 100 100"><defs><filter id="' + id + 'b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.3" flood-color="#2a160c" flood-opacity=".32"/></filter>'
+      + '<path id="' + id + 'ta" d="M 13.5 50 A 36.5 36.5 0 0 1 86.5 50"/><path id="' + id + 'tb" d="M 10.5 50 A 39.5 39.5 0 0 0 89.5 50"/></defs>';
+    s += '<circle cx="50" cy="50" r="48" fill="' + C.cherry + '" filter="url(#' + id + 'b)"/>';
+    s += '<circle cx="50" cy="50" r="45.3" fill="none" stroke="' + C.card + '" stroke-opacity=".7" stroke-width=".8" stroke-dasharray="1.6 1.6"/>';
+    s += '<text font-family="Bree Serif,serif" font-size="9.8" letter-spacing="1" fill="' + C.card + '"><textPath href="#' + id + 'ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>';
+    s += '<text font-family="Mulish,sans-serif" font-weight="800" font-size="6.4" letter-spacing="2.2" fill="#ffd9c9"><textPath href="#' + id + 'tb" startOffset="50%" text-anchor="middle">LET\'S TALK</textPath></text>';
+    s += '<circle cx="17" cy="57" r="1.6" fill="' + C.card + '"/><circle cx="83" cy="57" r="1.6" fill="' + C.card + '"/>';
+    s += '<circle cx="50" cy="50" r="31" fill="' + C.card + '" filter="url(#' + id + 'b)"/>';
+    s += '<g filter="url(#' + id + 'b)" fill="#ffffff"><path d="M42 41 C37 36 46 33 41 27 C38 23 41 21 43 20 C42 23 45 25 44 28 C49 33 41 36 45 41Z"/>'
+      + '<path d="M53 41 C48 35 57 32 52 25 C49 21 52 19 54 18 C53 21 56 24 55 26 C60 32 52 35 56 41Z"/></g>';
+    s += '<g filter="url(#' + id + 'b)"><ellipse cx="50" cy="67" rx="21" ry="4.6" fill="' + C.pale + '"/>'
+      + '<path d="M65.5 47 c8 0 8 11 -1 12" fill="none" stroke="' + C.green + '" stroke-width="3.2"/>'
+      + '<path d="M33 44 L67 44 L64 60 Q50 68 36 60Z" fill="' + C.green + '"/>'
+      + '<circle cx="46.5" cy="53" r="2.6" fill="' + C.cherry2 + '"/><circle cx="52.5" cy="52" r="2.6" fill="' + C.cherry2 + '"/><path d="M49.5 49.5 q1-2.6 4-3.2" stroke="' + C.pale + '" stroke-width="1" fill="none"/>'
+      + '<ellipse cx="50" cy="44" rx="17" ry="3.3" fill="' + C.brown + '"/></g>';
+    return s + '</svg>';
+  }
+
+  // slope: hill top edge from (x=-4, y=a) to (x=104, y=b); rows = tree rows below the edge; br = branch [x0, y0, len, s]
+  var L = {
+    lh: { H: 129.41, logo: [5, 4.5, 14, 14], pip: [5, 5, 23, 13.5], kick: [21.5, 8.6], kickP: [30.5, 8.6], bdg: [78.5, 2.6, 18.5],
+          tc: [5, 22, 56], s1: [5, 70, 72], s2: [[5, 68, 74, 18], [5, 88, 74, 18]], foot: [4, 110.5, 92],
+          slope: [74, 30], volc: 33, shack: [86, 31.5, 5.2], br: [103, 60, 17, 1.45] },
+    lp: { H: 129.41, logo: [5, 4.5, 14, 14], pip: [5, 5, 23, 13.5], kick: [21.5, 8.6], kickP: [30.5, 8.6], bdg: [78.5, 2.6, 18.5],
+          tc: [5, 22, 56], tb: [5, 65.5, 90], foot: [4, 110.5, 92],
+          slope: [70, 30], volc: 33, shack: [86, 31.5, 5.2], br: null },
+    sh: { H: 100, logo: [4, 3.5, 11, 11], pip: [4, 4, 18, 10.5], kick: [17, 7.3], kickP: [24.5, 7.3], bdg: [82, 2, 15],
+          tc: [4, 17.5, 56], s1: [4, 46, 62], s2: [[4, 45.5, 64, 16], [4, 63, 64, 16]], foot: [3.5, 83, 93],
+          slope: [52, 25], volc: 27, shack: [90, 26.5, 4.2], br: [102, 52, 15, 1.15] },
+    sp: { H: 100, logo: [4, 3.5, 11, 11], pip: [4, 4, 18, 10.5], kick: [17, 7.3], kickP: [24.5, 7.3], bdg: [82, 2, 15],
+          tc: [4, 17.5, 56], tb: [4, 43.5, 64], foot: [3.5, 83, 93],
+          slope: [50, 25], volc: 27, shack: [90, 26.5, 4.2], br: [102, 52, 15, 1.15] }
+  };
+
+  var css = [
+    '.pc04{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(62,38,24,.3);background:' + C.cream + ';font-family:Mulish,sans-serif;color:' + C.ink + '}',
+    '.pc04.sq{aspect-ratio:1/1}', '.pc04 *,.pc04 *:before,.pc04 *:after{box-sizing:border-box}',
+    '.pc04 .pc04-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}',
+    '.pc04>div{position:absolute;z-index:3}',
+    '.pc04 .pc04-logo{border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 .4cqw .6cqw rgba(62,38,24,.3),0 0 0 .7cqw ' + C.cherry + '}',
+    '.pc04 .pc04-logo img{width:78%;height:auto;display:block}.pc04 .pc04-logo.pc04-pip{border-radius:1.6cqw}.pc04 .pc04-logo.pc04-pip img{width:90%}',
+    '.pc04 .pc04-k{font-weight:800;font-size:1.55cqw;letter-spacing:.16em;color:' + C.card + ';white-space:nowrap;background:' + C.green + ';padding:.7cqw 1.6cqw;border-radius:5cqw;box-shadow:0 .3cqw .5cqw rgba(62,38,24,.3)}',
+    '.pc04.sq .pc04-k{font-size:1.25cqw;padding:.6cqw 1.3cqw}',
+    '.pc04 .pc04-bdg svg{width:100%;height:100%;display:block;overflow:visible}',
+    '.pc04 .pc04-card{background:' + C.card + ';border-radius:1.4cqw;box-shadow:0 .3cqw .5cqw rgba(62,38,24,.25),.9cqw .9cqw 0 ' + C.cherry + ',.9cqw 1.3cqw .8cqw rgba(62,38,24,.22)}',
+    '.pc04 .pc04-tc{padding:2.6cqw 3.2cqw 2.6cqw}',
+    '.pc04 .pc04-u{font-family:"Bree Serif",serif;font-size:2.7cqw;color:' + C.green2 + ';line-height:1.3}',
+    '.pc04 .pc04-t{font-family:"Bree Serif",serif;font-size:9cqw;line-height:1;color:' + C.ink + ';margin:.8cqw 0 1.4cqw}',
+    '.pc04 .pc04-t span{display:block;color:' + C.cherry + '}',
+    '.pc04 .pc04-m{font-weight:800;font-size:2.3cqw;letter-spacing:.14em;color:' + C.green + ';line-height:1.2}.pc04 .pc04-m b{color:' + C.ink + '}',
+    '.pc04 .pc04-w{text-wrap:balance;display:flex;align-items:center;gap:1.2cqw;margin-top:1.3cqw;font-weight:700;font-size:1.85cqw;line-height:1.3;color:' + C.brown2 + '}',
+    '.pc04 .pc04-w:before{content:"";flex:none;width:1.6cqw;height:1.6cqw;border-radius:50%;background:' + C.cherry + ';box-shadow:1cqw -.5cqw 0 -.2cqw ' + C.cherry2 + '}',
+    '.pc04 .pc04-pr{font-weight:700;font-size:2cqw;color:' + C.brown2 + ';line-height:1.25;margin-top:.8cqw}.pc04 .pc04-pr b{color:' + C.ink + ';font-weight:800}',
+    '.pc04.sq .pc04-tc{padding:1.8cqw 2.4cqw 1.8cqw}.pc04.sq .pc04-u{font-size:1.9cqw}.pc04.sq .pc04-t{font-size:6cqw;margin:.3cqw 0 .9cqw;white-space:nowrap}.pc04.sq .pc04-t span{display:inline}',
+    '.pc04.sq .pc04-m{font-size:1.65cqw}.pc04.sq .pc04-w{font-size:1.4cqw;margin-top:.8cqw}.pc04.sq .pc04-w:before{width:1.2cqw;height:1.2cqw}',
+    /* one session */
+    '.pc04 .pc04-s{padding:2.6cqw 3.2cqw 2.6cqw}',
+    '.pc04 .pc04-lb{display:table;font-weight:800;font-size:1.65cqw;letter-spacing:.2em;color:' + C.card + ';background:' + C.green + ';padding:.5cqw 1.4cqw;border-radius:.6cqw;line-height:1.2}',
+    '.pc04 .pc04-ti{text-wrap:balance;font-family:"Bree Serif",serif;font-size:5.1cqw;line-height:1.06;color:' + C.ink + ';margin:1.2cqw 0 .7cqw}',
+    '.pc04 .pc04-ds{font-weight:700;font-style:italic;font-size:2.2cqw;color:' + C.green2 + ';line-height:1.3}',
+    '.pc04 .pc04-dt{display:flex;align-items:baseline;gap:1.4cqw;margin-top:1.6cqw;padding-top:1.4cqw;border-top:.3cqw solid ' + C.pale + ';font-family:"Bree Serif",serif;font-size:2.7cqw;line-height:1.2;color:' + C.ink + '}.pc04 .pc04-dt b{font-weight:400;color:' + C.cherry + '}',
+    /* two sessions */
+    '.pc04 .pc04-s2{display:flex;align-items:center;gap:2.4cqw;padding:1.6cqw 2.8cqw 1.6cqw 2cqw}',
+    '.pc04 .pc04-n{flex:none;width:11.5cqw;height:11.5cqw;border-radius:50%;background:' + C.cherry + ';color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;line-height:1;box-shadow:inset -.8cqw -.8cqw 0 rgba(0,0,0,.12)}',
+    '.pc04 .pc04-n i{position:relative;z-index:1;font-style:normal;font-weight:800;font-size:1.45cqw;letter-spacing:.14em;line-height:1.5}.pc04 .pc04-n b{font-family:"Bree Serif",serif;font-weight:400;font-size:5cqw;line-height:.95}',
+    '.pc04 .pc04-x{flex:1;min-width:0}',
+    '.pc04 .pc04-d{font-weight:800;font-size:1.95cqw;letter-spacing:.04em;color:' + C.green + ';line-height:1.2}',
+    '.pc04 .pc04-s2 .pc04-ti{font-size:3.4cqw;margin:.4cqw 0 .3cqw}.pc04 .pc04-s2 .pc04-ds{font-size:1.85cqw}',
+    '.pc04.sq .pc04-s{padding:1.8cqw 2.4cqw 1.8cqw}.pc04.sq .pc04-lb{font-size:1.25cqw;padding:.4cqw 1cqw}.pc04.sq .pc04-ti{font-size:3.6cqw;margin:.8cqw 0 .4cqw}.pc04.sq .pc04-ds{font-size:1.65cqw}',
+    '.pc04.sq .pc04-dt{font-size:1.95cqw;margin-top:1cqw;padding-top:.9cqw}.pc04.sq .pc04-pr{font-size:1.5cqw;margin-top:.5cqw}',
+    '.pc04.sq .pc04-s2{padding:1.2cqw 2cqw 1.2cqw 1.4cqw;gap:1.8cqw}.pc04.sq .pc04-n{width:9cqw;height:9cqw}.pc04.sq .pc04-n i{font-size:1.1cqw;line-height:1.7}.pc04.sq .pc04-n b{font-size:3.8cqw;line-height:.85}',
+    '.pc04.sq .pc04-d{font-size:1.45cqw}.pc04.sq .pc04-s2 .pc04-ti{font-size:2.55cqw}.pc04.sq .pc04-s2 .pc04-ds{display:none}',
+    /* partner table */
+    '.pc04 .pc04-tb{padding:2.3cqw 3cqw 2.2cqw}',
+    '.pc04 .pc04-les{font-family:"Bree Serif",serif;font-size:3.1cqw;line-height:1.12;color:' + C.ink + '}',
+    '.pc04 .pc04-les div+div{margin-top:.5cqw}.pc04 .pc04-les i{font-family:Mulish,sans-serif;font-style:normal;font-weight:800;font-size:.52em;letter-spacing:.16em;color:' + C.cherry + ';margin-right:.7em}',
+    '.pc04 .pc04-tb .pc04-pr{margin:.4cqw 0 0}',
+    '.pc04 .pc04-th{font-family:"Bree Serif",serif;font-size:2.5cqw;color:' + C.green + ';line-height:1.1;margin:1.3cqw 0 .7cqw}',
+    '.pc04 .pc04-r{display:grid;grid-template-columns:1.25fr 1.15fr 1fr;align-items:center;font-size:2cqw;line-height:1.15;padding:.5cqw 1.3cqw;border-top:.2cqw solid #eadfc6}',
+    '.pc04 .pc04-r .a{font-weight:800}.pc04 .pc04-r .b{font-weight:700;color:' + C.brown2 + '}.pc04 .pc04-r .c{font-weight:800;color:' + C.green + ';text-align:right}',
+    '.pc04 .pc04-r.h{background:' + C.cherry + ';color:#fff;border-radius:.8cqw;border-top-color:transparent}.pc04 .pc04-r.h .b{color:#ffe1d6}.pc04 .pc04-r.h .c{color:#fff}',
+    '.pc04 .pc04-r.h + .pc04-r{border-top-color:transparent}',
+    '.pc04.sq .pc04-tb{padding:1.5cqw 2.2cqw 1.4cqw}.pc04.sq .pc04-les{font-size:2.25cqw}.pc04.sq .pc04-th{font-size:1.8cqw;margin:.8cqw 0 .4cqw}',
+    '.pc04.sq .pc04-r{font-size:1.45cqw;padding:.36cqw 1cqw}.pc04.sq .pc04-tb .pc04-pr{font-size:1.45cqw}',
+    /* footer */
+    '.pc04 .pc04-ft{display:flex;align-items:center;gap:2.4cqw;padding:1.8cqw 2.4cqw 1.8cqw 3.4cqw;background:' + C.card + ';border-radius:1.4cqw;box-shadow:0 .4cqw .6cqw rgba(62,38,24,.35),-.9cqw -.9cqw 0 ' + C.olive + '}',
+    '.pc04 .pc04-rg{flex:1;font-weight:700;font-size:2cqw;line-height:1.35;color:' + C.brown2 + '}',
+    '.pc04 .pc04-rg b{display:block;font-family:"Bree Serif",serif;font-weight:400;font-size:3.6cqw;line-height:1.1;color:' + C.ink + ';margin-bottom:.3cqw}.pc04 .pc04-rg b i{font-style:normal;color:' + C.cherry + '}',
+    '.pc04.partner:not(.sq) .pc04-rg b{font-size:3.15cqw}',
+    '.pc04 .pc04-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border-radius:1cqw;padding:.5cqw;display:grid;place-items:center;font-weight:800;color:' + C.ink + ';box-shadow:0 0 0 .3cqw #eadfc6}',
+    '.pc04 .pc04-qr img{width:100%;height:100%;display:block}',
+    '.pc04 .pc04-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc04 .pc04-bd span{background:' + C.green + ';color:#fff;border-radius:5cqw;font-weight:800;font-size:1.5cqw;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}',
+    '.pc04.sq .pc04-ft{padding:1.3cqw 2cqw 1.3cqw 2.6cqw;gap:2cqw}.pc04.sq .pc04-rg{font-size:1.6cqw}.pc04.sq .pc04-rg b{font-size:2.8cqw}.pc04.sq .pc04-qr{width:9cqw;height:9cqw}.pc04.sq .pc04-bd span{font-size:1.25cqw}'
+  ].join('\n');
+
+  function scene(V, HH, sq) {
+    var s = '<defs><filter id="pc04sh" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".45" flood-color="#2a160c" flood-opacity=".3"/></filter>'
+      + '<linearGradient id="pc04sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f8e4c0"/><stop offset=".5" stop-color="#fbf1de"/><stop offset="1" stop-color="#f4f0dc"/></linearGradient>'
+      + '<filter id="pc04gr" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" seed="5"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.1 .9"/></filter></defs>';
+    var a = V.slope[0], b = V.slope[1], vy = V.volc, R = rng(sq ? 41 : 17), i, j;
+    var edge = function (x) { return a + (b - a) * (x + 4) / 108; };
+    s += '<rect x="0" y="0" width="100" height="' + f(HH) + '" fill="url(#pc04sky)"/>';
+    // sun-warmed clouds and distant volcano
+    s += '<g' + SH + ' fill="#fffaf0"><ellipse cx="70" cy="' + f(vy - 12) + '" rx="9" ry="1.8"/><circle cx="66" cy="' + f(vy - 13) + '" r="2.6"/><circle cx="71" cy="' + f(vy - 14) + '" r="3.2"/></g>';
+    s += '<path d="M' + f(36) + ' ' + f(vy + 14) + ' C50 ' + f(vy + 2) + ' 58 ' + f(vy - 6) + ' 66 ' + f(vy - 7) + ' C74 ' + f(vy - 7.6) + ' 82 ' + f(vy - 2) + ' 104 ' + f(vy + 8) + ' L104 ' + f(vy + 30) + ' L36 ' + f(vy + 30) + 'Z" fill="' + C.mist + '"' + SH + '/>';
+    s += '<path d="M' + f(20) + ' ' + f(vy + 18) + ' C36 ' + f(vy + 10) + ' 56 ' + f(vy + 6) + ' 76 ' + f(vy + 8) + ' C88 ' + f(vy + 9) + ' 96 ' + f(vy + 10) + ' 104 ' + f(vy + 12) + ' L104 ' + f(vy + 34) + ' L20 ' + f(vy + 34) + 'Z" fill="#7fa79b"' + SH + '/>';
+    // back hill (paler) and the main slope
+    s += '<path d="' + hill([[-4, a - 4], [30, a - 10], [60, (a + b) / 2 - 6], [104, b - 2]], HH + 2) + '" fill="' + C.pale + '"' + SH + '/>';
+    s += '<path d="' + hill([[-4, a], [26, edge(26) + 1], [56, edge(56)], [84, edge(84) - 0.6], [104, b]], HH + 2) + '" fill="' + C.olive + '"' + SH + '/>';
+    // rows of coffee trees following the slope (smaller near the ridge)
+    var rows = sq ? 6 : 8;
+    for (j = 0; j < rows; j++) {
+      var off = 3 + j * (sq ? 5 : 6.2), r = 1.3 + j * (sq ? 0.38 : 0.42), step = r * 2.7;
+      s += '<path d="M-4 ' + f(a + off + 0.4) + ' L104 ' + f(b + off + 0.4) + '" stroke="#6d8f34" stroke-width="' + f(0.5 + j * 0.08) + '"/>';
+      for (var x = -2 + (j % 2) * step / 2; x < 104; x += step) s += tree(x + (R() - 0.5) * 0.6, edge(x) + off, r, R, j % 2 ? C.green : C.green2);
+    }
+    s += shack(V.shack[0], V.shack[1], V.shack[2]);
+    if (V.br) s += branch(V.br[0], V.br[1], V.br[2], V.br[3]);
+    s += '<rect x="0" y="0" width="100" height="' + f(HH) + '" filter="url(#pc04gr)" opacity=".05"/>';
+    return s;
+  }
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H, one = S.length === 1;
+    var pres = spec.presenter ? '<div class="pc04-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var html = '';
+    var lg = partner ? V.pip : V.logo;
+    html += box('pc04-logo' + (partner ? ' pc04-pip' : ''), lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">');
+    var kp = partner ? V.kickP : V.kick;
+    html += box('pc04-k', kp[0], kp[1], null, null, partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER');
+    html += box('pc04-bdg', V.bdg[0], V.bdg[1], V.bdg[2], V.bdg[2], badge('pc04b'));
+    var tc = V.tc;
+    html += box('pc04-tc pc04-card', tc[0], tc[1], tc[2], null,
+      '<div class="pc04-u">' + (partner ? 'Fresh from the farm' : 'Fresh from the Kona hillside') + '</div>'
+      + '<div class="pc04-t">' + H.seriesTitle(spec.series || 'Parent Talk Café') + '</div>'
+      + '<div class="pc04-m"><b>' + mon.toUpperCase() + ' ' + spec.year + '</b> · ON ZOOM</div>'
+      + '<div class="pc04-w">' + H.esc(H.PTC_WHERE) + '</div>' + (!one && !partner ? pres : ''));
+
+    if (!partner) {
+      if (one) {
+        var s = S[0], p = V.s1;
+        html += box('pc04-s pc04-card', p[0], p[1], p[2], null,
+          '<div class="pc04-lb">THIS MONTH\'S TOPIC</div><div class="pc04-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc04-ds">' + s.desc + '</div>' : '') + pres
+          + '<div class="pc04-dt">' + DOWF[s.dow] + ', ' + s.monFull + ' ' + s.day + ' <b>' + s.time + '</b></div>');
+      } else {
+        S.forEach(function (s, i) {
+          var p = V.s2[i];
+          html += box('pc04-s2 pc04-card', p[0], p[1], p[2], p[3],
+            '<div class="pc04-n"><i>' + s.dow.toUpperCase() + '</i><b>' + s.day + '</b><i>' + s.mon.toUpperCase() + '</i></div>'
+            + '<div class="pc04-x"><div class="pc04-d">' + s.time + '</div><div class="pc04-ti">' + s.lesson + '</div>' + (s.desc ? '<div class="pc04-ds">' + s.desc + '</div>' : '') + '</div>');
+        });
+      }
+    } else {
+      var tb = V.tb, rows = H.zoneRows(spec.sessions);
+      html += box('pc04-tb pc04-card', tb[0], tb[1], tb[2], null,
+        '<div class="pc04-les">' + S.map(function (s, i) { return '<div><i>' + (one ? 'TOPIC' : 'TOPIC ' + (i + 1)) + '</i>' + s.lesson + '</div>'; }).join('') + '</div>' + pres
+        + '<div class="pc04-th">Your local time</div>'
+        + rows.map(function (r) { return '<div class="pc04-r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><span class="b">' + r.days + '</span><span class="c">' + r.time + '</span></div>'; }).join(''));
+    }
+    var ft = V.foot;
+    html += box('pc04-ft', ft[0], ft[1], ft[2], null,
+      '<div class="pc04-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc04-qr">' + H.qrImg(spec, partner) + '</div><div class="pc04-bd">' + H.badges(spec, partner) + '</div>');
+
+    return '<div class="vfx pc04' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc04-bg" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none">' + scene(V, HH, sq) + '</svg>' + html + '</div>';
+  }
+
+  return { name: 'Kona coffee farm hillside (paper coffee rows, red cherry branch)', fonts: 'family=Bree+Serif&family=Mulish:ital,wght@0,600;0,700;0,800;1,700', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 05 ---- */
+/* Set PC "Island Papercut café" - May: Mother's Day table.
+   A lilac papered wall with a soft pink arch, a sage scalloped tablecloth, and on the table a glass jar
+   bursting with cut-paper tulips, daisies, peonies and lavender beside two steaming mugs. The talk sits on
+   a folded cream greeting card standing on the table (pink inner page peeking out); the date is a scalloped
+   pink seal. Registration is a placemat on the cloth. Square = card left, bouquet right. */
+VEBFlyers.registerSet('PC', 5, (function () {
+  var P = 'pc05';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function seeded(seed) { return function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  var SH = ' filter="url(#pc05sh)"';
+  var C = { lilac: '#cdb8ea', lilac2: '#bda3e2', plum: '#5b3a78', pink: '#ee7fa8', pink2: '#d9588b', blush: '#f8c4d6', sage: '#9cc19a', sage2: '#7aa77c', sage3: '#5c8c63', cream: '#fff8f0', butter: '#ffd86b' };
+
+  /* ---------- PTC badge: cut-paper steaming cup ---------- */
+  function badge(mon) {
+    var o = '<svg viewBox="0 0 100 100" aria-hidden="true"><defs>'
+      + '<filter id="pc05bs" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#3c2350" flood-opacity=".35"/></filter>'
+      + '<path id="pc05ta" d="M8.6 50 A41.4 41.4 0 0 1 91.4 50"/><path id="pc05tb" d="M4.2 50 A45.8 45.8 0 0 0 95.8 50"/></defs>'
+      + '<circle cx="50" cy="51.6" r="48.5" fill="#3c2350" opacity=".22"/>'
+      + '<circle cx="50" cy="50" r="48.5" fill="' + C.plum + '"/>'
+      + '<circle cx="50" cy="50" r="39" fill="' + C.cream + '" filter="url(#pc05bs)"/>'
+      + '<circle cx="50" cy="50" r="35.6" fill="none" stroke="' + C.blush + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text class="' + P + '-bt"><textPath href="#pc05ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<text class="' + P + '-bt2"><textPath href="#pc05tb" startOffset="50%" text-anchor="middle">&#8226; ' + mon + ' &#8226;</textPath></text>'
+      + '<g filter="url(#pc05bs)">'
+      + '<path d="M44 38 C39 33 48 30 44 24 C42 21 44 18 46 16" fill="none" stroke="' + C.blush + '" stroke-width="3.2" stroke-linecap="round"/>'
+      + '<path d="M54 38 C49 33 58 30 54 24 C52 21 54 18 56 16" fill="none" stroke="' + C.lilac + '" stroke-width="3.2" stroke-linecap="round"/></g>'
+      + '<g filter="url(#pc05bs)"><ellipse cx="50" cy="71" rx="23" ry="4.6" fill="' + C.sage + '"/><ellipse cx="50" cy="70" rx="15" ry="2.6" fill="' + C.sage2 + '"/></g>'
+      + '<g filter="url(#pc05bs)"><path d="M68 50 a7 7 0 1 1 0 12" fill="none" stroke="' + C.pink2 + '" stroke-width="3.6"/>'
+      + '<path d="M30 43 H70 V51 C70 62 61 70 50 70 C39 70 30 62 30 51 Z" fill="' + C.pink + '"/>'
+      + '<path d="M30.4 54 H69.6 C69 57 68 59 67 61 H33 C32 59 31 57 30.4 54Z" fill="' + C.pink2 + '"/>'
+      + '<ellipse cx="50" cy="43" rx="20" ry="3.4" fill="#7a4a35"/><ellipse cx="50" cy="43.6" rx="17" ry="2.2" fill="#a46a4c"/>'
+      + '<path d="M44.5 57.5 c0 -2 2.5 -2.6 3.4 -.8 c.9 -1.8 3.4 -1.2 3.4 .8 c0 2 -3.4 4 -3.4 4 s-3.4 -2 -3.4 -4z" fill="' + C.cream + '" transform="translate(2 -1)"/></g>'
+      + '</svg>';
+    return '<div class="' + P + '-badge">' + o + '</div>';
+  }
+
+  /* ---------- paper flowers ---------- */
+  function stem(x1, y1, x2, y2, bend) {
+    return '<path d="M' + f(x1) + ' ' + f(y1) + ' Q' + f((x1 + x2) / 2 + bend) + ' ' + f((y1 + y2) / 2) + ' ' + f(x2) + ' ' + f(y2) + '" fill="none" stroke="' + C.sage3 + '" stroke-width=".7" stroke-linecap="round"/>';
+  }
+  function leaf(x, y, len, w, rot, c) {
+    return '<path transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ')" d="M0 0 C' + f(w) + ' ' + f(-len * 0.3) + ' ' + f(w * 0.7) + ' ' + f(-len * 0.8) + ' 0 ' + f(-len) + ' C' + f(-w * 0.7) + ' ' + f(-len * 0.8) + ' ' + f(-w) + ' ' + f(-len * 0.3) + ' 0 0Z" fill="' + c + '"' + SH + '/>';
+  }
+  function tulip(x, y, s, rot, c1, c2) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ') scale(' + f(s) + ')"' + SH + '>'
+      + '<path d="M-3 0 C-3.6 -3 -3 -5.6 -2.2 -7 L-1 -4.6 L0 -7.6 L1 -4.6 L2.2 -7 C3 -5.6 3.6 -3 3 0 C2 1.6 -2 1.6 -3 0Z" fill="' + c1 + '"/>'
+      + '<path d="M-1.4 1 C-2.4 -2 -1.6 -5 0 -7.6 C1.6 -5 2.4 -2 1.4 1 C.6 1.5 -.6 1.5 -1.4 1Z" fill="' + c2 + '"/></g>';
+  }
+  function daisy(x, y, r, rnd) {
+    var o = '<g transform="translate(' + f(x) + ' ' + f(y) + ')"' + SH + '>';
+    for (var i = 0; i < 12; i++) o += '<ellipse cx="0" cy="' + f(-r * 0.6) + '" rx="' + f(r * 0.2) + '" ry="' + f(r * 0.48) + '" fill="#fffdf8" transform="rotate(' + f(i * 30 + rnd() * 6) + ')"/>';
+    return o + '<circle r="' + f(r * 0.3) + '" fill="' + C.butter + '"/><circle r="' + f(r * 0.16) + '" fill="#f1b53c"/></g>';
+  }
+  function scallop(cx, cy, r, n, c) {
+    var d = '';
+    for (var i = 0; i <= n; i++) {
+      var a = i / n * Math.PI * 2, b = (i + 0.5) / n * Math.PI * 2;
+      if (!i) d += 'M' + f(cx + Math.cos(a) * r) + ' ' + f(cy + Math.sin(a) * r);
+      else d += ' Q' + f(cx + Math.cos(b - Math.PI / n) * r * 1.22) + ' ' + f(cy + Math.sin(b - Math.PI / n) * r * 1.22) + ' ' + f(cx + Math.cos(a) * r) + ' ' + f(cy + Math.sin(a) * r);
+    }
+    return '<path d="' + d + 'Z" fill="' + c + '"/>';
+  }
+  function peony(x, y, r) {
+    return '<g' + SH + '>' + scallop(x, y, r, 9, C.pink) + '</g><g' + SH + '>' + scallop(x, y + r * 0.05, r * 0.68, 7, '#f59bbd') + '</g><g' + SH + '>' + scallop(x, y + r * 0.08, r * 0.38, 5, C.blush) + '</g>';
+  }
+  function lavender(x, y, len, rot) {
+    var o = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ')">' + '<path d="M0 0 V' + f(len) + '" stroke="' + C.sage3 + '" stroke-width=".55"/>';
+    for (var i = 0; i < 7; i++) o += '<ellipse cx="' + (i % 2 ? 0.5 : -0.5) + '" cy="' + f(i * 1.25) + '" rx=".75" ry="1.05" fill="' + (i % 2 ? '#8a68c2' : '#a487d6') + '"' + SH + '/>';
+    return o + '</g>';
+  }
+  function bouquet(cx, base, s, rnd) {
+    // jar: neck at base-22s, top of flowers ~ base-62s
+    var top = base - 22 * s, o = '';
+    var heads = [
+      ['t', -9, -44, 1.15, -18, C.pink, C.pink2], ['t', 9, -47, 1.1, 14, C.butter, '#f1b53c'], ['t', -1, -54, 1.2, 2, '#c45a8e', '#9c3f6f'],
+      ['p', -5, -35, 5.6], ['p', 8, -32, 4.6], ['d', 13, -40, 4.2], ['d', -14, -33, 3.8], ['d', 2, -42, 3.4],
+      ['t', 16, -29, 1, 30, C.pink, C.pink2], ['t', -17, -42, 1, -30, '#c45a8e', '#9c3f6f']
+    ];
+    // stems first
+    heads.forEach(function (h) { o += stem(cx + (h[1] * 0.15) * s, top + 2 * s, cx + h[1] * s, base + h[2] * s, h[1] * 0.2); });
+    o += lavender(cx - 6 * s, top - 34 * s, 22 * s, -14) + lavender(cx + 5 * s, top - 37 * s, 24 * s, 12) + lavender(cx + 1 * s, top - 40 * s, 24 * s, -3);
+    o += leaf(cx - 3 * s, top, 15 * s, 4 * s, -38, C.sage2) + leaf(cx + 3 * s, top, 15 * s, 4 * s, 40, C.sage3) + leaf(cx, top, 13 * s, 3.4 * s, -8, C.sage)
+      + leaf(cx - 2 * s, top - 6 * s, 12 * s, 3.2 * s, -70, C.sage) + leaf(cx + 2 * s, top - 6 * s, 12 * s, 3.2 * s, 72, C.sage2);
+    heads.forEach(function (h) {
+      var x = cx + h[1] * s, y = base + h[2] * s;
+      if (h[0] === 't') o += tulip(x, y, h[3] * s, h[4], h[5], h[6]);
+      else if (h[0] === 'p') o += peony(x, y, h[3] * s);
+      else o += daisy(x, y, h[3] * s, rnd);
+    });
+    // glass jar with water and ribbon
+    var w = 15 * s, jx = cx - w / 2;
+    o += '<g' + SH + '><path d="M' + f(jx) + ' ' + f(top + 2 * s) + ' H' + f(jx + w) + ' V' + f(base - 2 * s) + ' Q' + f(jx + w) + ' ' + f(base) + ' ' + f(jx + w - 2 * s) + ' ' + f(base) + ' H' + f(jx + 2 * s) + ' Q' + f(jx) + ' ' + f(base) + ' ' + f(jx) + ' ' + f(base - 2 * s) + 'Z" fill="#dff0f2" opacity=".93"/>'
+      + '<path d="M' + f(jx + 0.6 * s) + ' ' + f(top + 9 * s) + ' H' + f(jx + w - 0.6 * s) + ' V' + f(base - 2 * s) + ' Q' + f(jx + w - 0.6 * s) + ' ' + f(base - 0.6 * s) + ' ' + f(jx + w - 2 * s) + ' ' + f(base - 0.6 * s) + ' H' + f(jx + 2 * s) + ' Q' + f(jx + 0.6 * s) + ' ' + f(base - 0.6 * s) + ' ' + f(jx + 0.6 * s) + ' ' + f(base - 2 * s) + 'Z" fill="#b9dfe2"/>'
+      + '<rect x="' + f(jx + 2 * s) + '" y="' + f(top + 11 * s) + '" width="' + f(1.4 * s) + '" height="' + f(7 * s) + '" rx="' + f(0.7 * s) + '" fill="#fff" opacity=".8"/>'
+      + '<rect x="' + f(jx - 0.8 * s) + '" y="' + f(top) + '" width="' + f(w + 1.6 * s) + '" height="' + f(2.6 * s) + '" rx="' + f(0.8 * s) + '" fill="#cfe4e6"/></g>'
+      + '<g' + SH + '><rect x="' + f(jx) + '" y="' + f(top + 4 * s) + '" width="' + f(w) + '" height="' + f(2.2 * s) + '" fill="' + C.pink + '"/>'
+      + '<path d="M' + f(cx + 3 * s) + ' ' + f(top + 5 * s) + ' l' + f(-4 * s) + ' ' + f(-2.6 * s) + ' v' + f(5.2 * s) + 'Z M' + f(cx + 3 * s) + ' ' + f(top + 5 * s) + ' l' + f(4 * s) + ' ' + f(-2.6 * s) + ' v' + f(5.2 * s) + 'Z" fill="' + C.pink2 + '"/>'
+      + '<path d="M' + f(cx + 3 * s) + ' ' + f(top + 5 * s) + ' l' + f(-2 * s) + ' ' + f(6 * s) + ' M' + f(cx + 3 * s) + ' ' + f(top + 5 * s) + ' l' + f(2.4 * s) + ' ' + f(5.6 * s) + '" stroke="' + C.pink2 + '" stroke-width="' + f(1 * s) + '" stroke-linecap="round"/>'
+      + '<circle cx="' + f(cx + 3 * s) + '" cy="' + f(top + 5 * s) + '" r="' + f(1.1 * s) + '" fill="' + C.pink + '"/></g>';
+    return o;
+  }
+  function mug(x, base, s, body, band) {
+    var w = 9 * s, h = 10 * s;
+    return '<g' + SH + '><path d="M' + f(x + 1.2 * s) + ' ' + f(base - h * 1.2) + ' c' + f(-1.8 * s) + ' ' + f(-2 * s) + ' ' + f(1.6 * s) + ' ' + f(-3 * s) + ' 0 ' + f(-5 * s) + ' M' + f(x + 3.4 * s) + ' ' + f(base - h * 1.2) + ' c' + f(-1.8 * s) + ' ' + f(-2 * s) + ' ' + f(1.6 * s) + ' ' + f(-3 * s) + ' 0 ' + f(-5 * s) + '" fill="none" stroke="#fffaf4" stroke-width="' + f(0.9 * s) + '" stroke-linecap="round" opacity=".95"/></g>'
+      + '<g' + SH + '><path d="M' + f(x + w / 2 + 0.4 * s) + ' ' + f(base - h * 0.75) + ' a' + f(2.6 * s) + ' ' + f(2.6 * s) + ' 0 1 1 0 ' + f(4.6 * s) + '" fill="none" stroke="' + band + '" stroke-width="' + f(1.4 * s) + '"/>'
+      + '<rect x="' + f(x - w / 2) + '" y="' + f(base - h) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(1.6 * s) + '" fill="' + body + '"/>'
+      + '<rect x="' + f(x - w / 2) + '" y="' + f(base - h * 0.62) + '" width="' + f(w) + '" height="' + f(h * 0.2) + '" fill="' + band + '"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(base - h) + '" rx="' + f(w / 2) + '" ry="' + f(0.8 * s) + '" fill="#7a4a35"/></g>';
+  }
+
+  function scene(sq, HH, partner) {
+    var rnd = seeded(sq ? 5205 : 505), T = sq ? 77 : 99.5;
+    var o = '<svg class="' + P + '-scene" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true"><defs>'
+      + '<filter id="pc05sh" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy=".35" stdDeviation=".4" flood-color="#3c2350" flood-opacity=".3"/></filter>'
+      + '<linearGradient id="pc05bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e3d5f4"/><stop offset="1" stop-color="' + C.lilac + '"/></linearGradient></defs>'
+      + '<rect width="100" height="' + f(HH) + '" fill="url(#pc05bg)"/>';
+    // papered wall stripes
+    for (var x = 0; x < 100; x += 8) o += '<rect x="' + x + '" y="0" width="4" height="' + f(HH) + '" fill="#fff" opacity=".13"/>';
+    // pink arch window behind the bouquet, two paper layers
+    var ax = sq ? 81 : 81, aw = sq ? 30 : 34, at = sq ? 22 : 30;
+    o += '<path d="M' + f(ax - aw / 2) + ' ' + f(T) + ' V' + f(at + aw / 2) + ' A' + f(aw / 2) + ' ' + f(aw / 2) + ' 0 0 1 ' + f(ax + aw / 2) + ' ' + f(at + aw / 2) + ' V' + f(T) + 'Z" fill="' + C.blush + '"' + SH + '/>';
+    o += '<path d="M' + f(ax - aw / 2 + 3) + ' ' + f(T) + ' V' + f(at + aw / 2) + ' A' + f(aw / 2 - 3) + ' ' + f(aw / 2 - 3) + ' 0 0 1 ' + f(ax + aw / 2 - 3) + ' ' + f(at + aw / 2) + ' V' + f(T) + 'Z" fill="#fbe0ea"' + SH + '/>';
+    // scattered paper petals on wall
+    for (var i = 0; i < (sq ? 6 : 9); i++) {
+      var px = 64 + rnd() * 34, py = (sq ? 24 : 30) + rnd() * (sq ? 10 : 14);
+      if (i % 3 === 0) px = 3 + rnd() * 2;
+      o += '<ellipse cx="' + f(px) + '" cy="' + f(py) + '" rx=".9" ry=".5" transform="rotate(' + f(rnd() * 180) + ' ' + f(px) + ' ' + f(py) + ')" fill="' + [C.pink, '#fffdf8', C.butter][i % 3] + '"' + SH + '/>';
+    }
+    // table: top edge + scalloped sage cloth, two layers
+    var sc = function (y, c, r) {
+      var d = 'M-2 ' + f(T) + ' H102 V' + f(y) + ' ';
+      for (var xx = 102; xx > -4; xx -= r * 2) d += 'A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(xx - r * 2) + ' ' + f(y) + ' ';
+      return '<path d="' + d + 'Z" fill="' + c + '"' + SH + '/>';
+    };
+    o += '<rect x="-2" y="' + f(T) + '" width="104" height="' + f(HH - T + 2) + '" fill="' + C.sage3 + '"/>';
+    o += sc(HH - (sq ? 1.5 : 2), C.sage2, 3) + sc(HH - (sq ? 4 : 6), C.sage, 3);
+    o += '<rect x="-2" y="' + f(T - 0.4) + '" width="104" height="1.6" fill="#c3dcc0"' + SH + '/>';
+    // little cross-stitch dots on the cloth
+    for (var k = 0; k < 18; k++) o += '<circle cx="' + f(3 + k * 5.6) + '" cy="' + f(T + 3) + '" r=".45" fill="#fff" opacity=".6"/>';
+    // bouquet + mugs
+    if (!sq) {
+      o += mug(67, T, 0.8, C.cream, C.pink) + bouquet(82, T, 1, rnd) + mug(94, T + 0.2, 0.58, C.plum, C.lilac);
+    } else {
+      o += bouquet(82, T, 0.86, rnd) + mug(68.5, T, 0.72, C.cream, C.pink) + mug(94, T, 0.52, C.plum, C.lilac);
+    }
+    return o + '</svg>';
+  }
+
+  var css = [
+    '.pc05{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;font-family:Nunito,sans-serif;color:#3c2350;background:' + C.lilac + '}',
+    '.pc05.sq{aspect-ratio:1/1}',
+    '.pc05 .pc05-scene{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc05 .pc05-head,.pc05 .pc05-card,.pc05 .pc05-mat,.pc05 .pc05-badge{position:absolute;z-index:3;box-sizing:border-box}',
+    '.pc05 .pc05-badge{filter:drop-shadow(0 .4cqw .6cqw rgba(60,35,80,.3))}.pc05 .pc05-badge svg{display:block;width:100%;height:auto}',
+    '.pc05 .pc05-bt{font-family:Lora,serif;font-weight:700;font-size:8.6px;letter-spacing:1.4px;fill:#fff8f0}',
+    '.pc05 .pc05-bt2{font-family:Nunito,sans-serif;font-weight:800;font-size:6.4px;letter-spacing:1.6px;fill:#f8c4d6}',
+    /* header card */
+    '.pc05 .pc05-head{background:#fff8f0;border-radius:2.4cqw;box-shadow:0 .4cqw .9cqw rgba(60,35,80,.28),.9cqw .9cqw 0 0 #ee7fa8;display:flex;align-items:center;gap:3cqw;padding:2.2cqw 3cqw}',
+    '.pc05 .pc05-logo{flex:none;width:12.5cqw;height:12.5cqw;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #cdb8ea}',
+    '.pc05 .pc05-logo img{width:80%}.pc05 .pc05-logo.pip{width:17cqw;height:10.6cqw;border-radius:1.6cqw}.pc05 .pc05-logo.pip img{width:90%}',
+    '.pc05 .pc05-ht{flex:1;min-width:0}',
+    '.pc05 .pc05-k{font-weight:800;letter-spacing:.13em;font-size:1.35cqw;color:#d9588b}',
+    '.pc05 .pc05-t{font-family:Lora,serif;font-weight:700;line-height:1.02;color:#5b3a78;margin-top:.8cqw;font-size:6.6cqw}',
+    '.pc05 .pc05-t i{color:#d9588b;font-weight:700}',
+    '.pc05 .pc05-m{display:inline-block;margin-top:1cqw;background:#9cc19a;color:#203a25;font-weight:800;font-size:2cqw;padding:.45cqw 2cqw;border-radius:5cqw;white-space:nowrap}',
+    /* greeting card */
+    '.pc05 .pc05-card{background:#fff8f0;border-radius:1.6cqw;box-shadow:0 .5cqw 1cqw rgba(60,35,80,.3),-1.3cqw .7cqw 0 0 #f8c4d6,-1.3cqw .7cqw .9cqw 0 rgba(60,35,80,.2);display:flex;flex-direction:column;padding:3.4cqw 3.6cqw 2.8cqw}',
+    '.pc05 .pc05-card:before{content:"";position:absolute;inset:1.3cqw;border:.25cqw solid #e9dcf5;border-radius:1cqw;pointer-events:none}',
+    '.pc05 .pc05-lb{font-family:Lora,serif;font-style:italic;font-weight:600;font-size:2.5cqw;color:#9c3f6f;text-align:center}',
+    '.pc05 .pc05-ss{flex:1;display:flex;flex-direction:column;justify-content:center;gap:2.6cqw}',
+    '.pc05 .pc05-s{display:flex;gap:2.4cqw;align-items:center}',
+    '.pc05 .pc05-d{flex:none;width:12.4cqw;height:12.4cqw;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;line-height:1}',
+    '.pc05 .pc05-d svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}',
+    '.pc05 .pc05-d span{position:relative;display:block;line-height:1.3}.pc05 .pc05-d .w{font-size:1.45cqw;font-weight:800;letter-spacing:.1em}.pc05 .pc05-d .n{font-family:Lora,serif;font-weight:700;font-size:5cqw;line-height:1}.pc05 .pc05-d .mo{font-size:1.45cqw;font-weight:800;letter-spacing:.1em}',
+    '.pc05 .pc05-x{flex:1;min-width:0}',
+    '.pc05 .pc05-x .l{font-family:Lora,serif;font-weight:700;font-size:3.5cqw;line-height:1.12;color:#5b3a78}',
+    '.pc05 .pc05-x .tm{font-weight:800;font-size:2.2cqw;color:#d9588b;margin-top:.6cqw}',
+    '.pc05 .pc05-x .ds{font-size:1.95cqw;margin-top:.2cqw;color:#6a5378}',
+    '.pc05 .pc05-ss.solo{text-align:center;gap:2cqw}.pc05 .pc05-ss.solo .pc05-s{flex-direction:column;gap:2.2cqw}',
+    '.pc05 .pc05-ss.solo .pc05-d{width:16cqw;height:16cqw}.pc05 .pc05-ss.solo .pc05-d .n{font-size:6.6cqw;line-height:1.15}.pc05 .pc05-ss.solo .pc05-d .w,.pc05 .pc05-ss.solo .pc05-d .mo{font-size:1.8cqw}',
+    '.pc05 .pc05-ss.solo .pc05-x .l{font-size:5cqw;line-height:1.08}.pc05 .pc05-ss.solo .pc05-x .tm{font-size:2.8cqw}.pc05 .pc05-ss.solo .pc05-x .ds{font-size:2.3cqw;font-style:italic}',
+    '.pc05 .pc05-pr{text-align:center;font-size:2.3cqw;color:#5b3a78;background:#f3ecfa;border-radius:4cqw;padding:.7cqw 2cqw;align-self:center}.pc05 .pc05-pr b{font-weight:800;color:#9c3f6f}',
+    '.pc05 .pc05-div{border-top:.3cqw dotted #cdb8ea;margin:0 4cqw}',
+    '.pc05 .pc05-wh{text-align:center;font-size:1.75cqw;color:#5c8c63;font-weight:700;margin-top:1.4cqw;line-height:1.35}.pc05 .pc05-wh b{color:#5b3a78;font-weight:800}',
+    /* partner lessons + table */
+    '.pc05 .pc05-les{display:flex;flex-direction:column;gap:.9cqw;margin-top:1cqw}',
+    '.pc05 .pc05-les div{font-family:Lora,serif;font-weight:700;font-size:3cqw;line-height:1.12;color:#5b3a78;text-align:center}',
+    '.pc05 .pc05-les div span{display:block;font-family:Nunito,sans-serif;font-weight:800;font-size:1.7cqw;letter-spacing:.1em;color:#d9588b;margin-bottom:.3cqw}',
+    '.pc05 .pc05-tzh{text-align:center;font-weight:800;font-size:1.6cqw;letter-spacing:.14em;color:#5c8c63;margin-top:1.8cqw}',
+    '.pc05 .pc05-tz{display:flex;flex-direction:column;gap:.4cqw;margin-top:.9cqw}',
+    '.pc05 .pc05-tz .r{display:grid;grid-template-columns:1.2fr 1.15fr .75fr;gap:1cqw;align-items:center;padding:.62cqw 1.4cqw;border-radius:2cqw;background:#f6f0fb;font-size:1.78cqw;white-space:nowrap}',
+    '.pc05 .pc05-tz .r:nth-child(even){background:#eef5ec}',
+    '.pc05 .pc05-tz .r .a{font-weight:800;color:#5b3a78}.pc05 .pc05-tz .r .c{font-weight:800;color:#d9588b;text-align:right}',
+    '.pc05 .pc05-tz .r.h{background:#ee7fa8!important;color:#fff}.pc05 .pc05-tz .r.h .a,.pc05 .pc05-tz .r.h .c{color:#fff}',
+    /* placemat */
+    '.pc05 .pc05-mat{background:#fff8f0;border-radius:2.4cqw;box-shadow:0 .4cqw .9cqw rgba(30,60,35,.35),0 0 0 .7cqw #c3dcc0;display:flex;align-items:center;gap:2.6cqw;padding:2cqw 3cqw}',
+    '.pc05 .pc05-rg{flex:1;min-width:0;font-size:1.9cqw;line-height:1.35}',
+    '.pc05 .pc05-rg b{display:block;font-family:Lora,serif;font-weight:700;font-size:3.5cqw;line-height:1.1;color:#5b3a78;margin-bottom:.4cqw}.pc05 .pc05-rg b i{font-style:normal;color:#d9588b}',
+    '.pc05 .pc05-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border:.35cqw solid #cdb8ea;border-radius:1.2cqw;padding:.5cqw;box-sizing:border-box;display:grid;place-items:center;font-weight:800;font-size:2.2cqw;color:#5b3a78}',
+    '.pc05 .pc05-qr img{width:100%;height:100%;display:block}',
+    '.pc05 .pc05-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw;font-size:1.45cqw}',
+    '.pc05 .pc05-bd span{background:#5b3a78;color:#fff;border-radius:4cqw;font-weight:800;text-align:center;padding:.5em 1em;white-space:nowrap}',
+    /* square */
+    '.pc05.sq .pc05-head{padding:1.6cqw 2.4cqw;gap:2.2cqw}.pc05.sq .pc05-logo{width:9.6cqw;height:9.6cqw}.pc05.sq .pc05-logo.pip{width:14cqw;height:8.6cqw}',
+    '.pc05.sq .pc05-k{font-size:1.15cqw}.pc05.sq .pc05-t{font-size:5.2cqw}.pc05.sq .pc05-m{font-size:1.7cqw;margin-top:.7cqw}',
+    '.pc05.sq .pc05-card{padding:2.6cqw 3cqw 2.2cqw}.pc05.sq .pc05-card:before{inset:1cqw}',
+    '.pc05.sq .pc05-lb{font-size:2.1cqw}.pc05.sq .pc05-ss{gap:1.6cqw}',
+    '.pc05.sq .pc05-d{width:12cqw;height:12cqw}.pc05.sq .pc05-d .n{font-size:4.8cqw;line-height:1.12}.pc05.sq .pc05-d .w,.pc05.sq .pc05-d .mo{font-size:1.4cqw}',
+    '.pc05.sq .pc05-x .l{font-size:3.5cqw}.pc05.sq .pc05-x .tm{font-size:2.2cqw}.pc05.sq .pc05-x .ds{font-size:1.85cqw}',
+    '.pc05.sq .pc05-ss.solo{gap:1.3cqw}.pc05.sq .pc05-ss.solo .pc05-s{flex-direction:row;text-align:left;gap:2.4cqw}.pc05.sq .pc05-ss.solo .pc05-d{width:14cqw;height:14cqw}.pc05.sq .pc05-ss.solo .pc05-d .n{font-size:5.8cqw}.pc05.sq .pc05-ss.solo .pc05-d .w,.pc05.sq .pc05-ss.solo .pc05-d .mo{font-size:1.45cqw}',
+    '.pc05.sq .pc05-ss.solo .pc05-x .l{font-size:4cqw}.pc05.sq .pc05-ss.solo .pc05-x .tm{font-size:2.2cqw}.pc05.sq .pc05-ss.solo .pc05-x .ds{font-size:1.8cqw}',
+    '.pc05.sq .pc05-pr{font-size:1.85cqw;padding:.5cqw 1.6cqw}.pc05.sq .pc05-wh{font-size:1.5cqw;margin-top:1cqw}',
+    '.pc05.sq .pc05-les{gap:.6cqw;margin-top:0}.pc05.sq .pc05-les div{font-size:2.5cqw}.pc05.sq .pc05-les div span{display:inline;font-size:1.4cqw;margin-right:.6em}',
+    '.pc05.sq .pc05-tzh{display:none}.pc05.sq .pc05-tz{margin-top:1.2cqw;gap:.3cqw}.pc05.sq .pc05-tz .r{font-size:1.62cqw;padding:.45cqw 1.2cqw}',
+    '.pc05.sq .pc05-mat{padding:1.4cqw 2.6cqw;gap:2.4cqw}.pc05.sq .pc05-rg{font-size:1.6cqw}.pc05.sq .pc05-rg b{font-size:2.8cqw}.pc05.sq .pc05-qr{width:9cqw;height:9cqw}.pc05.sq .pc05-bd{font-size:1.25cqw}'
+  ].join('\n');
+
+  function seal(c) {
+    var d = '', n = 12, i;
+    for (i = 0; i <= n; i++) { var a = i / n * Math.PI * 2, m = (i - 0.5) / n * Math.PI * 2; d += i ? ' Q' + f(50 + Math.cos(m) * 54) + ' ' + f(50 + Math.sin(m) * 54) + ' ' + f(50 + Math.cos(a) * 44) + ' ' + f(50 + Math.sin(a) * 44) : 'M' + f(50 + Math.cos(a) * 44) + ' ' + f(50 + Math.sin(a) * 44); }
+    return '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="' + d + 'Z" fill="' + c + '"/><circle cx="50" cy="50" r="36" fill="none" stroke="#fff" stroke-width="1.6" stroke-dasharray="4 3" opacity=".8"/></svg>';
+  }
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), HH = sq ? 100 : 129.41, mon = H.MONTHS[spec.month - 1];
+    var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop();
+    var html = '<div class="vfx pc05' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + scene(sq, HH, partner);
+    var head = '<div class="pc05-logo' + (partner ? ' pip' : '') + '"><img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt=""></div>'
+      + '<div class="pc05-ht"><div class="pc05-k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc05-t">' + words.join(' ') + ' <i>' + last + '</i></div>'
+      + '<div class="pc05-m">' + mon + ' ' + spec.year + ' &middot; on Zoom</div></div>';
+    var pres = spec.presenter ? '<div class="pc05-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var where = '<div class="pc05-wh">' + H.PTC_WHERE + '</div>';
+    var card;
+    if (!partner) {
+      card = '<div class="pc05-lb">' + (S.length > 1 ? 'Come talk story with us' : 'This month we talk about') + '</div>'
+        + '<div class="pc05-ss' + (S.length === 1 ? ' solo' : '') + '">' + S.map(function (s, i) {
+          return (i ? '<div class="pc05-div"></div>' : '') + '<div class="pc05-s"><div class="pc05-d">' + seal(i ? '#9cc19a' : '#ee7fa8') + '<span class="w">' + s.dow.toUpperCase() + '</span><span class="n">' + s.day + '</span><span class="mo">' + s.mon.toUpperCase() + '</span></div>'
+            + '<div class="pc05-x"><div class="l">' + s.lesson + '</div><div class="tm">' + s.time + '</div>' + (s.desc ? '<div class="ds">' + s.desc + '</div>' : '') + '</div></div>';
+        }).join('') + '</div>' + pres + where;
+    } else {
+      card = '<div class="pc05-lb">This month we talk about</div><div class="pc05-les">' + S.map(function (s) { return '<div><span>' + s.dow.toUpperCase() + ' ' + s.mon.toUpperCase() + ' ' + s.day + ' (HAWAI&#699;I)</span>' + s.lesson + '</div>'; }).join('') + '</div>'
+        + (pres ? '<div style="margin-top:1.2cqw;text-align:center">' + pres + '</div>' : '')
+        + '<div class="pc05-tzh">YOUR LOCAL TIME</div><div class="pc05-tz">' + H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><span class="b">' + r.days + '</span><span class="c">' + r.time + '</span></div>'; }).join('') + '</div>' + where;
+    }
+    var rg = '<div class="pc05-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code, or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>';
+    var qr = '<div class="pc05-qr">' + H.qrImg(spec, partner) + '</div>', bd = '<div class="pc05-bd">' + H.badges(spec, partner) + '</div>';
+    if (!sq) {
+      html += box('pc05-head', 4, 4, 68, null, head);
+      html += box('pc05-badge', 74.5, 3, 22, null, badge(mon.toUpperCase() + ' ' + spec.year));
+      html += box('pc05-card', 6, 33, 56, 66, card);
+      html += box('pc05-mat', 5, 105, 90, null, rg + qr + bd);
+    } else {
+      html += box('pc05-head', 3.5, 3.5, 64, null, head);
+      html += box('pc05-badge', 75, 3, 21, null, badge(mon.toUpperCase() + ' ' + spec.year));
+      html += box('pc05-card', 5, 26, 58, 51, card);
+      html += box('pc05-mat', 4, 81.5, 92, null, rg + qr + bd);
+    }
+    return html + '</div>';
+  }
+
+  return { name: 'Papercut café: Mother\'s Day bouquet in a jar beside mugs', fonts: 'family=Lora:ital,wght@0,600;0,700;1,600;1,700&family=Nunito:wght@400;600;700;800', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 06 ---- */
+/* Set PC "Island Papercut café" - June: shave-ice + coffee stand on the sand.
+   A driftwood beach stand seen head-on: its roof sign carries the title, a pink-and-white scalloped paper
+   awning hangs below it, and through the open window you see layered aqua sea with rainbow shave ice and
+   coffee cups lined up on the counter. The counter front is the menu card with the talk. Palms lean in from
+   both sides; shells and starfish dot the paper sand around the registration card. Square = stand on the
+   left, a giant shave ice + iced coffee on the right. */
+VEBFlyers.registerSet('PC', 6, (function () {
+  var P = 'pc06';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function seeded(seed) { return function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  var SH = ' filter="url(#pc06sh)"';
+  var C = { aqua: '#5fd3d0', aqua2: '#2fb4b7', aqua3: '#17909a', deep: '#0f5660', pink: '#ff7fb1', pink2: '#ec4f8c', sand: '#f6dfb2', sand2: '#ebc98f', sand3: '#d8ad6e', cream: '#fffaf0', wood: '#d7ae80', wood2: '#b8875a', lemon: '#ffe066', sky: '#c9f1ee' };
+
+  /* ---------- PTC badge: cut-paper steaming cup ---------- */
+  function badge(mon) {
+    return '<div class="' + P + '-badge"><svg viewBox="0 0 100 100" aria-hidden="true"><defs>'
+      + '<filter id="pc06bs" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#0b3a40" flood-opacity=".35"/></filter>'
+      + '<path id="pc06ta" d="M8.6 50 A41.4 41.4 0 0 1 91.4 50"/><path id="pc06tb" d="M4.2 50 A45.8 45.8 0 0 0 95.8 50"/></defs>'
+      + '<circle cx="50" cy="51.6" r="48.5" fill="#0b3a40" opacity=".22"/>'
+      + '<circle cx="50" cy="50" r="48.5" fill="' + C.pink2 + '"/>'
+      + '<circle cx="50" cy="50" r="39" fill="' + C.cream + '" filter="url(#pc06bs)"/>'
+      + '<circle cx="50" cy="50" r="35.6" fill="none" stroke="' + C.aqua + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text class="' + P + '-bt"><textPath href="#pc06ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<text class="' + P + '-bt2"><textPath href="#pc06tb" startOffset="50%" text-anchor="middle">&#8226; ' + mon + ' &#8226;</textPath></text>'
+      + '<g filter="url(#pc06bs)"><path d="M44 38 C39 33 48 30 44 24 C42 21 44 18 46 16" fill="none" stroke="' + C.aqua + '" stroke-width="3.2" stroke-linecap="round"/>'
+      + '<path d="M54 38 C49 33 58 30 54 24 C52 21 54 18 56 16" fill="none" stroke="' + C.pink + '" stroke-width="3.2" stroke-linecap="round"/></g>'
+      + '<g filter="url(#pc06bs)"><ellipse cx="50" cy="71" rx="23" ry="4.6" fill="' + C.sand2 + '"/><ellipse cx="50" cy="70" rx="15" ry="2.6" fill="' + C.sand3 + '"/></g>'
+      + '<g filter="url(#pc06bs)"><path d="M68 50 a7 7 0 1 1 0 12" fill="none" stroke="' + C.aqua3 + '" stroke-width="3.6"/>'
+      + '<path d="M30 43 H70 V51 C70 62 61 70 50 70 C39 70 30 62 30 51 Z" fill="' + C.aqua2 + '"/>'
+      + '<path d="M30.4 52 H69.6 C69.4 54 69 56 68.4 57.6 H31.6 C31 56 30.6 54 30.4 52Z" fill="' + C.cream + '"/>'
+      + '<path d="M30.4 52 H69.6 C69.4 54 69 56 68.4 57.6 H31.6 C31 56 30.6 54 30.4 52Z" fill="' + C.pink + '" transform="translate(0 6.4) scale(1 .7)" transform-origin="50 55"/>'
+      + '<ellipse cx="50" cy="43" rx="20" ry="3.4" fill="#7a4a35"/><ellipse cx="50" cy="43.6" rx="17" ry="2.2" fill="#a46a4c"/></g>'
+      + '</svg></div>';
+  }
+
+  /* ---------- paper pieces ---------- */
+  function shaveIce(x, base, s, cols) { // paper cup + three-color dome + spoon straw
+    var w = 7 * s, h = 6 * s, top = base - h, o = '<g' + SH + '>';
+    o += '<path d="M' + f(x - w / 2) + ' ' + f(top) + ' H' + f(x + w / 2) + ' L' + f(x + w * 0.36) + ' ' + f(base) + ' H' + f(x - w * 0.36) + 'Z" fill="#fffdf8"/>'
+      + '<path d="M' + f(x - w * 0.46) + ' ' + f(top + h * 0.35) + ' H' + f(x + w * 0.46) + ' L' + f(x + w * 0.43) + ' ' + f(top + h * 0.6) + ' H' + f(x - w * 0.43) + 'Z" fill="' + C.pink + '"/></g>';
+    var r = w * 0.56;
+    o += '<g' + SH + '><path d="M' + f(x - w * 0.55) + ' ' + f(top + 0.3) + ' C' + f(x - w * 0.62) + ' ' + f(top - r * 1.5) + ' ' + f(x + w * 0.62) + ' ' + f(top - r * 1.5) + ' ' + f(x + w * 0.55) + ' ' + f(top + 0.3) + 'Z" fill="' + cols[1] + '"/>'
+      + '<path d="M' + f(x - w * 0.55) + ' ' + f(top + 0.3) + ' C' + f(x - w * 0.62) + ' ' + f(top - r * 1.5) + ' ' + f(x - w * 0.1) + ' ' + f(top - r * 1.55) + ' ' + f(x - w * 0.16) + ' ' + f(top + 0.3) + 'Z" fill="' + cols[0] + '"/>'
+      + '<path d="M' + f(x + w * 0.55) + ' ' + f(top + 0.3) + ' C' + f(x + w * 0.62) + ' ' + f(top - r * 1.5) + ' ' + f(x + w * 0.1) + ' ' + f(top - r * 1.55) + ' ' + f(x + w * 0.16) + ' ' + f(top + 0.3) + 'Z" fill="' + cols[2] + '"/>'
+      + '<rect x="' + f(x + w * 0.12) + '" y="' + f(top - r * 1.75) + '" width="' + f(0.7 * s) + '" height="' + f(r * 1.2) + '" rx="' + f(0.3 * s) + '" fill="#fff" transform="rotate(14 ' + f(x) + ' ' + f(top) + ')"/></g>';
+    return o;
+  }
+  function coffeeCup(x, base, s) { // to-go cup: lid, sleeve, steam
+    var w = 5.4 * s, h = 7.6 * s, top = base - h;
+    return '<g' + SH + '><path d="M' + f(x - 1 * s) + ' ' + f(top - 1.8 * s) + ' c' + f(-1.4 * s) + ' ' + f(-1.6 * s) + ' ' + f(1.2 * s) + ' ' + f(-2.4 * s) + ' 0 ' + f(-4 * s) + ' M' + f(x + 1.2 * s) + ' ' + f(top - 1.8 * s) + ' c' + f(-1.4 * s) + ' ' + f(-1.6 * s) + ' ' + f(1.2 * s) + ' ' + f(-2.4 * s) + ' 0 ' + f(-4 * s) + '" fill="none" stroke="#fff" stroke-width="' + f(0.7 * s) + '" stroke-linecap="round"/></g>'
+      + '<g' + SH + '><path d="M' + f(x - w / 2) + ' ' + f(top) + ' H' + f(x + w / 2) + ' L' + f(x + w * 0.4) + ' ' + f(base) + ' H' + f(x - w * 0.4) + 'Z" fill="#fffdf8"/>'
+      + '<path d="M' + f(x - w * 0.48) + ' ' + f(top + h * 0.3) + ' H' + f(x + w * 0.48) + ' L' + f(x + w * 0.44) + ' ' + f(top + h * 0.68) + ' H' + f(x - w * 0.44) + 'Z" fill="' + C.wood2 + '"/>'
+      + '<rect x="' + f(x - w * 0.58) + '" y="' + f(top - 1.2 * s) + '" width="' + f(w * 1.16) + '" height="' + f(1.3 * s) + '" rx="' + f(0.6 * s) + '" fill="' + C.aqua2 + '"/></g>';
+  }
+  function icedCoffee(x, base, s) {
+    var w = 6 * s, h = 10 * s, top = base - h;
+    return '<g' + SH + '><rect x="' + f(x + 0.6 * s) + '" y="' + f(top - 5 * s) + '" width="' + f(0.9 * s) + '" height="' + f(9 * s) + '" fill="' + C.pink + '" transform="rotate(10 ' + f(x) + ' ' + f(top) + ')"/></g>'
+      + '<g' + SH + '><path d="M' + f(x - w / 2) + ' ' + f(top) + ' H' + f(x + w / 2) + ' L' + f(x + w * 0.42) + ' ' + f(base) + ' H' + f(x - w * 0.42) + 'Z" fill="#e8fbfa" opacity=".95"/>'
+      + '<path d="M' + f(x - w * 0.47) + ' ' + f(top + h * 0.22) + ' H' + f(x + w * 0.47) + ' L' + f(x + w * 0.42) + ' ' + f(base - 0.3 * s) + ' H' + f(x - w * 0.42) + 'Z" fill="#b07a4f"/>'
+      + '<path d="M' + f(x - w * 0.47) + ' ' + f(top + h * 0.22) + ' H' + f(x + w * 0.47) + ' L' + f(x + w * 0.46) + ' ' + f(top + h * 0.4) + ' H' + f(x - w * 0.46) + 'Z" fill="#f3e2c8"/>'
+      + '<rect x="' + f(x - w * 0.3) + '" y="' + f(top + h * 0.45) + '" width="' + f(1.8 * s) + '" height="' + f(1.8 * s) + '" rx="' + f(0.3 * s) + '" fill="#fff" opacity=".55" transform="rotate(12 ' + f(x) + ' ' + f(top + h * 0.5) + ')"/>'
+      + '<rect x="' + f(x + w * 0.02) + '" y="' + f(top + h * 0.62) + '" width="' + f(1.6 * s) + '" height="' + f(1.6 * s) + '" rx="' + f(0.3 * s) + '" fill="#fff" opacity=".5" transform="rotate(-10 ' + f(x) + ' ' + f(top + h * 0.6) + ')"/></g>';
+  }
+  function palm(x, y, len, lean, rnd, flip) {
+    var k = flip ? -1 : 1, tx = x + lean * k, ty = y - len, o = '';
+    o += '<path d="M' + f(x - 1.4) + ' ' + f(y) + ' Q' + f(x + lean * 0.3 * k) + ' ' + f(y - len * 0.5) + ' ' + f(tx - 0.6) + ' ' + f(ty) + ' L' + f(tx + 0.6) + ' ' + f(ty) + ' Q' + f(x + lean * 0.3 * k + 2) + ' ' + f(y - len * 0.5) + ' ' + f(x + 1.4) + ' ' + f(y) + 'Z" fill="' + C.wood2 + '"' + SH + '/>';
+    var ang = [-160, -125, -95, -60, -25, 10, 40];
+    ang.forEach(function (a, i) {
+      var L = 11 + rnd() * 4, ar = a * Math.PI / 180, ex = tx + Math.cos(ar) * L, ey = ty + Math.sin(ar) * L * 0.8 + 3;
+      var mx = tx + Math.cos(ar) * L * 0.5, my = ty + Math.sin(ar) * L * 0.5 - 2;
+      o += '<path d="M' + f(tx) + ' ' + f(ty) + ' Q' + f(mx - 1.6) + ' ' + f(my - 1.6) + ' ' + f(ex) + ' ' + f(ey) + ' Q' + f(mx + 1.6) + ' ' + f(my + 2.2) + ' ' + f(tx) + ' ' + f(ty + 0.6) + 'Z" fill="' + ['#2f9e6a', '#47b97a', '#23865a'][i % 3] + '"' + SH + '/>';
+    });
+    return o + '<circle cx="' + f(tx - 0.8) + '" cy="' + f(ty + 1) + '" r="1" fill="#7a5233"' + SH + '/><circle cx="' + f(tx + 0.9) + '" cy="' + f(ty + 1.3) + '" r="1" fill="#8a5f3c"' + SH + '/>';
+  }
+  function starfish(x, y, r, rot, c) {
+    var d = '';
+    for (var i = 0; i < 10; i++) { var a = (i * 36 - 90 + rot) * Math.PI / 180, rr = i % 2 ? r * 0.45 : r; d += (i ? ' L' : 'M') + f(x + Math.cos(a) * rr) + ' ' + f(y + Math.sin(a) * rr); }
+    return '<path d="' + d + 'Z" fill="' + c + '" stroke="' + c + '" stroke-width="' + f(r * 0.3) + '" stroke-linejoin="round"' + SH + '/>';
+  }
+  function shell(x, y, s, rot) {
+    var o = '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + rot + ') scale(' + f(s) + ')"' + SH + '><path d="M0 0 L-2.4 -2.6 C-1.6 -4.2 1.6 -4.2 2.4 -2.6Z" fill="#fff3ea"/>';
+    for (var i = -2; i <= 2; i++) o += '<path d="M0 -.2 L' + f(i * 0.9) + ' -3.4" stroke="#f3b9a6" stroke-width=".25"/>';
+    return o + '</g>';
+  }
+  function awning(x1, x2, y, h, n) {
+    var w = (x2 - x1) / n, o = '<g' + SH + '>';
+    for (var i = 0; i < n; i++) {
+      var c = i % 2 ? '#fffaf0' : C.pink, xx = x1 + i * w;
+      o += '<path d="M' + f(xx) + ' ' + f(y) + ' H' + f(xx + w) + ' V' + f(y + h) + ' A' + f(w / 2) + ' ' + f(w / 2) + ' 0 0 1 ' + f(xx) + ' ' + f(y + h) + 'Z" fill="' + c + '"/>';
+    }
+    return o + '<rect x="' + f(x1 - 1) + '" y="' + f(y - 1.4) + '" width="' + f(x2 - x1 + 2) + '" height="2" rx=".6" fill="' + C.pink2 + '"/></g>';
+  }
+  function cloud(x, y, s) {
+    return '<g' + SH + ' fill="#fff"><ellipse cx="' + f(x) + '" cy="' + f(y) + '" rx="' + f(6 * s) + '" ry="' + f(2.2 * s) + '"/><circle cx="' + f(x - 1.5 * s) + '" cy="' + f(y - 1.4 * s) + '" r="' + f(2.4 * s) + '"/><circle cx="' + f(x + 2 * s) + '" cy="' + f(y - 1.8 * s) + '" r="' + f(3 * s) + '"/></g>';
+  }
+
+  function scene(sq, HH, partner) {
+    var rnd = seeded(sq ? 6606 : 606), o = '<svg class="' + P + '-scene" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true"><defs>'
+      + '<filter id="pc06sh" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy=".35" stdDeviation=".4" flood-color="#0b3a40" flood-opacity=".3"/></filter>'
+      + '<linearGradient id="pc06bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fe6e3"/><stop offset="1" stop-color="#e3fbf8"/></linearGradient></defs>'
+      + '<rect width="100" height="' + f(HH) + '" fill="url(#pc06bg)"/>';
+    // stand geometry
+    var g = sq ? { L: 3, R: 64, aw: 22, ledge: 39, base: 82, sea: 34, sand: 66 } : { L: 11, R: 89, aw: 30, ledge: partner ? 50 : 54, base: 104, sea: 44, sand: 82 };
+    // sun + clouds
+    o += '<circle cx="' + (sq ? 50 : 6) + '" cy="' + (sq ? 30 : 34) + '" r="' + (sq ? 0 : 6) + '" fill="' + C.lemon + '"' + SH + '/>';
+    o += cloud(sq ? 84 : 92, sq ? 28 : 36, 0.8) + cloud(sq ? 72 : 4, sq ? 34 : 44, 0.6);
+    // layered sea
+    var wave = function (y, c, amp, ph) {
+      var d = 'M-2 ' + f(y);
+      for (var x = -2; x <= 104; x += 6) d += ' Q' + f(x + 1.5) + ' ' + f(y - amp + (ph ? amp * 2 * ((x / 6) % 2) : 0)) + ' ' + f(x + 3) + ' ' + f(y) + ' T' + f(x + 6) + ' ' + f(y);
+      return '<path d="' + d + ' V' + f(HH + 2) + ' H-2Z" fill="' + c + '"' + SH + '/>';
+    };
+    o += wave(g.sea, C.aqua, 0.7) + wave(g.sea + 5, C.aqua2, 0.8) + wave(g.sea + 11, C.aqua3, 0.9);
+    // sand dunes
+    o += '<path d="M-2 ' + f(g.sand) + ' C25 ' + f(g.sand - 4) + ' 60 ' + f(g.sand + 3) + ' 102 ' + f(g.sand - 3) + ' V' + f(HH + 2) + ' H-2Z" fill="' + C.sand + '"' + SH + '/>';
+    o += '<path d="M-2 ' + f(g.sand + 10) + ' C30 ' + f(g.sand + 6) + ' 70 ' + f(g.sand + 13) + ' 102 ' + f(g.sand + 8) + ' V' + f(HH + 2) + ' H-2Z" fill="' + C.sand2 + '"' + SH + '/>';
+    // palms at the sides
+    if (!sq) o += palm(4, g.sand + 2, 46, 4, rnd, false) + palm(97, g.sand + 2, 50, 4, rnd, true);
+    else o += palm(97, g.sand + 4, 40, 6, rnd, true);
+    // stand: back wall frame + posts + roof
+    o += '<rect x="' + f(g.L) + '" y="' + f(g.aw) + '" width="2.6" height="' + f(g.base - g.aw) + '" fill="' + C.wood2 + '"' + SH + '/>';
+    o += '<rect x="' + f(g.R - 2.6) + '" y="' + f(g.aw) + '" width="2.6" height="' + f(g.base - g.aw) + '" fill="' + C.wood2 + '"' + SH + '/>';
+    // counter items
+    var items = '', span = g.R - g.L - 8, n = sq ? 5 : 7, s = sq ? 0.8 : 1;
+    var ice = [[C.pink, C.lemon, C.aqua2], [C.aqua, '#fff', C.pink2], ['#b27ae0', C.pink, C.lemon], [C.lemon, C.aqua2, C.pink]];
+    for (var i = 0; i < n; i++) {
+      var x = g.L + 5 + span * (i + 0.5) / n;
+      if (i % 3 === 1) items += (i % 2 ? coffeeCup(x, g.ledge, s) : icedCoffee(x, g.ledge, s));
+      else items += shaveIce(x, g.ledge, s, ice[i % 4]);
+    }
+    o += items;
+    // ledge
+    o += '<rect x="' + f(g.L - 1.5) + '" y="' + f(g.ledge) + '" width="' + f(g.R - g.L + 3) + '" height="2" rx=".5" fill="' + C.wood + '"' + SH + '/>';
+    // awning
+    o += awning(g.L - 2, g.R + 2, g.aw + 1, sq ? 3 : 3.6, sq ? 12 : 14);
+    if (sq) {
+      // big shave ice + iced coffee on the right
+      o += icedCoffee(91, 78, 1.25) + shaveIce(78, 78, 2.1, [C.pink, C.lemon, C.aqua2]);
+    }
+    // shells + starfish on the sand
+    var sx = sq ? [[70, 86, 1], [93, 84, 0]] : [[4, 104, 1], [96, 100, 0], [6, 127, 0], [94, 128, 1]];
+    sx.forEach(function (p, j) { o += p[2] ? starfish(p[0], p[1], 2.2, j * 17, j % 2 ? C.pink : '#ff9f6b') : shell(p[0], p[1], 0.9, j * 20 - 15); });
+    return o + '</svg>';
+  }
+
+  var css = [
+    '.pc06{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;font-family:Nunito,sans-serif;color:#0f5660;background:#c9f1ee}',
+    '.pc06.sq{aspect-ratio:1/1}',
+    '.pc06 .pc06-scene{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc06 .pc06-roof,.pc06 .pc06-card,.pc06 .pc06-reg,.pc06 .pc06-badge{position:absolute;z-index:3;box-sizing:border-box}',
+    '.pc06 .pc06-badge{filter:drop-shadow(0 .4cqw .6cqw rgba(11,58,64,.3))}.pc06 .pc06-badge svg{display:block;width:100%;height:auto}',
+    '.pc06 .pc06-bt{font-family:"Baloo 2",sans-serif;font-weight:800;font-size:8.6px;letter-spacing:1.4px;fill:#fffaf0}',
+    '.pc06 .pc06-bt2{font-family:Nunito,sans-serif;font-weight:800;font-size:6.4px;letter-spacing:1.6px;fill:#fff}',
+    /* roof sign */
+    '.pc06 .pc06-roof{background:#fffaf0;border-radius:2.2cqw 2.2cqw 1cqw 1cqw;box-shadow:0 .4cqw .9cqw rgba(11,58,64,.3),0 1cqw 0 0 #d7ae80,0 1.2cqw 1cqw 0 rgba(11,58,64,.2);display:flex;align-items:center;gap:2.8cqw;padding:2cqw 3cqw}',
+    '.pc06 .pc06-logo{flex:none;width:12cqw;height:12cqw;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #5fd3d0}',
+    '.pc06 .pc06-logo img{width:80%}.pc06 .pc06-logo.pip{width:17cqw;height:10.4cqw;border-radius:1.6cqw}.pc06 .pc06-logo.pip img{width:90%}',
+    '.pc06 .pc06-ht{flex:1;min-width:0}',
+    '.pc06 .pc06-k{font-weight:800;letter-spacing:.13em;font-size:1.35cqw;color:#ec4f8c}',
+    '.pc06 .pc06-t{font-family:"Baloo 2",sans-serif;font-weight:800;line-height:1.1;color:#0f5660;margin-top:1.4cqw;margin-bottom:0;font-size:7cqw}',
+    '.pc06 .pc06-t i{font-style:normal;color:#ec4f8c}',
+    '.pc06 .pc06-m{display:inline-block;margin-top:.5cqw;background:#2fb4b7;color:#fff;font-weight:800;font-size:2cqw;padding:.45cqw 2cqw;border-radius:5cqw;white-space:nowrap}',
+    /* counter menu card */
+    '.pc06 .pc06-card{background:#fffaf0;border-radius:1.4cqw;box-shadow:0 .5cqw 1cqw rgba(11,58,64,.3),0 .9cqw 0 0 #b8875a;display:flex;flex-direction:column;align-items:center;text-align:center;padding:3cqw 3.6cqw 2.6cqw}',
+    '.pc06 .pc06-card:before{content:"";position:absolute;inset:1.2cqw;border:.25cqw dashed #9fe6e3;border-radius:.9cqw;pointer-events:none}',
+    '.pc06 .pc06-lb{font-weight:800;font-size:1.7cqw;letter-spacing:.2em;color:#17909a}',
+    '.pc06 .pc06-lb:before,.pc06 .pc06-lb:after{content:"";display:inline-block;width:4cqw;border-top:.3cqw solid #ff7fb1;vertical-align:middle;margin:0 1.4cqw}',
+    '.pc06 .pc06-ss{flex:1;width:100%;margin-top:1cqw;display:flex;align-items:center;justify-content:center;gap:3cqw}',
+    '.pc06 .pc06-s{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}',
+    '.pc06 .pc06-dt{display:flex;align-items:center;gap:1cqw;background:#ff7fb1;color:#fff;border-radius:5cqw;padding:.3cqw 2cqw .3cqw .4cqw;font-weight:800;font-size:1.8cqw;letter-spacing:.08em;white-space:nowrap}',
+    '.pc06 .pc06-dt b{display:grid;place-items:center;width:5cqw;height:5cqw;border-radius:50%;background:#fffaf0;color:#ec4f8c;font-family:"Baloo 2",sans-serif;font-size:3cqw;letter-spacing:0;line-height:1}',
+    '.pc06 .pc06-s.b2 .pc06-dt{background:#2fb4b7}.pc06 .pc06-s.b2 .pc06-dt b{color:#17909a}',
+    '.pc06 .pc06-l{font-family:"Baloo 2",sans-serif;font-weight:800;font-size:3.7cqw;line-height:1.08;color:#0f5660;margin-top:1.4cqw}',
+    '.pc06 .pc06-tm{font-weight:800;font-size:2.2cqw;color:#ec4f8c;margin-top:.6cqw}',
+    '.pc06 .pc06-ds{font-size:1.9cqw;color:#3a6d73;margin-top:.2cqw}',
+    '.pc06 .pc06-vr{align-self:stretch;border-left:.3cqw dotted #5fd3d0;margin:2cqw 0}',
+    '.pc06 .pc06-ss.solo .pc06-dt{font-size:2.3cqw;padding-right:2.6cqw}.pc06 .pc06-ss.solo .pc06-dt b{width:6.4cqw;height:6.4cqw;font-size:3.8cqw}',
+    '.pc06 .pc06-ss.solo .pc06-l{font-size:4.9cqw;line-height:1.08}.pc06 .pc06-ss.solo .pc06-tm{font-size:2.8cqw}.pc06 .pc06-ss.solo .pc06-ds{font-size:2.3cqw;font-style:italic}',
+    '.pc06 .pc06-pr{font-size:2.2cqw;margin-top:1.2cqw;background:#e3fbf8;border-radius:4cqw;padding:.6cqw 2.2cqw}.pc06 .pc06-pr b{color:#ec4f8c;font-weight:800}',
+    '.pc06 .pc06-wh{font-size:1.75cqw;font-weight:700;color:#17909a;margin-top:1.2cqw}',
+    /* partner */
+    '.pc06 .pc06-les{width:100%;display:flex;flex-direction:column;gap:.7cqw;margin-top:1.2cqw}',
+    '.pc06 .pc06-les div{font-family:"Baloo 2",sans-serif;font-weight:800;font-size:3.1cqw;line-height:1.1}',
+    '.pc06 .pc06-les div span{font-family:Nunito,sans-serif;font-size:1.7cqw;letter-spacing:.06em;color:#fff;background:#ff7fb1;border-radius:3cqw;padding:.2cqw 1.2cqw;margin-right:1cqw;vertical-align:.25em;white-space:nowrap}',
+    '.pc06 .pc06-tzh{font-weight:800;font-size:1.6cqw;letter-spacing:.16em;color:#17909a;margin-top:1.6cqw}',
+    '.pc06 .pc06-tz{width:100%;display:flex;flex-direction:column;gap:.35cqw;margin-top:.8cqw}',
+    '.pc06 .pc06-tz .r{display:flex;align-items:baseline;gap:1.2cqw;border-radius:3cqw;padding:.5cqw 1.8cqw;font-size:1.85cqw;white-space:nowrap;text-align:left}',
+    '.pc06 .pc06-tz .r .a{font-weight:800;color:#0f5660}.pc06 .pc06-tz .r i{flex:1;border-bottom:.3cqw dotted #9fe6e3;transform:translateY(-.4cqw)}.pc06 .pc06-tz .r .c{font-weight:800;color:#ec4f8c;min-width:9cqw;text-align:right}',
+    '.pc06 .pc06-tz .r.h{background:#ff7fb1;color:#fff}.pc06 .pc06-tz .r.h .a,.pc06 .pc06-tz .r.h .c{color:#fff}.pc06 .pc06-tz .r.h i{border-color:#ffd0e3}',
+    /* registration */
+    '.pc06 .pc06-reg{background:#fffaf0;border-radius:2.4cqw;box-shadow:0 .4cqw .9cqw rgba(120,80,30,.35),-.8cqw .8cqw 0 0 #5fd3d0;display:flex;align-items:center;gap:2.6cqw;padding:2cqw 3cqw}',
+    '.pc06 .pc06-rg{flex:1;min-width:0;font-size:1.9cqw;line-height:1.35}',
+    '.pc06 .pc06-rg b{display:block;font-family:"Baloo 2",sans-serif;font-weight:800;font-size:3.6cqw;line-height:1.1;color:#0f5660;margin-bottom:.3cqw}.pc06 .pc06-rg b i{font-style:normal;color:#ec4f8c}',
+    '.pc06 .pc06-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border:.35cqw solid #5fd3d0;border-radius:1.2cqw;padding:.5cqw;box-sizing:border-box;display:grid;place-items:center;font-weight:800;font-size:2.2cqw}',
+    '.pc06 .pc06-qr img{width:100%;height:100%;display:block}',
+    '.pc06 .pc06-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw;font-size:1.45cqw}',
+    '.pc06 .pc06-bd span{background:#17909a;color:#fff;border-radius:4cqw;font-weight:800;text-align:center;padding:.5em 1em;white-space:nowrap}',
+    /* square */
+    '.pc06.sq .pc06-roof{padding:1.5cqw 2.4cqw;gap:2cqw}.pc06.sq .pc06-logo{width:9.4cqw;height:9.4cqw}.pc06.sq .pc06-logo.pip{width:13.6cqw;height:8.4cqw}',
+    '.pc06.sq .pc06-k{font-size:1.1cqw}.pc06.sq .pc06-t{font-size:5.3cqw;margin-top:1cqw}.pc06.sq .pc06-m{font-size:1.7cqw}',
+    '.pc06.sq .pc06-card{padding:2.2cqw 2.6cqw 2cqw}.pc06.sq .pc06-card:before{inset:.9cqw}',
+    '.pc06.sq .pc06-lb{font-size:1.4cqw}.pc06.sq .pc06-lb:before,.pc06.sq .pc06-lb:after{width:2.6cqw;margin:0 1cqw}',
+    '.pc06.sq .pc06-ss{gap:2cqw}.pc06.sq .pc06-dt{font-size:1.45cqw}.pc06.sq .pc06-dt b{width:4cqw;height:4cqw;font-size:2.4cqw}',
+    '.pc06.sq .pc06-l{font-size:2.9cqw;margin-top:1cqw}.pc06.sq .pc06-tm{font-size:1.8cqw}.pc06.sq .pc06-ds{font-size:1.55cqw}.pc06.sq .pc06-vr{margin:1cqw 0}',
+    '.pc06.sq .pc06-ss.solo .pc06-dt{font-size:1.8cqw}.pc06.sq .pc06-ss.solo .pc06-dt b{width:5cqw;height:5cqw;font-size:3cqw}.pc06.sq .pc06-ss.solo .pc06-l{font-size:3.9cqw}.pc06.sq .pc06-ss.solo .pc06-tm{font-size:2.2cqw}.pc06.sq .pc06-ss.solo .pc06-ds{font-size:1.75cqw}',
+    '.pc06.sq .pc06-pr{font-size:1.75cqw;margin-top:.8cqw;padding:.4cqw 1.6cqw}.pc06.sq .pc06-wh{font-size:1.4cqw;margin-top:.8cqw}',
+    '.pc06.sq .pc06-les{gap:.4cqw;margin-top:.8cqw}.pc06.sq .pc06-les div{font-size:2.2cqw}.pc06.sq .pc06-les div span{font-size:1.25cqw}',
+    '.pc06.sq .pc06-tzh{display:none}.pc06.sq .pc06-tz{gap:.15cqw;margin-top:.8cqw}.pc06.sq .pc06-tz .r{font-size:1.5cqw;padding:.32cqw 1.3cqw;gap:.9cqw}.pc06.sq .pc06-tz .r .c{min-width:7cqw}',
+    '.pc06.sq .pc06-reg{padding:1.4cqw 2.4cqw;gap:2.2cqw}.pc06.sq .pc06-rg{font-size:1.6cqw}.pc06.sq .pc06-rg b{font-size:2.9cqw}.pc06.sq .pc06-qr{width:9cqw;height:9cqw}.pc06.sq .pc06-bd{font-size:1.25cqw}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), HH = sq ? 100 : 129.41, mon = H.MONTHS[spec.month - 1];
+    var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop();
+    var html = '<div class="vfx pc06' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + scene(sq, HH, partner);
+    var head = '<div class="pc06-logo' + (partner ? ' pip' : '') + '"><img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt=""></div>'
+      + '<div class="pc06-ht"><div class="pc06-k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc06-t">' + words.join(' ') + ' <i>' + last + '</i></div>'
+      + '<div class="pc06-m">' + mon + ' ' + spec.year + ' &middot; on Zoom</div></div>';
+    var pres = spec.presenter ? '<div class="pc06-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var where = '<div class="pc06-wh">' + H.PTC_WHERE + '</div>';
+    var card;
+    if (!partner) {
+      card = '<div class="pc06-lb">ON THE MENU</div><div class="pc06-ss' + (S.length === 1 ? ' solo' : '') + '">' + S.map(function (s, i) {
+        return (i ? '<div class="pc06-vr"></div>' : '') + '<div class="pc06-s b' + (i + 1) + '"><div class="pc06-dt"><b>' + s.day + '</b>' + s.dow.toUpperCase() + ' &middot; ' + s.mon.toUpperCase() + '</div>'
+          + '<div class="pc06-l">' + s.lesson + '</div><div class="pc06-tm">' + s.time + '</div>' + (s.desc ? '<div class="pc06-ds">' + s.desc + '</div>' : '') + '</div>';
+      }).join('') + '</div>' + pres + where;
+    } else {
+      var rows = H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><i></i><span class="b">' + r.days + '</span><span class="c">' + r.time + '</span></div>'; });
+      card = '<div class="pc06-lb">ON THE MENU</div><div class="pc06-les">' + S.map(function (s) { return '<div><span>' + s.mon.toUpperCase() + ' ' + s.day + '</span>' + s.lesson + '</div>'; }).join('') + '</div>' + pres
+        + '<div class="pc06-tzh">YOUR LOCAL TIME</div><div class="pc06-tz">' + rows.join('') + '</div>' + where;
+    }
+    var rg = '<div class="pc06-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code, or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>';
+    var qr = '<div class="pc06-qr">' + H.qrImg(spec, partner) + '</div>', bd = '<div class="pc06-bd">' + H.badges(spec, partner) + '</div>';
+    var bdg = badge(mon.toUpperCase() + ' ' + spec.year);
+    if (!sq) {
+      html += box('pc06-roof', 9, 4.5, 64, null, head);
+      html += box('pc06-badge', 75, 3, 22, null, bdg);
+      html += box('pc06-card', 14, partner ? 53 : 57, 72, null, card, 'min-height:' + (partner ? 50 : 46) + 'cqw;');
+      html += box('pc06-reg', 5, 108, 90, null, rg + qr + bd);
+    } else {
+      html += box('pc06-roof', 3, 3, 66, null, head);
+      html += box('pc06-badge', 76, 2.5, 20, null, bdg);
+      html += box('pc06-card', 5, 42, 57, null, card, 'min-height:39cqw;');
+      html += box('pc06-reg', 4, 84, 92, null, rg + qr + bd);
+    }
+    return html + '</div>';
+  }
+
+  return { name: 'Papercut café: shave-ice and coffee stand on the sand', fonts: 'family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 07 ---- */
+/* Set PC "Island Papercut café" - July: lemonade stand at dusk under paper stars.
+   A navy-to-rose dusk sky over layered paper hills; a garland of cut-paper stars swoops across the flyer and
+   the talk hangs from it on two strings as a tilted cream sign. Below-left, a red-and-white striped lemonade
+   stand with a pitcher, glasses and a crate of lemons. Dates are lemon slices. Square = sign right, stand left. */
+VEBFlyers.registerSet('PC', 7, (function () {
+  var P = 'pc07';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function seeded(seed) { return function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  var SH = ' filter="url(#pc07sh)"';
+  var C = { navy: '#1b2552', navy2: '#28336b', red: '#e23b45', red2: '#b9222e', lemon: '#ffd93d', lemon2: '#f6bd1a', pith: '#fff6c9', cream: '#fffaf0', rose: '#e8738a', peach: '#f7a77a', wood: '#c8925d', wood2: '#9a6a3f', leaf: '#3f9b5a' };
+
+  /* ---------- PTC badge ---------- */
+  function badge(mon) {
+    return '<div class="' + P + '-badge"><svg viewBox="0 0 100 100" aria-hidden="true"><defs>'
+      + '<filter id="pc07bs" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#0b1030" flood-opacity=".45"/></filter>'
+      + '<path id="pc07ta" d="M8.6 50 A41.4 41.4 0 0 1 91.4 50"/><path id="pc07tb" d="M4.2 50 A45.8 45.8 0 0 0 95.8 50"/></defs>'
+      + '<circle cx="50" cy="51.6" r="48.5" fill="#0b1030" opacity=".3"/>'
+      + '<circle cx="50" cy="50" r="48.5" fill="' + C.red + '"/>'
+      + '<circle cx="50" cy="50" r="39" fill="' + C.cream + '" filter="url(#pc07bs)"/>'
+      + '<circle cx="50" cy="50" r="35.6" fill="none" stroke="' + C.lemon2 + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text class="' + P + '-bt"><textPath href="#pc07ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<text class="' + P + '-bt2"><textPath href="#pc07tb" startOffset="50%" text-anchor="middle">&#9733; ' + mon + ' &#9733;</textPath></text>'
+      + '<g filter="url(#pc07bs)"><path d="M44 38 C39 33 48 30 44 24 C42 21 44 18 46 16" fill="none" stroke="' + C.lemon + '" stroke-width="3.2" stroke-linecap="round"/>'
+      + '<path d="M54 38 C49 33 58 30 54 24 C52 21 54 18 56 16" fill="none" stroke="' + C.rose + '" stroke-width="3.2" stroke-linecap="round"/></g>'
+      + '<g filter="url(#pc07bs)"><ellipse cx="50" cy="71" rx="23" ry="4.6" fill="' + C.navy2 + '"/><ellipse cx="50" cy="70" rx="15" ry="2.6" fill="' + C.navy + '"/></g>'
+      + '<g filter="url(#pc07bs)"><path d="M68 50 a7 7 0 1 1 0 12" fill="none" stroke="' + C.red2 + '" stroke-width="3.6"/>'
+      + '<path d="M30 43 H70 V51 C70 62 61 70 50 70 C39 70 30 62 30 51 Z" fill="' + C.red + '"/>'
+      + '<path d="M50 50.5 l1.9 3.9 4.3 .6 -3.1 3 .7 4.3 -3.8 -2 -3.8 2 .7 -4.3 -3.1 -3 4.3 -.6z" fill="' + C.cream + '"/>'
+      + '<ellipse cx="50" cy="43" rx="20" ry="3.4" fill="#7a4a35"/><ellipse cx="50" cy="43.6" rx="17" ry="2.2" fill="#a46a4c"/></g>'
+      + '</svg></div>';
+  }
+
+  /* ---------- paper pieces ---------- */
+  function star(x, y, r, rot, c) {
+    var d = '';
+    for (var i = 0; i < 10; i++) { var a = (i * 36 - 90 + rot) * Math.PI / 180, rr = i % 2 ? r * 0.45 : r; d += (i ? ' L' : 'M') + f(x + Math.cos(a) * rr) + ' ' + f(y + Math.sin(a) * rr); }
+    return '<path d="' + d + 'Z" fill="' + c + '"' + SH + '/>';
+  }
+  function garland(x1, y1, x2, y2, sag, n, rnd, cols) { // drooping string with hanging stars
+    var mx = (x1 + x2) / 2, my = (y1 + y2) / 2 + sag * 2;
+    var o = '<path d="M' + f(x1) + ' ' + f(y1) + ' Q' + f(mx) + ' ' + f(my) + ' ' + f(x2) + ' ' + f(y2) + '" fill="none" stroke="#f3e6c8" stroke-width=".3" opacity=".9"/>';
+    for (var i = 1; i < n; i++) {
+      var t = i / n, x = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * mx + t * t * x2, y = (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * my + t * t * y2;
+      var L = 1.5 + rnd() * 3, r = 1.7 + rnd() * 1.1;
+      o += '<path d="M' + f(x) + ' ' + f(y) + ' V' + f(y + L) + '" stroke="#f3e6c8" stroke-width=".2"/>' + star(x, y + L + r * 0.8, r, rnd() * 30 - 15, cols[i % cols.length]);
+    }
+    return o;
+  }
+  function dangle(x, y, L, r, c) { return '<path d="M' + f(x) + ' ' + f(y) + ' V' + f(y + L) + '" stroke="#f3e6c8" stroke-width=".2"/>' + star(x, y + L + r * 0.8, r, 8, c); }
+  function lemonSlice(x, y, r) {
+    var o = '<g' + SH + '><circle cx="' + f(x) + '" cy="' + f(y) + '" r="' + f(r) + '" fill="' + C.lemon2 + '"/><circle cx="' + f(x) + '" cy="' + f(y) + '" r="' + f(r * 0.86) + '" fill="' + C.pith + '"/>';
+    for (var i = 0; i < 8; i++) { var a1 = (i * 45 + 4) * Math.PI / 180, a2 = (i * 45 + 41) * Math.PI / 180, rr = r * 0.76;
+      o += '<path d="M' + f(x) + ' ' + f(y) + ' L' + f(x + Math.cos(a1) * rr) + ' ' + f(y + Math.sin(a1) * rr) + ' A' + f(rr) + ' ' + f(rr) + ' 0 0 1 ' + f(x + Math.cos(a2) * rr) + ' ' + f(y + Math.sin(a2) * rr) + 'Z" fill="' + C.lemon + '"/>'; }
+    return o + '</g>';
+  }
+  function lemon(x, y, s, rot) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + rot + ') scale(' + f(s) + ')"' + SH + '><path d="M-3 0 C-3 -2.2 -1.4 -2.8 0 -2.8 C1.4 -2.8 3 -2.2 3 0 C3 2.2 1.4 2.8 0 2.8 C-1.4 2.8 -3 2.2 -3 0Z M-3 0 L-3.7 0 M3 0 L3.7 0" fill="' + C.lemon + '" stroke="' + C.lemon2 + '" stroke-width=".5"/><path d="M2.6 -1.6 C3.6 -3.2 5 -3 5.4 -2.6 C4.6 -1.6 3.6 -1.2 2.6 -1.6Z" fill="' + C.leaf + '"/></g>';
+  }
+  function stand(x, base, w, h, rnd) { // red/white canopy, wood posts, lemon-yellow counter, pitcher + glasses
+    var top = base - h, ch = h * 0.42, cy = base - ch, o = '';
+    // posts
+    o += '<rect x="' + f(x + w * 0.04) + '" y="' + f(top + 3) + '" width="' + f(w * 0.05) + '" height="' + f(h - 3) + '" fill="' + C.wood2 + '"' + SH + '/>';
+    o += '<rect x="' + f(x + w * 0.91) + '" y="' + f(top + 3) + '" width="' + f(w * 0.05) + '" height="' + f(h - 3) + '" fill="' + C.wood2 + '"' + SH + '/>';
+    // string of tiny stars under canopy
+    o += garland(x + w * 0.1, top + h * 0.22, x + w * 0.9, top + h * 0.22, 1.2, 6, rnd, [C.lemon, '#fff', C.lemon]);
+    // canopy roof + striped valance with pennant points
+    o += '<path d="M' + f(x - w * 0.06) + ' ' + f(top + h * 0.13) + ' L' + f(x + w * 0.5) + ' ' + f(top) + ' L' + f(x + w * 1.06) + ' ' + f(top + h * 0.13) + 'Z" fill="' + C.red2 + '"' + SH + '/>';
+    var n = 8, sw = w * 1.12 / n, vy = top + h * 0.13, vh = h * 0.07, g = '<g' + SH + '>';
+    for (var i = 0; i < n; i++) { var xx = x - w * 0.06 + i * sw; g += '<path d="M' + f(xx) + ' ' + f(vy) + ' H' + f(xx + sw) + ' V' + f(vy + vh) + ' L' + f(xx + sw / 2) + ' ' + f(vy + vh + sw * 0.55) + ' L' + f(xx) + ' ' + f(vy + vh) + 'Z" fill="' + (i % 2 ? C.cream : C.red) + '"/>'; }
+    o += g + '</g>';
+    // items on counter
+    var px = x + w * 0.3, pw = w * 0.2, ph = h * 0.2;
+    o += '<g' + SH + '><path d="M' + f(px - pw / 2) + ' ' + f(cy - ph) + ' H' + f(px + pw / 2) + ' L' + f(px + pw * 0.45) + ' ' + f(cy) + ' H' + f(px - pw * 0.45) + 'Z" fill="#eef8ff" opacity=".95"/>'
+      + '<path d="M' + f(px - pw * 0.46) + ' ' + f(cy - ph * 0.7) + ' H' + f(px + pw * 0.46) + ' L' + f(px + pw * 0.44) + ' ' + f(cy - 0.3) + ' H' + f(px - pw * 0.44) + 'Z" fill="' + C.lemon + '"/>'
+      + '<path d="M' + f(px + pw / 2) + ' ' + f(cy - ph * 0.85) + ' q' + f(pw * 0.45) + ' ' + f(ph * 0.1) + ' ' + f(pw * 0.1) + ' ' + f(ph * 0.6) + '" fill="none" stroke="#eef8ff" stroke-width="' + f(w * 0.025) + '"/>'
+      + '<path d="M' + f(px - pw / 2) + ' ' + f(cy - ph) + ' l' + f(-pw * 0.18) + ' ' + f(-ph * 0.08) + ' l' + f(pw * 0.22) + ' ' + f(ph * 0.2) + 'Z" fill="#eef8ff"/></g>';
+    o += lemonSlice(px, cy - ph * 0.42, pw * 0.2);
+    [0.58, 0.76].forEach(function (k, j) {
+      var gx = x + w * k, gw = w * 0.1, gh = h * 0.12;
+      o += '<g' + SH + '><rect x="' + f(gx + gw * 0.1) + '" y="' + f(cy - gh - h * 0.06) + '" width="' + f(w * 0.015) + '" height="' + f(h * 0.12) + '" fill="' + (j ? C.red : '#fff') + '" transform="rotate(' + (j ? -12 : 12) + ' ' + f(gx) + ' ' + f(cy - gh) + ')"/>'
+        + '<path d="M' + f(gx - gw / 2) + ' ' + f(cy - gh) + ' H' + f(gx + gw / 2) + ' L' + f(gx + gw * 0.42) + ' ' + f(cy) + ' H' + f(gx - gw * 0.42) + 'Z" fill="#eef8ff" opacity=".95"/>'
+        + '<path d="M' + f(gx - gw * 0.47) + ' ' + f(cy - gh * 0.7) + ' H' + f(gx + gw * 0.47) + ' L' + f(gx + gw * 0.42) + ' ' + f(cy - 0.25) + ' H' + f(gx - gw * 0.42) + 'Z" fill="' + C.lemon + '"/></g>';
+    });
+    // counter box
+    o += '<rect x="' + f(x - w * 0.02) + '" y="' + f(cy) + '" width="' + f(w * 1.04) + '" height="' + f(h * 0.05) + '" rx=".4" fill="' + C.wood + '"' + SH + '/>';
+    o += '<rect x="' + f(x + w * 0.02) + '" y="' + f(cy + h * 0.05) + '" width="' + f(w * 0.96) + '" height="' + f(ch - h * 0.05) + '" fill="' + C.lemon + '"' + SH + '/>';
+    // red/white boards + big lemon slice on the front
+    for (var k = 0; k < 4; k++) o += '<rect x="' + f(x + w * 0.02) + '" y="' + f(cy + h * 0.05 + (ch - h * 0.05) * (0.18 + k * 0.22)) + '" width="' + f(w * 0.96) + '" height=".35" fill="' + C.lemon2 + '"/>';
+    o += lemonSlice(x + w * 0.5, cy + ch * 0.55, Math.min(w * 0.2, ch * 0.32));
+    // crate of lemons at the foot
+    var bx = x + w * 1.0, by = base;
+    o += lemon(bx + 1.5, by - 4.6, 0.75, -10) + lemon(bx + 5.6, by - 4.8, 0.75, 15) + lemon(bx + 3.6, by - 6.4, 0.75, 4);
+    o += '<rect x="' + f(bx - 1) + '" y="' + f(by - 4.4) + '" width="9" height="4.4" rx=".3" fill="' + C.wood + '"' + SH + '/><rect x="' + f(bx - 1) + '" y="' + f(by - 2.6) + '" width="9" height=".5" fill="' + C.wood2 + '"/>';
+    return o;
+  }
+
+  function scene(sq, HH, partner) {
+    var rnd = seeded(sq ? 7707 : 707), o = '<svg class="' + P + '-scene" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true"><defs>'
+      + '<filter id="pc07sh" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy=".35" stdDeviation=".4" flood-color="#0b1030" flood-opacity=".4"/></filter>'
+      + '<linearGradient id="pc07bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#141c45"/><stop offset=".45" stop-color="#2e2f6e"/><stop offset=".72" stop-color="#8a4a86"/><stop offset=".86" stop-color="#e8738a"/><stop offset="1" stop-color="#f7a77a"/></linearGradient></defs>'
+      + '<rect width="100" height="' + f(HH) + '" fill="url(#pc07bg)"/>';
+    // tiny stars in the sky
+    for (var i = 0; i < 40; i++) { var sx = rnd() * 100, sy = rnd() * HH * 0.55; o += '<circle cx="' + f(sx) + '" cy="' + f(sy) + '" r="' + f(0.15 + rnd() * 0.25) + '" fill="#fff6c9" opacity="' + f(0.5 + rnd() * 0.5) + '"/>'; }
+    // crescent paper moon
+    var mx = sq ? 70 : 88, my = sq ? 33 : 34;
+    o += '<path d="M' + f(mx) + ' ' + f(my - 4) + ' A4 4 0 1 0 ' + f(mx) + ' ' + f(my + 4) + ' A3.2 3.2 0 1 1 ' + f(mx) + ' ' + f(my - 4) + 'Z" fill="#fff1b8"' + SH + '/>';
+    // layered hills
+    var H1 = sq ? 70 : 92, H2 = sq ? 78 : 101, H3 = sq ? 86 : 111;
+    o += '<path d="M-2 ' + f(H1) + ' C15 ' + f(H1 - 8) + ' 35 ' + f(H1 - 6) + ' 50 ' + f(H1 - 1) + ' S80 ' + f(H1 - 10) + ' 102 ' + f(H1 - 4) + ' V' + f(HH + 2) + ' H-2Z" fill="#5b3f80"' + SH + '/>';
+    o += '<path d="M-2 ' + f(H2) + ' C20 ' + f(H2 - 5) + ' 45 ' + f(H2 + 2) + ' 65 ' + f(H2 - 3) + ' S90 ' + f(H2 - 2) + ' 102 ' + f(H2 - 5) + ' V' + f(HH + 2) + ' H-2Z" fill="#33366f"' + SH + '/>';
+    o += '<path d="M-2 ' + f(H3) + ' C30 ' + f(H3 - 4) + ' 60 ' + f(H3 + 3) + ' 102 ' + f(H3 - 3) + ' V' + f(HH + 2) + ' H-2Z" fill="#1c2a55"' + SH + '/>';
+    // fireflies
+    for (var j = 0; j < 14; j++) o += '<circle cx="' + f(rnd() * 100) + '" cy="' + f(H1 - 4 + rnd() * (HH - H1)) + '" r=".35" fill="' + C.lemon + '" opacity=".85"/>';
+    // star garland across + dangling stars
+    var gy = sq ? 23.5 : 30, cols = [C.lemon, '#fffaf0', C.red, C.lemon, C.peach];
+    o += garland(-2, gy - 1, 102, gy - 3, 2.2, 13, rnd, cols);
+    if (!sq) {
+      o += dangle(4, 0, 32, 2.2, C.lemon) + dangle(98, 0, 29, 2, C.red) + dangle(2, 0, 50, 1.8, '#fffaf0');
+      o += stand(4, partner ? 106 : 106, 26, 46, rnd);
+    } else {
+      o += stand(3, 82, 21, 40, rnd);
+    }
+    return o + '</svg>';
+  }
+
+  var css = [
+    '.pc07{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;font-family:Nunito,sans-serif;color:#1b2552;background:#2e2f6e}',
+    '.pc07.sq{aspect-ratio:1/1}',
+    '.pc07 .pc07-scene{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc07 .pc07-head,.pc07 .pc07-sign,.pc07 .pc07-reg,.pc07 .pc07-badge,.pc07 .pc07-str{position:absolute;z-index:3;box-sizing:border-box}',
+    '.pc07 .pc07-str{z-index:2;pointer-events:none}.pc07 .pc07-str svg{display:block;width:100%;height:100%}',
+    '.pc07 .pc07-badge{filter:drop-shadow(0 .5cqw .7cqw rgba(8,10,40,.45))}.pc07 .pc07-badge svg{display:block;width:100%;height:auto}',
+    '.pc07 .pc07-bt{font-family:Fredoka,sans-serif;font-weight:600;font-size:8.8px;letter-spacing:1.3px;fill:#fffaf0}',
+    '.pc07 .pc07-bt2{font-family:Nunito,sans-serif;font-weight:800;font-size:6.4px;letter-spacing:1.4px;fill:#ffd93d}',
+    /* header */
+    '.pc07 .pc07-head{background:#fffaf0;border-radius:2.4cqw;box-shadow:0 .5cqw 1cqw rgba(8,10,40,.45),.9cqw .9cqw 0 0 #ffd93d;display:flex;align-items:center;gap:2.8cqw;padding:2cqw 3cqw}',
+    '.pc07 .pc07-logo{flex:none;width:12cqw;height:12cqw;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #e23b45}',
+    '.pc07 .pc07-logo img{width:80%}.pc07 .pc07-logo.pip{width:17cqw;height:10.4cqw;border-radius:1.6cqw}.pc07 .pc07-logo.pip img{width:90%}',
+    '.pc07 .pc07-ht{flex:1;min-width:0}',
+    '.pc07 .pc07-k{font-weight:800;letter-spacing:.13em;font-size:1.35cqw;color:#e23b45}',
+    '.pc07 .pc07-t{font-family:Fredoka,sans-serif;font-weight:600;line-height:1.1;color:#1b2552;margin-top:.8cqw;font-size:6.8cqw}',
+    '.pc07 .pc07-t i{font-style:normal;color:#e23b45}',
+    '.pc07 .pc07-m{display:inline-block;margin-top:.8cqw;background:#1b2552;color:#ffd93d;font-weight:800;font-size:2cqw;padding:.45cqw 2cqw;border-radius:5cqw;white-space:nowrap}',
+    /* hanging sign */
+    '.pc07 .pc07-sign{background:#fffaf0;border-radius:2cqw;box-shadow:0 .6cqw 1.2cqw rgba(8,10,40,.5),0 0 0 .9cqw #ffd93d,0 0 0 1.25cqw #f6bd1a;display:flex;flex-direction:column;align-items:center;text-align:center;padding:3.2cqw 3.6cqw 2.8cqw;transform:rotate(-1.6deg)}',
+    '.pc07 .pc07-sign:before,.pc07 .pc07-sign:after{content:"";position:absolute;top:1.2cqw;width:1.4cqw;height:1.4cqw;border-radius:50%;background:#b9222e;pointer-events:none}.pc07 .pc07-sign:before{left:1.6cqw}.pc07 .pc07-sign:after{right:1.6cqw}',
+    '.pc07 .pc07-lb{font-family:Fredoka,sans-serif;font-weight:600;font-size:2.4cqw;color:#e23b45;line-height:1.3}',
+    '.pc07 .pc07-ss{flex:1;width:100%;display:flex;flex-direction:column;justify-content:center;gap:2.4cqw;margin-top:1.4cqw}',
+    '.pc07 .pc07-s{display:flex;align-items:center;gap:2.6cqw;text-align:left}',
+    '.pc07 .pc07-d{flex:none;width:12.6cqw;height:12.6cqw;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.25;color:#1b2552}',
+    '.pc07 .pc07-d svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}',
+    '.pc07 .pc07-d span{position:relative;display:block}.pc07 .pc07-d .w{font-size:1.4cqw;font-weight:800;letter-spacing:.1em}.pc07 .pc07-d .n{font-family:Fredoka,sans-serif;font-weight:600;font-size:4.4cqw;line-height:1.15}.pc07 .pc07-d .mo{font-size:1.4cqw;font-weight:800;letter-spacing:.1em;color:#b9222e}',
+    '.pc07 .pc07-x{flex:1;min-width:0}',
+    '.pc07 .pc07-x .l{font-family:Fredoka,sans-serif;font-weight:600;font-size:3.6cqw;line-height:1.12;color:#1b2552}',
+    '.pc07 .pc07-x .tm{font-weight:800;font-size:2.2cqw;color:#e23b45;margin-top:.6cqw}',
+    '.pc07 .pc07-x .ds{font-size:1.9cqw;color:#4a4f78;margin-top:.2cqw}',
+    '.pc07 .pc07-div{border-top:.3cqw dashed #ffd93d;margin:0 2cqw}',
+    '.pc07 .pc07-ss.solo{gap:1.6cqw}.pc07 .pc07-ss.solo .pc07-s{flex-direction:column;text-align:center;gap:1.8cqw}',
+    '.pc07 .pc07-ss.solo .pc07-d{width:16cqw;height:16cqw}.pc07 .pc07-ss.solo .pc07-d .n{font-size:5.8cqw}.pc07 .pc07-ss.solo .pc07-d .w,.pc07 .pc07-ss.solo .pc07-d .mo{font-size:1.7cqw}',
+    '.pc07 .pc07-ss.solo .pc07-x .l{font-size:4.8cqw;line-height:1.1}.pc07 .pc07-ss.solo .pc07-x .tm{font-size:2.7cqw}.pc07 .pc07-ss.solo .pc07-x .ds{font-size:2.2cqw;font-style:italic}',
+    '.pc07 .pc07-pr{font-size:2.2cqw;margin-top:1.4cqw;background:#fff3c4;border-radius:4cqw;padding:.6cqw 2.2cqw}.pc07 .pc07-pr b{color:#b9222e;font-weight:800}',
+    '.pc07 .pc07-wh{font-size:1.7cqw;font-weight:700;color:#5b3f80;margin-top:1.3cqw}',
+    /* partner */
+    '.pc07 .pc07-sign.pt{justify-content:space-evenly}.pc07 .pc07-sign.pt .pc07-wh{margin-top:.6cqw}',
+    '.pc07 .pc07-les{width:100%;display:flex;flex-direction:column;gap:.8cqw;margin-top:1.2cqw}',
+    '.pc07 .pc07-les div{font-family:Fredoka,sans-serif;font-weight:600;font-size:3cqw;line-height:1.12}',
+    '.pc07 .pc07-les div span{display:block;font-family:Nunito,sans-serif;font-weight:800;font-size:1.6cqw;letter-spacing:.1em;color:#e23b45}',
+    '.pc07 .pc07-tzh{font-weight:800;font-size:1.55cqw;letter-spacing:.16em;color:#5b3f80;margin-top:1.6cqw}',
+    '.pc07 .pc07-tz{width:100%;display:flex;flex-direction:column;margin-top:.7cqw;border-radius:1.4cqw;overflow:hidden;border:.3cqw solid #1b2552}',
+    '.pc07 .pc07-tz .r{display:grid;grid-template-columns:1.2fr 1.2fr .75fr;gap:1cqw;align-items:center;padding:.58cqw 1.6cqw;font-size:1.75cqw;white-space:nowrap;text-align:left;background:#fffaf0}',
+    '.pc07 .pc07-tz .r:nth-child(even){background:#fff3c4}',
+    '.pc07 .pc07-tz .r .a{font-weight:800}.pc07 .pc07-tz .r .c{font-weight:800;color:#e23b45;text-align:right}',
+    '.pc07 .pc07-tz .r.h{background:#1b2552!important;color:#fff}.pc07 .pc07-tz .r.h .c{color:#ffd93d}',
+    /* registration */
+    '.pc07 .pc07-reg{background:#fffaf0;border-radius:2.4cqw;box-shadow:0 .5cqw 1cqw rgba(8,10,40,.5),0 0 0 .7cqw #e23b45;display:flex;align-items:center;gap:2.6cqw;padding:2cqw 3cqw}',
+    '.pc07 .pc07-rg{flex:1;min-width:0;font-size:1.9cqw;line-height:1.35}',
+    '.pc07 .pc07-rg b{display:block;font-family:Fredoka,sans-serif;font-weight:600;font-size:3.6cqw;line-height:1.15;color:#1b2552;margin-bottom:.3cqw}.pc07 .pc07-rg b i{font-style:normal;color:#e23b45}',
+    '.pc07 .pc07-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border:.35cqw solid #ffd93d;border-radius:1.2cqw;padding:.5cqw;box-sizing:border-box;display:grid;place-items:center;font-weight:800;font-size:2.2cqw}',
+    '.pc07 .pc07-qr img{width:100%;height:100%;display:block}',
+    '.pc07 .pc07-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw;font-size:1.45cqw}',
+    '.pc07 .pc07-bd span{background:#1b2552;color:#fff;border-radius:4cqw;font-weight:800;text-align:center;padding:.5em 1em;white-space:nowrap}',
+    /* square */
+    '.pc07.sq .pc07-head{padding:1.5cqw 2.4cqw;gap:2cqw}.pc07.sq .pc07-logo{width:9.4cqw;height:9.4cqw}.pc07.sq .pc07-logo.pip{width:13.6cqw;height:8.4cqw}',
+    '.pc07.sq .pc07-k{font-size:1.1cqw}.pc07.sq .pc07-t{font-size:5.3cqw;margin-top:.5cqw}.pc07.sq .pc07-m{font-size:1.7cqw;margin-top:.5cqw}',
+    '.pc07.sq .pc07-sign{padding:2.4cqw 2.8cqw 2cqw;box-shadow:0 .5cqw 1cqw rgba(8,10,40,.5),0 0 0 .7cqw #ffd93d,0 0 0 1cqw #f6bd1a}',
+    '.pc07.sq .pc07-lb{font-size:1.9cqw}.pc07.sq .pc07-ss{gap:1.4cqw;margin-top:.8cqw}',
+    '.pc07.sq .pc07-d{width:10.4cqw;height:10.4cqw}.pc07.sq .pc07-d .n{font-size:3.7cqw}.pc07.sq .pc07-d .w,.pc07.sq .pc07-d .mo{font-size:1.15cqw}',
+    '.pc07.sq .pc07-x .l{font-size:3cqw}.pc07.sq .pc07-x .tm{font-size:1.85cqw}.pc07.sq .pc07-x .ds{font-size:1.6cqw}',
+    '.pc07.sq .pc07-ss.solo .pc07-s{flex-direction:row;text-align:left;gap:2.4cqw}.pc07.sq .pc07-ss.solo .pc07-d{width:13cqw;height:13cqw}.pc07.sq .pc07-ss.solo .pc07-d .n{font-size:4.8cqw}.pc07.sq .pc07-ss.solo .pc07-d .w,.pc07.sq .pc07-ss.solo .pc07-d .mo{font-size:1.35cqw}',
+    '.pc07.sq .pc07-ss.solo .pc07-x .l{font-size:3.6cqw}.pc07.sq .pc07-ss.solo .pc07-x .tm{font-size:2.1cqw}.pc07.sq .pc07-ss.solo .pc07-x .ds{font-size:1.75cqw}',
+    '.pc07.sq .pc07-pr{font-size:1.75cqw;margin-top:1cqw;padding:.4cqw 1.6cqw}.pc07.sq .pc07-wh{font-size:1.4cqw;margin-top:.8cqw}',
+    '.pc07.sq .pc07-les{gap:.6cqw;margin-top:.8cqw}.pc07.sq .pc07-les div{font-size:2.5cqw}.pc07.sq .pc07-les div span{font-size:1.3cqw}',
+    '.pc07.sq .pc07-tzh{display:none}.pc07.sq .pc07-tz{margin-top:1cqw;border-width:.2cqw}.pc07.sq .pc07-tz .r{font-size:1.6cqw;padding:.38cqw 1.3cqw}',
+    '.pc07.sq .pc07-reg{padding:1.4cqw 2.4cqw;gap:2.2cqw}.pc07.sq .pc07-rg{font-size:1.6cqw}.pc07.sq .pc07-rg b{font-size:2.9cqw}.pc07.sq .pc07-qr{width:9cqw;height:9cqw}.pc07.sq .pc07-bd{font-size:1.25cqw}'
+  ].join('\n');
+
+  function slice() {
+    var o = '<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="51.5" r="49" fill="#0b1030" opacity=".25"/><circle cx="50" cy="50" r="49" fill="#f6bd1a"/><circle cx="50" cy="50" r="43" fill="#fff6c9"/>';
+    for (var i = 0; i < 10; i++) { var a1 = (i * 36 + 3) * Math.PI / 180, a2 = (i * 36 + 33) * Math.PI / 180;
+      o += '<path d="M' + f(50 + Math.cos(a1) * 30) + ' ' + f(50 + Math.sin(a1) * 30) + ' L' + f(50 + Math.cos(a1) * 39) + ' ' + f(50 + Math.sin(a1) * 39) + ' A39 39 0 0 1 ' + f(50 + Math.cos(a2) * 39) + ' ' + f(50 + Math.sin(a2) * 39) + ' L' + f(50 + Math.cos(a2) * 30) + ' ' + f(50 + Math.sin(a2) * 30) + ' A30 30 0 0 0 ' + f(50 + Math.cos(a1) * 30) + ' ' + f(50 + Math.sin(a1) * 30) + 'Z" fill="#ffd93d"/>'; }
+    return o + '<circle cx="50" cy="50" r="28" fill="#fffaf0"/></svg>';
+  }
+  function strings(x1, x2, top, bottom) { // two strings from the garland down to the sign corners (own little svg)
+    return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M' + x1 + ' 0 L' + x1 + ' 100 M' + x2 + ' 0 L' + x2 + ' 100" stroke="#f3e6c8" stroke-width="2.6" vector-effect="non-scaling-stroke"/></svg>';
+  }
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), HH = sq ? 100 : 129.41, mon = H.MONTHS[spec.month - 1];
+    var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop();
+    var html = '<div class="vfx pc07' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + scene(sq, HH, partner);
+    var head = '<div class="pc07-logo' + (partner ? ' pip' : '') + '"><img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt=""></div>'
+      + '<div class="pc07-ht"><div class="pc07-k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc07-t">' + words.join(' ') + ' <i>' + last + '</i></div>'
+      + '<div class="pc07-m">' + mon + ' ' + spec.year + ' &middot; on Zoom</div></div>';
+    var pres = spec.presenter ? '<div class="pc07-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var where = '<div class="pc07-wh">' + H.PTC_WHERE + '</div>';
+    var card;
+    if (!partner) {
+      card = '<div class="pc07-lb">' + 'Pour a glass and join the talk' + '</div><div class="pc07-ss' + (S.length === 1 ? ' solo' : '') + '">' + S.map(function (s, i) {
+        return (i ? '<div class="pc07-div"></div>' : '') + '<div class="pc07-s"><div class="pc07-d">' + slice() + '<span class="w">' + s.dow.toUpperCase() + '</span><span class="n">' + s.day + '</span><span class="mo">' + s.mon.toUpperCase() + '</span></div>'
+          + '<div class="pc07-x"><div class="l">' + s.lesson + '</div><div class="tm">' + s.time + '</div>' + (s.desc ? '<div class="ds">' + s.desc + '</div>' : '') + '</div></div>';
+      }).join('') + '</div>' + pres + where;
+    } else {
+      card = '<div class="pc07-lb">Pour a glass and join the talk</div><div class="pc07-les">' + S.map(function (s) { return '<div><span>' + s.dow.toUpperCase() + ' ' + s.mon.toUpperCase() + ' ' + s.day + ' &middot; HAWAI&#699;I DATE</span>' + s.lesson + '</div>'; }).join('') + '</div>' + pres
+        + '<div class="pc07-tzh">YOUR LOCAL TIME</div><div class="pc07-tz">' + H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><span class="b">' + r.days + '</span><span class="c">' + r.time + '</span></div>'; }).join('') + '</div>' + where;
+    }
+    var rg = '<div class="pc07-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code, or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>';
+    var qr = '<div class="pc07-qr">' + H.qrImg(spec, partner) + '</div>', bd = '<div class="pc07-bd">' + H.badges(spec, partner) + '</div>';
+    var bdg = badge(mon.toUpperCase() + ' ' + spec.year);
+    if (!sq) {
+      var sx = 35, sw = 61, st = partner ? 37 : 39;
+      html += box('pc07-head', 4, 4, 68, null, head);
+      html += box('pc07-badge', 74.5, 3.5, 22, null, bdg);
+      html += box('pc07-str', sx, 31, sw, st - 30, strings(8, 92));
+      html += box('pc07-sign' + (partner ? ' pt' : ''), sx, st, sw, null, card, 'min-height:' + (partner ? 64 : 58) + 'cqw;');
+      html += box('pc07-reg', 5, 109.5, 90, null, rg + qr + bd);
+    } else {
+      html += box('pc07-head', 3, 3, 66, null, head);
+      html += box('pc07-badge', 76, 2.5, 20, null, bdg);
+      html += box('pc07-str', 33, 24, 63, 6, strings(8, 92));
+      html += box('pc07-sign' + (partner ? ' pt' : ''), 33, 29, 63, null, card, 'min-height:50cqw;');
+      html += box('pc07-reg', 4, 84.5, 92, null, rg + qr + bd);
+    }
+    return html + '</div>';
+  }
+
+  return { name: 'Papercut café: lemonade stand at dusk under paper stars', fonts: 'family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 08 ---- */
+/* Set PC "Island Papercut café" - August: back-to-school café booth.
+   Inside a teal café: two tufted mustard booth backs frame the scene, mustard pendant lamps hang above them,
+   and on the table in front sit a stack of books, a lunchbox and two steaming mugs. The talk is pinned to the
+   wall between the booths on a cream café menu with a mustard header strip; dates are tear-off calendar pages.
+   Registration sits on the checkered floor. Square = menu left, booth + table right. */
+VEBFlyers.registerSet('PC', 8, (function () {
+  var P = 'pc08';
+  function f(n) { return (Math.round(n * 100) / 100).toString(); }
+  function seeded(seed) { return function () { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
+  function box(cls, x, y, w, h, inner, extra) {
+    return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+  }
+  var SH = ' filter="url(#pc08sh)"';
+  var C = { teal: '#1f8a8a', teal2: '#16706f', teal3: '#0e4f50', tealL: '#7cc8c2', mustard: '#e8b030', mustard2: '#c98f17', mustardL: '#f6d27a', cream: '#fff7e6', coral: '#ef6f5a', coral2: '#cf503d', ink: '#123c3d', wood: '#b9824f' };
+
+  /* ---------- PTC badge ---------- */
+  function badge(mon) {
+    return '<div class="' + P + '-badge"><svg viewBox="0 0 100 100" aria-hidden="true"><defs>'
+      + '<filter id="pc08bs" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#062b2b" flood-opacity=".4"/></filter>'
+      + '<path id="pc08ta" d="M8.6 50 A41.4 41.4 0 0 1 91.4 50"/><path id="pc08tb" d="M4.2 50 A45.8 45.8 0 0 0 95.8 50"/></defs>'
+      + '<circle cx="50" cy="51.6" r="48.5" fill="#062b2b" opacity=".25"/>'
+      + '<circle cx="50" cy="50" r="48.5" fill="' + C.mustard + '"/>'
+      + '<circle cx="50" cy="50" r="39" fill="' + C.cream + '" filter="url(#pc08bs)"/>'
+      + '<circle cx="50" cy="50" r="35.6" fill="none" stroke="' + C.tealL + '" stroke-width=".8" stroke-dasharray="2 1.6"/>'
+      + '<text class="' + P + '-bt"><textPath href="#pc08ta" startOffset="50%" text-anchor="middle">PARENT TALK CAFÉ</textPath></text>'
+      + '<text class="' + P + '-bt2"><textPath href="#pc08tb" startOffset="50%" text-anchor="middle">&#8226; ' + mon + ' &#8226;</textPath></text>'
+      + '<g filter="url(#pc08bs)"><path d="M44 38 C39 33 48 30 44 24 C42 21 44 18 46 16" fill="none" stroke="' + C.tealL + '" stroke-width="3.2" stroke-linecap="round"/>'
+      + '<path d="M54 38 C49 33 58 30 54 24 C52 21 54 18 56 16" fill="none" stroke="' + C.mustardL + '" stroke-width="3.2" stroke-linecap="round"/></g>'
+      + '<g filter="url(#pc08bs)"><ellipse cx="50" cy="71" rx="23" ry="4.6" fill="' + C.coral + '"/><ellipse cx="50" cy="70" rx="15" ry="2.6" fill="' + C.coral2 + '"/></g>'
+      + '<g filter="url(#pc08bs)"><path d="M68 50 a7 7 0 1 1 0 12" fill="none" stroke="' + C.teal2 + '" stroke-width="3.6"/>'
+      + '<path d="M30 43 H70 V51 C70 62 61 70 50 70 C39 70 30 62 30 51 Z" fill="' + C.teal + '"/>'
+      + '<rect x="30.2" y="50" width="39.6" height="4" fill="' + C.mustard + '"/>'
+      + '<ellipse cx="50" cy="43" rx="20" ry="3.4" fill="#7a4a35"/><ellipse cx="50" cy="43.6" rx="17" ry="2.2" fill="#a46a4c"/></g>'
+      + '</svg></div>';
+  }
+
+  /* ---------- paper pieces ---------- */
+  function booth(x, top, w, base, flip) { // tall tufted booth back + seat, seen from the side-front
+    var o = '<g' + SH + '><path d="M' + f(x) + ' ' + f(base) + ' V' + f(top + w / 2) + ' A' + f(w / 2) + ' ' + f(w / 2) + ' 0 0 1 ' + f(x + w) + ' ' + f(top + w / 2) + ' V' + f(base) + 'Z" fill="' + C.mustard2 + '"/></g>';
+    var ix = x + w * 0.12, iw = w * 0.76, it = top + w * 0.12;
+    o += '<g' + SH + '><path d="M' + f(ix) + ' ' + f(base) + ' V' + f(it + iw / 2) + ' A' + f(iw / 2) + ' ' + f(iw / 2) + ' 0 0 1 ' + f(ix + iw) + ' ' + f(it + iw / 2) + ' V' + f(base) + 'Z" fill="' + C.mustard + '"/></g>';
+    // channel lines + tufted buttons
+    for (var k = 1; k < 3; k++) o += '<path d="M' + f(ix + iw * k / 3) + ' ' + f(it + 2) + ' V' + f(base - 2) + '" stroke="' + C.mustard2 + '" stroke-width=".35" opacity=".8"/>';
+    for (var r = 0; r < 6; r++) for (var c = 0; c < 2; c++) { var by = it + iw * 0.45 + r * ((base - it - iw * 0.45) / 6); if (by < base - 3) o += '<circle cx="' + f(ix + iw * (c + 1) / 3) + '" cy="' + f(by) + '" r=".45" fill="' + C.mustard2 + '"/>'; }
+    return o;
+  }
+  function lamp(x, y, s) {
+    return '<path d="M' + f(x) + ' -1 V' + f(y) + '" stroke="' + C.teal3 + '" stroke-width=".35"/>'
+      + '<circle cx="' + f(x) + '" cy="' + f(y + 4.6 * s) + '" r="' + f(3.6 * s) + '" fill="#fff3c0" opacity=".35"/>'
+      + '<g' + SH + '><path d="M' + f(x - 5 * s) + ' ' + f(y + 4 * s) + ' C' + f(x - 5 * s) + ' ' + f(y + 0.6 * s) + ' ' + f(x - 2 * s) + ' ' + f(y) + ' ' + f(x) + ' ' + f(y) + ' C' + f(x + 2 * s) + ' ' + f(y) + ' ' + f(x + 5 * s) + ' ' + f(y + 0.6 * s) + ' ' + f(x + 5 * s) + ' ' + f(y + 4 * s) + 'Z" fill="' + C.mustard + '"/>'
+      + '<rect x="' + f(x - 5 * s) + '" y="' + f(y + 3.6 * s) + '" width="' + f(10 * s) + '" height="' + f(0.8 * s) + '" fill="' + C.mustard2 + '"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(y + 4.6 * s) + '" rx="' + f(1.6 * s) + '" ry="' + f(1 * s) + '" fill="#fff6cf"/></g>';
+  }
+  function books(x, base, s) {
+    var o = '', cols = [[C.teal, C.tealL], [C.coral, '#f8b3a6'], [C.cream, C.mustard], [C.mustard, C.cream]], y = base, w = [16, 14, 15, 12];
+    for (var i = 0; i < 4; i++) {
+      var h = 2.3 * s, bw = w[i] * s, bx = x + (i % 2 ? 0.8 : -0.4) * s;
+      y -= h;
+      o += '<g' + SH + '><rect x="' + f(bx) + '" y="' + f(y) + '" width="' + f(bw) + '" height="' + f(h) + '" rx="' + f(0.3 * s) + '" fill="' + cols[i][0] + '"/>'
+        + '<rect x="' + f(bx + bw * 0.12) + '" y="' + f(y + h * 0.35) + '" width="' + f(bw * 0.5) + '" height="' + f(h * 0.3) + '" fill="' + cols[i][1] + '"/></g>';
+    }
+    // apple on top
+    o += '<g' + SH + '><circle cx="' + f(x + 5 * s) + '" cy="' + f(y - 1.6 * s) + '" r="' + f(1.8 * s) + '" fill="' + C.coral + '"/><circle cx="' + f(x + 6.4 * s) + '" cy="' + f(y - 1.6 * s) + '" r="' + f(1.8 * s) + '" fill="' + C.coral + '"/>'
+      + '<path d="M' + f(x + 5.7 * s) + ' ' + f(y - 3.2 * s) + ' l' + f(0.3 * s) + ' ' + f(-1.3 * s) + '" stroke="#6b4428" stroke-width="' + f(0.4 * s) + '"/><path d="M' + f(x + 6 * s) + ' ' + f(y - 3.9 * s) + ' q' + f(1.6 * s) + ' ' + f(-1 * s) + ' ' + f(2.2 * s) + ' ' + f(0.2 * s) + ' q' + f(-1.4 * s) + ' ' + f(0.8 * s) + ' ' + f(-2.2 * s) + ' ' + f(-0.2 * s) + 'Z" fill="#4a9a5a"/></g>';
+    return o;
+  }
+  function lunchbox(x, base, s) {
+    var w = 13 * s, h = 8.6 * s, t = base - h;
+    return '<g' + SH + '><path d="M' + f(x + w * 0.3) + ' ' + f(t) + ' V' + f(t - 2.2 * s) + ' H' + f(x + w * 0.7) + ' V' + f(t) + '" fill="none" stroke="' + C.mustard2 + '" stroke-width="' + f(0.9 * s) + '" stroke-linejoin="round"/></g>'
+      + '<g' + SH + '><rect x="' + f(x) + '" y="' + f(t) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(1.4 * s) + '" fill="' + C.coral + '"/>'
+      + '<rect x="' + f(x) + '" y="' + f(t + h * 0.28) + '" width="' + f(w) + '" height="' + f(0.6 * s) + '" fill="' + C.coral2 + '"/>'
+      + '<rect x="' + f(x + w * 0.12) + '" y="' + f(t + h * 0.45) + '" width="' + f(w * 0.76) + '" height="' + f(h * 0.4) + '" rx="' + f(0.8 * s) + '" fill="' + C.cream + '"/>'
+      + '<circle cx="' + f(x + w * 0.32) + '" cy="' + f(t + h * 0.65) + '" r="' + f(1.1 * s) + '" fill="' + C.mustard + '"/><path d="M' + f(x + w * 0.45) + ' ' + f(t + h * 0.58) + ' H' + f(x + w * 0.78) + ' M' + f(x + w * 0.45) + ' ' + f(t + h * 0.72) + ' H' + f(x + w * 0.7) + '" stroke="' + C.teal + '" stroke-width="' + f(0.5 * s) + '" stroke-linecap="round"/>'
+      + '<rect x="' + f(x + w * 0.44) + '" y="' + f(t + h * 0.18) + '" width="' + f(w * 0.12) + '" height="' + f(h * 0.2) + '" rx="' + f(0.2 * s) + '" fill="' + C.mustard + '"/></g>';
+  }
+  function mug(x, base, s, body, band) {
+    var w = 7 * s, h = 7.6 * s;
+    return '<g' + SH + '><path d="M' + f(x - 1 * s) + ' ' + f(base - h - 1 * s) + ' c' + f(-1.6 * s) + ' ' + f(-1.8 * s) + ' ' + f(1.4 * s) + ' ' + f(-2.6 * s) + ' 0 ' + f(-4.4 * s) + ' M' + f(x + 1.2 * s) + ' ' + f(base - h - 1 * s) + ' c' + f(-1.6 * s) + ' ' + f(-1.8 * s) + ' ' + f(1.4 * s) + ' ' + f(-2.6 * s) + ' 0 ' + f(-4.4 * s) + '" fill="none" stroke="#fff7e6" stroke-width="' + f(0.7 * s) + '" stroke-linecap="round" opacity=".9"/></g>'
+      + '<g' + SH + '><path d="M' + f(x + w / 2) + ' ' + f(base - h * 0.78) + ' a' + f(2.2 * s) + ' ' + f(2.2 * s) + ' 0 1 1 0 ' + f(4 * s) + '" fill="none" stroke="' + band + '" stroke-width="' + f(1.2 * s) + '"/>'
+      + '<rect x="' + f(x - w / 2) + '" y="' + f(base - h) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(1.3 * s) + '" fill="' + body + '"/>'
+      + '<rect x="' + f(x - w / 2) + '" y="' + f(base - h * 0.6) + '" width="' + f(w) + '" height="' + f(h * 0.18) + '" fill="' + band + '"/>'
+      + '<ellipse cx="' + f(x) + '" cy="' + f(base - h) + '" rx="' + f(w / 2) + '" ry="' + f(0.7 * s) + '" fill="#7a4a35"/></g>';
+  }
+  function table(x1, x2, y) {
+    return '<rect x="' + f((x1 + x2) / 2 - 2) + '" y="' + f(y + 2) + '" width="4" height="12" fill="' + C.teal3 + '"' + SH + '/>'
+      + '<rect x="' + f(x1) + '" y="' + f(y) + '" width="' + f(x2 - x1) + '" height="2.4" rx=".8" fill="' + C.cream + '"' + SH + '/>'
+      + '<rect x="' + f(x1) + '" y="' + f(y + 1.6) + '" width="' + f(x2 - x1) + '" height=".8" rx=".3" fill="' + C.mustard + '"/>';
+  }
+
+  function scene(sq, HH, partner) {
+    var rnd = seeded(sq ? 8808 : 808), o = '<svg class="' + P + '-scene" viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true"><defs>'
+      + '<filter id="pc08sh" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy=".35" stdDeviation=".4" flood-color="#062b2b" flood-opacity=".35"/></filter></defs>'
+      + '<rect width="100" height="' + f(HH) + '" fill="' + C.teal + '"/>';
+    // wallpaper: little paper diamonds
+    for (var yy = 4; yy < HH; yy += 7) for (var xx = (yy / 7) % 2 ? 3.5 : 0; xx < 102; xx += 7) o += '<path d="M' + f(xx) + ' ' + f(yy - 0.9) + ' l.9 .9 -.9 .9 -.9 -.9z" fill="#3aa3a0" opacity=".7"/>';
+    var floor = sq ? 82 : 106.5, wain = sq ? 60 : 80;
+    // wainscot boards
+    o += '<rect x="-1" y="' + f(wain) + '" width="102" height="' + f(floor - wain) + '" fill="' + C.teal2 + '"' + SH + '/>';
+    for (var b = 0; b < 100; b += 5) o += '<rect x="' + f(b + 2.3) + '" y="' + f(wain + 1.4) + '" width=".35" height="' + f(floor - wain - 1.4) + '" fill="' + C.teal3 + '" opacity=".45"/>';
+    o += '<rect x="-1" y="' + f(wain - 0.6) + '" width="102" height="1.6" fill="' + C.cream + '"' + SH + '/>';
+    // checkered floor
+    o += '<rect x="-1" y="' + f(floor) + '" width="102" height="' + f(HH - floor + 1) + '" fill="' + C.cream + '"/>';
+    for (var r = 0; r * 5 < HH - floor + 5; r++) for (var c = 0; c < 21; c++) if ((r + c) % 2) o += '<rect x="' + f(c * 5) + '" y="' + f(floor + r * 5) + '" width="5" height="5" fill="' + C.tealL + '"/>';
+    o += '<rect x="-1" y="' + f(floor - 0.6) + '" width="102" height="1.4" fill="' + C.teal3 + '"/>';
+    if (!sq) {
+      o += booth(-3, 46, 15, floor - 1) + booth(88, 46, 15, floor - 1);
+      o += lamp(6, 30, 0.95) + lamp(94, 30, 0.95);
+      var ty = 97.5;
+      o += table(8, 92, ty);
+      o += books(10, ty, 0.85) + lunchbox(26, ty, 0.82) + mug(66, ty, 0.95, C.cream, C.teal) + mug(76, ty, 0.82, C.mustard, C.coral) + books(82, ty, 0.5);
+    } else {
+      o += booth(80, 24, 22, floor - 1) + lamp(73, 27, 0.9);
+      o += table(64, 101, 70);
+      o += books(66, 70, 0.6) + lunchbox(77, 70, 0.62) + mug(91, 70, 0.7, C.cream, C.teal);
+    }
+    return o + '</svg>';
+  }
+
+  var css = [
+    '.pc08{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;font-family:Quicksand,sans-serif;color:#123c3d;background:#1f8a8a}',
+    '.pc08.sq{aspect-ratio:1/1}',
+    '.pc08 .pc08-scene{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc08 .pc08-head,.pc08 .pc08-menu,.pc08 .pc08-reg,.pc08 .pc08-badge{position:absolute;z-index:3;box-sizing:border-box}',
+    '.pc08 .pc08-badge{filter:drop-shadow(0 .5cqw .7cqw rgba(6,43,43,.4))}.pc08 .pc08-badge svg{display:block;width:100%;height:auto}',
+    '.pc08 .pc08-bt{font-family:Fraunces,serif;font-weight:800;font-size:8.6px;letter-spacing:1.3px;fill:#123c3d}',
+    '.pc08 .pc08-bt2{font-family:Quicksand,sans-serif;font-weight:700;font-size:6.4px;letter-spacing:1.5px;fill:#123c3d}',
+    /* header */
+    '.pc08 .pc08-head{background:#fff7e6;border-radius:2.4cqw;box-shadow:0 .5cqw 1cqw rgba(6,43,43,.4),-.9cqw .9cqw 0 0 #e8b030;display:flex;align-items:center;gap:2.8cqw;padding:2cqw 3cqw}',
+    '.pc08 .pc08-logo{flex:none;width:12cqw;height:12cqw;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 0 0 .6cqw #7cc8c2}',
+    '.pc08 .pc08-logo img{width:80%}.pc08 .pc08-logo.pip{width:17cqw;height:10.4cqw;border-radius:1.6cqw}.pc08 .pc08-logo.pip img{width:90%}',
+    '.pc08 .pc08-ht{flex:1;min-width:0}',
+    '.pc08 .pc08-k{font-weight:700;letter-spacing:.13em;font-size:1.35cqw;color:#cf503d}',
+    '.pc08 .pc08-t{font-family:Fraunces,serif;font-weight:800;line-height:1.05;color:#123c3d;margin-top:.8cqw;font-size:6.8cqw}',
+    '.pc08 .pc08-t i{font-style:italic;font-weight:700;color:#1f8a8a}',
+    '.pc08 .pc08-m{display:inline-block;margin-top:.9cqw;background:#e8b030;color:#123c3d;font-weight:700;font-size:2cqw;padding:.45cqw 2cqw;border-radius:5cqw;white-space:nowrap}',
+    /* menu card */
+    '.pc08 .pc08-menu{background:#fff7e6;border-radius:1.6cqw;box-shadow:0 .6cqw 1.2cqw rgba(6,43,43,.45),.9cqw .9cqw 0 0 #0e4f50;display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 3.6cqw 2.2cqw;overflow:hidden}',
+    '.pc08 .pc08-strip{align-self:stretch;margin:0 -3.6cqw;background:#e8b030;color:#123c3d;font-family:Fraunces,serif;font-weight:800;font-size:2.5cqw;line-height:1.3;padding:.9cqw 0 1.3cqw;position:relative}',
+    '.pc08 .pc08-strip:after{content:"";position:absolute;left:0;right:0;bottom:-.9cqw;height:1.8cqw;background:radial-gradient(circle at 50% 0,#e8b030 .9cqw,transparent .95cqw) 0 0/2.4cqw 1.8cqw repeat-x;pointer-events:none}',
+    '.pc08 .pc08-ss{flex:1;width:100%;display:flex;flex-direction:column;justify-content:center;gap:2.2cqw;margin-top:2.4cqw}',
+    '.pc08 .pc08-s{display:flex;align-items:center;gap:2.8cqw;text-align:left}',
+    '.pc08 .pc08-d{flex:none;width:11cqw;border-radius:1.2cqw;overflow:hidden;background:#fff;box-shadow:0 .4cqw .7cqw rgba(6,43,43,.3);text-align:center;line-height:1.25}',
+    '.pc08 .pc08-d .mo{display:block;background:#1f8a8a;color:#fff;font-weight:700;font-size:1.45cqw;letter-spacing:.12em;padding:.5cqw 0}',
+    '.pc08 .pc08-d .n{display:block;font-family:Fraunces,serif;font-weight:800;font-size:5cqw;line-height:1.2;color:#123c3d}',
+    '.pc08 .pc08-d .w{display:block;font-weight:700;font-size:1.35cqw;letter-spacing:.12em;color:#cf503d;padding-bottom:.6cqw}',
+    '.pc08 .pc08-s.b2 .pc08-d .mo{background:#cf503d}',
+    '.pc08 .pc08-x{flex:1;min-width:0}',
+    '.pc08 .pc08-x .l{font-family:Fraunces,serif;font-weight:800;font-size:3.6cqw;line-height:1.12;color:#123c3d}',
+    '.pc08 .pc08-x .tm{font-weight:700;font-size:2.2cqw;color:#cf503d;margin-top:.6cqw}',
+    '.pc08 .pc08-x .ds{font-size:1.95cqw;font-weight:500;color:#3b6061;margin-top:.2cqw}',
+    '.pc08 .pc08-div{border-top:.3cqw dashed #7cc8c2;margin:0 3cqw}',
+    '.pc08 .pc08-ss.solo{gap:1.2cqw}.pc08 .pc08-ss.solo .pc08-s{flex-direction:column;text-align:center;gap:1.6cqw}',
+    '.pc08 .pc08-ss.solo .pc08-d{width:12.5cqw}.pc08 .pc08-ss.solo .pc08-d .n{font-size:5.6cqw}.pc08 .pc08-ss.solo .pc08-d .mo,.pc08 .pc08-ss.solo .pc08-d .w{font-size:1.7cqw}',
+    '.pc08 .pc08-ss.solo .pc08-x .l{font-size:4.7cqw;line-height:1.08}.pc08 .pc08-ss.solo .pc08-x .tm{font-size:2.8cqw}.pc08 .pc08-ss.solo .pc08-x .ds{font-size:2.3cqw;font-style:italic}',
+    '.pc08 .pc08-pr{font-size:2.1cqw;font-weight:600;margin-top:1.1cqw;background:#e4f4f2;border-radius:4cqw;padding:.6cqw 2.2cqw}.pc08 .pc08-pr b{color:#cf503d;font-weight:700}',
+    '.pc08 .pc08-wh{font-size:1.7cqw;font-weight:700;color:#16706f;margin-top:1cqw}',
+    /* partner */
+    '.pc08 .pc08-menu.pt{justify-content:space-between}',
+    '.pc08 .pc08-les{width:100%;display:flex;flex-direction:column;gap:.7cqw;margin-top:2.4cqw}',
+    '.pc08 .pc08-les div{font-family:Fraunces,serif;font-weight:800;font-size:2.9cqw;line-height:1.12}',
+    '.pc08 .pc08-les div span{display:block;font-family:Quicksand,sans-serif;font-weight:700;font-size:1.6cqw;letter-spacing:.1em;color:#cf503d;margin-bottom:.2cqw}',
+    '.pc08 .pc08-tz{width:100%;margin-top:1.4cqw;border-top:.4cqw solid #123c3d}',
+    '.pc08 .pc08-tz .r{display:grid;grid-template-columns:1.2fr 1.2fr .75fr;gap:1cqw;align-items:center;padding:.45cqw 1.4cqw;font-size:1.75cqw;font-weight:600;white-space:nowrap;text-align:left;border-bottom:.2cqw solid #f0d9a4}',
+    '.pc08 .pc08-tz .r.hd{font-weight:700;font-size:1.4cqw;letter-spacing:.12em;color:#16706f;padding:.5cqw 1.4cqw}',
+    '.pc08 .pc08-tz .r .a{font-weight:700}.pc08 .pc08-tz .r .c{font-weight:700;color:#cf503d;text-align:right}',
+    '.pc08 .pc08-tz .r.h{background:#e8b030;border-radius:1cqw;border-bottom-color:transparent}.pc08 .pc08-tz .r.h .c{color:#123c3d}',
+    /* registration */
+    '.pc08 .pc08-reg{background:#fff7e6;border-radius:2.4cqw;box-shadow:0 .5cqw 1cqw rgba(6,43,43,.4),0 0 0 .7cqw #e8b030;display:flex;align-items:center;gap:2.6cqw;padding:2cqw 3cqw}',
+    '.pc08 .pc08-rg{flex:1;min-width:0;font-size:1.9cqw;font-weight:600;line-height:1.35}',
+    '.pc08 .pc08-rg b{display:block;font-family:Fraunces,serif;font-weight:800;font-size:3.5cqw;line-height:1.12;color:#123c3d;margin-bottom:.3cqw}.pc08 .pc08-rg b i{font-style:normal;color:#1f8a8a}',
+    '.pc08 .pc08-qr{flex:none;width:11cqw;height:11cqw;background:#fff;border:.35cqw solid #7cc8c2;border-radius:1.2cqw;padding:.5cqw;box-sizing:border-box;display:grid;place-items:center;font-weight:700;font-size:2.2cqw}',
+    '.pc08 .pc08-qr img{width:100%;height:100%;display:block}',
+    '.pc08 .pc08-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw;font-size:1.45cqw}',
+    '.pc08 .pc08-bd span{background:#1f8a8a;color:#fff;border-radius:4cqw;font-weight:700;text-align:center;padding:.5em 1em;white-space:nowrap}',
+    /* square */
+    '.pc08.sq .pc08-head{padding:1.5cqw 2.4cqw;gap:2cqw}.pc08.sq .pc08-logo{width:9.4cqw;height:9.4cqw}.pc08.sq .pc08-logo.pip{width:13.6cqw;height:8.4cqw}',
+    '.pc08.sq .pc08-k{font-size:1.1cqw}.pc08.sq .pc08-t{font-size:5.3cqw;margin-top:.5cqw}.pc08.sq .pc08-m{font-size:1.7cqw;margin-top:.6cqw}',
+    '.pc08.sq .pc08-menu{padding:0 2.8cqw 2cqw}.pc08.sq .pc08-strip{margin:0 -2.8cqw;font-size:2.2cqw;padding:.9cqw 0 1.2cqw}',
+    '.pc08.sq .pc08-ss{gap:1.4cqw;margin-top:1.8cqw}',
+    '.pc08.sq .pc08-d{width:9cqw}.pc08.sq .pc08-d .n{font-size:4cqw}.pc08.sq .pc08-d .mo,.pc08.sq .pc08-d .w{font-size:1.15cqw}',
+    '.pc08.sq .pc08-x .l{font-size:3.1cqw}.pc08.sq .pc08-x .tm{font-size:1.9cqw}.pc08.sq .pc08-x .ds{font-size:1.65cqw}',
+    '.pc08.sq .pc08-ss.solo .pc08-s{flex-direction:row;text-align:left;gap:2.4cqw}.pc08.sq .pc08-ss.solo .pc08-d{width:11cqw}.pc08.sq .pc08-ss.solo .pc08-d .n{font-size:5cqw}.pc08.sq .pc08-ss.solo .pc08-d .mo,.pc08.sq .pc08-ss.solo .pc08-d .w{font-size:1.35cqw}',
+    '.pc08.sq .pc08-ss.solo .pc08-x .l{font-size:3.8cqw}.pc08.sq .pc08-ss.solo .pc08-x .tm{font-size:2.2cqw}.pc08.sq .pc08-ss.solo .pc08-x .ds{font-size:1.8cqw}',
+    '.pc08.sq .pc08-pr{font-size:1.75cqw;margin-top:1cqw;padding:.4cqw 1.6cqw}.pc08.sq .pc08-wh{font-size:1.45cqw;margin-top:.9cqw}',
+    '.pc08.sq .pc08-les{gap:.5cqw;margin-top:1.8cqw}.pc08.sq .pc08-les div{font-size:2.5cqw}.pc08.sq .pc08-les div span{font-size:1.3cqw}',
+    '.pc08.sq .pc08-tz{margin-top:1cqw;border-top-width:.3cqw}.pc08.sq .pc08-tz .r{font-size:1.6cqw;padding:.36cqw 1.2cqw}.pc08.sq .pc08-tz .r.hd{display:none}',
+    '.pc08.sq .pc08-reg{padding:1.4cqw 2.4cqw;gap:2.2cqw}.pc08.sq .pc08-rg{font-size:1.6cqw}.pc08.sq .pc08-rg b{font-size:2.9cqw}.pc08.sq .pc08-qr{width:9cqw;height:9cqw}.pc08.sq .pc08-bd{font-size:1.25cqw}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var S = spec.sessions.map(H.sessInfo), HH = sq ? 100 : 129.41, mon = H.MONTHS[spec.month - 1];
+    var words = H.esc(spec.series || 'Parent Talk Café').split(' '), last = words.pop();
+    var html = '<div class="vfx pc08' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '">' + scene(sq, HH, partner);
+    var head = '<div class="pc08-logo' + (partner ? ' pip' : '') + '"><img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt=""></div>'
+      + '<div class="pc08-ht"><div class="pc08-k">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc08-t">' + words.join(' ') + ' <i>' + last + '</i></div>'
+      + '<div class="pc08-m">' + mon + ' ' + spec.year + ' &middot; on Zoom</div></div>';
+    var pres = spec.presenter ? '<div class="pc08-pr">Presented by <b>' + H.esc(spec.presenter) + '</b></div>' : '';
+    var where = '<div class="pc08-wh">' + H.PTC_WHERE + '</div>';
+    var strip = '<div class="pc08-strip">Today\'s Talk</div>', card;
+    if (!partner) {
+      card = strip + '<div class="pc08-ss' + (S.length === 1 ? ' solo' : '') + '">' + S.map(function (s, i) {
+        return (i ? '<div class="pc08-div"></div>' : '') + '<div class="pc08-s b' + (i + 1) + '"><div class="pc08-d"><span class="mo">' + s.mon.toUpperCase() + '</span><span class="n">' + s.day + '</span><span class="w">' + s.dow.toUpperCase() + '</span></div>'
+          + '<div class="pc08-x"><div class="l">' + s.lesson + '</div><div class="tm">' + s.time + '</div>' + (s.desc ? '<div class="ds">' + s.desc + '</div>' : '') + '</div></div>';
+      }).join('') + '</div>' + pres + where;
+    } else {
+      card = strip + '<div class="pc08-les">' + S.map(function (s) { return '<div><span>' + s.dow.toUpperCase() + ' ' + s.mon.toUpperCase() + ' ' + s.day + ' IN HAWAI&#699;I</span>' + s.lesson + '</div>'; }).join('') + '</div>' + pres
+        + '<div class="pc08-tz"><div class="r hd"><span>WHERE YOU LIVE</span><span>DAY</span><span style="text-align:right">LOCAL TIME</span></div>'
+        + H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' h' : '') + '"><span class="a">' + r.label + '</span><span class="b">' + r.days + '</span><span class="c">' + r.time + '</span></div>'; }).join('') + '</div>' + where;
+    }
+    var rg = '<div class="pc08-rg"><b>REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code, or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>';
+    var qr = '<div class="pc08-qr">' + H.qrImg(spec, partner) + '</div>', bd = '<div class="pc08-bd">' + H.badges(spec, partner) + '</div>';
+    var bdg = badge(mon.toUpperCase() + ' ' + spec.year), cls = 'pc08-menu' + (partner ? ' pt' : '');
+    if (!sq) {
+      html += box('pc08-head', 4, 4, 68, null, head);
+      html += box('pc08-badge', 74.5, 3.5, 22, null, bdg);
+      html += box(cls, 16, 31, 68, null, card, 'min-height:52cqw;');
+      html += box('pc08-reg', 5, 110, 90, null, rg + qr + bd);
+    } else {
+      html += box('pc08-head', 3, 3, 66, null, head);
+      html += box('pc08-badge', 76, 2.5, 20, null, bdg);
+      html += box(cls, 4, 24, 60, null, card, 'min-height:52cqw;');
+      html += box('pc08-reg', 4, 84.5, 92, null, rg + qr + bd);
+    }
+    return html + '</div>';
+  }
+
+  return { name: 'Papercut café: booth with books, mugs and a lunchbox', fonts: 'family=Fraunces:ital,opsz,wght@0,9..144,700;0,9..144,800;1,9..144,700&family=Quicksand:wght@500;600;700', css: css, fn: fn };
+})());
+
+/* ---- PTC design C month 09 ---- */
+/* Set PC "Island Papercut café" — September: sunset café terrace over the bay.
+   Paper string lights swag across a plum-to-coral sky; the title hangs as a café sign from the lights; a layered
+   sun sinks into the bay between plum headlands; the topic sits on a big paper menu card with a gold sun-disc
+   date tag; the footer card rests on the terrace railing. */
+(function () {
+  function f(n) { return Math.round(n * 100) / 100; }
+  function box(c, x, y, w, h, inner, st) {
+    return '<div class="' + c + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (st || '') + '">' + inner + '</div>';
+  }
+  function rng(seed) { var s = seed % 2147483647; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  var SH = ' filter="url(#pc09s)"';
+  var C = { coral: '#ef6f5c', plum: '#5c2a54', dplum: '#3b1838', gold: '#f6bd47', cream: '#fff6ea', rose: '#f3a28d', ink: '#3a1a33' };
+
+  /* ---------- recurring PTC badge: cut-paper cup ---------- */
+  function badge(st) {
+    return '<svg class="pc09-badge" viewBox="0 0 100 100" style="' + st + '"><defs>'
+      + '<filter id="pc09b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#2a0d24" flood-opacity=".4"/></filter>'
+      + '<path id="pc09bt" d="M15 50 A35 35 0 0 1 85 50"/><path id="pc09bu" d="M8.5 50 A41.5 41.5 0 0 0 91.5 50"/></defs>'
+      + '<circle cx="50" cy="50" r="48" fill="' + C.plum + '" filter="url(#pc09b)"/>'
+      + '<circle cx="50" cy="50" r="44" fill="none" stroke="' + C.gold + '" stroke-width=".9" stroke-dasharray="2 1.6"/>'
+      + '<text font-family="Fraunces,Georgia,serif" font-weight="800" font-size="9.4" letter-spacing="1.2" fill="' + C.cream + '"><textPath href="#pc09bt" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="Fraunces,Georgia,serif" font-weight="800" font-size="9.4" letter-spacing="3" fill="' + C.gold + '"><textPath href="#pc09bu" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + '<circle cx="11" cy="56" r="1.8" fill="' + C.gold + '"/><circle cx="89" cy="56" r="1.8" fill="' + C.gold + '"/>'
+      + '<circle cx="50" cy="52" r="30" fill="' + C.cream + '" filter="url(#pc09b)"/>'
+      + '<circle cx="50" cy="52" r="25.5" fill="#fde3c8"/>'
+      + '<g filter="url(#pc09b)" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M42 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/><path d="M50 40 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -7"/><path d="M58 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/></g>'
+      + '<ellipse cx="50" cy="69" rx="20" ry="3.6" fill="' + C.gold + '" filter="url(#pc09b)"/>'
+      + '<g filter="url(#pc09b)"><path d="M61 51 h3.5 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + C.coral + '" stroke-width="3.2"/>'
+      + '<path d="M35 46 h29 l-2.6 16.5 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + C.coral + '"/></g>'
+      + '<path d="M35.7 51 h27.6 l-.7 4.4 h-26.2 z" fill="' + C.plum + '" filter="url(#pc09b)"/>'
+      + '</svg>';
+  }
+
+  /* ---------- paper scenery ---------- */
+  function cloud(x, y, w, h, col) {
+    return '<path' + SH + ' fill="' + col + '" d="M' + f(x) + ' ' + f(y + h) + ' q' + f(w * 0.08) + ' ' + f(-h) + ' ' + f(w * 0.24) + ' ' + f(-h * 0.7) + ' q' + f(w * 0.12) + ' ' + f(-h * 0.9) + ' ' + f(w * 0.3) + ' ' + f(-h * 0.35) + ' q' + f(w * 0.2) + ' ' + f(-h * 0.5) + ' ' + f(w * 0.3) + ' ' + f(h * 0.25) + ' q' + f(w * 0.12) + ' ' + f(h * 0.1) + ' ' + f(w * 0.16) + ' ' + f(h * 0.8) + 'z"/>';
+  }
+  function sun(cx, cy, r) {
+    var c = ['#ffe9a8', '#ffd36e', '#f9b84a', '#f39a3e'], o = '<g' + SH + '>';
+    for (var i = 0; i < 4; i++) o += '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * (1 - i * 0.2)) + '" fill="' + c[i] + '"/>';
+    return o + '</g>';
+  }
+  function headland(pts, col) { return '<path' + SH + ' fill="' + col + '" d="M' + pts + 'z"/>'; }
+  function water(top, HH, sx) {
+    var cols = ['#8b3f6b', '#74345f', '#5e2a52', '#4a2145'], o = '', R = rng(Math.round(top * 31));
+    for (var k = 0; k < 4; k++) {
+      var y0 = top + k * 2.6, d = 'M0 ' + f(HH) + ' L0 ' + f(y0);
+      for (var x = 0; x <= 100; x += 5) d += ' L' + x + ' ' + f(y0 + Math.sin((x + k * 13) / 9) * 0.5);
+      o += '<path' + SH + ' fill="' + cols[k] + '" d="' + d + ' L100 ' + f(HH) + 'z"/>';
+    }
+    // sun glints on the water
+    for (var j = 0; j < 9; j++) {
+      var gy = top + 1 + j * 1.3, gw = 14 - j * 1.2 + R() * 3;
+      o += '<rect x="' + f(sx - gw / 2 + (R() - 0.5) * 3) + '" y="' + f(gy) + '" width="' + f(gw) + '" height=".55" rx=".27" fill="' + (j % 2 ? '#ffd36e' : '#f6a35a') + '" opacity=".9"/>';
+    }
+    return o;
+  }
+  function railing(y, HH) {
+    var o = '<g' + SH + '><rect x="-1" y="' + f(y) + '" width="102" height="1.8" rx=".5" fill="' + C.dplum + '"/>';
+    for (var x = 2; x < 100; x += 4.2) o += '<rect x="' + f(x) + '" y="' + f(y + 1.6) + '" width="1.3" height="' + f(HH - y) + '" rx=".4" fill="#4b1f46"/>';
+    return o + '</g>';
+  }
+  function lights(x1, y1, x2, y2, sag, n) {
+    var mx = (x1 + x2) / 2, my = Math.max(y1, y2) + sag, o = '<path d="M' + f(x1) + ' ' + f(y1) + ' Q' + f(mx) + ' ' + f(my) + ' ' + f(x2) + ' ' + f(y2) + '" fill="none" stroke="#2c1029" stroke-width=".35"/>';
+    for (var i = 1; i < n; i++) {
+      var t = i / n, u = 1 - t, px = u * u * x1 + 2 * u * t * mx + t * t * x2, py = u * u * y1 + 2 * u * t * my + t * t * y2;
+      o += '<circle cx="' + f(px) + '" cy="' + f(py + 1.5) + '" r="2.2" fill="#ffc861" opacity=".35"/>'
+        + '<rect x="' + f(px - 0.45) + '" y="' + f(py - 0.1) + '" width=".9" height=".9" fill="#2c1029"/>'
+        + '<path' + SH + ' d="M' + f(px) + ' ' + f(py + 0.6) + ' c1 .6 1.1 1.9 .6 2.6 a.8 .8 0 0 1 -1.2 0 c-.5 -.7 -.4 -2 .6 -2.6z" fill="' + (i % 3 ? '#ffd769' : '#ffeeb0') + '"/>';
+    }
+    return o;
+  }
+
+  /* ---------- layouts (cqw) ---------- */
+  var L = {
+    lh: { H: 129.41, logo: [5, 11, 17.5, 17.5], badge: [76, 8, 21, -6], head: [25, 10, 49, 25.5], where: [25, 37.5, 49],
+          mid: [7, 43, 86, 47], foot: [5, 103, 90, 22.5], horizon: 92, sun: [62, 92, 17], rail: 99.5,
+          lights: [[-2, 1, 50, 2, 6, 7], [50, 2, 102, 1, 6, 7]], clouds: [[2, 40, 20, 2.6, '#f3a28d'], [76, 48, 24, 3, '#f7b98d'], [10, 70, 26, 3, '#f6c27c'], [70, 76, 22, 2.6, '#fbd38c']] },
+    lp: { H: 129.41, logo: [5, 11, 20, 14], badge: [76, 8, 21, -6], head: [28, 10, 46, 25.5], where: [25, 37.5, 49],
+          col: [7, 42, 86, 58], tab: [0, 0, 82, 4.15], foot: [5, 103, 90, 22.5], horizon: 96, sun: [80, 96, 13], rail: 100,
+          lights: [[-2, 1, 50, 2, 6, 7], [50, 2, 102, 1, 6, 7]], clouds: [[2, 40, 20, 2.6, '#f3a28d'], [78, 46, 22, 3, '#f7b98d']] },
+    sh: { H: 100, logo: [4, 8, 15, 15], badge: [79, 4, 17.5, -6], head: [21, 6.5, 56, 22], where: null,
+          mid: [5, 31, 90, 42], foot: [4, 79, 92, 18], horizon: 73, sun: [50, 73, 14], rail: 76.5,
+          lights: [[-2, 0.5, 50, 1.5, 3.5, 7], [50, 1.5, 102, 0.5, 3.5, 7]], clouds: [[1, 30, 16, 2, '#f3a28d'], [82, 34, 17, 2.2, '#f7b98d']] },
+    sp: { H: 100, logo: [4, 7, 17, 11.5], badge: [80, 3.5, 16.5, -6], head: [23, 5.5, 55, 21], where: null,
+          col: [5, 25.5, 90, 51.5], tab: [0, 0, 86, 4.15], foot: [4, 79.5, 92, 17.5], horizon: 77, sun: [86, 77, 9], rail: 78,
+          lights: [[-2, 0.5, 50, 1.5, 3, 7], [50, 1.5, 102, 0.5, 3, 7]], clouds: [] }
+  };
+
+  var css = [
+    '.pc09{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(60,20,50,.35);background:linear-gradient(180deg,#4a2148 0%,#7d3460 16%,#c4505f 34%,#ef7a5e 50%,#f8a659 64%,#fcd27e 74%,#fcd27e 100%);font-family:Quicksand,Nunito,sans-serif;color:' + C.ink + '}',
+    '.pc09.sq{aspect-ratio:1/1;background:linear-gradient(180deg,#4a2148 0%,#7d3460 14%,#c4505f 32%,#ef7a5e 48%,#f8a659 62%,#fcd27e 74%,#fcd27e 100%)}',
+    '.pc09 *{box-sizing:border-box}',
+    '.pc09>svg.pc09-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc09 .pc09-badge{position:absolute;z-index:4;pointer-events:none;overflow:visible}',
+    '.pc09 .pc09-logo,.pc09 .pc09-hd,.pc09 .pc09-wh,.pc09 .pc09-mid,.pc09 .pc09-col,.pc09 .pc09-ft{position:absolute;z-index:3}',
+    '.pc09 .pc09-logo{background:' + C.cream + ';border-radius:1.4cqw;display:grid;place-items:center;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3),.7cqw .8cqw 0 -.1cqw ' + C.coral + ',.7cqw 1cqw .9cqw rgba(60,15,45,.22)}',
+    '.pc09 .pc09-logo img{width:82%;height:auto;display:block}',
+    /* hanging sign */
+    '.pc09 .pc09-hd{background:' + C.cream + ';border-radius:1.6cqw;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3),.8cqw .9cqw 0 -.1cqw ' + C.gold + ',.8cqw 1.1cqw 1cqw rgba(60,15,45,.22)}',
+    '.pc09 .pc09-hd:before,.pc09 .pc09-hd:after{content:"";position:absolute;top:-4.2cqw;width:.35cqw;height:4.4cqw;background:#2c1029}',
+    '.pc09 .pc09-hd:before{left:22%}.pc09 .pc09-hd:after{right:22%}',
+    '.pc09 .pc09-k{font-weight:700;letter-spacing:.16em;color:' + C.coral + ';white-space:nowrap;line-height:1}',
+    '.pc09 .pc09-t{font-family:Fraunces,Georgia,serif;font-weight:800;color:' + C.plum + ';line-height:.95;white-space:nowrap;margin:.16em 0 .12em;letter-spacing:-.01em}',
+    '.pc09 .pc09-t span{display:block;font-style:italic;color:' + C.coral + '}',
+    '.pc09.sq .pc09-t span{display:inline}',
+    '.pc09 .pc09-m{font-weight:700;letter-spacing:.18em;color:' + C.ink + ';white-space:nowrap;line-height:1}',
+    '.pc09 .pc09-m b{color:' + C.coral + '}.pc09 .pc09-m i{font-style:normal;color:#9a3f78}',
+    '.pc09 .pc09-wsq{font-weight:600;color:#7a4a6a;white-space:nowrap;line-height:1;margin-top:.55em}',
+    '.pc09 .pc09-wh{background:' + C.plum + ';color:' + C.cream + ';border-radius:5cqw;text-align:center;font-weight:700;white-space:nowrap;line-height:1;padding:.55em 0;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3)}',
+    '.pc09 .pc09-wh b{color:' + C.gold + '}',
+    /* topic menu cards */
+    '.pc09 .pc09-col{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2.6cqw}',
+    '.pc09 .pc09-les,.pc09 .pc09-tab{position:relative;left:auto!important;top:auto!important}',
+    '.pc09 .pc09-mid{display:flex;flex-direction:column;justify-content:center;gap:2.4cqw}',
+    '.pc09 .pc09-s{position:relative;display:flex;align-items:center;background:' + C.cream + ';border-radius:2cqw;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3),.9cqw 1cqw 0 -.1cqw var(--ac),.9cqw 1.2cqw 1cqw rgba(60,15,45,.2)}',
+    '.pc09 .pc09-dt{flex:none;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle,#ffe39a 0 52%,#f6bd47 53% 70%,#ef9a3e 71%);color:' + C.ink + ';line-height:1;box-shadow:0 .4cqw .6cqw rgba(60,15,45,.3)}',
+    '.pc09 .pc09-dt .w{font-weight:700;letter-spacing:.16em;line-height:1.35;position:relative;z-index:1}',
+    '.pc09 .pc09-dt .d{font-family:Fraunces,Georgia,serif;font-weight:800;line-height:.95;margin:0;color:' + C.plum + '}',
+    '.pc09 .pc09-in{flex:1;min-width:0}',
+    '.pc09 .pc09-in .tm{font-weight:700;color:' + C.coral + ';letter-spacing:.05em;line-height:1.1}',
+    '.pc09 .pc09-in .ti{font-family:Fraunces,Georgia,serif;font-weight:800;color:' + C.plum + ';line-height:1.06;margin-top:.18em;letter-spacing:-.01em}',
+    '.pc09 .pc09-in .ds{font-weight:600;color:#7a4a6a;line-height:1.2;margin-top:.4em}',
+    '.pc09 .pc09-pr{align-self:center;background:' + C.plum + ';color:' + C.cream + ';border-radius:5cqw;font-weight:600;line-height:1;padding:.6em 1.3em;white-space:nowrap;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3)}',
+    '.pc09 .pc09-pr b{color:' + C.gold + ';font-weight:700}',
+    /* partner lessons + table */
+    '.pc09 .pc09-les{background:' + C.cream + ';border-radius:1.8cqw;text-align:center;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3),.8cqw .9cqw 0 -.1cqw ' + C.coral + ',.8cqw 1.1cqw 1cqw rgba(60,15,45,.2)}',
+    '.pc09 .pc09-les .ti{font-family:Fraunces,Georgia,serif;font-weight:800;color:' + C.plum + ';line-height:1.1}',
+    '.pc09 .pc09-les .ti b{display:inline-block;font-family:Quicksand,sans-serif;background:' + C.coral + ';color:#fff;border-radius:3cqw;padding:.12em .6em;margin-right:.5em;font-size:.6em;letter-spacing:.12em;vertical-align:.2em}',
+    '.pc09 .pc09-les .ds{font-weight:600;color:#7a4a6a;line-height:1.2;margin-top:.35em}',
+    '.pc09 .pc09-les .pp{font-weight:600;color:' + C.ink + ';line-height:1.2;margin-top:.45em}.pc09 .pc09-les .pp b{color:' + C.coral + '}',
+    '.pc09 .pc09-tab{background:' + C.cream + ';border-radius:1.8cqw;padding:1cqw 1.6cqw 1.2cqw;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3),.8cqw .9cqw 0 -.1cqw ' + C.plum + ',.8cqw 1.1cqw 1cqw rgba(60,15,45,.2)}',
+    '.pc09 .pc09-tab .h{text-align:center;font-family:Fraunces,Georgia,serif;font-weight:800;font-style:italic;color:' + C.plum + ';line-height:1.2;padding-bottom:.25em}',
+    '.pc09 .pc09-tab .r{display:flex;align-items:center;border-top:.18cqw dotted #e9a98f;padding:0 1.2cqw}',
+    '.pc09 .pc09-tab .r.hm{background:' + C.coral + ';color:#fff;border-radius:1cqw;border-top-color:transparent}',
+    '.pc09 .pc09-tab .r.hm+.r{border-top-color:transparent}',
+    '.pc09 .pc09-tab .r .i{flex:1.25;font-weight:700;white-space:nowrap}',
+    '.pc09 .pc09-tab .r .d{flex:1.2;font-weight:600;white-space:nowrap;color:#7a4a6a}',
+    '.pc09 .pc09-tab .r.hm .d{color:#fff1e8}',
+    '.pc09 .pc09-tab .r .t{flex:.8;text-align:right;font-family:Fraunces,Georgia,serif;font-weight:800;white-space:nowrap;color:' + C.plum + '}',
+    '.pc09 .pc09-tab .r.hm .t{color:#fff3c4}',
+    /* footer */
+    '.pc09 .pc09-ft{display:flex;align-items:center;gap:2.2cqw;background:' + C.cream + ';border-radius:1.8cqw;box-shadow:0 .4cqw .7cqw rgba(60,15,45,.3),.8cqw .9cqw 0 -.1cqw ' + C.coral + ',.8cqw 1.1cqw 1cqw rgba(60,15,45,.2)}',
+    '.pc09 .pc09-rg{flex:1;font-weight:600;line-height:1.3;color:' + C.ink + '}',
+    '.pc09 .pc09-rg b{display:block;font-weight:700;line-height:1.1;color:' + C.plum + ';margin-bottom:.15em}',
+    '.pc09 .pc09-rg b i{font-style:normal;color:' + C.coral + '}',
+    '.pc09 .pc09-qr{flex:none;background:#fff;border-radius:.8cqw;padding:.5cqw;display:grid;place-items:center;font-weight:700;color:' + C.ink + ';box-shadow:inset 0 0 0 .25cqw #f3c3a8}',
+    '.pc09 .pc09-qr img{width:100%;height:100%;display:block}',
+    '.pc09 .pc09-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc09 .pc09-bd span{background:' + C.plum + ';color:#fff;border-radius:5cqw;font-weight:700;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H;
+    var svg = '<defs><filter id="pc09s" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".35" flood-color="#2a0d24" flood-opacity=".32"/></filter>'
+      + '<filter id="pc09g"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="4"/><feColorMatrix values="0 0 0 0 .35 0 0 0 0 .15 0 0 0 0 .3 0 0 0 .55 0"/></filter></defs>';
+    var html = '', hz = V.horizon;
+
+    // sky: paper clouds, sun, headlands, bay, terrace railing, string lights
+    V.clouds.forEach(function (c) { svg += cloud(c[0], c[1], c[2], c[3], c[4]); });
+    svg += sun(V.sun[0], V.sun[1], V.sun[2]);
+    svg += headland('-1 ' + f(hz + 1) + ' L-1 ' + f(hz - 9) + ' Q6 ' + f(hz - 13) + ' 13 ' + f(hz - 8) + ' Q20 ' + f(hz - 12) + ' 30 ' + f(hz - 4) + ' Q36 ' + f(hz - 1) + ' 42 ' + f(hz + 1), '#a5466e');
+    svg += headland('-1 ' + f(hz + 1) + ' L-1 ' + f(hz - 5) + ' Q8 ' + f(hz - 8) + ' 18 ' + f(hz - 3) + ' Q24 ' + f(hz - 1) + ' 30 ' + f(hz + 1), '#7a3263');
+    svg += headland('101 ' + f(hz + 1) + ' L101 ' + f(hz - 6) + ' Q93 ' + f(hz - 10) + ' 86 ' + f(hz - 4) + ' Q82 ' + f(hz - 1) + ' 76 ' + f(hz + 1), '#8c3a67');
+    svg += water(hz, HH, V.sun[0]);
+    svg += railing(V.rail, HH);
+    V.lights.forEach(function (l) { svg += lights(l[0], l[1], l[2], l[3], l[4], l[5]); });
+
+    // logo + badge
+    var lg = V.logo;
+    html += box('pc09-logo', lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'transform:rotate(-2deg)');
+    var bg = V.badge;
+    html += badge('left:' + bg[0] + 'cqw;top:' + bg[1] + 'cqw;width:' + bg[2] + 'cqw;height:' + bg[2] + 'cqw;transform:rotate(' + bg[3] + 'deg)');
+
+    // hanging café sign
+    var hd = V.head, ser = H.esc(spec.series || 'Parent Talk Café');
+    var tf = sq ? 5.6 : 7.3, kf = sq ? 1.3 : 1.45, mf = sq ? 1.8 : 2.1;
+    html += box('pc09-hd', hd[0], hd[1], hd[2], hd[3],
+      '<div class="pc09-k" style="font-size:' + kf + 'cqw">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc09-t" style="font-size:' + tf + 'cqw">' + H.seriesTitle(spec.series) + '</div>'
+      + '<div class="pc09-m" style="font-size:' + mf + 'cqw"><b>' + mon.toUpperCase() + '</b> ' + spec.year + ' &middot; <i>ON ZOOM</i></div>'
+      + (V.where ? '' : '<div class="pc09-wsq" style="font-size:1.45cqw">' + H.PTC_WHERE + '</div>'));
+    if (V.where) html += box('pc09-wh', V.where[0], V.where[1], V.where[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:1.7cqw');
+
+    var pres = spec.presenter ? H.esc(spec.presenter) : '';
+    function nb(t) { return t.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); }
+    var AC = [C.coral, C.plum];
+    if (!partner) {
+      var M = V.mid, n = S.length, k = sq ? 0.8 : 1, inner = '';
+      S.forEach(function (s, i) {
+        var len = s.lesson.replace(/&[a-z#0-9]+;/g, 'x').length;
+        var tsz = n > 1 ? (len > 30 ? 4 : 4.6) : (len > 30 ? 5.6 : len > 18 ? 6.4 : 7.6);
+        var dsz = n > 1 ? 14 : 18;
+        inner += '<div class="pc09-s" style="--ac:' + AC[i] + ';padding:' + f((n > 1 ? 2 : 3.2) * k) + 'cqw ' + f(3 * k) + 'cqw;gap:' + f(3.2 * k) + 'cqw;transform:rotate(' + (i ? 0.8 : -0.8) + 'deg)">'
+          + '<div class="pc09-dt" style="width:' + f(dsz * k) + 'cqw;height:' + f(dsz * k) + 'cqw"><div class="w" style="font-size:' + f(1.55 * k * (n > 1 ? 1 : 1.12)) + 'cqw">' + s.dow.toUpperCase() + '</div><div class="d" style="font-size:' + f((n > 1 ? 5.6 : 7.4) * k) + 'cqw">' + s.day + '</div><div class="w" style="font-size:' + f(1.55 * k * (n > 1 ? 1 : 1.12)) + 'cqw">' + s.mon.toUpperCase() + '</div></div>'
+          + '<div class="pc09-in"><div class="tm" style="font-size:' + f((n > 1 ? 2.1 : 2.5) * k) + 'cqw">' + s.time + '</div><div class="ti" style="font-size:' + f(tsz * k) + 'cqw">' + nb(s.lesson) + '</div>'
+          + (s.desc && !(sq && n > 1) ? '<div class="ds" style="font-size:' + f((n > 1 ? 1.85 : 2.2) * k) + 'cqw">' + s.desc + '</div>' : '') + '</div></div>';
+      });
+      if (pres) inner += '<div class="pc09-pr" style="font-size:' + f(2.2 * k) + 'cqw">Presented by <b>' + pres + '</b></div>';
+      html += box('pc09-mid', M[0], M[1], M[2], M[3], inner);
+    } else {
+      var le = V.col, n2 = S.length, pcol = '', lf = n2 > 1 ? (sq ? 2.2 : 2.6) : (sq ? 3.3 : 4.2);
+      pcol += box('pc09-les', 0, 0, le[2], null,
+        S.map(function (s, i) { return '<div class="ti" style="font-size:' + lf + 'cqw' + (i ? ';margin-top:.35em' : '') + '">' + (n2 > 1 ? '<b>TOPIC ' + (i + 1) + '</b>' : '') + nb(s.lesson) + '</div>' + (n2 === 1 && s.desc ? '<div class="ds" style="font-size:' + (sq ? 1.6 : 2) + 'cqw">' + s.desc + '</div>' : ''); }).join('')
+        + (pres ? '<div class="pp" style="font-size:' + (sq ? 1.6 : 2) + 'cqw">Presented by <b>' + pres + '</b></div>' : ''),
+        'padding:' + (sq ? '1.1cqw 2cqw' : '1.6cqw 3cqw') + ';transform:rotate(-.5deg)');
+      var T = V.tab, rf = sq ? 1.75 : 1.95;
+      pcol += box('pc09-tab', 0, 0, T[2], null,
+        '<div class="h" style="font-size:' + (sq ? 2.1 : 2.6) + 'cqw">Find your local time</div>'
+        + H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' hm' : '') + '" style="height:' + T[3] + 'cqw;font-size:' + rf + 'cqw"><span class="i">' + r.label + '</span><span class="d">' + r.days + '</span><span class="t">' + r.time + '</span></div>'; }).join(''));
+      html += box('pc09-col', le[0], le[1], le[2], le[3], pcol);
+    }
+
+    var F = V.foot, fs = sq ? 0.82 : 1, q = sq ? 9.4 : 11;
+    html += box('pc09-ft', F[0], F[1], F[2], F[3],
+      '<div class="pc09-rg" style="font-size:' + f(2 * fs) + 'cqw"><b style="font-size:' + f(3.4 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc09-qr" style="width:' + q + 'cqw;height:' + q + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="pc09-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>',
+      'padding:0 2.6cqw 0 3.2cqw');
+
+    svg += '<rect width="100" height="' + HH + '" filter="url(#pc09g)" opacity=".16"/>';
+    return '<div class="vfx pc09' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc09-bg" viewBox="0 0 100 ' + HH + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  VEBFlyers.registerSet('PC', 9, { name: 'Sunset café terrace: string lights, hanging café sign, sun sinking into the bay', fonts: 'family=Fraunces:ital,opsz,wght@0,9..144,800;1,9..144,800&family=Quicksand:wght@500;600;700', css: css, fn: fn });
+})();
+
+/* ---- PTC design C month 10 ---- */
+/* Set PC "Island Papercut café" — October: night café with paper pumpkins and swirling leaves.
+   A scalloped orange-and-black paper awning crowns the page; the title card sits under it like the café's name
+   board; the topic is the lit café window (cream card in a plum frame) with pumpkin-shaped date tags; a swirl of
+   cut-paper leaves sweeps behind everything; paper pumpkins sit on the sidewalk either side of the PTC badge. */
+(function () {
+  function f(n) { return Math.round(n * 100) / 100; }
+  function box(c, x, y, w, h, inner, st) {
+    return '<div class="' + c + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (st || '') + '">' + inner + '</div>';
+  }
+  function rng(seed) { var s = seed % 2147483647; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  var SH = ' filter="url(#pc10s)"';
+  var C = { orange: '#f07a2a', plum: '#5b2a5f', lplum: '#8a4a8c', black: '#1a1019', cream: '#fff3e2', gold: '#f8b640', green: '#5f7a2e', ink: '#2a1428' };
+
+  /* ---------- recurring PTC badge: cut-paper cup ---------- */
+  function badge(st) {
+    return '<svg class="pc10-badge" viewBox="0 0 100 100" style="' + st + '"><defs>'
+      + '<filter id="pc10b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#000" flood-opacity=".45"/></filter>'
+      + '<path id="pc10bt" d="M15 50 A35 35 0 0 1 85 50"/><path id="pc10bu" d="M8.5 50 A41.5 41.5 0 0 0 91.5 50"/></defs>'
+      + '<circle cx="50" cy="50" r="48" fill="' + C.orange + '" filter="url(#pc10b)"/>'
+      + '<circle cx="50" cy="50" r="44" fill="none" stroke="' + C.black + '" stroke-width=".9" stroke-dasharray="2 1.6" opacity=".55"/>'
+      + '<text font-family="\'Baloo 2\',sans-serif" font-weight="800" font-size="10" letter-spacing="1" fill="' + C.black + '"><textPath href="#pc10bt" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="\'Baloo 2\',sans-serif" font-weight="800" font-size="10" letter-spacing="3" fill="' + C.black + '"><textPath href="#pc10bu" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + '<circle cx="11" cy="56" r="1.8" fill="' + C.black + '"/><circle cx="89" cy="56" r="1.8" fill="' + C.black + '"/>'
+      + '<circle cx="50" cy="52" r="30" fill="' + C.cream + '" filter="url(#pc10b)"/>'
+      + '<circle cx="50" cy="52" r="25.5" fill="#f3dcef"/>'
+      + '<g filter="url(#pc10b)" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M42 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/><path d="M50 40 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -7"/><path d="M58 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/></g>'
+      + '<ellipse cx="50" cy="69" rx="20" ry="3.6" fill="' + C.black + '" filter="url(#pc10b)"/>'
+      + '<g filter="url(#pc10b)"><path d="M61 51 h3.5 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + C.plum + '" stroke-width="3.2"/>'
+      + '<path d="M35 46 h29 l-2.6 16.5 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + C.plum + '"/></g>'
+      + '<path d="M35.7 51 h27.6 l-.7 4.4 h-26.2 z" fill="' + C.orange + '" filter="url(#pc10b)"/>'
+      + '</svg>';
+  }
+
+  /* ---------- paper scenery ---------- */
+  function awning(h, n) {
+    var w = 100 / n, o = '<g' + SH + '><rect x="-1" y="-1" width="102" height="' + f(h * 0.62 + 1) + '" fill="' + C.black + '"/></g><g' + SH + '>';
+    for (var i = 0; i < n; i++) {
+      var x = i * w, col = i % 2 ? C.cream : C.orange;
+      o += '<path fill="' + col + '" d="M' + f(x) + ' -1 H' + f(x + w) + ' V' + f(h * 0.7) + ' A' + f(w / 2) + ' ' + f(h * 0.3) + ' 0 0 1 ' + f(x) + ' ' + f(h * 0.7) + 'z"/>';
+    }
+    o += '</g><rect x="-1" y="' + f(h * 0.12) + '" width="102" height=".5" fill="' + C.gold + '" opacity=".8"/>';
+    return o;
+  }
+  function leaf(x, y, s, rot, col) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ') scale(' + f(s) + ')"><path' + SH + ' fill="' + col + '" d="M0 -5 L1 -2.4 L3 -3.4 L2.4 -.8 L4.8 -.6 L3 1 L3.8 2.6 L1.2 2 L.4 4 L-.4 4 L-1.2 2 L-3.8 2.6 L-3 1 L-4.8 -.6 L-2.4 -.8 L-3 -3.4 L-1 -2.4z"/><path d="M0 4 V6.4 M0 3 L0 -3" stroke="#3a1a2a" stroke-width=".3" opacity=".55"/></g>';
+  }
+  function oval(x, y, s, rot, col) {
+    return '<g transform="translate(' + f(x) + ' ' + f(y) + ') rotate(' + f(rot) + ') scale(' + f(s) + ')"><path' + SH + ' fill="' + col + '" d="M0 -5 C3 -3 3 3 0 5 C-3 3 -3 -3 0 -5z"/><path d="M0 -4.4 V5.6" stroke="#3a1a2a" stroke-width=".3" opacity=".5"/></g>';
+  }
+  function swirl(HH, seed, n) {
+    var R = rng(seed), o = '', cols = [C.orange, C.gold, '#d2562a', C.lplum, '#e89a3a', '#b8452a'];
+    // ribbon path of the wind
+    var d = '';
+    for (var i = 0; i <= 40; i++) {
+      var t = i / 40, x = -4 + t * 108, y = HH * (0.92 - 0.82 * t) + Math.sin(t * Math.PI * 2.2) * HH * 0.1;
+      d += (i ? ' L' : 'M') + f(x) + ' ' + f(y);
+    }
+    o += '<path d="' + d + '" fill="none" stroke="#8a4a8c" stroke-width="2.6" opacity=".22" stroke-linecap="round"/>';
+    o += '<path d="' + d + '" fill="none" stroke="#f8b640" stroke-width=".25" stroke-dasharray="1.4 1.2" opacity=".5"/>';
+    for (var j = 0; j < n; j++) {
+      var t2 = (j + R() * 0.6) / n, x2 = -4 + t2 * 108, y2 = HH * (0.92 - 0.82 * t2) + Math.sin(t2 * Math.PI * 2.2) * HH * 0.1 + (R() - 0.5) * 9;
+      var s = 0.7 + R() * 0.6, col = cols[Math.floor(R() * cols.length)];
+      o += (j % 3 === 1 ? oval : leaf)(x2 + (R() - 0.5) * 5, y2, s, R() * 360, col);
+    }
+    return o;
+  }
+  function pumpkin(cx, by, w, h, col, dark) {
+    var o = '<g' + SH + '>', rx = w / 2, ry = h / 2, cy = by - ry;
+    o += '<ellipse cx="' + f(cx - rx * 0.42) + '" cy="' + f(cy) + '" rx="' + f(rx * 0.58) + '" ry="' + f(ry) + '" fill="' + dark + '"/>';
+    o += '<ellipse cx="' + f(cx + rx * 0.42) + '" cy="' + f(cy) + '" rx="' + f(rx * 0.58) + '" ry="' + f(ry) + '" fill="' + dark + '"/>';
+    o += '<ellipse cx="' + f(cx) + '" cy="' + f(cy) + '" rx="' + f(rx * 0.55) + '" ry="' + f(ry * 1.02) + '" fill="' + col + '"/>';
+    o += '</g><path' + SH + ' fill="' + C.green + '" d="M' + f(cx - 0.6) + ' ' + f(cy - ry + 0.6) + ' q-.2 ' + f(-h * 0.22) + ' 1.4 ' + f(-h * 0.3) + ' l.5 .7 q-1 .5 -.7 ' + f(h * 0.24) + 'z"/>';
+    o += '<path' + SH + ' fill="#7f9a3a" d="M' + f(cx + 0.4) + ' ' + f(cy - ry + 0.2) + ' q' + f(w * 0.12) + ' ' + f(-h * 0.2) + ' ' + f(w * 0.28) + ' ' + f(-h * 0.08) + ' q' + f(-w * 0.12) + ' ' + f(h * 0.1) + ' ' + f(-w * 0.28) + ' ' + f(h * 0.08) + 'z"/>';
+    return o;
+  }
+  function patch(side, by, k) {
+    var o = '';
+    if (side < 0) {
+      o += pumpkin(9 * k, by - 7.5 * k, 11 * k, 7.5 * k, '#f59a3c', '#d9682a');
+      o += pumpkin(6 * k, by, 15 * k, 10 * k, C.orange, '#c95320');
+      o += pumpkin(17.5 * k, by + 0.4, 9 * k, 6 * k, '#efe2c4', '#d8c39a');
+    } else {
+      o += pumpkin(100 - 7 * k, by, 14 * k, 9.5 * k, C.orange, '#c95320');
+      o += pumpkin(100 - 17 * k, by + 0.4, 8 * k, 5.6 * k, '#f8b640', '#d98f22');
+    }
+    return o;
+  }
+  function stars(HH, seed, n, y0, y1) {
+    var R = rng(seed), o = '';
+    for (var i = 0; i < n; i++) o += '<circle cx="' + f(R() * 100) + '" cy="' + f(y0 + R() * (y1 - y0)) + '" r="' + f(0.15 + R() * 0.25) + '" fill="#ffe7b8" opacity="' + f(0.4 + R() * 0.5) + '"/>';
+    return o;
+  }
+  function moon(cx, cy, r) {
+    return '<g' + SH + '><circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r) + '" fill="#ffe2a6"/><circle cx="' + f(cx + r * 0.45) + '" cy="' + f(cy - r * 0.2) + '" r="' + f(r * 0.85) + '" fill="#2a1630"/></g>';
+  }
+
+  /* ---------- layouts (cqw) ---------- */
+  var L = {
+    lh: { H: 129.41, aw: 11, logo: [6, 15, 17, 17], head: [26, 14.5, 68, 19.5], where: [26, 36, 68], badge: [39.5, 84, 21, -4],
+          mid: [7, 41.5, 86, 39.5], foot: [5, 105, 90, 21.5], ground: 101, patches: 1, moon: [93, 37.5, 2.2] },
+    lp: { H: 129.41, aw: 11, logo: [6, 15, 20, 13], head: [29, 14.5, 46, 19.5], where: [8, 36.5, 84], badge: [77, 13, 20, -6],
+          col: [7, 41, 86, 59], tab: [0, 0, 82, 4.15], foot: [5, 105, 90, 21.5], ground: 101, patches: 0.85, moon: null },
+    sh: { H: 100, aw: 8.5, logo: [4, 12, 14, 14], head: [20, 11.5, 56, 19], where: null, badge: [78.5, 10, 18, -6],
+          mid: [6, 32.5, 88, 40], foot: [4, 79.5, 92, 17.5], ground: 79, patches: 0.75, moon: null },
+    sp: { H: 100, aw: 8, logo: [4, 11, 16, 11], head: [22, 10, 54, 18], where: null, badge: [79, 9.5, 17, -6],
+          col: [5, 29.5, 90, 48], tab: [0, 0, 86, 4.1], foot: [4, 80, 92, 17], ground: 80, patches: 0, moon: null }
+  };
+
+  var sh = '0 .4cqw .7cqw rgba(0,0,0,.4)';
+  var css = [
+    '.pc10{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(20,8,20,.45);background:radial-gradient(ellipse at 50% 45%,#3d1d40 0%,#2a1530 50%,#1a1019 100%);font-family:Nunito,Quicksand,sans-serif;color:' + C.ink + '}',
+    '.pc10.sq{aspect-ratio:1/1}',
+    '.pc10 *{box-sizing:border-box}',
+    '.pc10>svg.pc10-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc10 .pc10-badge{position:absolute;z-index:4;pointer-events:none;overflow:visible}',
+    '.pc10 .pc10-logo,.pc10 .pc10-hd,.pc10 .pc10-wh,.pc10 .pc10-mid,.pc10 .pc10-col,.pc10 .pc10-ft{position:absolute;z-index:3}',
+    '.pc10 .pc10-logo{background:' + C.cream + ';border-radius:1.4cqw;display:grid;place-items:center;box-shadow:' + sh + ',.7cqw .8cqw 0 -.1cqw ' + C.orange + ',.7cqw 1cqw .9cqw rgba(0,0,0,.3)}',
+    '.pc10 .pc10-logo img{width:82%;height:auto;display:block}',
+    '.pc10 .pc10-hd{background:' + C.cream + ';border-radius:1.6cqw;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.plum + ',.8cqw 1.1cqw 1cqw rgba(0,0,0,.3)}',
+    '.pc10 .pc10-k{font-weight:800;letter-spacing:.16em;color:' + C.plum + ';white-space:nowrap;line-height:1.2;position:relative;z-index:1}',
+    '.pc10 .pc10-t{font-family:"Baloo 2",sans-serif;font-weight:800;color:' + C.black + ';line-height:1.12;white-space:nowrap;margin:.04em 0 0}',
+    '.pc10 .pc10-t span{color:' + C.orange + '}',
+    '.pc10 .pc10-m{font-weight:800;letter-spacing:.18em;color:' + C.ink + ';white-space:nowrap;line-height:1}',
+    '.pc10 .pc10-m b{color:' + C.orange + '}.pc10 .pc10-m i{font-style:normal;color:' + C.lplum + '}',
+    '.pc10 .pc10-wsq{font-weight:700;color:#6a4a6a;white-space:nowrap;line-height:1;margin-top:.55em}',
+    '.pc10 .pc10-wh{background:' + C.orange + ';color:' + C.black + ';border-radius:5cqw;text-align:center;font-weight:800;white-space:nowrap;line-height:1;padding:.55em 0;box-shadow:' + sh + '}',
+    '.pc10 .pc10-wh b{color:#fff}',
+    /* the lit café window */
+    '.pc10 .pc10-mid{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2cqw}',
+    '.pc10 .pc10-win{width:100%;background:' + C.plum + ';border-radius:2.4cqw;padding:1.3cqw;box-shadow:' + sh + ',.9cqw 1cqw 0 -.1cqw ' + C.black + ',.9cqw 1.2cqw 1cqw rgba(0,0,0,.3)}',
+    '.pc10 .pc10-pane{background:radial-gradient(ellipse at 50% 30%,#fffaf0 0%,' + C.cream + ' 60%,#fde4c2 100%);border-radius:1.4cqw;display:flex;flex-direction:column;box-shadow:inset 0 0 0 .3cqw ' + C.gold + '}',
+    '.pc10 .pc10-s{display:flex;align-items:center}',
+    '.pc10 .pc10-s+.pc10-s{border-top:.3cqw dashed #e8b98a}',
+    '.pc10 .pc10-dt{flex:none;position:relative;border-radius:46%/50%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(90deg,#d65e1c 0 16%,#ee7a2c 16% 36%,#f7923f 36% 64%,#ee7a2c 64% 84%,#d65e1c 84%);color:' + C.black + ';line-height:1;box-shadow:0 .4cqw .6cqw rgba(0,0,0,.3)}',
+    '.pc10 .pc10-dt:before{content:"";position:absolute;top:-1.1cqw;left:46%;width:1.3cqw;height:1.8cqw;border-radius:.5cqw .5cqw .2cqw .2cqw;background:' + C.green + ';transform:rotate(12deg)}',
+    '.pc10 .pc10-dt .w{font-weight:800;letter-spacing:.14em;line-height:1.35;position:relative;z-index:1}',
+    '.pc10 .pc10-dt .d{font-family:"Baloo 2",sans-serif;font-weight:800;line-height:.95;margin:0;color:#fff;text-shadow:0 .25cqw 0 rgba(90,30,0,.35)}',
+    '.pc10 .pc10-in{flex:1;min-width:0}',
+    '.pc10 .pc10-in .tm{font-weight:800;color:' + C.lplum + ';letter-spacing:.05em;line-height:1.25;position:relative;z-index:1}',
+    '.pc10 .pc10-in .ti{font-family:"Baloo 2",sans-serif;font-weight:800;color:' + C.black + ';line-height:1.06;margin-top:.04em}',
+    '.pc10 .pc10-in .ds{font-weight:700;color:#7a4a32;line-height:1.2;margin-top:.3em}',
+    '.pc10 .pc10-pr{background:' + C.cream + ';color:' + C.ink + ';border-radius:5cqw;font-weight:700;line-height:1;padding:.6em 1.3em;white-space:nowrap;box-shadow:' + sh + ',.5cqw .6cqw 0 0 ' + C.orange + '}',
+    '.pc10 .pc10-pr b{color:' + C.plum + ';font-weight:800}',
+    /* partner */
+    '.pc10 .pc10-col{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2.4cqw}',
+    '.pc10 .pc10-les,.pc10 .pc10-tab{position:relative;left:auto!important;top:auto!important}',
+    '.pc10 .pc10-les{background:' + C.plum + ';border-radius:2cqw;padding:1.1cqw;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.black + '}',
+    '.pc10 .pc10-les .pane{background:' + C.cream + ';border-radius:1.2cqw;text-align:center;box-shadow:inset 0 0 0 .3cqw ' + C.gold + '}',
+    '.pc10 .pc10-les .ti{font-family:"Baloo 2",sans-serif;font-weight:800;color:' + C.black + ';line-height:1.05}',
+    '.pc10 .pc10-les .ti b{display:inline-block;font-family:Nunito,sans-serif;background:' + C.orange + ';color:' + C.black + ';border-radius:3cqw;padding:.15em .6em;margin-right:.5em;font-size:.55em;letter-spacing:.12em;vertical-align:.25em}',
+    '.pc10 .pc10-les .ds{font-weight:700;color:#7a4a32;line-height:1.2;margin-top:.3em}',
+    '.pc10 .pc10-les .pp{font-weight:700;color:' + C.ink + ';line-height:1.2;margin-top:.4em}.pc10 .pc10-les .pp b{color:' + C.plum + '}',
+    '.pc10 .pc10-tab{background:' + C.cream + ';border-radius:1.8cqw;padding:1cqw 1.6cqw 1.2cqw;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.orange + ',.8cqw 1.1cqw 1cqw rgba(0,0,0,.3)}',
+    '.pc10 .pc10-tab .h{text-align:center;font-family:"Baloo 2",sans-serif;font-weight:800;color:' + C.plum + ';line-height:1.2;padding-bottom:.15em}',
+    '.pc10 .pc10-tab .r{display:flex;align-items:center;border-top:.18cqw dotted #d9a77a;padding:0 1.2cqw}',
+    '.pc10 .pc10-tab .r.hm{background:' + C.plum + ';color:#fff;border-radius:1cqw;border-top-color:transparent}',
+    '.pc10 .pc10-tab .r.hm+.r{border-top-color:transparent}',
+    '.pc10 .pc10-tab .r .i{flex:1.25;font-weight:800;white-space:nowrap}',
+    '.pc10 .pc10-tab .r .d{flex:1.2;font-weight:700;white-space:nowrap;color:#7a4a32}',
+    '.pc10 .pc10-tab .r.hm .d{color:#f6e2f5}',
+    '.pc10 .pc10-tab .r .t{flex:.8;text-align:right;font-family:"Baloo 2",sans-serif;font-weight:800;white-space:nowrap;color:#c4521c}',
+    '.pc10 .pc10-tab .r.hm .t{color:' + C.gold + '}',
+    /* footer */
+    '.pc10 .pc10-ft{display:flex;align-items:center;gap:2.2cqw;background:' + C.cream + ';border-radius:1.8cqw;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.orange + ',.8cqw 1.1cqw 1cqw rgba(0,0,0,.3)}',
+    '.pc10 .pc10-rg{flex:1;font-weight:700;line-height:1.3;color:' + C.ink + '}',
+    '.pc10 .pc10-rg b{display:block;font-family:"Baloo 2",sans-serif;font-weight:800;line-height:1.1;color:' + C.black + ';margin-bottom:.1em}',
+    '.pc10 .pc10-rg b i{font-style:normal;color:' + C.orange + '}',
+    '.pc10 .pc10-qr{flex:none;background:#fff;border-radius:.8cqw;padding:.5cqw;display:grid;place-items:center;font-weight:800;color:' + C.ink + ';box-shadow:inset 0 0 0 .25cqw #e8b98a}',
+    '.pc10 .pc10-qr img{width:100%;height:100%;display:block}',
+    '.pc10 .pc10-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc10 .pc10-bd span{background:' + C.plum + ';color:#fff;border-radius:5cqw;font-weight:800;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H;
+    var svg = '<defs><filter id="pc10s" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".35" flood-color="#000" flood-opacity=".45"/></filter>'
+      + '<filter id="pc10g"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="10"/><feColorMatrix values="0 0 0 0 .2 0 0 0 0 .1 0 0 0 0 .2 0 0 0 .55 0"/></filter></defs>';
+    var html = '';
+    svg += stars(HH, 31, sq ? 40 : 60, V.aw, HH * 0.8);
+    if (V.moon) svg += moon(V.moon[0], V.moon[1], V.moon[2]);
+    svg += swirl(HH, 1010, sq ? 28 : 40);
+    // sidewalk
+    svg += '<path' + SH + ' fill="#120a12" d="M-1 ' + f(V.ground) + ' L101 ' + f(V.ground) + ' L101 ' + f(HH + 1) + ' L-1 ' + f(HH + 1) + 'z"/>'
+      + '<rect x="-1" y="' + f(V.ground) + '" width="102" height=".6" fill="' + C.lplum + '" opacity=".6"/>';
+    if (V.patches) { svg += patch(-1, V.ground + 0.5, V.patches) + patch(1, V.ground + 0.5, V.patches); }
+    svg += awning(V.aw, sq ? 9 : 9);
+
+    var lg = V.logo;
+    html += box('pc10-logo', lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'transform:rotate(-2deg)');
+    var bg = V.badge;
+    html += badge('left:' + bg[0] + 'cqw;top:' + bg[1] + 'cqw;width:' + bg[2] + 'cqw;height:' + bg[2] + 'cqw;transform:rotate(' + bg[3] + 'deg)');
+
+    var hd = V.head, wide = hd[2] > 60;
+    var tf = sq ? 6 : (wide ? 7.6 : 5.6), kf = sq ? 1.3 : 1.45, mf = sq ? 1.8 : 2.1;
+    html += box('pc10-hd', hd[0], hd[1], hd[2], hd[3],
+      '<div class="pc10-k" style="font-size:' + kf + 'cqw">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc10-t" style="font-size:' + tf + 'cqw">' + H.seriesTitle(spec.series) + '</div>'
+      + '<div class="pc10-m" style="font-size:' + mf + 'cqw"><b>' + mon.toUpperCase() + '</b> ' + spec.year + ' &middot; <i>ON ZOOM</i></div>'
+      + (V.where ? '' : '<div class="pc10-wsq" style="font-size:1.45cqw">' + H.PTC_WHERE + '</div>'));
+    if (V.where) html += box('pc10-wh', V.where[0], V.where[1], V.where[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:1.75cqw');
+
+    var pres = spec.presenter ? H.esc(spec.presenter) : '';
+    function nb(t) { return t.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); }
+    if (!partner) {
+      var M = V.mid, n = S.length, k = sq ? 0.8 : 1, inner = '';
+      S.forEach(function (s, i) {
+        var len = s.lesson.replace(/&[a-z#0-9]+;/g, 'x').length;
+        var tsz = n > 1 ? (len > 30 ? 4.3 : 4.9) : (len > 30 ? 6.2 : len > 18 ? 7 : 8.2);
+        var dw = n > 1 ? 15 : 19, dh = n > 1 ? 13 : 16.5;
+        inner += '<div class="pc10-s" style="padding:' + f((n > 1 ? 2.4 : 3.6) * k) + 'cqw ' + f(3 * k) + 'cqw;gap:' + f(3.2 * k) + 'cqw">'
+          + '<div class="pc10-dt" style="width:' + f(dw * k) + 'cqw;height:' + f(dh * k) + 'cqw"><div class="w" style="font-size:' + f(1.6 * k) + 'cqw">' + s.dow.toUpperCase() + '</div><div class="d" style="font-size:' + f((n > 1 ? 5.4 : 7) * k) + 'cqw">' + s.day + '</div><div class="w" style="font-size:' + f(1.6 * k) + 'cqw">' + s.mon.toUpperCase() + '</div></div>'
+          + '<div class="pc10-in"><div class="tm" style="font-size:' + f((n > 1 ? 2.1 : 2.5) * k) + 'cqw">' + s.time + '</div><div class="ti" style="font-size:' + f(tsz * k) + 'cqw">' + nb(s.lesson) + '</div>'
+          + (s.desc && !(sq && n > 1) ? '<div class="ds" style="font-size:' + f((n > 1 ? 1.85 : 2.2) * k) + 'cqw">' + s.desc + '</div>' : '') + '</div></div>';
+      });
+      var body = '<div class="pc10-win"><div class="pc10-pane">' + inner + '</div></div>';
+      if (pres) body += '<div class="pc10-pr" style="font-size:' + f(2.2 * k) + 'cqw">Presented by <b>' + pres + '</b></div>';
+      html += box('pc10-mid', M[0], M[1], M[2], M[3], body);
+    } else {
+      var le = V.col, n2 = S.length, lf = n2 > 1 ? (sq ? 2.3 : 2.8) : (sq ? 3.4 : 4.5), pcol = '';
+      pcol += box('pc10-les', 0, 0, le[2], null, '<div class="pane" style="padding:' + (sq ? '1cqw 2cqw' : '1.6cqw 3cqw') + '">'
+        + S.map(function (s, i) { return '<div class="ti" style="font-size:' + lf + 'cqw' + (i ? ';margin-top:.3em' : '') + '">' + (n2 > 1 ? '<b>TOPIC ' + (i + 1) + '</b>' : '') + nb(s.lesson) + '</div>' + (n2 === 1 && s.desc ? '<div class="ds" style="font-size:' + (sq ? 1.6 : 2) + 'cqw">' + s.desc + '</div>' : ''); }).join('')
+        + (pres ? '<div class="pp" style="font-size:' + (sq ? 1.6 : 2) + 'cqw">Presented by <b>' + pres + '</b></div>' : '') + '</div>');
+      var T = V.tab, rf = sq ? 1.75 : 1.95;
+      pcol += box('pc10-tab', 0, 0, T[2], null,
+        '<div class="h" style="font-size:' + (sq ? 2.1 : 2.6) + 'cqw">Find your local time</div>'
+        + H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' hm' : '') + '" style="height:' + T[3] + 'cqw;font-size:' + rf + 'cqw"><span class="i">' + r.label + '</span><span class="d">' + r.days + '</span><span class="t">' + r.time + '</span></div>'; }).join(''));
+      html += box('pc10-col', le[0], le[1], le[2], le[3], pcol);
+    }
+
+    var F = V.foot, fs = sq ? 0.82 : 1, q = sq ? 9.4 : 11;
+    html += box('pc10-ft', F[0], F[1], F[2], F[3],
+      '<div class="pc10-rg" style="font-size:' + f(2 * fs) + 'cqw"><b style="font-size:' + f(3.6 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc10-qr" style="width:' + q + 'cqw;height:' + q + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="pc10-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>',
+      'padding:0 2.6cqw 0 3.2cqw');
+
+    svg += '<rect width="100" height="' + HH + '" filter="url(#pc10g)" opacity=".14"/>';
+    return '<div class="vfx pc10' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc10-bg" viewBox="0 0 100 ' + HH + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  VEBFlyers.registerSet('PC', 10, { name: 'Night café: striped paper awning, lit café window, swirling leaves and paper pumpkins', fonts: 'family=Baloo+2:wght@600;700;800&family=Nunito:wght@600;700;800', css: css, fn: fn });
+})();
+
+/* ---- PTC design C month 11 ---- */
+/* Set PC "Island Papercut café" — November: cozy kitchen windowsill with pie and cocoa.
+   Asymmetric: badge, logo and a handwritten title card stack down the left of a sage-striped kitchen wall; a
+   four-pane paper window on the right looks out on rust and sage hills at dusk, sage curtains tied back; a pie
+   and two cocoa mugs sit on the wooden sill that runs across the page; the topic sits on a rust gingham
+   placemat; the footer card rests on the rust kitchen table. */
+(function () {
+  function f(n) { return Math.round(n * 100) / 100; }
+  function box(c, x, y, w, h, inner, st) {
+    return '<div class="' + c + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (st || '') + '">' + inner + '</div>';
+  }
+  function rng(seed) { var s = seed % 2147483647; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  var SH = ' filter="url(#pc11s)"';
+  var C = { rust: '#b4532f', drust: '#8a3a1f', cream: '#fff8ec', sage: '#8fa67f', dsage: '#5f7a58', gold: '#e8a944', brown: '#6b3f22', ink: '#3b2418' };
+
+  /* ---------- recurring PTC badge: cut-paper cup ---------- */
+  function badge(st) {
+    return '<svg class="pc11-badge" viewBox="0 0 100 100" style="' + st + '"><defs>'
+      + '<filter id="pc11b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#3b1a0a" flood-opacity=".4"/></filter>'
+      + '<path id="pc11bt" d="M15 50 A35 35 0 0 1 85 50"/><path id="pc11bu" d="M8.5 50 A41.5 41.5 0 0 0 91.5 50"/></defs>'
+      + '<circle cx="50" cy="50" r="48" fill="' + C.rust + '" filter="url(#pc11b)"/>'
+      + '<circle cx="50" cy="50" r="44" fill="none" stroke="' + C.cream + '" stroke-width=".9" stroke-dasharray="2 1.6" opacity=".8"/>'
+      + '<text font-family="Lora,Georgia,serif" font-weight="700" font-size="9.4" letter-spacing="1.2" fill="' + C.cream + '"><textPath href="#pc11bt" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="Lora,Georgia,serif" font-weight="700" font-size="9.4" letter-spacing="3" fill="#ffe0a8"><textPath href="#pc11bu" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + '<circle cx="11" cy="56" r="1.8" fill="#ffe0a8"/><circle cx="89" cy="56" r="1.8" fill="#ffe0a8"/>'
+      + '<circle cx="50" cy="52" r="30" fill="' + C.cream + '" filter="url(#pc11b)"/>'
+      + '<circle cx="50" cy="52" r="25.5" fill="#e3ead8"/>'
+      + '<g filter="url(#pc11b)" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M42 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/><path d="M50 40 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -7"/><path d="M58 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/></g>'
+      + '<ellipse cx="50" cy="69" rx="20" ry="3.6" fill="' + C.dsage + '" filter="url(#pc11b)"/>'
+      + '<g filter="url(#pc11b)"><path d="M61 51 h3.5 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + C.rust + '" stroke-width="3.2"/>'
+      + '<path d="M35 46 h29 l-2.6 16.5 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + C.rust + '"/></g>'
+      + '<path d="M35.7 51 h27.6 l-.7 4.4 h-26.2 z" fill="' + C.cream + '" filter="url(#pc11b)"/>'
+      + '</svg>';
+  }
+
+  /* ---------- paper kitchen pieces ---------- */
+  function wallStripes(HH) {
+    var o = '';
+    for (var x = 2; x < 100; x += 8) o += '<rect x="' + x + '" y="0" width="3.2" height="' + f(HH) + '" fill="#e2e8d3" opacity=".75"/>';
+    return o;
+  }
+  function windowView(x, y, w, h, seed) {
+    var R = rng(seed), o = '<defs><clipPath id="pc11w' + seed + '"><rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '"/></clipPath>'
+      + '<linearGradient id="pc11sky' + seed + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6c98a"/><stop offset=".6" stop-color="#f0a067"/><stop offset="1" stop-color="#e98a54"/></linearGradient></defs>';
+    o += '<g clip-path="url(#pc11w' + seed + ')"><rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(w) + '" height="' + f(h) + '" fill="url(#pc11sky' + seed + ')"/>';
+    o += '<g' + SH + '><circle cx="' + f(x + w * 0.68) + '" cy="' + f(y + h * 0.58) + '" r="' + f(w * 0.12) + '" fill="#ffe2a0"/><circle cx="' + f(x + w * 0.68) + '" cy="' + f(y + h * 0.58) + '" r="' + f(w * 0.085) + '" fill="#ffd27a"/></g>';
+    var cols = ['#c27a4a', '#9bb08a', '#7d9671', '#5f7a58'];
+    for (var k = 0; k < 4; k++) {
+      var top = y + h * (0.58 + k * 0.1), d = 'M' + f(x - 1) + ' ' + f(y + h + 1) + ' L' + f(x - 1) + ' ' + f(top), ph = R() * 6;
+      for (var i = 0; i <= 10; i++) { var px = x + w * i / 10; d += ' L' + f(px) + ' ' + f(top - Math.sin(i / 10 * Math.PI * (1.2 + k * 0.3) + ph) * h * 0.06); }
+      o += '<path' + SH + ' fill="' + cols[k] + '" d="' + d + ' L' + f(x + w + 1) + ' ' + f(y + h + 1) + 'z"/>';
+      if (k === 1 || k === 2) for (var t = 0; t < 3; t++) {
+        var tx = x + w * (0.12 + R() * 0.76), ty = top - h * 0.02, th = h * (0.1 + R() * 0.06), tc = [C.rust, C.gold, '#d9763f'][Math.floor(R() * 3)];
+        o += '<g' + SH + '><rect x="' + f(tx - 0.25) + '" y="' + f(ty - th * 0.4) + '" width=".5" height="' + f(th * 0.5) + '" fill="#5a3a22"/><ellipse cx="' + f(tx) + '" cy="' + f(ty - th * 0.6) + '" rx="' + f(th * 0.38) + '" ry="' + f(th * 0.5) + '" fill="' + tc + '"/></g>';
+      }
+    }
+    // birds
+    o += '<path d="M' + f(x + w * 0.2) + ' ' + f(y + h * 0.22) + ' q1 -.8 2 0 q1 -.8 2 0 M' + f(x + w * 0.34) + ' ' + f(y + h * 0.14) + ' q.8 -.6 1.6 0 q.8 -.6 1.6 0" fill="none" stroke="#7a4128" stroke-width=".3"/>';
+    o += '</g>';
+    // frame + mullions
+    var fr = 1.6;
+    o += '<g' + SH + '><path fill="' + C.cream + '" fill-rule="evenodd" d="M' + f(x - fr) + ' ' + f(y - fr) + ' h' + f(w + fr * 2) + ' v' + f(h + fr * 2) + ' h' + f(-w - fr * 2) + 'z M' + f(x) + ' ' + f(y) + ' v' + f(h) + ' h' + f(w) + ' v' + f(-h) + 'z"/>'
+      + '<rect x="' + f(x + w / 2 - 0.5) + '" y="' + f(y) + '" width="1" height="' + f(h) + '" fill="' + C.cream + '"/><rect x="' + f(x) + '" y="' + f(y + h / 2 - 0.5) + '" width="' + f(w) + '" height="1" fill="' + C.cream + '"/></g>';
+    return o;
+  }
+  function curtain(x, y, h, side) {
+    // gathered sage curtain tied back with a rust band; side -1 = left edge of window
+    var w = 6, s = side, tie = y + h * 0.55;
+    var d = 'M' + f(x) + ' ' + f(y - 2) + ' h' + f(s * w) + ' Q' + f(x + s * w * 0.6) + ' ' + f(tie - 4) + ' ' + f(x + s * 1.4) + ' ' + f(tie) + ' Q' + f(x + s * w * 0.9) + ' ' + f(tie + 6) + ' ' + f(x + s * w * 1.1) + ' ' + f(y + h + 2) + ' h' + f(-s * w * 1.1) + 'z';
+    var o = '<g' + SH + '><path fill="' + C.sage + '" d="' + d + '"/></g>';
+    o += '<path d="M' + f(x + s * 1.5) + ' ' + f(y - 1) + ' Q' + f(x + s * 3) + ' ' + f(tie - 6) + ' ' + f(x + s * 1.6) + ' ' + f(tie - 1) + ' M' + f(x + s * 3.5) + ' ' + f(y - 1) + ' Q' + f(x + s * 4.5) + ' ' + f(tie - 6) + ' ' + f(x + s * 2) + ' ' + f(tie - 1) + '" fill="none" stroke="' + C.dsage + '" stroke-width=".3" opacity=".7"/>';
+    o += '<rect' + SH + ' x="' + f(x + (s < 0 ? -2.2 : 0.4)) + '" y="' + f(tie - 0.8) + '" width="1.8" height="1.6" rx=".5" fill="' + C.rust + '"/>';
+    // rod
+    return o;
+  }
+  function rod(x1, x2, y) {
+    return '<g' + SH + '><rect x="' + f(x1) + '" y="' + f(y - 0.4) + '" width="' + f(x2 - x1) + '" height=".8" rx=".4" fill="' + C.brown + '"/><circle cx="' + f(x1) + '" cy="' + f(y) + '" r="1" fill="' + C.gold + '"/><circle cx="' + f(x2) + '" cy="' + f(y) + '" r="1" fill="' + C.gold + '"/></g>';
+  }
+  function sill(y, x1, x2) {
+    return '<g' + SH + '><rect x="' + f(x1) + '" y="' + f(y) + '" width="' + f(x2 - x1) + '" height="2" rx=".4" fill="#c98a55"/><rect x="' + f(x1 + 1) + '" y="' + f(y + 2) + '" width="' + f(x2 - x1 - 2) + '" height="1.2" fill="#a86a3c"/></g>';
+  }
+  function pie(cx, by, w) {
+    var h = w * 0.36, o = '<g' + SH + '>';
+    o += '<path fill="' + C.rust + '" d="M' + f(cx - w / 2) + ' ' + f(by - h * 0.55) + ' h' + f(w) + ' l' + f(-w * 0.08) + ' ' + f(h * 0.55) + ' h' + f(-w * 0.84) + 'z"/>';
+    o += '</g><g' + SH + '><path fill="#e9b25e" d="M' + f(cx - w / 2 - 0.3) + ' ' + f(by - h * 0.55) + ' q' + f(w / 2 + 0.3) + ' ' + f(-h * 0.75) + ' ' + f(w + 0.6) + ' 0 z"/></g>';
+    for (var i = 1; i < 5; i++) o += '<path d="M' + f(cx - w / 2 + w * i / 5) + ' ' + f(by - h * 0.58) + ' l' + f(w * 0.05) + ' ' + f(-h * 0.42) + '" stroke="#c98a3e" stroke-width=".45" stroke-linecap="round"/>';
+    o += '<path d="M' + f(cx - w * 0.38) + ' ' + f(by - h * 0.78) + ' q' + f(w * 0.38) + ' ' + f(-h * 0.25) + ' ' + f(w * 0.76) + ' 0" stroke="#c98a3e" stroke-width=".45" fill="none"/>';
+    o += '<path d="M' + f(cx - w / 2 + 0.6) + ' ' + f(by - h * 0.3) + ' h' + f(w - 1.2) + '" stroke="#f0c59a" stroke-width=".35" stroke-dasharray=".8 .6"/>';
+    return o;
+  }
+  function mug(cx, by, w, col, band) {
+    var h = w * 1.05, o = '<g' + SH + '>';
+    o += '<path d="M' + f(cx + w / 2 - 0.2) + ' ' + f(by - h * 0.75) + ' h' + f(w * 0.12) + ' a' + f(w * 0.22) + ' ' + f(w * 0.22) + ' 0 0 1 0 ' + f(w * 0.44) + ' h' + f(-w * 0.14) + '" fill="none" stroke="' + col + '" stroke-width="' + f(w * 0.12) + '"/>';
+    o += '<path fill="' + col + '" d="M' + f(cx - w / 2) + ' ' + f(by - h) + ' h' + f(w) + ' v' + f(h * 0.82) + ' q0 ' + f(h * 0.18) + ' ' + f(-w * 0.18) + ' ' + f(h * 0.18) + ' h' + f(-w * 0.64) + ' q' + f(-w * 0.18) + ' 0 ' + f(-w * 0.18) + ' ' + f(-h * 0.18) + 'z"/></g>';
+    o += '<rect x="' + f(cx - w / 2) + '" y="' + f(by - h * 0.62) + '" width="' + f(w) + '" height="' + f(h * 0.14) + '" fill="' + band + '"/>';
+    o += '<ellipse cx="' + f(cx) + '" cy="' + f(by - h) + '" rx="' + f(w / 2) + '" ry="' + f(w * 0.12) + '" fill="#7a4a2a"/>';
+    o += '<g' + SH + ' fill="#fffaf2"><rect x="' + f(cx - w * 0.28) + '" y="' + f(by - h - w * 0.16) + '" width="' + f(w * 0.2) + '" height="' + f(w * 0.17) + '" rx=".2"/><rect x="' + f(cx + w * 0.02) + '" y="' + f(by - h - w * 0.2) + '" width="' + f(w * 0.2) + '" height="' + f(w * 0.17) + '" rx=".2" transform="rotate(14 ' + f(cx + w * 0.12) + ' ' + f(by - h) + ')"/></g>';
+    o += '<g fill="none" stroke="#fffaf2" stroke-width="' + f(w * 0.09) + '" stroke-linecap="round" opacity=".9"' + SH + '><path d="M' + f(cx - w * 0.18) + ' ' + f(by - h - w * 0.35) + ' c' + f(-w * 0.2) + ' ' + f(-w * 0.3) + ' ' + f(w * 0.2) + ' ' + f(-w * 0.45) + ' 0 ' + f(-w * 0.8) + '"/><path d="M' + f(cx + w * 0.18) + ' ' + f(by - h - w * 0.4) + ' c' + f(-w * 0.2) + ' ' + f(-w * 0.3) + ' ' + f(w * 0.2) + ' ' + f(-w * 0.45) + ' 0 ' + f(-w * 0.75) + '"/></g>';
+    return o;
+  }
+  function plant(cx, by, s) {
+    var o = '<g' + SH + '>';
+    [[-60, 5], [-25, 6.4], [10, 6], [45, 5.2], [-90, 4]].forEach(function (p) {
+      var a = (p[0] - 90) * Math.PI / 180, l = p[1] * s, tx = cx + Math.cos(a) * l, ty = by - 3 * s + Math.sin(a) * l;
+      o += '<path fill="' + C.dsage + '" d="M' + f(cx) + ' ' + f(by - 3 * s) + ' Q' + f((cx + tx) / 2 - 1.2 * s) + ' ' + f((by - 3 * s + ty) / 2) + ' ' + f(tx) + ' ' + f(ty) + ' Q' + f((cx + tx) / 2 + 1.2 * s) + ' ' + f((by - 3 * s + ty) / 2) + ' ' + f(cx) + ' ' + f(by - 3 * s) + 'z"/>';
+    });
+    o += '</g><g' + SH + '><path fill="' + C.rust + '" d="M' + f(cx - 2.2 * s) + ' ' + f(by - 3.4 * s) + ' h' + f(4.4 * s) + ' l' + f(-0.5 * s) + ' ' + f(3.4 * s) + ' h' + f(-3.4 * s) + 'z"/></g>';
+    return o;
+  }
+  function table(y, HH) {
+    var o = '<g' + SH + '><rect x="-1" y="' + f(y) + '" width="102" height="' + f(HH - y + 1) + '" fill="' + C.rust + '"/></g>';
+    for (var x = 0; x < 100; x += 5) o += '<rect x="' + x + '" y="' + f(y) + '" width="2.5" height="' + f(HH - y) + '" fill="#c86a43" opacity=".55"/>';
+    for (var yy = y + 2.5; yy < HH; yy += 5) o += '<rect x="0" y="' + f(yy) + '" width="100" height="2.5" fill="#c86a43" opacity=".45"/>';
+    return o;
+  }
+  function leaves(list) {
+    return list.map(function (p) { return '<g transform="translate(' + p[0] + ' ' + p[1] + ') rotate(' + p[2] + ') scale(' + p[3] + ')"><path' + SH + ' fill="' + p[4] + '" d="M0 -4 C2.6 -2.4 2.6 2.4 0 4 C-2.6 2.4 -2.6 -2.4 0 -4z"/><path d="M0 -3.4 V5" stroke="#6b3f22" stroke-width=".25" opacity=".6"/></g>'; }).join('');
+  }
+
+  /* ---------- layouts (cqw) ---------- */
+  var L = {
+    lh: { H: 129.41, badge: [4, 3, 20, -8], logo: [27, 4.5, 17, 17], head: [4, 24.5, 46, 25], where: [4, 52, 46], win: [57, 5, 36, 37.4], sill: 44, table: 99,
+          objs: function () { return pie(63, 44, 12) + mug(76, 44, 6, C.sage, C.cream) + mug(86, 44, 5.4, C.rust, C.cream); },
+          mid: [6, 57.5, 88, 39.5], foot: [5, 104, 90, 21.5], lv: [] },
+    lp: { H: 129.41, badge: [4, 3, 20, -8], logo: [27, 5, 20, 13.5], head: [4, 23.5, 46, 26], where: null, win: [57, 5, 36, 37.4], sill: 44, table: 99,
+          objs: function () { return pie(63, 44, 12) + mug(76, 44, 6, C.sage, C.cream) + mug(86, 44, 5.4, C.rust, C.cream); },
+          col: [6, 51.5, 88, 50], tab: [0, 0, 84, 3.75], foot: [5, 104, 90, 21.5], lv: [] },
+    sh: { H: 100, badge: [3.5, 3, 16, -8], logo: [22, 4, 14, 14], head: [3.5, 21, 50, 17], where: null, win: [62, 4, 31, 28], sill: 33.5, table: 77,
+          objs: function () { return pie(65, 33.5, 9) + mug(77, 33.5, 4.6, C.sage, C.cream) + mug(86.5, 33.5, 4.2, C.rust, C.cream) + plant(56.5, 33.5, 0.75); },
+          mid: [5, 40, 90, 34], foot: [4, 80, 92, 17], lv: [] },
+    sp: { H: 100, badge: [3.5, 3, 15, -8], logo: [21, 4, 17, 11], head: [3.5, 18.5, 52, 16], where: null, win: [64, 4, 29, 25], sill: 30.5, table: 77,
+          objs: function () { return pie(67, 30.5, 8.5) + mug(78.5, 30.5, 4.2, C.sage, C.cream) + mug(87.5, 30.5, 3.9, C.rust, C.cream); },
+          col: [4, 37, 92, 41.5], tab: [0, 0, 88, 3.95], foot: [4, 80.5, 92, 16.5], lv: [] }
+  };
+
+  var sh = '0 .4cqw .7cqw rgba(80,40,15,.28)';
+  var css = [
+    '.pc11{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(90,45,20,.3);background:#f4ead6;font-family:Nunito,Quicksand,sans-serif;color:' + C.ink + '}',
+    '.pc11.sq{aspect-ratio:1/1}',
+    '.pc11 *{box-sizing:border-box}',
+    '.pc11>svg.pc11-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc11 .pc11-badge{position:absolute;z-index:4;pointer-events:none;overflow:visible}',
+    '.pc11 .pc11-logo,.pc11 .pc11-hd,.pc11 .pc11-wh,.pc11 .pc11-mid,.pc11 .pc11-col,.pc11 .pc11-ft{position:absolute;z-index:3}',
+    '.pc11 .pc11-logo{background:#fff;border-radius:1.4cqw;display:grid;place-items:center;box-shadow:' + sh + ',.7cqw .8cqw 0 -.1cqw ' + C.sage + ',.7cqw 1cqw .9cqw rgba(80,40,15,.2)}',
+    '.pc11 .pc11-logo img{width:82%;height:auto;display:block}',
+    '.pc11 .pc11-hd{background:' + C.cream + ';border-radius:1.6cqw;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding-left:3cqw;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.rust + ',.8cqw 1.1cqw 1cqw rgba(80,40,15,.2)}',
+    '.pc11 .pc11-k{font-weight:800;letter-spacing:.12em;color:' + C.dsage + ';white-space:nowrap;line-height:1.2;position:relative;z-index:1}',
+    '.pc11 .pc11-t{font-family:Kalam,cursive;font-weight:700;color:' + C.drust + ';line-height:1;white-space:nowrap;margin:.12em 0 .02em}',
+    '.pc11 .pc11-t span{color:' + C.dsage + ';display:block}',
+    '.pc11.sq .pc11-t span{display:inline}',
+    '.pc11 .pc11-m{font-weight:800;letter-spacing:.16em;color:' + C.ink + ';white-space:nowrap;line-height:1.2;position:relative;z-index:1}',
+    '.pc11 .pc11-m b{color:' + C.rust + '}.pc11 .pc11-m i{font-style:normal;color:' + C.dsage + '}',
+    '.pc11 .pc11-wsq{font-weight:700;color:#7a5a42;white-space:nowrap;line-height:1.2;margin-top:.4em}',
+    '.pc11 .pc11-wh{background:' + C.dsage + ';color:#fff;border-radius:5cqw;text-align:center;font-weight:700;white-space:nowrap;line-height:1;padding:.55em 0;box-shadow:' + sh + '}',
+    '.pc11 .pc11-wh b{color:#ffe0a8}',
+    /* gingham placemat */
+    '.pc11 .pc11-mid{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2cqw}',
+    '.pc11 .pc11-mat{width:100%;border-radius:2cqw;padding:1.5cqw;background-color:#f3d6c6;background-image:linear-gradient(90deg,rgba(180,83,47,.55) 50%,transparent 50%),linear-gradient(0deg,rgba(180,83,47,.55) 50%,transparent 50%);background-size:2.4cqw 2.4cqw;box-shadow:' + sh + ',.8cqw 1cqw 1cqw rgba(80,40,15,.2)}',
+    '.pc11 .pc11-card{background:' + C.cream + ';border-radius:1.2cqw;display:flex;flex-direction:column;box-shadow:0 .2cqw .5cqw rgba(80,40,15,.3)}',
+    '.pc11 .pc11-s{display:flex;align-items:center}',
+    '.pc11 .pc11-s+.pc11-s{border-top:.3cqw dashed #d9b49a}',
+    '.pc11 .pc11-dt{flex:none;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle,' + C.cream + ' 0 56%,#e9b25e 57% 66%,#d99a48 67% 72%,' + C.rust + ' 73%);color:' + C.ink + ';line-height:1;box-shadow:0 .4cqw .6cqw rgba(80,40,15,.3)}',
+    '.pc11 .pc11-dt .w{font-weight:800;letter-spacing:.14em;line-height:1.35;position:relative;z-index:1;color:' + C.dsage + '}',
+    '.pc11 .pc11-dt .d{font-family:Lora,Georgia,serif;font-weight:700;line-height:.95;margin:0;color:' + C.drust + '}',
+    '.pc11 .pc11-in{flex:1;min-width:0}',
+    '.pc11 .pc11-in .tm{font-weight:800;color:' + C.dsage + ';letter-spacing:.05em;line-height:1.25;position:relative;z-index:1}',
+    '.pc11 .pc11-in .ti{font-family:Lora,Georgia,serif;font-weight:700;color:' + C.ink + ';line-height:1.1;margin-top:.12em}',
+    '.pc11 .pc11-in .ds{font-family:Kalam,cursive;font-weight:700;color:' + C.rust + ';line-height:1.2;margin-top:.25em}',
+    '.pc11 .pc11-pr{background:' + C.dsage + ';color:#fff;border-radius:5cqw;font-weight:700;line-height:1;padding:.6em 1.3em;white-space:nowrap;box-shadow:' + sh + '}',
+    '.pc11 .pc11-pr b{color:#ffe0a8;font-weight:800}',
+    /* partner */
+    '.pc11 .pc11-col{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2.2cqw}',
+    '.pc11 .pc11-les,.pc11 .pc11-tab{position:relative;left:auto!important;top:auto!important}',
+    '.pc11 .pc11-les{border-radius:1.8cqw;padding:1.1cqw;background-color:#f3d6c6;background-image:linear-gradient(90deg,rgba(180,83,47,.55) 50%,transparent 50%),linear-gradient(0deg,rgba(180,83,47,.55) 50%,transparent 50%);background-size:2.2cqw 2.2cqw;box-shadow:' + sh + '}',
+    '.pc11 .pc11-les .pane{background:' + C.cream + ';border-radius:1.1cqw;text-align:center}',
+    '.pc11 .pc11-les .ti{font-family:Lora,Georgia,serif;font-weight:700;color:' + C.ink + ';line-height:1.12}',
+    '.pc11 .pc11-les .ti b{display:inline-block;font-family:Nunito,sans-serif;background:' + C.rust + ';color:#fff;border-radius:3cqw;padding:.15em .6em;margin-right:.5em;font-size:.58em;letter-spacing:.12em;vertical-align:.2em}',
+    '.pc11 .pc11-les .ds{font-family:Kalam,cursive;font-weight:700;color:' + C.rust + ';line-height:1.2;margin-top:.2em}',
+    '.pc11 .pc11-les .pp{font-weight:700;color:' + C.ink + ';line-height:1.2;margin-top:.3em}.pc11 .pc11-les .pp b{color:' + C.dsage + '}',
+    '.pc11 .pc11-tab{background:' + C.cream + ';border-radius:1.8cqw;padding:.9cqw 1.6cqw 1.1cqw;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.sage + ',.8cqw 1.1cqw 1cqw rgba(80,40,15,.2)}',
+    '.pc11 .pc11-tab .h{text-align:center;font-family:Kalam,cursive;font-weight:700;color:' + C.drust + ';line-height:1.2}',
+    '.pc11 .pc11-tab .r{display:flex;align-items:center;border-top:.18cqw dotted #d9b49a;padding:0 1.2cqw}',
+    '.pc11 .pc11-tab .r.hm{background:' + C.dsage + ';color:#fff;border-radius:1cqw;border-top-color:transparent}',
+    '.pc11 .pc11-tab .r.hm+.r{border-top-color:transparent}',
+    '.pc11 .pc11-tab .r .i{flex:1.25;font-weight:800;white-space:nowrap}',
+    '.pc11 .pc11-tab .r .d{flex:1.2;font-weight:700;white-space:nowrap;color:#7a5a42}',
+    '.pc11 .pc11-tab .r.hm .d{color:#eef3e6}',
+    '.pc11 .pc11-tab .r .t{flex:.8;text-align:right;font-family:Lora,Georgia,serif;font-weight:700;white-space:nowrap;color:' + C.drust + '}',
+    '.pc11 .pc11-tab .r.hm .t{color:#ffe0a8}',
+    /* footer */
+    '.pc11 .pc11-ft{display:flex;align-items:center;gap:2.2cqw;background:' + C.cream + ';border-radius:1.8cqw;box-shadow:0 .4cqw .8cqw rgba(60,20,5,.4),.8cqw .9cqw 0 -.1cqw ' + C.sage + ',.8cqw 1.1cqw 1cqw rgba(60,20,5,.3)}',
+    '.pc11 .pc11-rg{flex:1;font-weight:700;line-height:1.3;color:' + C.ink + '}',
+    '.pc11 .pc11-rg b{display:block;font-weight:800;line-height:1.1;color:' + C.drust + ';margin-bottom:.15em}',
+    '.pc11 .pc11-rg b i{font-style:normal;color:' + C.dsage + '}',
+    '.pc11 .pc11-qr{flex:none;background:#fff;border-radius:.8cqw;padding:.5cqw;display:grid;place-items:center;font-weight:800;color:' + C.ink + ';box-shadow:inset 0 0 0 .25cqw #d9b49a}',
+    '.pc11 .pc11-qr img{width:100%;height:100%;display:block}',
+    '.pc11 .pc11-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc11 .pc11-bd span{background:' + C.rust + ';color:#fff;border-radius:5cqw;font-weight:800;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H;
+    var svg = '<defs><filter id="pc11s" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".35" flood-color="#4a2410" flood-opacity=".32"/></filter>'
+      + '<filter id="pc11g"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="11"/><feColorMatrix values="0 0 0 0 .4 0 0 0 0 .25 0 0 0 0 .1 0 0 0 .55 0"/></filter></defs>';
+    var html = '', W = V.win;
+    svg += wallStripes(HH);
+    svg += windowView(W[0], W[1], W[2], W[3], sq ? (partner ? 4 : 3) : (partner ? 2 : 1));
+    svg += curtain(W[0] - 1.4, W[1], W[3], -1) + curtain(W[0] + W[2] + 1.4, W[1], W[3], 1);
+    svg += rod(W[0] - 6, W[0] + W[2] + 6, W[1] - 2.4);
+    svg += sill(V.sill, sq ? 50 : 50, 100.5);
+    svg += V.objs();
+    svg += leaves(V.lv);
+    svg += table(V.table, HH);
+
+    var lg = V.logo;
+    html += box('pc11-logo', lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'transform:rotate(2deg)');
+    var bg = V.badge;
+    html += badge('left:' + bg[0] + 'cqw;top:' + bg[1] + 'cqw;width:' + bg[2] + 'cqw;height:' + bg[2] + 'cqw;transform:rotate(' + bg[3] + 'deg)');
+
+    var hd = V.head;
+    var tf = sq ? 5.7 : 7.4, kf = sq ? 1.25 : 1.4, mf = sq ? 1.75 : 2;
+    html += box('pc11-hd', hd[0], hd[1], hd[2], hd[3],
+      '<div class="pc11-k" style="font-size:' + kf + 'cqw">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc11-t" style="font-size:' + tf + 'cqw">' + H.seriesTitle(spec.series) + '</div>'
+      + '<div class="pc11-m" style="font-size:' + mf + 'cqw"><b>' + mon.toUpperCase() + '</b> ' + spec.year + ' &middot; <i>ON ZOOM</i></div>'
+      + (V.where ? '' : '<div class="pc11-wsq" style="font-size:' + (sq ? 1.4 : 1.55) + 'cqw">' + H.PTC_WHERE + '</div>'), 'transform:rotate(-.6deg)');
+    if (V.where) html += box('pc11-wh', V.where[0], V.where[1], V.where[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:1.6cqw');
+
+    var pres = spec.presenter ? H.esc(spec.presenter) : '';
+    function nb(t) { return t.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); }
+    if (!partner) {
+      var M = V.mid, n = S.length, k = sq ? 0.8 : 1, inner = '';
+      S.forEach(function (s, i) {
+        var len = s.lesson.replace(/&[a-z#0-9]+;/g, 'x').length;
+        var tsz = n > 1 ? (len > 30 ? 4 : 4.5) : (len > 30 ? 5.6 : len > 18 ? 6.4 : 7.6);
+        var dsz = n > 1 ? 13.5 : 17;
+        inner += '<div class="pc11-s" style="padding:' + f((n > 1 ? 2.1 : 3.4) * k) + 'cqw ' + f(3 * k) + 'cqw;gap:' + f(3 * k) + 'cqw">'
+          + '<div class="pc11-dt" style="width:' + f(dsz * k) + 'cqw;height:' + f(dsz * k) + 'cqw"><div class="w" style="font-size:' + f(1.5 * k) + 'cqw">' + s.dow.toUpperCase() + '</div><div class="d" style="font-size:' + f((n > 1 ? 5 : 6.4) * k) + 'cqw">' + s.day + '</div><div class="w" style="font-size:' + f(1.5 * k) + 'cqw">' + s.mon.toUpperCase() + '</div></div>'
+          + '<div class="pc11-in"><div class="tm" style="font-size:' + f((n > 1 ? 2.05 : 2.4) * k) + 'cqw">' + s.time + '</div><div class="ti" style="font-size:' + f(tsz * k) + 'cqw">' + nb(s.lesson) + '</div>'
+          + (s.desc && !(sq && n > 1) ? '<div class="ds" style="font-size:' + f((n > 1 ? 2.3 : 2.8) * k) + 'cqw">' + s.desc + '</div>' : '') + '</div></div>';
+      });
+      var body = '<div class="pc11-mat"><div class="pc11-card">' + inner + '</div></div>';
+      if (pres) body += '<div class="pc11-pr" style="font-size:' + f(2.2 * k) + 'cqw">Presented by <b>' + pres + '</b></div>';
+      html += box('pc11-mid', M[0], M[1], M[2], M[3], body);
+    } else {
+      var le = V.col, n2 = S.length, lf = n2 > 1 ? (sq ? 2.1 : 2.5) : (sq ? 3 : 3.6), pcol = '';
+      pcol += box('pc11-les', 0, 0, le[2], null, '<div class="pane" style="padding:' + (sq ? '.8cqw 2cqw' : '1.4cqw 3cqw') + '">'
+        + S.map(function (s, i) { return '<div class="ti" style="font-size:' + lf + 'cqw' + (i ? ';margin-top:.3em' : '') + '">' + (n2 > 1 ? '<b>TOPIC ' + (i + 1) + '</b>' : '') + nb(s.lesson) + '</div>' + (n2 === 1 && s.desc ? '<div class="ds" style="font-size:' + (sq ? 1.8 : 2.3) + 'cqw">' + s.desc + '</div>' : ''); }).join('')
+        + (pres ? '<div class="pp" style="font-size:' + (sq ? 1.55 : 1.95) + 'cqw">Presented by <b>' + pres + '</b></div>' : '') + '</div>');
+      var T = V.tab, rf = sq ? 1.7 : 1.95;
+      pcol += box('pc11-tab', 0, 0, T[2], null,
+        '<div class="h" style="font-size:' + (sq ? 2.2 : 2.8) + 'cqw">Find your local time</div>'
+        + H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' hm' : '') + '" style="height:' + T[3] + 'cqw;font-size:' + rf + 'cqw"><span class="i">' + r.label + '</span><span class="d">' + r.days + '</span><span class="t">' + r.time + '</span></div>'; }).join(''));
+      html += box('pc11-col', le[0], le[1], le[2], le[3], pcol);
+    }
+
+    var F = V.foot, fs = sq ? 0.82 : 1, q = sq ? 9.4 : 11;
+    html += box('pc11-ft', F[0], F[1], F[2], F[3],
+      '<div class="pc11-rg" style="font-size:' + f(2 * fs) + 'cqw"><b style="font-size:' + f(3.4 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc11-qr" style="width:' + q + 'cqw;height:' + q + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="pc11-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>',
+      'padding:0 2.6cqw 0 3.2cqw');
+
+    svg += '<rect width="100" height="' + HH + '" filter="url(#pc11g)" opacity=".14"/>';
+    return '<div class="vfx pc11' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc11-bg" viewBox="0 0 100 ' + HH + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  VEBFlyers.registerSet('PC', 11, { name: 'Cozy kitchen windowsill: paper window on autumn hills, pie and cocoa on the sill, gingham placemat', fonts: 'family=Kalam:wght@700&family=Lora:wght@700&family=Nunito:wght@600;700;800', css: css, fn: fn });
+})();
+
+/* ---- PTC design C month 12 ---- */
+/* Set PC "Island Papercut café" — December: cocoa mugs by a window, falling paper stars and lights.
+   The whole flyer is a café window at night: a red paper frame, a string of coloured paper lights swagged across
+   the top, gold and white paper stars falling through a night-blue sky; the PTC badge hangs centre-top; dates sit
+   on paper cocoa mugs; real paper cocoa mugs (whipped cream, candy-cane stirrer) stand on the green sill. */
+(function () {
+  function f(n) { return Math.round(n * 100) / 100; }
+  function box(c, x, y, w, h, inner, st) {
+    return '<div class="' + c + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;width:' + f(w) + 'cqw;' + (h != null ? 'height:' + f(h) + 'cqw;' : '') + (st || '') + '">' + inner + '</div>';
+  }
+  function rng(seed) { var s = seed % 2147483647; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  var SH = ' filter="url(#pc12s)"';
+  var C = { red: '#c62a2f', dred: '#8f1a20', green: '#1f6b45', dgreen: '#154d31', gold: '#f2b632', night: '#14284f', cream: '#fff8ec', ink: '#1b2440' };
+
+  /* ---------- recurring PTC badge: cut-paper cup ---------- */
+  function badge(st) {
+    return '<svg class="pc12-badge" viewBox="0 0 100 100" style="' + st + '"><defs>'
+      + '<filter id="pc12b" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.1" flood-color="#000" flood-opacity=".45"/></filter>'
+      + '<path id="pc12bt" d="M15 50 A35 35 0 0 1 85 50"/><path id="pc12bu" d="M8.5 50 A41.5 41.5 0 0 0 91.5 50"/></defs>'
+      + '<circle cx="50" cy="50" r="48" fill="' + C.green + '" filter="url(#pc12b)"/>'
+      + '<circle cx="50" cy="50" r="44" fill="none" stroke="' + C.gold + '" stroke-width=".9" stroke-dasharray="2 1.6"/>'
+      + '<text font-family="\'Yeseva One\',Georgia,serif" font-size="9.6" letter-spacing="1.2" fill="' + C.cream + '"><textPath href="#pc12bt" startOffset="50%" text-anchor="middle">PARENT TALK</textPath></text>'
+      + '<text font-family="\'Yeseva One\',Georgia,serif" font-size="9.6" letter-spacing="3" fill="' + C.gold + '"><textPath href="#pc12bu" startOffset="50%" text-anchor="middle">CAFÉ</textPath></text>'
+      + '<circle cx="11" cy="56" r="1.8" fill="' + C.gold + '"/><circle cx="89" cy="56" r="1.8" fill="' + C.gold + '"/>'
+      + '<circle cx="50" cy="52" r="30" fill="' + C.cream + '" filter="url(#pc12b)"/>'
+      + '<circle cx="50" cy="52" r="25.5" fill="#dfe7f3"/>'
+      + '<g filter="url(#pc12b)" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M42 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/><path d="M50 40 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -7"/><path d="M58 42 c-3 -4 3 -6 0 -10 c-2 -3 1 -4 0 -6"/></g>'
+      + '<ellipse cx="50" cy="69" rx="20" ry="3.6" fill="' + C.gold + '" filter="url(#pc12b)"/>'
+      + '<g filter="url(#pc12b)"><path d="M61 51 h3.5 a6.5 6.5 0 0 1 0 13 h-5" fill="none" stroke="' + C.red + '" stroke-width="3.2"/>'
+      + '<path d="M35 46 h29 l-2.6 16.5 a6 6 0 0 1 -6 5 h-12.8 a6 6 0 0 1 -6 -5 z" fill="' + C.red + '"/></g>'
+      + '<path d="M35.7 51 h27.6 l-.7 4.4 h-26.2 z" fill="' + C.cream + '" filter="url(#pc12b)"/>'
+      + '</svg>';
+  }
+
+  /* ---------- paper pieces ---------- */
+  function star(x, y, r, rot, col) {
+    var d = '';
+    for (var i = 0; i < 10; i++) { var a = (rot + i * 36 - 90) * Math.PI / 180, rr = i % 2 ? r * 0.45 : r; d += (i ? ' L' : 'M') + f(x + Math.cos(a) * rr) + ' ' + f(y + Math.sin(a) * rr); }
+    return '<path' + SH + ' fill="' + col + '" d="' + d + 'z"/>';
+  }
+  function sky(HH, seed, n, fr) {
+    var R = rng(seed), o = '';
+    for (var i = 0; i < n * 2; i++) o += '<circle cx="' + f(fr + R() * (100 - 2 * fr)) + '" cy="' + f(fr + R() * (HH - 2 * fr)) + '" r="' + f(0.12 + R() * 0.22) + '" fill="#fff" opacity="' + f(0.35 + R() * 0.5) + '"/>';
+    for (var j = 0; j < n; j++) {
+      var x = fr + 2 + R() * (96 - 2 * fr), y = fr + 6 + R() * (HH - 2 * fr - 8), r = 0.9 + R() * 1.5, c = R() < 0.6 ? C.gold : (R() < 0.5 ? '#fff6dc' : '#f7d77a');
+      o += '<path d="M' + f(x) + ' ' + f(y - r - 0.6) + ' v' + f(-2 - R() * 3) + '" stroke="' + c + '" stroke-width=".18" opacity=".55"/>';
+      o += star(x, y, r, R() * 72, c);
+    }
+    return o;
+  }
+  function lights(x1, y1, x2, y2, sag, n, k) {
+    var mx = (x1 + x2) / 2, my = Math.max(y1, y2) + sag, cols = [C.red, C.gold, '#3fa36b', '#7fb6ff', '#fff3c4'], o = '<path d="M' + f(x1) + ' ' + f(y1) + ' Q' + f(mx) + ' ' + f(my) + ' ' + f(x2) + ' ' + f(y2) + '" fill="none" stroke="#0b1a33" stroke-width=".4"/>';
+    for (var i = 1; i < n; i++) {
+      var t = i / n, u = 1 - t, px = u * u * x1 + 2 * u * t * mx + t * t * x2, py = u * u * y1 + 2 * u * t * my + t * t * y2, c = cols[(i + k) % cols.length];
+      o += '<circle cx="' + f(px) + '" cy="' + f(py + 1.6) + '" r="2.3" fill="' + c + '" opacity=".28"/>'
+        + '<rect x="' + f(px - 0.45) + '" y="' + f(py - 0.1) + '" width=".9" height=".9" fill="#0b1a33"/>'
+        + '<path' + SH + ' d="M' + f(px) + ' ' + f(py + 0.6) + ' c1 .6 1.1 1.9 .6 2.7 a.8 .8 0 0 1 -1.2 0 c-.5 -.8 -.4 -2.1 .6 -2.7z" fill="' + c + '"/>';
+    }
+    return o;
+  }
+  function frame(HH, fr) {
+    return '<g' + SH + '><path fill="' + C.red + '" fill-rule="evenodd" d="M-1 -1 H101 V' + f(HH + 1) + ' H-1z M' + fr + ' ' + fr + ' V' + f(HH - fr) + ' H' + f(100 - fr) + ' V' + fr + 'z"/></g>'
+      + '<path fill="none" stroke="' + C.dred + '" stroke-width=".35" d="M' + f(fr - 1) + ' ' + f(fr - 1) + ' V' + f(HH - fr + 1) + ' H' + f(101 - fr) + ' V' + f(fr - 1) + 'z"/>';
+  }
+  function cocoa(cx, by, w, col, band, cane) {
+    var h = w * 1.0, o = '';
+    if (cane) o += '<g' + SH + '><path d="M' + f(cx + w * 0.18) + ' ' + f(by - h * 0.5) + ' L' + f(cx + w * 0.32) + ' ' + f(by - h * 1.7) + ' q' + f(w * 0.06) + ' ' + f(-w * 0.3) + ' ' + f(w * 0.3) + ' ' + f(-w * 0.18) + '" fill="none" stroke="#fff" stroke-width="' + f(w * 0.11) + '" stroke-linecap="round"/>'
+      + '<path d="M' + f(cx + w * 0.18) + ' ' + f(by - h * 0.5) + ' L' + f(cx + w * 0.32) + ' ' + f(by - h * 1.7) + ' q' + f(w * 0.06) + ' ' + f(-w * 0.3) + ' ' + f(w * 0.3) + ' ' + f(-w * 0.18) + '" fill="none" stroke="' + C.red + '" stroke-width="' + f(w * 0.11) + '" stroke-dasharray="' + f(w * 0.08) + ' ' + f(w * 0.08) + '"/></g>';
+    o += '<g' + SH + '><path d="M' + f(cx + w / 2 - 0.2) + ' ' + f(by - h * 0.78) + ' h' + f(w * 0.12) + ' a' + f(w * 0.22) + ' ' + f(w * 0.22) + ' 0 0 1 0 ' + f(w * 0.44) + ' h' + f(-w * 0.14) + '" fill="none" stroke="' + col + '" stroke-width="' + f(w * 0.12) + '"/>';
+    o += '<path fill="' + col + '" d="M' + f(cx - w / 2) + ' ' + f(by - h) + ' h' + f(w) + ' v' + f(h * 0.8) + ' q0 ' + f(h * 0.2) + ' ' + f(-w * 0.2) + ' ' + f(h * 0.2) + ' h' + f(-w * 0.6) + ' q' + f(-w * 0.2) + ' 0 ' + f(-w * 0.2) + ' ' + f(-h * 0.2) + 'z"/></g>';
+    o += '<rect x="' + f(cx - w / 2) + '" y="' + f(by - h * 0.6) + '" width="' + f(w) + '" height="' + f(h * 0.12) + '" fill="' + band + '"/>';
+    // whipped cream
+    o += '<path' + SH + ' fill="#fffdf6" d="M' + f(cx - w * 0.52) + ' ' + f(by - h + 0.2) + ' q' + f(-w * 0.04) + ' ' + f(-w * 0.26) + ' ' + f(w * 0.2) + ' ' + f(-w * 0.24) + ' q' + f(w * 0.06) + ' ' + f(-w * 0.26) + ' ' + f(w * 0.32) + ' ' + f(-w * 0.2) + ' q' + f(w * 0.18) + ' ' + f(-w * 0.16) + ' ' + f(w * 0.3) + ' ' + f(w * 0.06) + ' q' + f(w * 0.26) + ' ' + f(0) + ' ' + f(w * 0.22) + ' ' + f(w * 0.38) + 'z"/>';
+    o += '<g fill="none" stroke="#fffaf2" stroke-width="' + f(w * 0.07) + '" stroke-linecap="round" opacity=".85"' + SH + '><path d="M' + f(cx - w * 0.2) + ' ' + f(by - h - w * 0.45) + ' c' + f(-w * 0.2) + ' ' + f(-w * 0.3) + ' ' + f(w * 0.2) + ' ' + f(-w * 0.45) + ' 0 ' + f(-w * 0.75) + '"/><path d="M' + f(cx + w * 0.02) + ' ' + f(by - h - w * 0.5) + ' c' + f(-w * 0.2) + ' ' + f(-w * 0.3) + ' ' + f(w * 0.2) + ' ' + f(-w * 0.45) + ' 0 ' + f(-w * 0.7) + '"/></g>';
+    return o;
+  }
+  function sill(y, fr, HH) {
+    return '<g' + SH + '><rect x="' + f(fr - 2) + '" y="' + f(y) + '" width="' + f(104 - 2 * fr) + '" height="2.4" rx=".5" fill="' + C.green + '"/></g><rect x="' + f(fr - 2) + '" y="' + f(y) + '" width="' + f(104 - 2 * fr) + '" height=".6" fill="#3f9a69"/>'
+      + '<g' + SH + '><rect x="' + f(fr) + '" y="' + f(y + 2.4) + '" width="' + f(100 - 2 * fr) + '" height="' + f(HH - y) + '" fill="' + C.red + '"/></g>';
+  }
+
+  /* ---------- layouts (cqw) ---------- */
+  var L = {
+    lh: { H: 129.41, fr: 3, logo: [7, 11, 17, 17], badge: [75, 9, 20, 6], head: [27, 10, 46, 22.5], where: [14, 35, 72],
+          mid: [8, 40, 84, 42], sill: 97, mugs: [[17, 97, 8, C.green, C.gold, 1], [28, 97, 6, C.gold, C.red, 0], [72, 97, 6.4, C.red, C.cream, 0], [83, 97, 8, C.red, C.gold, 1]],
+          foot: [6, 104, 88, 21], lights: [[2, 3.5, 50, 4.5, 4.5, 8, 0], [50, 4.5, 98, 3.5, 4.5, 8, 2]] },
+    lp: { H: 129.41, fr: 3, logo: [7, 12, 19, 13.5], badge: [75, 9.5, 19.5, 6], head: [28, 10.5, 45, 22.5], where: [8, 35.5, 84],
+          col: [6, 40.5, 88, 57], tab: [0, 0, 84, 4.1], sill: 98.5, mugs: [],
+          foot: [6, 104, 88, 21], lights: [[2, 3.5, 50, 4.5, 3.5, 8, 0], [50, 4.5, 98, 3.5, 3.5, 8, 2]] },
+    sh: { H: 100, fr: 2.6, logo: [5, 8.5, 14, 14], badge: [79, 6, 17, 6], head: [21, 7.5, 56, 19], where: null,
+          mid: [6, 29, 88, 44], sill: 75, mugs: [],
+          foot: [5, 79.5, 90, 17], lights: [[2, 3, 50, 3.6, 2.8, 8, 0], [50, 3.6, 98, 3, 2.8, 8, 2]] },
+    sp: { H: 100, fr: 2.6, logo: [5, 8, 16, 11], badge: [79.5, 5.5, 16, 6], head: [23, 7, 54, 18], where: null,
+          col: [5, 27, 90, 51], tab: [0, 0, 86, 3.95], sill: 78, mugs: [],
+          foot: [5, 80.5, 90, 16.5], lights: [[2, 3, 50, 3.6, 2.4, 8, 0], [50, 3.6, 98, 3, 2.4, 8, 2]] }
+  };
+
+  var sh = '0 .4cqw .8cqw rgba(0,0,0,.4)';
+  var css = [
+    '.pc12{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;border-radius:4px;box-shadow:0 10px 30px rgba(10,20,45,.45);background:radial-gradient(ellipse at 50% 30%,#22407a 0%,#1a3263 45%,#122550 100%);font-family:Quicksand,Nunito,sans-serif;color:' + C.ink + '}',
+    '.pc12.sq{aspect-ratio:1/1}',
+    '.pc12 *{box-sizing:border-box}',
+    '.pc12>svg.pc12-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}',
+    '.pc12 .pc12-badge{position:absolute;z-index:4;pointer-events:none;overflow:visible}',
+    '.pc12 .pc12-logo,.pc12 .pc12-hd,.pc12 .pc12-wh,.pc12 .pc12-mid,.pc12 .pc12-col,.pc12 .pc12-ft{position:absolute;z-index:3}',
+    '.pc12 .pc12-logo{background:#fff;border-radius:1.4cqw;display:grid;place-items:center;box-shadow:' + sh + ',.7cqw .8cqw 0 -.1cqw ' + C.gold + '}',
+    '.pc12 .pc12-logo img{width:82%;height:auto;display:block}',
+    '.pc12 .pc12-hd{background:' + C.cream + ';border-radius:1.8cqw;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.red + ',.8cqw 1.1cqw 1cqw rgba(0,0,0,.3)}',
+    '.pc12 .pc12-k{font-weight:700;letter-spacing:.16em;color:' + C.green + ';white-space:nowrap;line-height:1.2;position:relative;z-index:1}',
+    '.pc12 .pc12-t{font-family:"Yeseva One",Georgia,serif;color:' + C.red + ';line-height:1.08;white-space:nowrap;margin:.06em 0 .04em}',
+    '.pc12 .pc12-t span{color:' + C.green + '}',
+    '.pc12:not(.sq) .pc12-t span{display:block}',
+    '.pc12 .pc12-m{font-weight:700;letter-spacing:.18em;color:' + C.ink + ';white-space:nowrap;line-height:1.2;position:relative;z-index:1}',
+    '.pc12 .pc12-m b{color:' + C.red + '}.pc12 .pc12-m i{font-style:normal;color:' + C.green + '}',
+    '.pc12 .pc12-wsq{font-weight:600;color:#4a5570;white-space:nowrap;line-height:1.2;margin-top:.35em}',
+    '.pc12 .pc12-wh{background:' + C.gold + ';color:' + C.ink + ';border-radius:5cqw;text-align:center;font-weight:700;white-space:nowrap;line-height:1;padding:.6em 0;box-shadow:' + sh + '}',
+    '.pc12 .pc12-wh b{color:' + C.dred + '}',
+    /* topic cards with cocoa-mug date tags */
+    '.pc12 .pc12-mid{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2.4cqw}',
+    '.pc12 .pc12-s{width:100%;display:flex;align-items:center;background:' + C.cream + ';border-radius:2cqw;box-shadow:' + sh + ',.9cqw 1cqw 0 -.1cqw var(--ac),.9cqw 1.2cqw 1cqw rgba(0,0,0,.3)}',
+    '.pc12 .pc12-dt{flex:none;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--ac);color:#fff;line-height:1;border-radius:.6cqw .6cqw 2.6cqw 2.6cqw;box-shadow:0 .4cqw .6cqw rgba(0,0,0,.3)}',
+    '.pc12 .pc12-dt:before{content:"";position:absolute;left:-6%;right:-6%;top:-1.3cqw;height:2.6cqw;border-radius:2cqw 2cqw 1cqw 1cqw;background:#fffdf6;box-shadow:0 .2cqw .3cqw rgba(0,0,0,.2)}',
+    '.pc12 .pc12-dt:after{content:"";position:absolute;right:-2.9cqw;top:26%;width:3.2cqw;height:42%;border:.9cqw solid var(--ac);border-left:none;border-radius:0 2cqw 2cqw 0}',
+    '.pc12 .pc12-dt .w{font-weight:700;letter-spacing:.14em;line-height:1.35;position:relative;z-index:1}',
+    '.pc12 .pc12-dt .d{font-family:"Yeseva One",Georgia,serif;line-height:1;margin:0;color:#fff}',
+    '.pc12 .pc12-in{flex:1;min-width:0}',
+    '.pc12 .pc12-in .tm{font-weight:700;color:' + C.green + ';letter-spacing:.05em;line-height:1.25;position:relative;z-index:1}',
+    '.pc12 .pc12-in .ti{font-family:"Yeseva One",Georgia,serif;color:' + C.ink + ';line-height:1.12;margin-top:.08em}',
+    '.pc12 .pc12-in .ds{font-weight:600;color:#5a6378;line-height:1.2;margin-top:.3em}',
+    '.pc12 .pc12-pr{background:' + C.green + ';color:#fff;border-radius:5cqw;font-weight:600;line-height:1;padding:.6em 1.3em;white-space:nowrap;box-shadow:' + sh + '}',
+    '.pc12 .pc12-pr b{color:' + C.gold + ';font-weight:700}',
+    /* partner */
+    '.pc12 .pc12-col{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2.4cqw}',
+    '.pc12 .pc12-les,.pc12 .pc12-tab{position:relative;left:auto!important;top:auto!important}',
+    '.pc12 .pc12-les{background:' + C.cream + ';border-radius:1.8cqw;text-align:center;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.green + '}',
+    '.pc12 .pc12-les .ti{font-family:"Yeseva One",Georgia,serif;color:' + C.ink + ';line-height:1.12}',
+    '.pc12 .pc12-les .ti b{display:inline-block;font-family:Quicksand,sans-serif;font-weight:700;background:' + C.red + ';color:#fff;border-radius:3cqw;padding:.15em .6em;margin-right:.5em;font-size:.55em;letter-spacing:.12em;vertical-align:.25em}',
+    '.pc12 .pc12-les .ds{font-weight:600;color:#5a6378;line-height:1.2;margin-top:.3em}',
+    '.pc12 .pc12-les .pp{font-weight:600;color:' + C.ink + ';line-height:1.2;margin-top:.35em}.pc12 .pc12-les .pp b{color:' + C.red + '}',
+    '.pc12 .pc12-tab{background:' + C.cream + ';border-radius:1.8cqw;padding:.9cqw 1.6cqw 1.1cqw;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.red + '}',
+    '.pc12 .pc12-tab .h{text-align:center;font-family:"Yeseva One",Georgia,serif;color:' + C.green + ';line-height:1.25}',
+    '.pc12 .pc12-tab .r{display:flex;align-items:center;border-top:.18cqw dotted #c9cfdb;padding:0 1.2cqw}',
+    '.pc12 .pc12-tab .r.hm{background:' + C.green + ';color:#fff;border-radius:1cqw;border-top-color:transparent}',
+    '.pc12 .pc12-tab .r.hm+.r{border-top-color:transparent}',
+    '.pc12 .pc12-tab .r .i{flex:1.25;font-weight:700;white-space:nowrap}',
+    '.pc12 .pc12-tab .r .d{flex:1.2;font-weight:600;white-space:nowrap;color:#5a6378}',
+    '.pc12 .pc12-tab .r.hm .d{color:#e4f3ea}',
+    '.pc12 .pc12-tab .r .t{flex:.8;text-align:right;font-weight:700;white-space:nowrap;color:' + C.red + '}',
+    '.pc12 .pc12-tab .r.hm .t{color:' + C.gold + '}',
+    /* footer */
+    '.pc12 .pc12-ft{display:flex;align-items:center;gap:2.2cqw;background:' + C.cream + ';border-radius:1.8cqw;box-shadow:' + sh + ',.8cqw .9cqw 0 -.1cqw ' + C.gold + '}',
+    '.pc12 .pc12-rg{flex:1;font-weight:600;line-height:1.3;color:' + C.ink + '}',
+    '.pc12 .pc12-rg b{display:block;font-weight:700;line-height:1.1;color:' + C.green + ';margin-bottom:.15em}',
+    '.pc12 .pc12-rg b i{font-style:normal;color:' + C.red + '}',
+    '.pc12 .pc12-qr{flex:none;background:#fff;border-radius:.8cqw;padding:.5cqw;display:grid;place-items:center;font-weight:700;color:' + C.ink + ';box-shadow:inset 0 0 0 .25cqw #c9cfdb}',
+    '.pc12 .pc12-qr img{width:100%;height:100%;display:block}',
+    '.pc12 .pc12-bd{flex:none;display:flex;flex-direction:column;gap:.7cqw}',
+    '.pc12 .pc12-bd span{background:' + C.red + ';color:#fff;border-radius:5cqw;font-weight:700;text-align:center;padding:.5em .9em;line-height:1;white-space:nowrap}'
+  ].join('\n');
+
+  function fn(spec, partner, sq, H) {
+    var V = L[(sq ? 's' : 'l') + (partner ? 'p' : 'h')], S = spec.sessions.map(H.sessInfo), mon = H.MONTHS[spec.month - 1], HH = V.H;
+    var svg = '<defs><filter id="pc12s" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy=".4" stdDeviation=".35" flood-color="#000" flood-opacity=".4"/></filter>'
+      + '<filter id="pc12g"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="12"/><feColorMatrix values="0 0 0 0 .1 0 0 0 0 .15 0 0 0 0 .3 0 0 0 .55 0"/></filter></defs>';
+    var html = '';
+    svg += sky(HH, sq ? 77 : 1212, sq ? 26 : 38, V.fr);
+    svg += sill(V.sill, V.fr, HH);
+    V.mugs.forEach(function (m) { svg += cocoa(m[0], m[1], m[2], m[3], m[4], m[5]); });
+    svg += frame(HH, V.fr);
+    V.lights.forEach(function (l) { svg += lights(l[0], l[1], l[2], l[3], l[4], l[5], l[6]); });
+
+    var lg = V.logo;
+    html += box('pc12-logo', lg[0], lg[1], lg[2], lg[3], '<img src="' + (partner ? spec.pipUrl : spec.logoUrl) + '" alt="">', 'transform:rotate(-2deg)');
+    var bg = V.badge;
+    html += badge('left:' + bg[0] + 'cqw;top:' + bg[1] + 'cqw;width:' + bg[2] + 'cqw;height:' + bg[2] + 'cqw;transform:rotate(' + bg[3] + 'deg)');
+
+    var hd = V.head, wide = hd[2] > 60;
+    var tf = sq ? 5.6 : (wide ? 8.4 : 7), kf = sq ? 1.3 : 1.5, mf = sq ? 1.75 : 2.1;
+    html += box('pc12-hd', hd[0], hd[1], hd[2], hd[3],
+      '<div class="pc12-k" style="font-size:' + kf + 'cqw">' + (partner ? 'FOR FAMILIES ACROSS THE PACIFIC' : 'PARENT TRAINING &amp; INFORMATION CENTER') + '</div>'
+      + '<div class="pc12-t" style="font-size:' + tf + 'cqw">' + H.seriesTitle(spec.series) + '</div>'
+      + '<div class="pc12-m" style="font-size:' + mf + 'cqw"><b>' + mon.toUpperCase() + '</b> ' + spec.year + ' &middot; <i>ON ZOOM</i></div>'
+      + (V.where ? '' : '<div class="pc12-wsq" style="font-size:1.4cqw">' + H.PTC_WHERE + '</div>'));
+    if (V.where) html += box('pc12-wh', V.where[0], V.where[1], V.where[2], null, H.PTC_WHERE.replace('@ Parent Talk Café', '@ <b>Parent Talk Café</b>'), 'font-size:1.7cqw');
+
+    var pres = spec.presenter ? H.esc(spec.presenter) : '';
+    function nb(t) { return t.replace(/(\S+-\S+)/g, '<span style="white-space:nowrap">$1</span>'); }
+    var AC = [C.red, C.green];
+    if (!partner) {
+      var M = V.mid, n = S.length, k = sq ? 0.8 : 1, inner = '';
+      S.forEach(function (s, i) {
+        var len = s.lesson.replace(/&[a-z#0-9]+;/g, 'x').length;
+        var tsz = n > 1 ? (len > 30 ? 3.7 : 4.2) : (len > 30 ? 5.2 : len > 18 ? 6 : 7.2);
+        var dw = n > 1 ? 12 : 15, dh = n > 1 ? 11.5 : 14.5;
+        inner += '<div class="pc12-s" style="--ac:' + AC[i] + ';padding:' + f((n > 1 ? 2.4 : 3.6) * k) + 'cqw ' + f(3 * k) + 'cqw;gap:' + f(5.6 * k) + 'cqw;transform:rotate(' + (i ? 0.7 : -0.7) + 'deg)">'
+          + '<div class="pc12-dt" style="width:' + f(dw * k) + 'cqw;height:' + f(dh * k) + 'cqw;margin-top:' + f(1.2 * k) + 'cqw"><div class="w" style="font-size:' + f(1.5 * k) + 'cqw">' + s.dow.toUpperCase() + '</div><div class="d" style="font-size:' + f((n > 1 ? 4.8 : 6.2) * k) + 'cqw">' + s.day + '</div><div class="w" style="font-size:' + f(1.5 * k) + 'cqw">' + s.mon.toUpperCase() + '</div></div>'
+          + '<div class="pc12-in"><div class="tm" style="font-size:' + f((n > 1 ? 2.05 : 2.4) * k) + 'cqw">' + s.time + '</div><div class="ti" style="font-size:' + f(tsz * k) + 'cqw">' + nb(s.lesson) + '</div>'
+          + (s.desc && !(sq && n > 1) ? '<div class="ds" style="font-size:' + f((n > 1 ? 1.85 : 2.2) * k) + 'cqw">' + s.desc + '</div>' : '') + '</div></div>';
+      });
+      if (pres) inner += '<div class="pc12-pr" style="font-size:' + f(2.2 * k) + 'cqw">Presented by <b>' + pres + '</b></div>';
+      html += box('pc12-mid', M[0], M[1], M[2], M[3], inner);
+    } else {
+      var le = V.col, n2 = S.length, lf = n2 > 1 ? (sq ? 2.1 : 2.6) : (sq ? 3 : 4), pcol = '';
+      pcol += box('pc12-les', 0, 0, le[2], null,
+        S.map(function (s, i) { return '<div class="ti" style="font-size:' + lf + 'cqw' + (i ? ';margin-top:.3em' : '') + '">' + (n2 > 1 ? '<b>TOPIC ' + (i + 1) + '</b>' : '') + nb(s.lesson) + '</div>' + (n2 === 1 && s.desc ? '<div class="ds" style="font-size:' + (sq ? 1.6 : 2) + 'cqw">' + s.desc + '</div>' : ''); }).join('')
+        + (pres ? '<div class="pp" style="font-size:' + (sq ? 1.6 : 2) + 'cqw">Presented by <b>' + pres + '</b></div>' : ''),
+        'padding:' + (sq ? '1cqw 2cqw' : '1.6cqw 3cqw'));
+      var T = V.tab, rf = sq ? 1.7 : 1.95;
+      pcol += box('pc12-tab', 0, 0, T[2], null,
+        '<div class="h" style="font-size:' + (sq ? 2.1 : 2.6) + 'cqw">Find your local time</div>'
+        + H.zoneRows(spec.sessions).map(function (r) { return '<div class="r' + (r.home ? ' hm' : '') + '" style="height:' + T[3] + 'cqw;font-size:' + rf + 'cqw"><span class="i">' + r.label + '</span><span class="d">' + r.days + '</span><span class="t">' + r.time + '</span></div>'; }).join(''));
+      html += box('pc12-col', le[0], le[1], le[2], le[3], pcol);
+    }
+
+    var F = V.foot, fs = sq ? 0.82 : 1, q = sq ? 9.4 : 11;
+    html += box('pc12-ft', F[0], F[1], F[2], F[3],
+      '<div class="pc12-rg" style="font-size:' + f(2 * fs) + 'cqw"><b style="font-size:' + f(3.4 * fs) + 'cqw">REGISTER at <i>LDAHawaii.org</i></b>Get your Zoom link, scan the QR code,' + (sq ? ' ' : '<br>') + 'or call <span style="white-space:nowrap">' + H.phone(partner) + '</span></div>'
+      + '<div class="pc12-qr" style="width:' + q + 'cqw;height:' + q + 'cqw">' + H.qrImg(spec, partner) + '</div>'
+      + '<div class="pc12-bd" style="font-size:' + f(1.45 * fs) + 'cqw">' + H.badges(spec, partner) + '</div>',
+      'padding:0 2.6cqw 0 3.2cqw');
+
+    svg += '<rect width="100" height="' + HH + '" filter="url(#pc12g)" opacity=".14"/>';
+    return '<div class="vfx pc12' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><svg class="pc12-bg" viewBox="0 0 100 ' + HH + '" preserveAspectRatio="none">' + svg + '</svg>' + html + '</div>';
+  }
+
+  VEBFlyers.registerSet('PC', 12, { name: 'Cocoa by the window: red paper window frame, coloured lights, falling paper stars, cocoa mugs on the sill', fonts: 'family=Yeseva+One&family=Quicksand:wght@500;600;700', css: css, fn: fn });
+})();
