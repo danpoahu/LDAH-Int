@@ -14767,6 +14767,7 @@ VEBFlyers._rand = function (seed) {
   var s = (h >>> 0) % 2147483646 + 1; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
 };
 VEBFlyers.decorate = function (doc, root, o) {
+  if (VEBFlyers.fitLogos) VEBFlyers.fitLogos(doc, root);
   var items = [];
   if (o.presenter) items.push({ k: 'GUEST SPEAKER', t: o.presenter, must: true });
   (o.callouts || []).forEach(function (t) { if (t) items.push({ k: '', t: t }); });
@@ -14833,3 +14834,18 @@ VEBFlyers.decorate = function (doc, root, o) {
 /* ---- Sponsor logos (art in sponsor-logos/, next to this file) ---- */
 VEBFlyers.SPONSORS = [{"name": "IDEAs that Work", "file": "ideas-that-work.png", "dark": false}, {"name": "Aloha United Way", "file": "aloha-united-way.png", "dark": false}, {"name": "Aloha United Way (new logo)", "file": "aloha-united-way-2026-white.png", "dark": true}, {"name": "Pacific Island Partners", "file": "pacific-island-partners.png", "dark": false}, {"name": "Pacific Island Partners (with name)", "file": "pacific-island-partners-full.png", "dark": false}, {"name": "Ke Ola Mamo", "file": "ke-ola-mamo.png", "dark": false}, {"name": "Office of Hawaiian Affairs", "file": "office-of-hawaiian-affairs.png", "dark": false}, {"name": "Hawaiʻi Dept. of Education", "file": "hawaii-department-of-education.png", "dark": false}, {"name": "Sustainable Molokaʻi", "file": "sustainable-molokai.png", "dark": false}, {"name": "Palace Theater Hilo", "file": "palace-theater-hilo.png", "dark": false}, {"name": "SEAC", "file": "seac-hawaii.png", "dark": false}, {"name": "Foodland", "file": "foodland.png", "dark": false}, {"name": "Hawaiʻi Dept. of Health", "file": "hawaii-department-of-health.png", "dark": false}, {"name": "Hawaiʻi Pacific University", "file": "hawaii-pacific-university.png", "dark": false}, {"name": "Family Hui Hawaiʻi", "file": "family-hui-hawaii.png", "dark": false}, {"name": "State Farm", "file": "state-farm.png", "dark": false}, {"name": "ICAN", "file": "ican.png", "dark": false}, {"name": "Midro's Den", "file": "midros-den.png", "dark": false}, {"name": "HNR", "file": "hnr.png", "dark": false}, {"name": "MEAN Hawaiʻi", "file": "mean-hawaii.png", "dark": false}, {"name": "Ewa Beach Floral", "file": "ewa-beach-floral.png", "dark": false}, {"name": "Necessitea", "file": "necessitea.png", "dark": false}, {"name": "HHH Newz", "file": "hhh-newz.png", "dark": false}];
 VEBFlyers.css += '\n.vfx-logo{display:inline-flex!important;align-items:center!important;justify-content:center!important;background:#fff!important;padding:.35cqw .7cqw!important;line-height:0!important;border-radius:.6cqw}.vfx-logo.dk{background:#1d2430!important}.vfx-logo img{height:3.3cqw!important;width:auto!important;max-width:13cqw!important;display:block!important;object-fit:contain}';
+
+/* Logos in the sponsor row: if a design's badge row is too small for the art, shrink that row's logos evenly
+   until each one sits inside the flyer and inside the row's own box. Called before callouts are placed. */
+VEBFlyers.fitLogos = function (doc, root) {
+  var R = root.getBoundingClientRect(), u = R.width / 100, rows = [];
+  [].forEach.call(root.querySelectorAll('.vfx-logo'), function (l) { var row = l.parentElement; if (rows.indexOf(row) < 0) rows.push(row); });
+  rows.forEach(function (row) {
+    var imgs = [].map.call(row.querySelectorAll('.vfx-logo img'), function (i) { return i; }), box = row.parentElement || row;
+    function bad() { var B = box.getBoundingClientRect(), W2 = row.getBoundingClientRect();
+      return imgs.some(function (i) { var r = i.parentElement.getBoundingClientRect();
+        return r.left < R.left + u || r.right > R.right - u || r.top < R.top + u || r.bottom > R.bottom - u
+          || r.right > Math.max(B.right, W2.right) + 1 || r.bottom > Math.max(B.bottom, W2.bottom) + 1; }); }
+    for (var h = 3.3; h >= 1.7 && bad(); h -= 0.2) imgs.forEach(function (i) { i.style.setProperty('height', h.toFixed(1) + 'cqw', 'important'); i.style.setProperty('max-width', (h * 4).toFixed(1) + 'cqw', 'important'); });
+  });
+};
