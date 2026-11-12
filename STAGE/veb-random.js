@@ -2680,3 +2680,47 @@
     };
   })());
 })();
+
+/* ---- Uploaded designs (2026-11-12): art made in Canva, reused like any Random design ----
+   Staff upload a background once (settings/vebDesign_*: { name, letter, square, pos, card }; the
+   images are JPEG data URLs, since Storage would taint the flyer canvas). DAN puts every detail
+   on one card over the art: top, middle or bottom, white or dark. The guest speaker and callouts
+   go on the card too, because the art fills the whole flyer. */
+(function () {
+  'use strict';
+  var F = window.VEBFlyers, H = F.helpers, R = F.random, esc = H.esc;
+  F.css += '\n.ru{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;background:#fff;font-family:Poppins,Arial,sans-serif}.ru.sq{aspect-ratio:1/1}'
+    + '.ru>img.ru-bg{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;display:block}'
+    + '.ru>.ru-pn{position:absolute;left:6cqw;right:6cqw;box-sizing:border-box;border-radius:2.4cqw;padding:3.2em 3.6em 2.6em;box-shadow:0 1cqw 3cqw rgba(0,0,0,.25);line-height:1.25}'
+    + '.ru>.ru-pn.lt{background:rgba(255,255,255,.94);color:#0f172a}.ru>.ru-pn.dk{background:rgba(15,23,42,.9);color:#fff}'
+    + '.ru-hd{display:flex;align-items:center;gap:1.4em;margin-bottom:.9em}.ru-hd img{height:4.2em;width:auto;background:#fff;border-radius:.6em;padding:.3em .5em}'
+    + '.ru-t{font-weight:800;line-height:1.04;letter-spacing:-.01em}.ru-tg{font-size:1.15em;font-weight:500;opacity:.85;margin:.35em 0 .9em}'
+    + '.ru-s{display:flex;gap:1em;align-items:baseline;font-size:1.2em;margin:.25em 0}.ru-s b{font-weight:800;white-space:nowrap}.ru-s span{opacity:.85}'
+    + '.ru-w{margin:.7em 0 .5em;font-size:1.05em}.ru-w b{display:inline-block;font-size:.78em;letter-spacing:.12em;padding:.15em .6em;border-radius:1em;margin-right:.6em;background:#0E7490;color:#fff}'
+    + '.ru-x{display:flex;flex-wrap:wrap;gap:.5em;margin:.5em 0}.ru-x span{font-size:.9em;font-weight:700;border:.15em solid currentColor;border-radius:1em;padding:.15em .8em}'
+    + '.ru-tz{width:100%;border-collapse:collapse;font-size:.92em;margin:.6em 0}.ru-tz td{padding:.18em .4em;border-bottom:1px solid rgba(127,127,127,.3)}.ru-tz tr.h td{font-weight:800}'
+    + '.ru-ft{display:flex;align-items:center;gap:1.4em;margin-top:1em;padding-top:1em;border-top:1px solid rgba(127,127,127,.35)}.ru-ft .rg{flex:1;font-size:.95em}.ru-ft .rg b{display:block;font-size:1.3em}.ru-ft .rg b span{color:#0E7490}.ru-pn.dk .ru-ft .rg b span{color:#67E8F9}'
+    + '.ru-ft .bd{display:flex;gap:.5em;margin-top:.5em}.ru-ft .qr{width:9em;height:9em;flex:none;background:#fff;padding:.4em;border-radius:.5em;box-sizing:border-box}.ru-ft .qr img{width:100%;height:100%;display:block}';
+  F.uploadedTheme = function (u) {
+    return { name: u.name || 'Your design', uploaded: true, fn: function (spec, partner, sq) {
+      var zoomEv = R.zoom(spec); if (!zoomEv) partner = false;
+      var base = sq ? (partner ? 1.55 : 1.95) : (partner ? 1.75 : 2.15);
+      var tl = R.titleLines(spec, 2), ts = R.fitSize(tl, 54, 7.2, 0.56) / base;
+      var w = R.where(spec), reg = R.register(spec, partner), ss = R.sessions(spec);
+      var co = (spec.panelCallouts || []).filter(Boolean).slice(0, 2);
+      var pos = u.pos === 'top' ? 'top:5cqw' : u.pos === 'middle' ? 'top:50%;transform:translateY(-50%)' : 'bottom:5cqw';
+      var h = '<div class="vfx ru' + (sq ? ' sq' : '') + (partner ? ' partner' : '') + '"><img class="ru-bg" src="' + ((sq && u.square) || u.letter) + '" alt="">'
+        + '<div class="ru-pn ' + (u.card === 'dark' ? 'dk' : 'lt') + '" style="' + pos + ';font-size:' + base + 'cqw">'
+        + '<div class="ru-hd">' + R.logo(spec, partner) + '<div class="ru-t" style="font-size:' + ts.toFixed(2) + 'em">' + tl.join('<br>') + '</div></div>'
+        + (R.tagline(spec) ? '<div class="ru-tg">' + R.tagline(spec) + '</div>' : '')
+        + ss.map(function (s) { return '<div class="ru-s"><b>' + s.dow + ', ' + s.mon + ' ' + s.day + '</b><b>' + s.time + '</b>' + (s.lesson ? '<span>' + s.lesson + '</span>' : '') + '</div>'; }).join('')
+        + '<div class="ru-w"><b>' + w.kicker + '</b>' + w.line1 + (w.line2 ? ', ' + w.line2 : '') + '</div>'
+        + (spec.panelPresenter ? '<div class="ru-w"><b>GUEST SPEAKER</b>' + esc(spec.panelPresenter) + '</div>' : '')
+        + (co.length ? '<div class="ru-x">' + co.map(function (c) { return '<span>' + esc(c) + '</span>'; }).join('') + '</div>' : '')
+        + (partner ? '<table class="ru-tz">' + H.zoneRows(spec.sessions).map(function (r) { return '<tr' + (r.home ? ' class="h"' : '') + '><td>' + r.label + '</td><td>' + r.days + '</td><td>' + r.time + '</td></tr>'; }).join('') + '</table>' : '')
+        + '<div class="ru-ft"><div class="rg"><b>' + reg.big + '</b>' + reg.small + '<div class="bd">' + R.badges(spec, partner) + '</div></div><div class="qr">' + H.qrImg(spec, partner) + '</div></div>'
+        + '</div></div>';
+      return h;
+    } };
+  };
+})();
