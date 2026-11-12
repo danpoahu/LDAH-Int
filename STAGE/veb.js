@@ -246,14 +246,14 @@
       + '<style>html,body{margin:0;background:transparent;font-family:-apple-system,Segoe UI,sans-serif}' + F().css
       + '.g{display:grid;grid-template-columns:repeat(' + (rnd ? 1 : Math.max(opts.length, 1)) + ',minmax(0,1fr));gap:' + (rnd ? 12 : 8) + 'px;align-items:start}'
       + '.c{cursor:pointer;border:3px solid transparent;border-radius:9px;padding:3px;transition:border-color .15s}.c:hover{border-color:#94a3b8}.c.on{border-color:#0F766E;background:#ecfdf5}'
-      + '.c .f{pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18)}.c .n{font-size:12px;font-weight:700;text-align:center;color:#0f172a;margin:5px 0 2px}.c.on .n{color:#0F766E}</style></head>'
+      + '.c>.f{pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18)}.c>.n{font-size:12px;font-weight:700;text-align:center;color:#0f172a;margin:5px 0 2px}.c.on>.n{color:#0F766E}</style></head>'
       + '<body><div class="g">' + cells + '</div><script>document.addEventListener("click",function(e){var c=e.target.closest("[data-t]");if(c&&parent.VEB)parent.VEB.pickDesign(c.getAttribute("data-t"));});'
       + 'function fit(){var f=parent.document.getElementById("vebPickFrame");if(f)f.style.height=document.body.scrollHeight+"px";}window.addEventListener("load",fit);if(document.fonts)document.fonts.ready.then(fit);setTimeout(fit,50);<\/script></body></html>';
     var fr = document.getElementById('vebPickFrame');
     if (!fr) { fr = document.createElement('iframe'); fr.id = 'vebPickFrame'; fr.setAttribute('title', 'Flyer designs'); fr.style.cssText = 'width:100%;border:0;display:block;height:240px'; box.innerHTML = ''; box.appendChild(fr); }
     // Show the guest speaker and callout boxes in the previews too, placed the same way as on the real flyer.
     fr.onload = function () { var d = fr.contentDocument; (d.fonts ? d.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () {
-      if (F().decorate) [].forEach.call(d.querySelectorAll('.c .f'), function (f) { if (f.firstElementChild) F().decorate(d, f.firstElementChild, sp.deco || {}); }); }, 60); }); };
+      if (F().decorate) [].forEach.call(d.querySelectorAll('.c>.f'), function (f) { if (f.firstElementChild) F().decorate(d, f.firstElementChild, sp.deco || {}); }); }, 60); }); };
     fr.srcdoc = doc;
     var t = theme(S.series, S.month, S.template), n = document.getElementById('vebTheme'); if (n) n.textContent = t ? t.name : (rnd ? '' : 'No design for this month yet');
   }
