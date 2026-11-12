@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.37-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.38-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -48813,7 +48813,7 @@ var _cmsVolAppFilter = 'all';
    add special volunteer days, and see who signed up on the website
    (www.ldahawaii.org/STAGE/volunteer-office.html). Everything goes through the
    officeVolunteerAdmin function; the collections are server-only. */
-var _ovh = { data: null, draft: null, busy: false, confirmDay: '', confirmCancel: '' };
+var _ovh = { data: null, draft: null, busy: false, confirmDay: '', confirmCancel: '', calY: 0, calM: 0, calSel: '', calOpen: {} };
 var _OVH_WD = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 function _ovhEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 var _OVH_MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -48824,6 +48824,19 @@ function _ovhRange(a, b) { return _ovhT(_ovhMin(a)) + '–' + _ovhT(_ovhMin(b));
 function _ovhDay(k) { var a = k.split('-'), d = new Date(+a[0], +a[1] - 1, +a[2], 12); return _OVH_WD[d.getDay()].slice(0, 3) + ', ' + _OVH_MO[d.getMonth()] + ' ' + d.getDate(); }
 function _ovhAdd(k, n) { var a = k.split('-'), d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2] + n)); return d.toISOString().slice(0, 10); }
 function _ovhWd(k) { var a = k.split('-'); return new Date(Date.UTC(+a[0], +a[1] - 1, +a[2])).getUTCDay(); }
+/* Who is booked on a given day. A weekly sign-up starts on the first matching
+   day after it was made. */
+function _ovhPeopleOn(k) {
+  var wd = _ovhWd(k);
+  return ((_ovh.data && _ovh.data.signups) || []).filter(function (s) {
+    if (s.kind !== 'weekly') return s.date === k;
+    var made = s.createdAt ? new Date(s.createdAt - 10 * 3600e3).toISOString().slice(0, 10) : '';
+    return s.weekday === wd && k > made;
+  }).sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+}
+function _ovhCalNav(n) { _ovh.calM += n; if (_ovh.calM < 0) { _ovh.calM = 11; _ovh.calY--; } if (_ovh.calM > 11) { _ovh.calM = 0; _ovh.calY++; } _ovh.calSel = ''; _ovhRender(); }
+function _ovhCalPick(k) { _ovh.calSel = _ovh.calSel === k ? '' : k; _ovhRender(); }
+function _ovhCalMore(k) { _ovh.calOpen[k] = !_ovh.calOpen[k]; _ovhRender(); }
 function _ovhOpts(lo, hi, sel) { var h = ''; for (var m = lo; m <= hi; m += 30) h += '<option value="' + _ovhHm(m) + '"' + (_ovhHm(m) === sel ? ' selected' : '') + '>' + _ovhT(m) + '</option>'; return h; }
 
 async function _ovhCall(payload) {
@@ -48902,32 +48915,56 @@ function _ovhRender() {
   }).join('') || '<div style="font-size:.86rem;color:#94A3B8;">No special days yet.</div>';
   h += '</div>';
 
-  /* 3. Who's coming: the next 14 days */
+  /* 3. Calendar, laid out like the Dashboard's Community Calendar: a month
+     grid with a dot on days someone is coming, and the names listed beside it.
+     No day picked = this week (Sun-Sat); click a day for just that day, and
+     click it again to go back to the week. Long days fold after 4 names. */
   var sig = d.signups || [];
-  function who(s) { return _ovhEsc(((s.firstName || '') + ' ' + (s.lastName || '')).trim() || s.email); }
-  h += '<div style="' + card + '"><b style="font-size:1rem;color:#0F172A;">Who’s coming (next 2 weeks)</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-top:10px;">';
-  var any = false;
-  for (var i = 0; i < 14; i++) {
-    var k = _ovhAdd(d.today, i), wd = _ovhWd(k);
-    /* A weekly sign-up starts on the first matching day after it was made. */
-    var rows = sig.filter(function (s) {
-      if (s.kind !== 'weekly') return s.date === k;
-      var made = s.createdAt ? new Date(s.createdAt - 10 * 3600e3).toISOString().slice(0, 10) : '';
-      return s.weekday === wd && k > made;
-    }).sort(function (a, b) { return a.start < b.start ? -1 : 1; });
-    var spd = (d.special || []).filter(function (x) { return x.date === k; });
-    var open = (st.active && st.openDays.indexOf(wd) >= 0) || spd.length;
-    if (!rows.length && !open) continue;
-    any = true;
-    h += '<div style="border:1px solid #E2E8F0;border-radius:10px;padding:8px;background:#F8FAFC;"><div style="font-weight:700;font-size:.84rem;color:#0F172A;margin-bottom:4px;">' + (i === 0 ? 'Today, ' : '') + _ovhDay(k) + '</div>' +
-      (spd.length ? '<div style="font-size:.74rem;color:#5B21B6;margin-bottom:4px;">' + spd.map(function (x) { return _ovhEsc(x.note.split(':')[0]); }).join(', ') + '</div>' : '') +
-      (rows.length ? rows.map(function (s) {
-        var c = s.kind === 'special' ? '#7C3AED' : s.kind === 'once' ? '#F97316' : '#0891B2';
-        return '<div style="border-left:3px solid ' + c + ';background:#fff;border-radius:6px;padding:4px 6px;margin-top:4px;font-size:.78rem;"><b>' + _ovhRange(s.start, s.end) + '</b><br>' + who(s) + '</div>';
-      }).join('') : '<div style="font-size:.76rem;color:#94A3B8;">Nobody yet</div>') + '</div>';
+  if (!_ovh.calY) { var _t = d.today.split('-'); _ovh.calY = +_t[0]; _ovh.calM = +_t[1] - 1; }
+  var cy = _ovh.calY, cm = _ovh.calM, MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var key = function (y, m, dd) { return y + '-' + (m < 9 ? '0' : '') + (m + 1) + '-' + (dd < 10 ? '0' : '') + dd; };
+  h += '<div style="' + card + '"><div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">' +
+       '<div><b style="font-size:1rem;color:#0F172A;">Who’s coming</b><div style="font-size:.8rem;color:#64748B;">Click a day with a dot to list just that day, and click it again to show the whole week</div></div>' +
+       '<div class="dash-cal-nav"><button type="button" onclick="_ovhCalNav(-1)" title="Show the previous month">&lsaquo;</button><span>' + MONTHS[cm] + ' ' + cy + '</span><button type="button" onclick="_ovhCalNav(1)" title="Show the next month">&rsaquo;</button></div></div>';
+  h += '<div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;"><div style="flex:0 1 340px;min-width:260px;"><div class="mini-cal-header">';
+  ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(function (x) { h += '<div>' + x + '</div>'; });
+  h += '</div><div class="mini-cal-grid">';
+  var first = new Date(cy, cm, 1).getDay(), dim = new Date(cy, cm + 1, 0).getDate(), prevDim = new Date(cy, cm, 0).getDate();
+  for (var pi = 0; pi < first; pi++) h += '<div class="mini-cal-day other-month">' + (prevDim - first + 1 + pi) + '</div>';
+  for (var dd = 1; dd <= dim; dd++) {
+    var k = key(cy, cm, dd), n = _ovhPeopleOn(k).length, sp = (d.special || []).some(function (x) { return x.date === k; });
+    var cls = 'mini-cal-day' + (k === d.today ? ' today' : '') + (_ovh.calSel === k ? ' selected' : '');
+    h += '<div class="' + cls + '" onclick="_ovhCalPick(\'' + k + '\')" title="' + (n ? n + ' coming' : 'Nobody signed up') + (sp ? ' · special day' : '') + '">' + dd +
+         (n || sp ? '<span class="cal-dot"' + (sp && k !== d.today ? ' style="background:#7C3AED;"' : '') + '></span>' : '') + '</div>';
   }
-  if (!any) h += '<div style="font-size:.86rem;color:#94A3B8;">No open days or sign-ups in the next 2 weeks.</div>';
-  h += '</div><div style="display:flex;gap:14px;font-size:.76rem;color:#64748B;margin-top:8px;"><span><b style="color:#0891B2;">|</b> Every week</span><span><b style="color:#F97316;">|</b> Just once</span><span><b style="color:#7C3AED;">|</b> Special day</span></div></div>';
+  var rem = (7 - ((first + dim) % 7)) % 7;
+  for (var ni = 1; ni <= rem; ni++) h += '<div class="mini-cal-day other-month">' + ni + '</div>';
+  h += '</div><div style="display:flex;gap:12px;font-size:.74rem;color:#64748B;margin-top:8px;flex-wrap:wrap;"><span><b style="color:#0891B2;">|</b> Every week</span><span><b style="color:#F97316;">|</b> Just once</span><span><b style="color:#7C3AED;">|</b> Special day</span></div></div>';
+
+  /* The list beside the grid. */
+  var days = [];
+  if (_ovh.calSel) days = [_ovh.calSel];
+  else { var ws = _ovhAdd(d.today, -_ovhWd(d.today)); for (var wi = 0; wi < 7; wi++) days.push(_ovhAdd(ws, wi)); }
+  var list = '';
+  days.forEach(function (k) {
+    var rows = _ovhPeopleOn(k), spd = (d.special || []).filter(function (x) { return x.date === k; });
+    var open = (st.active && st.openDays.indexOf(_ovhWd(k)) >= 0) || spd.length;
+    if (!_ovh.calSel && !rows.length && !spd.length) return;
+    var a = k.split('-'), shown = _ovh.calOpen[k] ? rows : rows.slice(0, 4);
+    list += '<div class="dash-event-item" style="align-items:flex-start;">' +
+      '<div class="dash-event-date-badge"><div class="month">' + _OVH_MO[+a[1] - 1] + '</div><div class="day">' + (+a[2]) + '</div></div>' +
+      '<div class="dash-event-info"><p class="title" style="white-space:normal;">' + (k === d.today ? 'Today, ' : '') + _ovhDay(k) +
+      ' <span style="font-weight:600;color:#64748B;font-size:.8rem;">· ' + (rows.length ? rows.length + ' coming' : (open ? 'nobody yet' : 'office help not open')) + '</span></p>' +
+      (spd.length ? '<p class="meta" style="color:#5B21B6;">' + spd.map(function (x) { return _ovhEsc(x.note) + ' (' + _ovhRange(x.from, x.to) + ', ' + x.max + ' needed)'; }).join('<br>') + '</p>' : '') +
+      shown.map(function (s) {
+        var c = s.kind === 'special' ? '#7C3AED' : s.kind === 'once' ? '#F97316' : '#0891B2';
+        return '<div style="border-left:3px solid ' + c + ';background:#F8FAFC;border-radius:6px;padding:4px 8px;margin-top:4px;font-size:.82rem;"><b>' + _ovhEsc(((s.firstName || '') + ' ' + (s.lastName || '')).trim() || s.email) + '</b> <span style="color:#475569;">' + _ovhRange(s.start, s.end) + '</span></div>';
+      }).join('') +
+      (rows.length > 4 ? '<button type="button" class="btn btn-ghost" style="font-size:.76rem;padding:4px 10px;margin-top:6px;" onclick="_ovhCalMore(\'' + k + '\')">' + (_ovh.calOpen[k] ? 'Show fewer' : 'Show ' + (rows.length - 4) + ' more') + '</button>' : '') +
+      '</div></div>';
+  });
+  if (!list) list = '<div class="empty-msg">' + (_ovh.calSel ? 'Nobody on this day' : 'Nobody coming this week') + '</div>';
+  h += '<div style="flex:1 1 320px;min-width:0;">' + list + '</div></div></div>';
 
   /* 4. All sign-ups */
   h += '<div style="' + card + '"><b style="font-size:1rem;color:#0F172A;">All sign-ups (' + sig.length + ')</b>';
@@ -78143,7 +78180,7 @@ window.ldahIssueContext = function () {
 <script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
 window.vebOpen = function () {
-  var V = '155.37-STAGE';
+  var V = '155.38-STAGE';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
   if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEB ? null : add('veb.js'); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
