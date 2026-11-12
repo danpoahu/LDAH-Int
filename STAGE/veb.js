@@ -23,6 +23,36 @@
   var images = {};       // variant -> dataURL (current flyers)
   var dirty = true;      // form changed since flyers were made
 
+  /* Sponsor logo library (2026-11-12). The built-in logos live in sponsor-logos/; staff can add
+     their own and remove any. Added logos are kept as small PNG data URLs in settings/vebSponsor_*
+     (Storage would taint the flyer canvas: its CORS only allows ldahawaii.org). Removed built-ins
+     are listed in settings/vebSponsors.hidden so they can be brought back. Super Admin only, as
+     the settings rules already require. */
+  var CUSTOM = [], HIDDEN = [], libLoaded = false;
+  async function loadLib() {
+    try {
+      var snap = await db().collection('settings').get(); CUSTOM = []; HIDDEN = [];
+      snap.forEach(function (d) { var x = d.data() || {};
+        if (d.id === 'vebSponsors') HIDDEN = (x.hidden || []).slice();
+        else if (d.id.indexOf('vebSponsor_') === 0 && x.name && x.dataUrl) CUSTOM.push({ id: d.id, name: x.name, url: x.dataUrl, dark: !!x.dark, custom: true }); });
+      CUSTOM.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    } catch (e) { console.warn('[VEB] logo library', e); }
+    libLoaded = true;
+  }
+  function sponsorList() {
+    return (F().SPONSORS || []).filter(function (x) { return HIDDEN.indexOf(x.name) < 0; })
+      .map(function (x) { return { name: x.name, url: 'sponsor-logos/' + x.file, dark: x.dark }; }).concat(CUSTOM);
+  }
+  // What past flyers carried: Learning Labs = IDEAs that Work (plus the virtual meeting icon);
+  // Parent Talk Café = IDEAs that Work, Aloha United Way and Pacific Island Partners.
+  function defaultSponsors(series) { return isPtc(series) ? ['IDEAs that Work', 'Aloha United Way', 'Pacific Island Partners'] : ['IDEAs that Work']; }
+  // The "virtual meeting" laptop icon past flyers put next to the QR code (the Hawaiʻi flyer's Zoom badge).
+  var VIRTUAL_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 92"><rect x="14" y="3" width="92" height="66" rx="7" fill="#111"/>'
+    + [[20, 9], [62, 9], [20, 38], [62, 38]].map(function (c) { var x = c[0], y = c[1];
+      return '<rect x="' + x + '" y="' + y + '" width="38" height="25" rx="3" fill="none" stroke="#fff" stroke-width="2.6"/><circle cx="' + (x + 19) + '" cy="' + (y + 9) + '" r="4.2" fill="none" stroke="#fff" stroke-width="2.4"/>'
+        + '<path d="M' + (x + 11) + ' ' + (y + 22) + 'q8-10 16 0" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>'; }).join('')
+    + '<path d="M4 73h112l-7 15H11z" fill="#111"/><rect x="48" y="77" width="24" height="3" rx="1.5" fill="#fff"/></svg>');
+
   function toast(m, c) { if (typeof window._showToast === 'function') window._showToast(m, c || '#0F766E'); }
   function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -154,6 +184,8 @@
     var own = (S.customCallouts || []).filter(Boolean), pool = (F().calloutPick ? F().calloutPick(S.callouts || [], (S.id || '') + S.series + S.month + S.year, 9) : []);
     var deco = { presenter: S.showPresenter && !isPtc(S.series) ? S.presenter : '', callouts: own.concat(pool).slice(0, Math.max(2, own.length)), seed: (S.id || '') + S.series + S.month + S.year };
     var logos = {}; (F().SPONSORS || []).forEach(function (x) { logos[x.name] = { url: new URL('sponsor-logos/' + x.file, location.href).href, dark: x.dark }; });
+    CUSTOM.forEach(function (x) { logos[x.name] = { url: x.url, dark: x.dark }; });
+    logos.Zoom = { url: VIRTUAL_ICON, dark: false };
     return { deco: deco, sponsorLogos: logos, series: S.series, template: S.template, month: S.month, year: S.year, sponsors: S.sponsors, sessions: S.sessions, presenter: S.showPresenter ? S.presenter : '',
       logoUrl: 'https://www.ldahawaii.org/logo_blue.png', pipUrl: 'https://www.ldahawaii.org/assets/images/wp/Pacific-Island-Partners-Logo.png',
       qrHst: window._cmsQRPngForUrl('https://www.ldahawaii.org/events.html?eventId=' + S.id + '&autoOpen=1&src=flyer-qr'),
@@ -222,9 +254,17 @@
     var body = document.getElementById('vebBody'); if (!body) return;
     var mOpts = MONTHS.map(function (m, i) { var has = !!theme(S.series, i+1, 'A'); return '<option value="' + (i+1) + '"' + (S.month === i+1 ? ' selected' : '') + (has ? '' : ' disabled') + '>' + m + (has ? '' : ' (no design yet)') + '</option>'; }).join('');
     // Every sponsor / funder / partner seen on LDAH flyers, with its logo art. Up to three fit on a flyer.
-    var spons = (F().SPONSORS || []).map(function (x) { var on = S.sponsors.indexOf(x.name) >= 0;
+    var spons = sponsorList().map(function (x, i) { var on = S.sponsors.indexOf(x.name) >= 0;
       return '<label class="veb-logo' + (on ? ' on' : '') + '" title="' + esc(x.name) + '"><input type="checkbox" class="veb-sponsor" value="' + esc(x.name) + '"' + (on ? ' checked' : '') + ' onchange="VEB.sponsorTicked(this)">'
-        + '<span class="veb-logo-art' + (x.dark ? ' dk' : '') + '"><img src="sponsor-logos/' + esc(x.file) + '" alt="" loading="lazy"></span><span class="veb-logo-n">' + esc(x.name) + '</span></label>'; }).join('');
+        + '<button type="button" class="veb-logo-x" title="Remove this logo from the list" aria-label="Remove ' + esc(x.name) + '" onclick="VEB.removeLogo(event,' + i + ')">&times;</button>'
+        + '<span class="veb-logo-art' + (x.dark ? ' dk' : '') + '"><img src="' + esc(x.url) + '" alt="" loading="lazy"></span><span class="veb-logo-n">' + esc(x.name) + (x.custom ? ' <i>(added)</i>' : '') + '</span></label>'; }).join('')
+      + '<button type="button" class="veb-logo veb-logo-add" onclick="VEB.addLogoOpen()"><span class="veb-logo-art">+</span><span class="veb-logo-n">Add a logo</span></button>';
+    var logoForm = '<div id="vebLogoForm" class="veb-logo-form" hidden><b>Add a sponsor logo</b>'
+      + '<div class="veb-row3"><label>Name *<input id="vebLogoName" maxlength="60" placeholder="For example: Hawaiʻi Community Foundation"></label>'
+      + '<label>Logo file *<input id="vebLogoFile" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"></label>'
+      + '<label style="align-self:end"><span style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="vebLogoDark" style="width:auto"> White logo (needs a dark background)</span></label></div>'
+      + '<div style="display:flex;gap:8px;align-items:center;margin-top:8px"><button type="button" class="btn btn-primary" onclick="VEB.addLogoSave()">Add logo</button><button type="button" class="btn btn-ghost" onclick="document.getElementById(\'vebLogoForm\').hidden=true">Cancel</button><span id="vebLogoMsg" class="veb-muted"></span></div></div>'
+      + (HIDDEN.length ? '<div class="veb-muted" style="margin-top:6px">' + HIDDEN.length + ' built-in logo' + (HIDDEN.length === 1 ? ' is' : 's are') + ' removed from the list. <a href="javascript:void(0)" onclick="VEB.restoreLogos()">Bring them back</a></div>' : '');
     body.innerHTML =
       '<div class="veb-wrap"><div class="veb-form">'
       + (S.id ? '<div class="veb-editing">Editing: ' + esc(S.title || 'saved event') + ' <span class="veb-pill ' + (S.active ? 'live' : '') + '">' + (S.active ? 'On the website' : 'Hidden draft') + '</span> <a href="javascript:void(0)" onclick="VEB.newEvent()">Start a new event</a></div>' : '')
@@ -241,7 +281,7 @@
       + '<div class="veb-lbl">Callout boxes <span class="veb-muted" style="font-weight:400">(two are picked at random and shown where the flyer has room)</span></div><div>'
       + (F().CALLOUT_PRESETS || []).map(function (c) { return '<label class="veb-chk"><input type="checkbox" class="veb-callout" value="' + esc(c) + '"' + ((S.callouts || []).indexOf(c) >= 0 ? ' checked' : '') + ' onchange="VEB.changed()"> ' + esc(c) + '</label>'; }).join('') + '</div>'
       + '<div class="veb-row2" style="margin-top:6px">' + [0, 1].map(function (i) { return '<label>Your own callout ' + (i + 1) + '<input class="veb-callout-own" maxlength="32" value="' + esc((S.customCallouts || [])[i] || '') + '" oninput="VEB.changed()" placeholder="For example: Spanish interpreter available"></label>'; }).join('') + '</div>'
-      + '<div class="veb-lbl">Sponsor logos on the flyer <span class="veb-muted" style="font-weight:400">(tick up to 3)</span></div><div class="veb-logos">' + spons + '</div>'
+      + '<div class="veb-lbl">Sponsor logos on the flyer <span class="veb-muted" style="font-weight:400">(tick up to 3)</span></div><div class="veb-logos">' + spons + '</div>' + logoForm
       + '<label class="veb-chk" style="margin-top:8px"><input type="checkbox" id="vebPartner"' + (S.partnerPages ? ' checked' : '') + ' onchange="VEB.changed()"> Also list it on the six partner island pages</label>'
       + '<div class="veb-btns"><button class="btn" onclick="VEB.makeFlyers()">Make flyers</button>'
       + '<button class="btn btn-ghost" onclick="VEB.save(false)">Save as hidden draft</button>'
@@ -407,7 +447,7 @@
     } catch (e) { toast('Could not open it: ' + e.message, '#DC2626'); }
   }
 
-  var CSS = '.veb-logos{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;max-height:330px;overflow:auto;padding:2px}.veb-logo{display:flex!important;flex-direction:column;align-items:center;gap:4px;margin:0!important;padding:6px;border:2px solid #e2e8f0;border-radius:9px;cursor:pointer;background:#fff;position:relative}.veb-logo:hover{border-color:#94a3b8}.veb-logo.on{border-color:#0F766E;background:#ecfdf5}.veb-logo input{position:absolute;top:5px;left:5px;margin:0}.veb-logo-art{height:46px;width:100%;display:flex;align-items:center;justify-content:center;border-radius:5px}.veb-logo-art.dk{background:#1d2430}.veb-logo-art img{max-height:42px;max-width:92px;object-fit:contain}.veb-logo-n{font-size:.7rem;font-weight:600;color:#334155;text-align:center;line-height:1.15}'
+  var CSS = '.veb-logos{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;max-height:330px;overflow:auto;padding:2px}.veb-logo{display:flex!important;flex-direction:column;align-items:center;gap:4px;margin:0!important;padding:6px;border:2px solid #e2e8f0;border-radius:9px;cursor:pointer;background:#fff;position:relative}.veb-logo:hover{border-color:#94a3b8}.veb-logo.on{border-color:#0F766E;background:#ecfdf5}.veb-logo input{position:absolute;top:5px;left:5px;margin:0}.veb-logo-art{height:46px;width:100%;display:flex;align-items:center;justify-content:center;border-radius:5px}.veb-logo-art.dk{background:#1d2430}.veb-logo-art img{max-height:42px;max-width:92px;object-fit:contain}.veb-logo-n{font-size:.7rem;font-weight:600;color:#334155;text-align:center;line-height:1.15}.veb-logo-n i{font-weight:400;color:#64748b}.veb-logo-x{position:absolute;top:2px;right:3px;width:20px;height:20px;border:0;border-radius:50%;background:transparent;color:#94a3b8;font-size:15px;line-height:1;cursor:pointer;padding:0;opacity:0;transition:opacity .15s}.veb-logo:hover .veb-logo-x,.veb-logo-x:focus{opacity:1}.veb-logo-x:hover{background:#fee2e2;color:#b91c1c}.veb-logo-add{border-style:dashed;font:inherit;color:#0f766e}.veb-logo-add .veb-logo-art{font-size:28px;font-weight:300;color:#0f766e}.veb-logo-form{margin-top:10px;padding:10px 12px;border:1px solid #99f6e4;background:#f0fdfa;border-radius:9px}'
     + '#vebBody{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px 20px;max-width:1240px;box-shadow:0 2px 10px rgba(15,23,42,.06)}.veb-wrap{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}.veb-form{flex:1 1 520px;max-width:720px}.veb-side{flex:1 1 300px;max-width:440px;position:sticky;top:70px}'
     + '.veb-form label{display:block;font-size:.8rem;font-weight:600;color:#334155;margin:0 0 10px}.veb-form input:not([type=checkbox]),.veb-form select{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit;font-weight:400;font-size:.9rem}'
     + '.veb-row3{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px}.veb-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
@@ -429,6 +469,52 @@
       if (!isSuper()) { body.innerHTML = '<p>The Virtual Event Builder is limited to Super Admin.</p>'; return; }
       if (!S) S = fresh();
       render();
+      if (!libLoaded) loadLib().then(function () { if (document.getElementById('vebBody')) { if (S) readForm(); render(); } });
+    },
+    addLogoOpen: function () { var f = document.getElementById('vebLogoForm'); if (!f) return; f.hidden = false; var n = document.getElementById('vebLogoName'); if (n) n.focus(); },
+    addLogoSave: async function () {
+      var name = (document.getElementById('vebLogoName').value || '').trim(), file = (document.getElementById('vebLogoFile').files || [])[0];
+      var dark = document.getElementById('vebLogoDark').checked, msg = document.getElementById('vebLogoMsg');
+      var say = function (t) { if (msg) msg.textContent = t; };
+      if (!name) return say('Give the logo a name.');
+      if (sponsorList().some(function (x) { return x.name.toLowerCase() === name.toLowerCase(); }) || name === 'Zoom') return say('There is already a logo called that.');
+      if (!file) return say('Pick the logo file.');
+      if (file.size > 8 * 1024 * 1024) return say('That file is over 8 MB. Pick a smaller one.');
+      say('Adding…');
+      try {
+        var src = URL.createObjectURL(file);
+        var img = await new Promise(function (ok, no) { var i = new Image(); i.onload = function () { ok(i); }; i.onerror = function () { no(new Error('That file could not be read as an image.')); }; i.src = src; });
+        // Fit inside 720 x 240 (logos print about 3 cm tall), keep transparency.
+        var w = img.naturalWidth || 600, h = img.naturalHeight || 200, k = Math.min(1, 720 / w, 240 / h);
+        var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(src);
+        var data = c.toDataURL('image/png');
+        if (data.length > 900000) data = c.toDataURL('image/webp', 0.9);
+        if (data.length > 900000) return say('That logo is too detailed to store. Try a smaller or simpler file.');
+        var id = 'vebSponsor_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) + '_' + Date.now().toString(36);
+        var who = (window.currentUserData && (window.currentUserData.displayName || window.currentUserData.email)) || '';
+        await db().collection('settings').doc(id).set({ name: name, dataUrl: data, dark: dark, createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: who });
+        if (typeof window.auditLog === 'function') window.auditLog('Added sponsor logo', name);
+        readForm(); await loadLib(); render(); toast('Added ' + name + '. Tick it to put it on the flyer.', '#16A34A');
+      } catch (e) { say('Could not add it: ' + (e.message || e)); }
+    },
+    removeLogo: function (ev, i) {
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      var x = sponsorList()[i]; if (!x) return;
+      var go = async function () {
+        if (x.custom) await db().collection('settings').doc(x.id).delete();
+        else await db().collection('settings').doc('vebSponsors').set({ hidden: firebase.firestore.FieldValue.arrayUnion(x.name) }, { merge: true });
+        if (typeof window.auditLog === 'function') window.auditLog('Removed sponsor logo', x.name);
+        readForm(); S.sponsors = S.sponsors.filter(function (n) { return n !== x.name; });
+        await loadLib(); render(); markDirty(); toast('Removed ' + x.name + '.', '#16A34A');
+      };
+      var body = 'Remove <b>' + esc(x.name) + '</b> from the logo list?<br><br>Flyers already made keep it.' + (x.custom ? ' To use it again you would add the file again.' : ' You can bring it back with “Bring them back” under the list.');
+      if (typeof window.showConfirmModal !== 'function') { go(); return; }
+      window.showConfirmModal({ title: 'Remove this logo?', subtitle: x.name, body: body, confirmLabel: 'Remove logo', cancelLabel: 'Keep it', confirmStyle: 'danger', onConfirm: go });
+    },
+    restoreLogos: async function () {
+      try { await db().collection('settings').doc('vebSponsors').set({ hidden: [] }, { merge: true }); readForm(); await loadLib(); render(); toast('The removed logos are back.', '#16A34A'); }
+      catch (e) { toast('Could not bring them back: ' + e.message, '#DC2626'); }
     },
     sponsorTicked: function (cb) {
       var n = document.querySelectorAll('.veb-sponsor:checked').length;
@@ -443,7 +529,9 @@
     pickDesign: function (t) { readForm(); if (S.template === t) return; S.template = t; var had = Object.keys(images).length; render(); markDirty(); if (had) makeFlyers(); },
     // Switching series swaps the design set and, while dates are untouched, the default sessions.
     seriesChanged: function () {
-      readForm(); S.showPresenter = isPtc(S.series);
+      var prevSeries = S.series; readForm(); S.showPresenter = isPtc(S.series);
+      var wasDefault = S.sponsors.slice().sort().join('|') === defaultSponsors(prevSeries).slice().sort().join('|');
+      if (wasDefault) S.sponsors = defaultSponsors(S.series).slice();
       if (S.autoDates) { var dd = defaultDates(S.series, S.year, S.month);
         S.sessions = dd.map(function (d, i) { var o = S.sessions[i] || { start: '17:00', end: '18:00', lesson: '', desc: '' }; return { date: d, start: o.start, end: o.end, lesson: o.lesson, desc: o.desc }; }); }
       render(); markDirty();
