@@ -400,9 +400,11 @@
     }
     return urls;
   }
-  async function doSave(publish) {
+  async function doSave(publish, holChecked) {
     if (!isSuper()) { toast('The Virtual Event Builder is limited to Super Admin.', '#B45309'); return; }
     readForm(); var p = problems(); if (p.length) { toast(p[0], '#B45309'); return; }
+    // Office holidays (2026-11-12): ask before saving a session on a day the office is closed.
+    if (!holChecked && window.ldahHolidayAsk && !(await window.ldahHolidayAsk(S.sessions.map(function (s) { return s.date; })))) return;
     if (dirty || !images.hst) { if (!(await makeFlyers())) return; }
     var note = document.getElementById('vebFlyerNote'); if (note) note.textContent = 'Saving the flyers and the event…';
     try {
@@ -420,12 +422,16 @@
       render();
     } catch (e) { if (note) note.textContent = ''; toast('Could not save: ' + (e.message || e), '#DC2626'); }
   }
-  function save(publish) {
+  async function save(publish) {
     if (!publish) return doSave(false);
-    if (typeof window.showConfirmModal !== 'function') return doSave(true);
+    // Holidays first: the publish question and the holiday question share one pop-up.
+    readForm();
+    if (window.ldahHolidayAsk && !(await window.ldahHolidayAsk(S.sessions.map(function (s) { return s.date; })))) return;
+    await new Promise(function (r) { setTimeout(r, 50); });
+    if (typeof window.showConfirmModal !== 'function') return doSave(true, true);
     window.showConfirmModal({ title: 'Publish to the website?', subtitle: isRandom(S.series) ? S.title : S.series + ' — ' + MONTHS[S.month-1] + ' ' + S.year,
       body: 'This puts the event and its Hawaiʻi flyer on ldahawaii.org right away, with Register open.',
-      confirmLabel: 'Publish', cancelLabel: 'Cancel', onConfirm: function () { doSave(true); } });
+      confirmLabel: 'Publish', cancelLabel: 'Cancel', onConfirm: function () { doSave(true, true); } });
   }
   async function unpublish() {
     if (!S.id) return;

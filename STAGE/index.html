@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.46-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.47-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10150,6 +10150,17 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
               <span id="cmsPersonasSavedMsg" style="font-size:.82rem;color:#16A34A;font-weight:600;"></span>
             </div>
           </div>
+        </div>
+        </div>
+        <div class="lm-ghead" style="--c:#B45309" data-roles="superAdmin">
+          <span class="lm-dot"></span>Office holidays
+          <span class="lm-gn">1</span>
+          <span class="lm-gnote">days the office is closed; DAN warns when one is picked</span>
+        </div>
+        <div class="lm-grid lm-one" style="--c:#B45309" data-roles="superAdmin">
+<div class="lm-card collapsed" id="lmHolCard">
+          <div class="lm-card-header" onclick="this.parentElement.classList.toggle('collapsed');if(!this.parentElement.classList.contains('collapsed'))lmLoadHolidays();">Office holidays</div>
+          <div class="lm-card-body"><div id="lmHolBody"></div></div>
         </div>
         </div>
         <div class="lm-ghead" style="--c:#D97706">
@@ -16933,7 +16944,9 @@ var _photoPendingByIsland = {};
       if (thisDate.getTime() === today.getTime()) cls += ' today';
       if (_dashCalSelectedDay && _dashCalSelectedDay.getTime() === thisDate.getTime()) cls += ' selected';
       var dot = eventDays[d] ? '<span class="cal-dot"></span>' : '';
-      html += '<div class="' + cls + '" onclick="_calDayClick(' + d + ')">' + d + dot + '</div>';
+      var _hol = window.ldahHolidayOn ? window.ldahHolidayOn(year + '-' + ('0' + (month + 1)).slice(-2) + '-' + ('0' + d).slice(-2)) : '';
+      if (_hol) cls += ' holiday';
+      html += '<div class="' + cls + '"' + (_hol ? ' title="Office closed: ' + _hol.replace(/"/g, '&quot;') + '"' : '') + ' onclick="_calDayClick(' + d + ')">' + d + dot + '</div>';
     }
 
     // Next month filler days
@@ -16948,6 +16961,7 @@ var _photoPendingByIsland = {};
   }
 
   window._calDayClick = _calDayClick;
+  window._dashCalRefresh = function () { if (!document.getElementById('dashMiniCal') || _dashCalYear == null) return; renderMiniCalendar(_dashCalYear, _dashCalMonth); if (_dashCalEvents) renderDashEventsList(_dashCalEvents, _dashCalSelectedDay); };
   window.calNavPrev = calNavPrev;
   window.calNavNext = calNavNext;
 
@@ -16983,6 +16997,18 @@ var _photoPendingByIsland = {};
     if (!container) return;
     if (!events) { container.innerHTML = '<div class="empty-msg">Loading events...</div>'; return; }
     events = events.filter(window._myDayIslandOK);   // Super Partner island chip (v151.6)
+    // Office holidays (2026-11-12): one whole-day row per closed day in view, listed first.
+    if (window.ldahHolidayOn) {
+      var _hs = new Date(), _he; _hs.setHours(0,0,0,0);
+      if (selectedDay) { _hs = new Date(selectedDay); _he = new Date(selectedDay); }
+      else { _hs.setDate(_hs.getDate() - _hs.getDay()); _he = new Date(_hs); _he.setDate(_he.getDate() + 6); }
+      var _hols = [];
+      for (var _hd = new Date(_hs); _hd <= _he; _hd.setDate(_hd.getDate() + 1)) {
+        var _hk = _hd.getFullYear() + '-' + ('0' + (_hd.getMonth() + 1)).slice(-2) + '-' + ('0' + _hd.getDate()).slice(-2), _hn = window.ldahHolidayOn(_hk);
+        if (_hn) _hols.push({ holiday: true, title: 'Office closed: ' + _hn, date: new Date(_hd), location: '' });
+      }
+      events = _hols.concat(events);
+    }
 
     var filtered;
     if (selectedDay) {
@@ -17007,6 +17033,11 @@ var _photoPendingByIsland = {};
     var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     var html = '';
     filtered.forEach(function(ev) {
+      if (ev.holiday) {
+        html += '<div class="dash-event-item holiday"><div class="dash-event-date-badge"><div class="month">' + monthNames[ev.date.getMonth()] + '</div><div class="day">' + ev.date.getDate() + '</div></div>'
+          + '<div class="dash-event-info"><p class="title">' + ev.title.replace(/</g, '&lt;') + '</p><p class="meta">' + ev.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' · office holiday</p></div></div>';
+        return;
+      }
       var locText = ev.location ? '<span style="margin-left:6px;">' + ev.location + '</span>' : '';
       var clickAction = ev.staffCal ? 'edOpenStaffEntry(\'' + ev.id.replace(/'/g, "\\'") + '\',\'\',false,\'' + (ev.occ || '') + '\')'
         : 'cmsViewSignups(\'' + ev.id.replace(/'/g, "\\'") + '\',' + (ev.isRecurring ? 'true' : 'false') + ',\'' + (ev.title || '').replace(/'/g, "\\'") + '\')';
@@ -19489,6 +19520,7 @@ var _photoPendingByIsland = {};
   }
 
   async function loadLookupLists() {
+  try { if (window.ldahHolidaysLoad) window.ldahHolidaysLoad(); } catch (e) {}
     try {
       var snap = await db.collection('lookupLists').get();
       snap.forEach(function(doc) {
@@ -38541,6 +38573,12 @@ window.edSaveStaffEntry = async function() {
     rec.agendaToUid = g('edStAgTo') || ED_AG_DEFAULT_TO; rec.agendaToName = _to ? _to.name : (rec.agendaToUid === ED_AG_DEFAULT_TO ? 'Rosie Rowe' : '');
   }
   if (rec.startTime && rec.endTime && rec.endTime < rec.startTime) { msg.style.color = '#DC2626'; msg.textContent = 'The end time is before the start time.'; return; }
+  // Office holidays: the first date, and for a repeat every date up to a year out.
+  if (window.ldahHolidayAsk) {
+    var _hd = [rec.date];
+    if (rec.repeat && window._staffCalDates) { var _hy = new Date(); _hy.setFullYear(_hy.getFullYear() + 1); try { _hd = window._staffCalDates(rec, rec.date, rec.repeatUntil || window._staffCalIso(_hy)); } catch (e) {} }
+    if (!(await window.ldahHolidayAsk(_hd))) return;
+  }
   var me = window.currentUserData || {};
   var FV = firebase.firestore.FieldValue;
   rec.updatedAt = FV.serverTimestamp(); rec.updatedByUid = me.uid || ''; rec.updatedByName = me.displayName || me.email || '';
@@ -39403,6 +39441,7 @@ window.osSaveDay = async function() {
   var closed = all.filter(function(t) { return _osF.closed[t]; });
   if (closed.length === all.length) { _osMsg('osDfMsg', 'Every time is closed. Open at least one.'); return; }
   if (!leadUid) { _osMsg('osDfMsg', 'Pick the lead screener.'); return; }
+  if (!_osF.id && window.ldahHolidayAsk && !(await window.ldahHolidayAsk([date]))) return;
   /* Never drop a booked time: refuse when a booked time is outside the new
      hours or closed. */
   var lost = Object.keys(_osF.taken).filter(function(t) { return all.indexOf(t) === -1 || closed.indexOf(t) !== -1; }).sort();
@@ -39778,7 +39817,8 @@ window.edRender = async function() {
 
     cells.forEach(function(c) {
       var iso = edIso(c.d);
-      var cls = 'ed-cell' + (c.out ? ' out' : '') + (iso === todayIso ? ' today' : '');
+      var _edHol = (!c.out && window.ldahHolidayOn) ? window.ldahHolidayOn(iso) : '';
+      var cls = 'ed-cell' + (c.out ? ' out' : '') + (iso === todayIso ? ' today' : '') + (_edHol ? ' hol' : '');
       /* The + prefills the clicked date, so "add something on the 14th" is one
          click rather than open-modal-then-find-the-date-field. Out-of-month
          cells get no button (CSS hides it) — adding to a greyed-out day from a
@@ -39788,11 +39828,11 @@ window.edRender = async function() {
           + '<span class="ed-dbw"><b>' + c.d.toLocaleDateString('en-US', { weekday: 'long' }) + '</b><small>'
           + c.d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + '</small></span>'
           + '<button class="ed-dayadd" title="Add an event on this date" onclick="edAddOnDate(\'' + iso + '\')">+ Add</button></div>'
-          + '<div class="ed-daycards">' + ((byDate[iso] || []).length ? '' : '<div class="ed-dayempty">Nothing on this day.</div>');
+          + '<div class="ed-daycards">' + (_edHol ? '<div class="ed-hol">Office closed: ' + _edHol.replace(/</g, '&lt;') + '</div>' : '') + ((byDate[iso] || []).length ? '' : '<div class="ed-dayempty">Nothing on this day.</div>');
       } else
       html += '<div class="' + cls + '"><div class="ed-daynum"><span>' + c.d.getDate() + '</span>'
         + (c.out ? '' : '<button class="ed-add" title="Add an event on this date" onclick="edAddOnDate(\'' + iso + '\')">+</button>')
-        + '</div>';
+        + '</div>' + (_edHol ? '<div class="ed-hol" title="Office holiday">Office closed: ' + _edHol.replace(/</g, '&lt;') + '</div>' : '');
       /* One EVENT per card, even when it runs several sessions that day.
          The Kauai Transition Fair has three talks on 21 October — presentations,
          a legislators' Q&A and a mayoral Q&A — and rendering a card each made it
@@ -40388,6 +40428,12 @@ window.cmsSaveEvent = async function() {
   } catch (_sessionsErr) {
     // Never block a save on sessions[] building. Stage 1 is purely additive.
     console.warn('Stage 1 sessions[] build failed (non-fatal):', _sessionsErr && _sessionsErr.message);
+  }
+
+  // Office holidays (2026-11-12): ask before saving an event on a day the office is closed.
+  if (!isRecurring && window.ldahHolidayAsk) {
+    var _holDates = [payload.eventDate].concat((payload.sessions || []).map(function (s) { return String((s && (s.date || s.dateKey)) || ''); }));
+    if (!(await window.ldahHolidayAsk(_holDates))) { btn.disabled = false; btn.textContent = 'Save'; return; }
   }
 
   try {
@@ -49045,6 +49091,7 @@ async function _ovhAddDay() {
   if (_ovhMin(day.to) - _ovhMin(day.from) < 60) { _ovhMsg('ovhSpMsg', 'Make it at least an hour long.'); return; }
   if (!day.note) { _ovhMsg('ovhSpMsg', 'Say what the day is for.'); return; }
   if (!(day.max >= 1)) { _ovhMsg('ovhSpMsg', 'Say how many volunteers you need.'); return; }
+  if (window.ldahHolidayAsk && !(await window.ldahHolidayAsk([day.date]))) return;
   _ovh.busy = true; _ovhMsg('ovhSpMsg', 'Adding…', true);
   try {
     var keep = JSON.parse(JSON.stringify(_ovh.draft));
@@ -78228,9 +78275,151 @@ window.ldahIssueContext = function () {
      so it clears the sidebar's Getting started box. Settings stay per browser. -->
 <style>#a11y-toggle{left:auto!important;right:20px!important}#a11y-panel{left:auto!important;right:20px!important}</style>
 <script>
+/* Office holidays (2026-11-12). The days the LDAH office is closed, kept in
+   settings/officeHolidays { items:[{date:'YYYY-MM-DD', end:'YYYY-MM-DD'|'', name}] } and
+   edited in Admin -> List Management -> Office holidays (Super Admin). They show on the
+   Dashboard and Events Dashboard calendars, and every internal place that sets a date
+   for an event or calendar entry warns when the date is a holiday (Save asks first).
+   The public website and app never check this. */
+(function () {
+  var H = window._ldahHol = { items: [], byDay: {}, loaded: false, unsub: null };
+  function iso(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function index() {
+    var m = {};
+    (H.items || []).forEach(function (it) {
+      if (!it || !/^\d{4}-\d{2}-\d{2}$/.test(it.date || '')) return;
+      var e = /^\d{4}-\d{2}-\d{2}$/.test(it.end || '') && it.end > it.date ? it.end : it.date;
+      var p = it.date.split('-').map(Number), d = new Date(p[0], p[1] - 1, p[2]), n = 0;
+      while (iso(d) <= e && n++ < 400) { m[iso(d)] = (m[iso(d)] ? m[iso(d)] + ' / ' : '') + (it.name || 'Office holiday'); d.setDate(d.getDate() + 1); }
+    });
+    H.byDay = m;
+  }
+  window.ldahHolidaysLoad = function () {
+    if (H.unsub || !window.firebase || !firebase.auth || !firebase.auth().currentUser) return;
+    H.unsub = firebase.firestore().collection('settings').doc('officeHolidays').onSnapshot(function (snap) {
+      H.items = (snap.exists && (snap.data() || {}).items) || []; H.loaded = true; index();
+      try { if (window._dashCalRefresh) window._dashCalRefresh(); } catch (e) {}
+      try { var ed = document.getElementById('edGrid'); if (ed && ed.offsetParent && typeof window.edRender === 'function') window.edRender(); } catch (e) {}
+    }, function (e) { console.warn('[holidays]', e && e.message); H.unsub = null; });
+  };
+  window.ldahHolidayOn = function (d) { if (!H.unsub) window.ldahHolidaysLoad(); return H.byDay[String(d || '').slice(0, 10)] || ''; };
+  // Unique holiday dates among the given dates (YYYY-MM-DD or anything starting with it).
+  window.ldahHolidayClashes = function (dates) {
+    var seen = {}, out = [];
+    (dates || []).forEach(function (x) { var k = String(x || '').slice(0, 10), n = window.ldahHolidayOn(k); if (n && !seen[k]) { seen[k] = 1; out.push({ date: k, name: n }); } });
+    return out.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  };
+  function nice(k) { var p = k.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); }
+  window.ldahHolidayNice = nice;
+  // Resolves true to go ahead, false to stop. No holiday: true straight away.
+  window.ldahHolidayAsk = function (dates) {
+    var c = window.ldahHolidayClashes(dates);
+    if (!c.length) return Promise.resolve(true);
+    if (typeof window.showConfirmModal !== 'function') return Promise.resolve(window.confirm('The office is closed on ' + c.map(function (x) { return nice(x.date) + ' (' + x.name + ')'; }).join(', ') + '. Save anyway?'));
+    return new Promise(function (res) {
+      var done = false, fin = function (v) { if (!done) { done = true; res(v); } };
+      var esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;'); };
+      window.showConfirmModal({ title: c.length === 1 ? 'That date is an office holiday' : 'Some dates are office holidays',
+        subtitle: 'The LDAH office is closed',
+        body: c.map(function (x) { return '<div style="margin:0 0 6px"><b>' + nice(x.date) + '</b>: ' + esc(x.name) + '</div>'; }).join('') + '<div style="margin-top:10px">Save anyway?</div>',
+        confirmLabel: 'Save anyway', cancelLabel: 'Change the date', onConfirm: function () { fin(true); }, onCancel: function () { fin(false); } });
+      var ov = document.getElementById('grCancelModalOverlay');
+      var t = setInterval(function () { if (done) return clearInterval(t); if (ov && !ov.classList.contains('gr-open')) { clearInterval(t); fin(false); } }, 400);
+    });
+  };
+  // A yellow note under a date box as soon as a holiday is picked.
+  var WATCH = '#cmsEventDate, #edStDate, #osDfDate, #ovhSpDate, .veb-sess .vs-date';
+  function note(inp) {
+    var n = inp.parentElement && inp.parentElement.querySelector(':scope > .ldah-hol-note');
+    var name = /^\d{4}-\d{2}-\d{2}$/.test(inp.value || '') ? window.ldahHolidayOn(inp.value) : '';
+    if (!name) { if (n) n.remove(); return; }
+    if (!n) { n = document.createElement('div'); n.className = 'ldah-hol-note'; inp.insertAdjacentElement('afterend', n); }
+    n.textContent = 'Office closed: ' + name;
+  }
+  ['change', 'input'].forEach(function (ev) { document.addEventListener(ev, function (e) { var t = e.target; if (t && t.matches && t.matches(WATCH)) note(t); }, true); });
+  var st = document.createElement('style');
+  st.textContent = '.ldah-hol-note{margin:4px 0 0;padding:3px 8px;border-radius:6px;background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;font-size:.76rem;font-weight:700;line-height:1.3}'
+    + '.mini-cal-day.holiday{background:#FEF3C7;color:#92400E;border-radius:50%}.mini-cal-day.holiday.today{background:var(--ocean-deep);color:#fff;box-shadow:inset 0 0 0 3px #F59E0B}'
+    + '.dash-event-item.holiday{border-left:4px solid #F59E0B;background:#FFFBEB;cursor:default}'
+    + '.ed-cell.hol{background:#FFFBEB}.ed-hol{margin:2px 4px 4px;padding:2px 6px;border-radius:5px;background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;font-size:.7rem;font-weight:800;line-height:1.25}';
+  document.head.appendChild(st);
+})();
+
+/* Office holidays card in List Management. */
+var _lmHol = { items: [] };
+function _lmHolEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+async function lmLoadHolidays() {
+  var box = document.getElementById('lmHolBody'); if (!box) return;
+  box.innerHTML = '<p style="padding:0 12px;color:var(--text-soft)">Loading…</p>';
+  try { var s = await firebase.firestore().collection('settings').doc('officeHolidays').get(); _lmHol.items = ((s.exists && s.data().items) || []).slice(); _lmHol.meta = s.exists ? s.data() : {}; }
+  catch (e) { box.innerHTML = '<p style="padding:0 12px;color:#B91C1C">Could not load: ' + _lmHolEsc(e.message) + '</p>'; return; }
+  _lmHolRender();
+}
+function _lmHolRender() {
+  var box = document.getElementById('lmHolBody'); if (!box) return;
+  var items = _lmHol.items.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }), years = {};
+  items.forEach(function (it) { (years[it.date.slice(0, 4)] = years[it.date.slice(0, 4)] || []).push(it); });
+  var inp = 'padding:7px 9px;border:1.5px solid #CBD5E1;border-radius:7px;font:inherit;font-size:.86rem;';
+  var h = '<div style="padding:0 12px 12px">'
+    + '<p style="margin:0 0 10px;font-size:.84rem;color:var(--text-soft)">The days the office is closed. They show on the Dashboard and Events Dashboard calendars, and DAN warns when someone picks one of these dates for an event or a calendar entry. Add next year\'s list here when it comes out.</p>'
+    + '<div style="display:grid;grid-template-columns:150px 150px 1fr auto;gap:8px;align-items:end;margin-bottom:12px">'
+    + '<label style="font-size:.78rem;font-weight:700;color:var(--text-soft)">Date<input type="date" id="lmHolDate" style="' + inp + 'display:block;width:100%;margin-top:3px"></label>'
+    + '<label style="font-size:.78rem;font-weight:700;color:var(--text-soft)">Last day (for a break)<input type="date" id="lmHolEnd" style="' + inp + 'display:block;width:100%;margin-top:3px"></label>'
+    + '<label style="font-size:.78rem;font-weight:700;color:var(--text-soft)">Holiday<input id="lmHolName" maxlength="60" placeholder="For example: Labor Day" style="' + inp + 'display:block;width:100%;margin-top:3px" onkeydown="if(event.key===\'Enter\')lmAddHoliday()"></label>'
+    + '<button type="button" class="btn btn-primary" style="font-size:.84rem" onclick="lmAddHoliday()">Add</button></div>'
+    + '<div id="lmHolMsg" style="min-height:1.1em;font-size:.82rem;margin:-4px 0 8px"></div>';
+  var ys = Object.keys(years).sort().reverse();
+  if (!ys.length) h += '<p style="color:var(--text-soft);font-size:.86rem">No holidays yet.</p>';
+  ys.forEach(function (y) {
+    h += '<div style="font-weight:800;font-size:.86rem;color:#0F172A;margin:10px 0 4px">' + y + ' <span style="font-weight:600;color:var(--text-soft)">(' + years[y].length + ')</span></div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:.84rem">' + years[y].map(function (it) {
+        var k = _lmHol.items.indexOf(it);
+        return '<tr style="border-bottom:1px solid #EEF2F6"><td style="padding:5px 6px;white-space:nowrap;width:260px">' + window.ldahHolidayNice(it.date) + (it.end && it.end > it.date ? ' to ' + window.ldahHolidayNice(it.end) : '') + '</td>'
+          + '<td style="padding:5px 6px">' + _lmHolEsc(it.name) + '</td>'
+          + '<td style="padding:5px 6px;text-align:right"><button type="button" class="btn btn-ghost" style="font-size:.74rem;padding:4px 9px" onclick="lmRemoveHoliday(' + k + ')">Remove</button></td></tr>';
+      }).join('') + '</table>';
+  });
+  var m = _lmHol.meta || {};
+  if (m.updatedBy) h += '<p style="font-size:.76rem;color:var(--text-soft);margin:10px 0 0">Last changed by ' + _lmHolEsc(m.updatedBy) + '</p>';
+  box.innerHTML = h + '</div>';
+}
+async function _lmHolSave(msgOk) {
+  var me = window.currentUserData || {}, who = me.displayName || (firebase.auth().currentUser || {}).email || '';
+  var items = _lmHol.items.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  try {
+    await firebase.firestore().collection('settings').doc('officeHolidays').set({ items: items, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: who }, { merge: true });
+    _lmHol.items = items; _lmHol.meta = { updatedBy: who }; _lmHolRender();
+    var m = document.getElementById('lmHolMsg'); if (m) { m.style.color = '#15803D'; m.textContent = msgOk; }
+    return true;
+  } catch (e) {
+    var m2 = document.getElementById('lmHolMsg'); if (m2) { m2.style.color = '#B91C1C'; m2.textContent = /permission/i.test(e.message || '') ? 'Only a Super Admin can change the holidays.' : 'Could not save: ' + e.message; }
+    return false;
+  }
+}
+async function lmAddHoliday() {
+  var g = function (id) { return (document.getElementById(id).value || '').trim(); }, msg = document.getElementById('lmHolMsg');
+  var it = { date: g('lmHolDate'), end: g('lmHolEnd'), name: g('lmHolName') };
+  var say = function (t) { msg.style.color = '#B91C1C'; msg.textContent = t; };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(it.date)) return say('Pick the date.');
+  if (!it.name) return say('Type the holiday name.');
+  if (it.end && it.end < it.date) return say('The last day is before the first day.');
+  if (it.end === it.date) it.end = '';
+  if (_lmHol.items.some(function (x) { return x.date === it.date && x.name.toLowerCase() === it.name.toLowerCase(); })) return say('That holiday is already on the list.');
+  _lmHol.items.push(it);
+  if (await _lmHolSave('Added ' + it.name + '.')) { if (window.auditLog) window.auditLog('Added office holiday', it.date + (it.end ? ' to ' + it.end : '') + ' ' + it.name); }
+  else _lmHol.items.pop();
+}
+function lmRemoveHoliday(k) {
+  var it = _lmHol.items[k]; if (!it) return;
+  var go = async function () { _lmHol.items.splice(k, 1); if (await _lmHolSave('Removed ' + it.name + '.')) { if (window.auditLog) window.auditLog('Removed office holiday', it.date + ' ' + it.name); } else _lmHol.items.splice(k, 0, it); };
+  if (typeof showConfirmModal !== 'function') return go();
+  showConfirmModal({ title: 'Remove this holiday?', subtitle: it.name, body: window.ldahHolidayNice(it.date) + (it.end ? ' to ' + window.ldahHolidayNice(it.end) : '') + ' will no longer show on the calendars or warn.', confirmLabel: 'Remove', cancelLabel: 'Keep it', confirmStyle: 'danger', onConfirm: go });
+}
+</script>
+<script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
 window.vebOpen = function () {
-  var V = '155.46-STAGE';
+  var V = '155.47-STAGE';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
   if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEBFlyers.random ? null : add('veb-random.js'); }).then(function () { return window.VEB ? null : add('veb.js'); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
