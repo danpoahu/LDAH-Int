@@ -357,9 +357,42 @@
       if (!rows.length) { el.innerHTML = 'None yet.'; return; }
       el.innerHTML = '<table class="veb-list"><tr><th>Event</th><th>First session</th><th>Status</th><th></th></tr>' + rows.map(function (x) {
         return '<tr><td>' + esc(x.title) + '</td><td>' + esc(x.eventDate || '') + '</td><td><span class="veb-pill ' + (x.active === false ? '' : 'live') + '">' + (x.active === false ? 'Hidden draft' : 'On the website') + '</span></td>'
-          + '<td><a href="javascript:void(0)" onclick="VEB.edit(\'' + x.id + '\')">Edit</a> · <a href="' + esc(x.imageUrl || '#') + '" target="_blank" rel="noopener">Flyer</a> · <a href="javascript:void(0)" onclick="cmsOpenEventModal(\'' + x.id + '\')">Open in Events &amp; Programs</a></td></tr>';
+          + '<td><a href="javascript:void(0)" onclick="VEB.edit(\'' + x.id + '\')">Edit</a> · <a href="' + esc(x.imageUrl || '#') + '" target="_blank" rel="noopener">Flyer</a> · <a href="javascript:void(0)" onclick="cmsOpenEventModal(\'' + x.id + '\')">Open in Events &amp; Programs</a> · <a href="javascript:void(0)" style="color:#B91C1C" onclick="VEB.del(\'' + x.id + '\')">Delete</a></td></tr>';
       }).join('') + '</table>';
     } catch (e) { el.textContent = 'Could not load the list: ' + e.message; }
+  }
+  /* Delete an event made with the builder (2026-11-12). Refused while anyone
+     is signed up: hide it instead, so no family loses their registration.
+     Its OPEN auto-tasks go with it (closing them would fire the task chain,
+     e.g. an Assign Presenter closed with no name re-opens itself); finished
+     tasks stay as history. */
+  async function del(id) {
+    try {
+      var ref = db().collection('events').doc(id), snap = await ref.get();
+      if (!snap.exists) { toast('That event no longer exists.', '#DC2626'); return loadList(); }
+      var x = snap.data();
+      var sus = await ref.collection('signups').get();
+      var live = sus.docs.filter(function (d) { var v = d.data() || {}; return v.status !== 'cancelled' && v.archived !== true; }).length;
+      if (sus.size) {
+        toast((live || sus.size) + ' sign-up' + ((live || sus.size) === 1 ? '' : 's') + ' on this event, so it can’t be deleted. Use Save as hidden draft to take it off the website.', '#DC2626');
+        return;
+      }
+      var tq = await db().collection('interactions').where('workflowEventId', '==', id).get();
+      var openTasks = tq.docs.filter(function (d) { return (d.data() || {}).status !== 'Closed'; });
+      var go = async function () {
+        var b = db().batch();
+        openTasks.forEach(function (d) { b.delete(d.ref); });
+        b.delete(ref);
+        await b.commit();
+        if (typeof window.auditLog === 'function') window.auditLog('Deleted virtual event', (x.title || '') + ' [' + id + '], ' + openTasks.length + ' open task(s) removed');
+        if (S && S.id === id) { S = fresh(); images = {}; dirty = true; render(); } else loadList();
+        toast('Deleted.', '#16A34A');
+      };
+      var body = '<b>' + esc(x.title || 'This event') + '</b>' + (x.active === false ? ' (hidden draft)' : ' <b style="color:#B91C1C">is on the website now</b>') + '.<br><br>'
+        + 'This removes the event and its flyers' + (openTasks.length ? ', and its ' + openTasks.length + ' open task' + (openTasks.length === 1 ? '' : 's') + ' from staff to-do lists' : '') + '. Nobody has signed up.<br><br>It can’t be undone.';
+      if (typeof window.showConfirmModal !== 'function') { if (window.confirm('Delete ' + (x.title || 'this event') + '? It can’t be undone.')) await go(); return; }
+      window.showConfirmModal({ title: 'Delete this event?', subtitle: x.title || '', body: body, confirmLabel: 'Delete event', cancelLabel: 'Keep it', confirmStyle: 'danger', onConfirm: go });
+    } catch (e) { toast('Could not delete it: ' + (e.message || e), '#DC2626'); }
   }
   async function edit(id) {
     try {
@@ -417,7 +450,7 @@
     },
     addSession: function () { readForm(); var w = wednesdays(S.year, S.month); S.sessions.push({ date: w[3] || w[2] || '', start: '17:00', end: '18:00', lesson: '', desc: '' }); render(); markDirty(); },
     removeSession: function (i) { readForm(); S.sessions.splice(i, 1); render(); markDirty(); },
-    makeFlyers: makeFlyers, save: save, unpublish: unpublish, edit: edit,
+    makeFlyers: makeFlyers, save: save, unpublish: unpublish, edit: edit, del: del,
     newEvent: function () { S = fresh(); images = {}; dirty = true; render(); }
   };
 })();
