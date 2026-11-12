@@ -70,7 +70,7 @@
   }
   function isPtc(series) { return series === 'Parent Talk Café'; }
   function isRandom(series) { return series === 'Random'; }
-  function randomTemplates() { var out = [], n = F().RANDOM_COUNT || 0; for (var i = 1; i <= n; i++) if (F().themes['R' + i]) out.push(['R' + i, F().themes['R' + i].name]); return out; }
+  function randomTemplates() { var out = [], n = F().RANDOM_COUNT || 0; for (var i = 1; i <= n; i++) if (F().themes['R' + i]) out.push(['R' + i, F().themes['R' + i].name.split(':')[0]]); return out; }
   // An in-person Random event has no Partner flyer (that one exists to show each island's Zoom time).
   function inPerson() { return S && isRandom(S.series) && S.mode === 'inperson'; }
   function variants() { return inPerson() ? VARIANTS.filter(function (v) { return v.key.indexOf('partner') < 0; }) : VARIANTS; }
@@ -244,7 +244,7 @@
     var doc = '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="' + F().fontsHref + '">'
       + (F().extraFonts || []).map(function (h) { return '<link rel="stylesheet" href="' + h + '">'; }).join('')
       + '<style>html,body{margin:0;background:transparent;font-family:-apple-system,Segoe UI,sans-serif}' + F().css
-      + '.g{display:grid;grid-template-columns:repeat(' + (rnd ? 1 : Math.max(opts.length, 1)) + ',minmax(0,1fr));gap:' + (rnd ? 12 : 8) + 'px;align-items:start}'
+      + '.g{display:grid;grid-template-columns:repeat(' + (rnd ? 2 : Math.max(opts.length, 1)) + ',minmax(0,1fr));gap:' + (rnd ? 10 : 8) + 'px;align-items:start}'
       + '.c{cursor:pointer;border:3px solid transparent;border-radius:9px;padding:3px;transition:border-color .15s}.c:hover{border-color:#94a3b8}.c.on{border-color:#0F766E;background:#ecfdf5}'
       + '.c>.f{pointer-events:none;border-radius:4px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.18)}.c>.n{font-size:12px;font-weight:700;text-align:center;color:#0f172a;margin:5px 0 2px}.c.on>.n{color:#0F766E}</style></head>'
       + '<body><div class="g">' + cells + '</div><script>document.addEventListener("click",function(e){var c=e.target.closest("[data-t]");if(c&&parent.VEB)parent.VEB.pickDesign(c.getAttribute("data-t"));});'
@@ -296,7 +296,7 @@
       + '<div style="display:flex;gap:8px;align-items:center;margin-top:8px"><button type="button" class="btn btn-primary" onclick="VEB.addLogoSave()">Add logo</button><button type="button" class="btn btn-ghost" onclick="document.getElementById(\'vebLogoForm\').hidden=true">Cancel</button><span id="vebLogoMsg" class="veb-muted"></span></div></div>'
       + (HIDDEN.length ? '<div class="veb-muted" style="margin-top:6px">' + HIDDEN.length + ' built-in logo' + (HIDDEN.length === 1 ? ' is' : 's are') + ' removed from the list. <a href="javascript:void(0)" onclick="VEB.restoreLogos()">Bring them back</a></div>' : '');
     body.innerHTML =
-      '<div class="veb-wrap' + (rnd ? ' veb-rnd' : '') + '">' + (rnd ? '<div class="veb-rail"><div class="veb-lbl">Pick a design <span class="veb-muted" style="font-weight:400">(' + randomTemplates().length + ', click one)</span></div><div id="vebPick" class="veb-pick"></div></div>' : '') + '<div class="veb-form">'
+      '<div class="veb-wrap' + (rnd ? ' veb-rnd' : '') + '"><div class="veb-form">'
       + (S.id ? '<div class="veb-editing">Editing: ' + esc(S.title || 'saved event') + ' <span class="veb-pill ' + (S.active ? 'live' : '') + '">' + (S.active ? 'On the website' : 'Hidden draft') + '</span> <a href="javascript:void(0)" onclick="VEB.newEvent()">Start a new event</a></div>' : '')
       + '<div class="veb-row3"><label>Series *<select id="vebSeries" onchange="VEB.seriesChanged()"><option' + (S.series === 'Learning Labs' ? ' selected' : '') + '>Learning Labs</option><option' + (S.series === 'Parent Talk Café' ? ' selected' : '') + '>Parent Talk Café</option><option' + (rnd ? ' selected' : '') + '>Random</option></select></label>'
       + (rnd ? '<label style="grid-column:span 2">Event name *<input id="vebTitle" maxlength="48" value="' + esc(S.title) + '" oninput="VEB.changed()" placeholder="For example: Holiday Family Night"></label></div>'
@@ -305,7 +305,7 @@
           + '<label class="veb-chk"><input type="radio" name="vebMode" id="vebModeIn"' + (S.mode === 'inperson' ? ' checked' : '') + ' onchange="VEB.modeChanged()"> In person</label></div>'
           + (S.mode === 'inperson' ? '<div class="veb-row2"><label>Place *<input id="vebPlace" maxlength="48" value="' + esc(S.place) + '" oninput="VEB.changed()" placeholder="For example: Kukui Center, Room 205"></label>'
             + '<label>Address<input id="vebAddress" maxlength="60" value="' + esc(S.address) + '" oninput="VEB.changed()" placeholder="For example: 245 N. Kukui St., Honolulu"></label></div>' : '')
-          + '<div class="veb-theme">Design: <b id="vebTheme">' + esc((theme(S.series, S.month, S.template) || {}).name || '') + '</b> <span class="veb-muted">(pick one on the left)</span></div>'
+          + '<div class="veb-theme">Design: <b id="vebTheme">' + esc((theme(S.series, S.month, S.template) || {}).name || '') + '</b> <span class="veb-muted">(pick one on the right)</span></div>'
         : '<label>Month *<select id="vebMonth" onchange="VEB.monthChanged()">' + mOpts + '</select></label>'
           + '<label>Year *<input type="number" id="vebYear" min="2026" max="2035" value="' + S.year + '" onchange="VEB.monthChanged()"></label></div>'
           + '<div class="veb-theme">Flyer theme: <b id="vebTheme">' + esc((theme(S.series, S.month, S.template) || {}).name || 'No design for this month yet') + '</b></div>')
@@ -324,7 +324,7 @@
       + '<button class="btn btn-ghost" onclick="VEB.save(false)">Save as hidden draft</button>'
       + (S.id && S.active ? '<button class="btn btn-ghost" onclick="VEB.unpublish()">Hide from website</button>' : '<button class="btn btn-ghost veb-pub" onclick="VEB.save(true)">Publish to website…</button>') + '</div>'
       + '<p class="veb-muted">Saving keeps the event hidden from ldahawaii.org. Publish puts it on the website straight away.</p>'
-      + '</div><div class="veb-side">' + (rnd ? '' : '<div class="veb-lbl">Pick a design <span class="veb-muted" style="font-weight:400">(click one)</span></div><div id="vebPick" class="veb-pick"></div>') + '<div class="veb-lbl" style="margin-top:14px">Each island\'s local time</div><div id="vebTz"></div></div></div>'
+      + '</div><div class="veb-side"><div class="veb-lbl">Pick a design <span class="veb-muted" style="font-weight:400">(' + (rnd ? randomTemplates().length + ', ' : '') + 'click one)</span></div><div id="vebPick" class="veb-pick' + (rnd ? ' veb-pick-rnd' : '') + '"></div><div class="veb-lbl" style="margin-top:14px">Each island\'s local time</div><div id="vebTz"></div></div></div>'
       + '<div class="veb-lbl" style="margin-top:18px">Flyers</div><p id="vebFlyerNote" class="veb-muted">Click Make flyers to draw all four.</p><div id="vebFlyers" class="veb-flyers"></div>'
       + '<div class="veb-lbl" style="margin-top:22px">Events made with the builder</div><div id="vebList" class="veb-muted">Loading…</div>';
     readForm(); tzTable(); drawPicker(); loadList();
@@ -493,7 +493,7 @@
     } catch (e) { toast('Could not open it: ' + e.message, '#DC2626'); }
   }
 
-  var CSS = '.veb-rail{flex:0 0 210px;max-height:calc(100vh - 120px);overflow:auto;position:sticky;top:70px;padding-right:4px}.veb-rnd .veb-form{flex:1 1 460px}.veb-rnd .veb-side{flex:1 1 240px;max-width:340px}'
+  var CSS = '.veb-pick-rnd{max-height:calc(100vh - 260px);min-height:320px;overflow:auto;padding-right:4px}'
     + '.veb-logos{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;max-height:330px;overflow:auto;padding:2px}.veb-logo{display:flex!important;flex-direction:column;align-items:center;gap:4px;margin:0!important;padding:6px;border:2px solid #e2e8f0;border-radius:9px;cursor:pointer;background:#fff;position:relative}.veb-logo:hover{border-color:#94a3b8}.veb-logo.on{border-color:#0F766E;background:#ecfdf5}.veb-logo input{position:absolute;top:5px;left:5px;margin:0}.veb-logo-art{height:46px;width:100%;display:flex;align-items:center;justify-content:center;border-radius:5px}.veb-logo-art.dk{background:#1d2430}.veb-logo-art img{max-height:42px;max-width:92px;object-fit:contain}.veb-logo-n{font-size:.7rem;font-weight:600;color:#334155;text-align:center;line-height:1.15}.veb-logo-n i{font-weight:400;color:#64748b}.veb-logo-x{position:absolute;top:2px;right:3px;width:20px;height:20px;border:0;border-radius:50%;background:transparent;color:#94a3b8;font-size:15px;line-height:1;cursor:pointer;padding:0;opacity:0;transition:opacity .15s}.veb-logo:hover .veb-logo-x,.veb-logo-x:focus{opacity:1}.veb-logo-x:hover{background:#fee2e2;color:#b91c1c}.veb-logo-add{border-style:dashed;font:inherit;color:#0f766e}.veb-logo-add .veb-logo-art{font-size:28px;font-weight:300;color:#0f766e}.veb-logo-form{margin-top:10px;padding:10px 12px;border:1px solid #99f6e4;background:#f0fdfa;border-radius:9px}'
     + '#vebBody{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px 20px;max-width:1240px;box-shadow:0 2px 10px rgba(15,23,42,.06)}.veb-wrap{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start}.veb-form{flex:1 1 520px;max-width:720px}.veb-side{flex:1 1 300px;max-width:440px;position:sticky;top:70px}'
     + '.veb-form label{display:block;font-size:.8rem;font-weight:600;color:#334155;margin:0 0 10px}.veb-form input:not([type=checkbox]),.veb-form select{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit;font-weight:400;font-size:.9rem}'
