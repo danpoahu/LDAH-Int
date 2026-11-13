@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.55-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.56-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -52705,6 +52705,13 @@ function _pswDays(ws) {
 function _pswDaysText(days) {
   return days.map(function (d) { return _pswWhen(d.date, d.start) + (d.end ? ' to ' + _pswTime(d.end) : '') + (d.location ? ', ' + d.location : '') + (d.children ? ' (' + d.children + ' children)' : ''); });
 }
+/* Consent deadline (Noe's confirmation email, 2026-11-13): defaults to one week
+   before the first screening day, at 12:00 p.m. */
+function _pswDefaultDue(days) {
+  if (!days.length) return '';
+  var d = new Date(days[0].date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10);
+}
+var PSW_PACKET = ['Consent to Screen', 'Consent to Release and Obtain (should parents prefer to release results to the school)', 'Fact Sheet', 'SRP Brochure'];
 function _pswNextSchoolDay(iso) {
   var d = new Date(iso + 'T12:00:00Z'); do { d.setUTCDate(d.getUTCDate() + 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
   return d.toISOString().slice(0, 10);
@@ -52866,6 +52873,9 @@ window.pswOpen = function (id) {
       '<b style="color:' + (conf ? '#15803D' : '#334155') + ';">' + (conf ? 'Confirmed screening day' + (days.length > 1 ? 's' : '') : 'Confirmed date (fill in, then press Confirm date)') + '</b>' +
       '<div id="pswDays">' + (days.length ? days : ((ws.draftDays || []).length ? ws.draftDays : [{ location: ws.sites || '' }])).map(function (d, i) { return _pswDayRow(d, i); }).join('') + '</div>' +
       '<button type="button" class="psw-add" onclick="pswAddDay(true)">+ Next school day</button><button type="button" class="psw-add" onclick="pswAddDay(false)">+ Add a day or another site</button>' +
+      '<div class="psw-row" style="margin-top:10px;"><div><span class="psw-lbl">Consent forms due back</span><input type="date" class="psw-date" id="pswDue" value="' + rsEscape(ws.consentDue || _pswDefaultDue(days)) + '"></div>' +
+      '<div><span class="psw-lbl">By</span><input type="time" id="pswDueT" value="' + rsEscape(ws.consentDueTime || '12:00') + '"></div>' +
+      '<div style="align-self:flex-end;font-size:.74rem;color:#64748B;max-width:260px;">Goes in the confirmation email. A week before the first day unless you change it.</div></div>' +
       (conf ? '<div style="font-size:.76rem;color:#15803D;margin-top:4px;">Confirmed by ' + rsEscape((ws.confirmed || {}).byName || '') + '. ' + (days.length > 1 ? 'Each day is' : 'It is') + ' on the staff calendar.</div>' : '') +
     '</div>' +
     '<p class="psw-note">Preschools need time to send consent forms to parents and get them back signed. Pick dates that allow for that: one week from when the school receives the consent forms is the suggested time frame. If airline travel is involved, allow time to arrange flights, adjusted hours the week before, and every PC&rsquo;s schedule.</p>' +
@@ -52922,6 +52932,7 @@ function _pswRead() {
     return { date: r.querySelector('.psw-dr-d').value, time: r.querySelector('.psw-dr-t').value }; }).filter(function (d) { return d.date; }); };
   ws.offered = rows('off'); ws.alternate = rows('alt');
   ws.pcNames = g('pswPcNames');
+  ws.consentDue = g('pswDue'); ws.consentDueTime = g('pswDueT') || '12:00';
   ws.done = ws.done || {};
   document.querySelectorAll('#pswOv .psw-tick').forEach(function (x) { ws.done[x.getAttribute('data-k')] = x.checked; });
   ws.pcsNeeded = pswPcNeeded(ws.childCount);
@@ -53052,10 +53063,16 @@ window.pswEmailOpen = function (id) {
     var types = _tl.length > 1 ? _tl.slice(0, -1).join(', ') + ' and ' + _tl[_tl.length - 1] : (_tl[0] || '');
     var subj, body;
     if (c.date) {
-      subj = 'Screening confirmed: ' + _pswDate(c.date) + (days.length > 1 ? ' and ' + (days.length - 1) + ' more day' + (days.length > 2 ? 's' : '') : '');
-      body = 'Aloha ' + first + ',\n\nMahalo for your screening request. Your ' + (types ? types + ' ' : '') + 'screening is confirmed' + (days.length > 1 ? ' for these days' : '') + ':\n\n' +
-        days.map(function (d) { return 'Date: ' + _pswDate(d.date) + '\nTime: ' + _pswTime(d.start) + (d.end ? ' to ' + _pswTime(d.end) : '') + (d.location ? '\nLocation: ' + d.location : ''); }).join('\n\n') +
-        '\n\nPlease send the consent forms home with families and collect them signed before the screening.\n\nIf you have any questions, just reply to this email.';
+      var due = ws.consentDue || _pswDefaultDue(days);
+      subj = 'Confirmed screening: ' + (p.organizationName ? p.organizationName + ', ' : '') + _pswDate(c.date) + (days.length > 1 ? ' and ' + (days.length - 1) + ' more day' + (days.length > 2 ? 's' : '') : '');
+      body = 'Aloha ' + first + ',\n\nAttached is the screening information for the confirmed ' + (types ? types + ' ' : '') + 'screening' + (p.organizationName ? ' for ' + p.organizationName : '') + ':\n\n' +
+        days.map(function (d) { return (d.location ? 'Location: ' + d.location + '\n' : '') + 'Date: ' + _pswDate(d.date) + '\nTime: ' + _pswTime(d.start) + (d.end ? ' to ' + _pswTime(d.end) : ''); }).join('\n\n') +
+        '\n\nIf you could get signed consents from the families prior to the screening as soon as possible, that would be appreciated.' +
+        (due ? ' The deadline for the consents is ' + _pswDate(due) + (ws.consentDueTime || '12:00' ? ' by ' + _pswTime(ws.consentDueTime || '12:00') : '') + '.' : '') +
+        '\n\nWe will need to process the consents prior to the screening and will be preparing results sheets. Please scan and send over the two consents for each child. A list of the children who will be screened that day, and a list of the current families attending the program, would also be helpful.' +
+        '\n\nOn the day of the screening, we will need access to a quiet room and the ability to control the lighting. Hearing screenings are highly sensitive to background noise and vision screenings require minimal lighting, so the right environment is essential for accurate results. I understand this may be a significant request, but it will really help ensure the best possible outcomes for both screenings.' +
+        '\n\nI have attached the following:\n' + PSW_PACKET.map(function (t) { return '- ' + t; }).join('\n') +
+        '\n\nIf you have any other questions, feel free to let me know.';
     } else {
       var off = (ws.offered || []).map(function (d) { return _pswWhen(d.date, d.time); }).filter(Boolean);
       subj = 'Your screening request' + (p.organizationName ? ' for ' + p.organizationName : '');
@@ -53066,6 +53083,7 @@ window.pswEmailOpen = function (id) {
     var html = '<div class="psw-hd"><h3>Email ' + rsEscape([p.firstName, p.lastName].filter(Boolean).join(' ') || p.email) + '<small>' + rsEscape(p.email) + ' · from registration@, you are copied and replies come to you</small></h3><button class="psw-x" onclick="' + (reopen ? 'pswOpen(' + _jsArg(id).replace(/"/g, '&quot;') + ')' : '_pswClose()') + '">&times;</button></div>' +
       '<div class="psw-bd"><div><span class="psw-lbl">Subject</span><input type="text" id="pswEmSubj" style="width:100%;" value="' + rsEscape(subj) + '"></div>' +
       '<div style="margin-top:8px;"><span class="psw-lbl">Message</span><textarea id="pswEmBody" rows="12">' + rsEscape(body) + '</textarea></div>' +
+      '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-weight:600;"><input type="checkbox" id="pswEmPack"' + (c.date ? ' checked' : '') + '><span>Attach the screening packet<br><span style="font-weight:400;color:#64748B;font-size:.8rem;">1 Consent for Screening Services, 2 Consent to Release and Obtain, 3 Fact Sheet, 4 SRP Brochure (PDFs)</span></span></label>' +
       '<p class="psw-note">Your name and the School Readiness Project sign-off are added at the bottom.</p></div>' +
       '<div class="psw-ft"><span class="psw-msg" id="pswMsg"></span>' +
       '<button style="background:#fff;color:#334155;border:1px solid #CBD5E1;" onclick="' + (reopen ? 'pswOpen(' + _jsArg(id).replace(/"/g, '&quot;') + ')' : '_pswClose()') + '">Cancel</button>' +
@@ -53081,11 +53099,17 @@ window.pswEmailSend = async function (id, btn, back) {
   try {
     var tok = await firebase.auth().currentUser.getIdToken();
     var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendProviderRequestEmail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken: tok, providerId: id, subject: subj, message: msg }) });
+      body: JSON.stringify({ idToken: tok, providerId: id, subject: subj, message: msg, attachPacket: !!(document.getElementById('pswEmPack') || {}).checked }) });
     var j = await resp.json().catch(function () { return {}; });
     if (!resp.ok) throw new Error(j.error || 'send failed');
-    _showToast('Email sent to ' + (j.sentTo || 'the contact') + '.', '#15803D');
+    _showToast('Email sent to ' + (j.sentTo || 'the contact') + ((j.attached || []).length ? ', with ' + j.attached.length + ' forms attached' : '') + '.', '#15803D');
     var p = _pswGet(id);
+    /* Sent with the packet after confirming: tick the email and the attachments it carried. */
+    if (p && (j.attached || []).length && _pswDays(p.worksheet).length) {
+      var ws2 = JSON.parse(JSON.stringify(p.worksheet || {})); ws2.done = ws2.done || {};
+      ws2.done.email = true; ws2.done.att_consent = true; ws2.done.att_factsheet = true; ws2.done.att_brochure = true;
+      try { await db.collection('providers').doc(id).update({ worksheet: ws2 }); p.worksheet = ws2; if (_pswAllDone(ws2)) await _pswFinish(p); } catch (e) { console.warn('psw tick after send', e); }
+    }
     if (p) { p.emails = (p.emails || []).concat([{ at: new Date().toISOString(), by: (window.currentUserData || {}).displayName || '', subject: subj }]); if ((p.status || 'new') === 'new' || p.status === 'reviewed') p.status = 'contacted'; }
     cmsRenderProviders();
     if (back) pswOpen(id); else _pswClose();
@@ -78945,7 +78969,7 @@ function lmRemoveHoliday(k) {
 <script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
 window.vebOpen = function () {
-  var V = '155.55-STAGE';
+  var V = '155.56-STAGE';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
   if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEBFlyers.random ? null : add('veb-random.js'); }).then(function () { return window.VEB ? null : add('veb.js'); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
