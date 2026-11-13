@@ -6232,7 +6232,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.75</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.76</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -16697,7 +16697,11 @@ var _photoPendingByIsland = {};
       ).then(function(results) {
         /* Staff Calendar only entries (v154.29-STAGE): staff only, never partners. */
         if (!_edStaffCalAllowed()) return results;
-        return db.collection('staffCalendar').get().then(function(st) { return results.concat([st]); }, function(e) { console.warn('Staff calendar not loaded:', e && e.message); return results; });
+        return db.collection('staffCalendar').get().then(function(st) { return results.concat([st]); }, function(e) { console.warn('Staff calendar not loaded:', e && e.message); return results.concat([null]); })
+          .then(function(r2) {   /* Volunteer help requests (2026-11-13) */
+            var f = new Date(); f.setDate(f.getDate() - 1); var t = new Date(); t.setDate(t.getDate() + 90);
+            return window._vrLoadForCalendar(window._staffCalIso(f), window._staffCalIso(t)).then(function(v) { return r2.concat([v]); });
+          });
       }).then(function(results) {
         var eventsSnap = results[0], recurSnap = results[1];
         var merged = [];
@@ -16815,6 +16819,11 @@ var _photoPendingByIsland = {};
             });
           });
         }
+        (results[3] || []).forEach(function(v) {
+          var p = v.date.split('-').map(Number);
+          merged.push({ id: v.id, title: 'Volunteers: ' + v.title, date: new Date(p[0], p[1] - 1, p[2]), occ: v.date, sessionLabel: '', location: v.where || '',
+                        description: v.notes || '', isRecurring: false, partnerIsland: '', volReq: true });
+        });
         merged.sort(function(a, b) { return a.date - b.date; });
         /* Every row survived _partnerScopeOK above; the flag lets global
            search tell a partner-built cache from a staff-built one. */
@@ -17036,9 +17045,9 @@ var _photoPendingByIsland = {};
         return;
       }
       var locText = ev.location ? '<span style="margin-left:6px;">' + ev.location + '</span>' : '';
-      var clickAction = ev.staffCal ? 'edOpenStaffEntry(\'' + ev.id.replace(/'/g, "\\'") + '\',\'\',false,\'' + (ev.occ || '') + '\')'
+      var clickAction = ev.volReq ? 'vrOpenFromCalendar(\'' + ev.id.replace(/'/g, "\\'") + '\')' : ev.staffCal ? 'edOpenStaffEntry(\'' + ev.id.replace(/'/g, "\\'") + '\',\'\',false,\'' + (ev.occ || '') + '\')'
         : 'cmsViewSignups(\'' + ev.id.replace(/'/g, "\\'") + '\',' + (ev.isRecurring ? 'true' : 'false') + ',\'' + (ev.title || '').replace(/'/g, "\\'") + '\')';
-      html += '<div class="dash-event-item" style="cursor:pointer;' + (ev.staffCal ? 'border-left:4px solid #DC2626;' : '') + '" onclick="' + clickAction + '" onmouseover="this.style.background=\'rgba(8,145,178,.04)\'" onmouseout="this.style.background=\'transparent\'">' +
+      html += '<div class="dash-event-item" style="cursor:pointer;' + (ev.volReq ? 'border-left:4px solid ' + VR_CAL_COLOR + ';' : ev.staffCal ? 'border-left:4px solid #DC2626;' : '') + '" onclick="' + clickAction + '" onmouseover="this.style.background=\'rgba(8,145,178,.04)\'" onmouseout="this.style.background=\'transparent\'">' +
         '<div class="dash-event-date-badge"><div class="month">' + monthNames[ev.date.getMonth()] + '</div><div class="day">' + ev.date.getDate() + '</div></div>' +
         '<div class="dash-event-info"><p class="title">' + (ev.sessionLabel || ev.title) + '</p>' +
         '<p class="meta">' + ev.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + locText + '</p>' +
@@ -26626,6 +26635,12 @@ window.openContactDetail = async function(contactId) {
     try {
       var evSnap = await db.collection('events').doc(eventId).get();
       _wpEvent = evSnap.exists ? (evSnap.data() || {}) : {};
+      /* A volunteer help request has a Workshop form too (Daniel 2026-11-13). Same
+         workshopForms/{id} doc and tasks, keyed by the request's id. */
+      if (!evSnap.exists) {
+        var vrSnap = await db.collection('volunteerRequests').doc(eventId).get();
+        if (vrSnap.exists) { var _vr = vrSnap.data() || {}; _wpEvent = { title: _vr.title || '', eventDate: window._vrDateIso ? window._vrDateIso(_vr) : '', location: _vr.location || '', signupDates: [] }; }
+      }
       var fSnap = await db.collection('workshopForms').doc(eventId).get();
       _wpDoc = fSnap.exists ? (fSnap.data() || {}) : null;
     } catch (e) {
@@ -38314,6 +38329,7 @@ async function edLoadEvents(fromIso, toIso) {
   });
 
   (await _edLoadStaffCal(fromIso, toIso)).forEach(function(x) { list.push(x); });
+  (await _vrLoadForCalendar(fromIso, toIso)).forEach(function(x) { list.push(x); });   /* Volunteer help requests (2026-11-13) */
   (await _osLoadForCalendar(fromIso, toIso)).forEach(function(x) { list.push(x); });   /* Office screenings (v154.38-STAGE) */
   list.sort(function(a,b){ return a.date.localeCompare(b.date) || String(a.when).localeCompare(String(b.when)); });
   return list;
@@ -38328,11 +38344,13 @@ function _edTypeKey(e, coll) {
 function _edTypeColor(k) {
   if (k === 'staff_calendar') return ED_STAFF_META.color;
   if (k === 'office_screening') return OS_META.color;
+  if (k === 'volunteer_request') return VR_CAL_COLOR;
   return (typeof _CMS_TYPE_META !== 'undefined' && _CMS_TYPE_META[k] && _CMS_TYPE_META[k].color) || '#94A3B8';
 }
 function _edTypeLabel(k) {
   if (k === 'staff_calendar') return ED_STAFF_META.label;
   if (k === 'office_screening') return 'Office screenings';
+  if (k === 'volunteer_request') return 'Volunteer help requests';
   return (typeof _CMS_TYPE_META !== 'undefined' && _CMS_TYPE_META[k] && _CMS_TYPE_META[k].label) || 'Event';
 }
 function _edStaffWhen(x) {
@@ -38388,6 +38406,54 @@ window._staffCalRepeatText = function(x) {
   if (x.repeatUntil) { var q = x.repeatUntil.split('-').map(Number); t += ' until ' + new Date(q[0], q[1] - 1, q[2]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
   return t;
 };
+
+/* Volunteer help requests on the calendars (Daniel 2026-11-13: "they are not showing on
+   the admin calendar"). A request's Date is typed text ("November 27", "Today, Monday
+   11-9-2026"), so the calendar uses dateIso when the Edit form has set it, else reads the
+   typed date. Staff only. Clicking one opens the Edit help request form. */
+var VR_CAL_COLOR = '#16A34A';
+window._vrDateIso = function (r) {
+  r = r || {};
+  if (/^\d{4}-\d{2}-\d{2}$/.test(r.dateIso || '')) return r.dateIso;
+  var t = String(r.date || '').trim(), base = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : (r.createdAt instanceof Date ? r.createdAt : new Date());
+  var iso = function (y, m, d) { var x = new Date(y, m - 1, d); return (x.getMonth() === m - 1 && x.getDate() === d) ? y + '-' + ('0' + m).slice(-2) + '-' + ('0' + d).slice(-2) : ''; };
+  var m = t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return iso(+m[1], +m[2], +m[3]);
+  m = t.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/); if (m) return iso(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[1], +m[2]);
+  var MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  m = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?/i);
+  if (m) {
+    var mo = MON.indexOf(m[1].toLowerCase()) + 1, y = m[3] ? +m[3] : base.getFullYear(), out = iso(y, mo, +m[2]);
+    if (!m[3] && out && new Date(out + 'T23:59:59') < new Date(base.getTime() - 86400000)) out = iso(y + 1, mo, +m[2]);
+    return out;
+  }
+  m = t.match(/(\d{1,2})[\/\-](\d{1,2})(?![\/\-\d])/); if (m) { var y2 = base.getFullYear(), o2 = iso(y2, +m[1], +m[2]); return o2; }
+  if (/\btoday\b/i.test(t)) return iso(base.getFullYear(), base.getMonth() + 1, base.getDate());
+  return '';
+};
+window._vrLoadForCalendar = async function (fromIso, toIso) {
+  var out = [];
+  if (!_edStaffCalAllowed()) return out;
+  try {
+    var snap = await db.collection('volunteerRequests').orderBy('createdAt', 'desc').limit(150).get();
+    snap.forEach(function (d) {
+      var r = d.data() || {}; if (r.archived === true || r.status === 'cancelled') return;
+      var iso = window._vrDateIso(r); if (!iso || iso < fromIso || iso > toIso) return;
+      out.push({ coll: 'volunteerRequests', id: d.id, vol: true, title: r.title || 'Volunteer help request', date: iso, key: '',
+                 when: r.time || '', sortTime: '', where: r.location || '', notes: r.details || '', single: true,
+                 eventType: 'volunteer_request', typeKey: 'volunteer_request', cancelled: false, maxVolunteers: Number(r.maxVolunteers) || 0 });
+    });
+  } catch (e) { console.warn('Volunteer help requests not loaded for the calendar:', e && e.message); }
+  return out;
+};
+/* From either calendar: load the help requests, then open the Edit form. */
+window.vrOpenFromCalendar = async function (id) {
+  try {
+    if (!(window._cmsVolRequests || []).some(function (x) { return x.id === id; }) && typeof window.cmsLoadVolunteerRequests === 'function') await window.cmsLoadVolunteerRequests();
+    if ((window._cmsVolRequests || []).some(function (x) { return x.id === id; })) window.cmsVolEditRequest(id);
+    else _showToast('That help request was not found.', '#B45309');
+  } catch (e) { _showToast('Could not open it: ' + (e && e.message || e), '#DC2626'); }
+};
+
 async function _edLoadStaffCal(fromIso, toIso) {
   var out = [];
   if (!_edStaffCalAllowed()) return out;
@@ -39636,7 +39702,7 @@ function _edSlotLabel(ev) {
 var _ED_NO_COUNT_TYPES = ['learning_labs', 'parent_talk_cafe'];
 function _edCountsSignups(ev) {
   // A cancelled session takes no signups: no pill, and no subcollection read.
-  return !!ev && !ev.cancelled && !ev.staff && !ev.office && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
+  return !!ev && !ev.cancelled && !ev.staff && !ev.office && !ev.vol && _ED_NO_COUNT_TYPES.indexOf(String(ev.eventType || '')) < 0;
 }
 
 // A signup stores its session as "YYYY-MM-DD|Location – Venue|H:MM AM – H:MM PM",
@@ -39861,6 +39927,19 @@ window.edRender = async function() {
           html += '</div>';
           return;
         }
+        /* Volunteer help request (2026-11-13): one green card, opens the Edit help request form. */
+        if (ev.vol) {
+          var _vMeta = [ev.when, ev.where, ev.maxVolunteers ? ev.maxVolunteers + ' needed' : ''].filter(Boolean).join(' \u00b7 ');
+          html += '<div class="ed-ev staff" style="border-left:4px solid ' + VR_CAL_COLOR + ';background:#F0FDF4;" title="' + rsEscape(ev.title + (_vMeta ? ' \u2014 ' + _vMeta : '') + ' \u2014 Volunteer help request. Click to edit it.') + '" onclick="vrOpenFromCalendar(\'' + _attrJsArg(ev.id) + '\')">';
+          if (_edView === 'day') html += '<span class="ed-type" style="color:' + VR_CAL_COLOR + ';background:' + VR_CAL_COLOR + '1A;">Volunteer help request</span>';
+          html += '<div class="ed-ev-t">' + rsEscape(_edView === 'day' ? ev.title : String(ev.title).slice(0, 46)) + '</div>';
+          if (_vMeta) html += '<div class="ed-ev-m">' + rsEscape(_vMeta) + '</div>';
+          if (ev.notes && _edView !== 'month') html += '<div class="ed-ev-n">' + rsEscape(_edView === 'day' ? ev.notes : String(ev.notes).slice(0, 120)) + '</div>';
+          var _vwp = _edWpForms[ev.id];
+          html += '<button type="button" class="ed-wp-link ' + (_vwp ? (_vwp.submitted ? 'done' : 'draft') : 'todo') + '" title="Workshop &amp; Presentation form for this help request" onclick="event.stopPropagation();openWorkshopForm(\'' + _attrJsArg(ev.id) + '\')">' + (_vwp ? (_vwp.submitted ? 'Workshop form &#10003;' : 'Workshop form — draft') : 'Workshop form — start') + '</button>';
+          html += '</div>';
+          return;
+        }
         /* Office screenings (v154.38-STAGE): one purple card, opens that day's bookings. */
         if (ev.office) {
           var _oMeta = (ev.leadName ? 'Lead: ' + _osFirst(ev.leadName) + ' \u00b7 ' : '') + ev.booked + ' booked';
@@ -39966,12 +40045,12 @@ window.edRender = async function() {
 
     /* Cancelled sessions are in _edEvents now so the grid can show them, but
        they are not work: they must not inflate "needs a presenter". */
-    var _live = _edEvents.filter(function(e){ return !e.cancelled && !e.staff && !e.office; });
+    var _live = _edEvents.filter(function(e){ return !e.cancelled && !e.staff && !e.office && !e.vol; });
     var _cancelledN = _edEvents.filter(function(e){ return e.cancelled; }).length;
     var assigned = _live.filter(function(e){ return !!e.presenter; }).length;
     var _tyN = {};
     _edEvents.forEach(function(e){ if (!e.cancelled) _tyN[e.typeKey || ''] = (_tyN[e.typeKey || ''] || 0) + 1; });
-    var _tyOrder = (typeof _CMS_FUNNEL_ORDER !== 'undefined' ? _CMS_FUNNEL_ORDER : []).concat(['staff_calendar', 'office_screening']);
+    var _tyOrder = (typeof _CMS_FUNNEL_ORDER !== 'undefined' ? _CMS_FUNNEL_ORDER : []).concat(['staff_calendar', 'office_screening', 'volunteer_request']);
     Object.keys(_tyN).forEach(function(k){ if (_tyOrder.indexOf(k) === -1) _tyOrder.push(k); });
     var lg = document.getElementById('edLegend');
     if (lg) lg.innerHTML =
@@ -50199,7 +50278,9 @@ window.cmsVolEditRequest = function(reqId) {
   ov.innerHTML = '<div style="background:#fff;max-width:560px;width:100%;max-height:90vh;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.3);">' +
     '<div style="background:linear-gradient(135deg,#166534,#16A34A);color:#fff;padding:14px 18px;font-weight:700;">Edit help request</div>' +
     '<div style="padding:14px 18px;overflow-y:auto;flex:1;">' +
-      f('cvTitle', 'Title', r.title) + f('cvDate', 'Date', r.date) + f('cvTime', 'Time', r.time) + f('cvLoc', 'Location', r.location) +
+      f('cvTitle', 'Title', r.title) + f('cvDate', 'Date', r.date) +
+      '<label style="' + lab + '">Calendar date <span style="font-weight:500;color:#64748B;">(puts it on the Dashboard and Events Dashboard calendars)</span><input id="cvIso" type="date" class="vr-iso" value="' + rsEscape(window._vrDateIso(r)) + '" style="' + inp + 'max-width:190px;"></label>' +
+      f('cvTime', 'Time', r.time) + f('cvLoc', 'Location', r.location) +
       f('cvDetails', 'Details', r.details, true) +
       '<label style="' + lab + '">Volunteers needed<input id="cvMax" type="number" min="0" value="' + (Number(r.maxVolunteers) || '') + '" style="' + inp + 'max-width:120px;"></label>' +
       '<div style="border-top:1px solid #E2E8F0;margin-top:6px;padding-top:12px;">' +
@@ -50223,7 +50304,7 @@ window.cmsVolEditRequest = function(reqId) {
     ['cvSave', 'cvSaveSend'].forEach(function(id){ document.getElementById(id).disabled = true; });
     msg.style.color = '#64748B'; msg.textContent = 'Saving…';
     try {
-      var upd = { title: title, date: val('cvDate'), time: val('cvTime'), location: val('cvLoc'), details: val('cvDetails'),
+      var upd = { title: title, date: val('cvDate'), dateIso: val('cvIso'), time: val('cvTime'), location: val('cvLoc'), details: val('cvDetails'),
         maxVolunteers: Math.max(0, parseInt(val('cvMax'), 10) || 0),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedByName: (window.currentUserData || {}).displayName || '' };
       await db.collection('volunteerRequests').doc(reqId).set(upd, { merge: true });
@@ -78792,7 +78873,7 @@ function lmRemoveHoliday(k) {
 <script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
 window.vebOpen = function () {
-  var V = '154.75';
+  var V = '154.76';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
   if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEBFlyers.random ? null : add('veb-random.js'); }).then(function () { return window.VEB ? null : add('veb.js'); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
