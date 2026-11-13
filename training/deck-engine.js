@@ -103,3 +103,5 @@ function wire(root){root.querySelectorAll('[data-go=start]').forEach(b=>b.onclic
 const qp=new URLSearchParams(location.search).get('name');if(qp)setName(qp);
 addEventListener('message',e=>{const d=e.data||{};if(d.type==='ldah-training:init'){if(d.name)setName(d.name);if(d.voice===false){voiceOn=false;const vc=$('voiceChk');if(vc)vc.checked=false;$('voice').textContent='Voice off'}}});
 render(0);SC[0].el.classList.add('on');setName(name);$('prev').disabled=true;$('next').disabled=true;dots();setPlay();post('ready',{total:SC.length});
+/* Chrome check (2026-11-13): asks people in other browsers to switch to Chrome. */
+(function(){const t=document.createElement('script');t.src='chrome-check.js?v=1';document.head.appendChild(t)})();
