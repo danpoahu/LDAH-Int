@@ -6232,7 +6232,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.74</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.75</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -52573,16 +52573,31 @@ function _pswDate(d) { return d ? (window.ldahHolidayNice ? window.ldahHolidayNi
 function _pswTime(t) { if (!/^\d{2}:\d{2}/.test(t || '')) return ''; var h = +t.slice(0, 2); return ((h % 12) || 12) + ':' + t.slice(3, 5) + (h < 12 ? ' a.m.' : ' p.m.'); }
 function _pswWhen(d, t) { return d ? _pswDate(d) + (t ? ', ' + _pswTime(t) : '') : ''; }
 function _pswGet(id) { return (_cmsProviders || []).filter(function (p) { return p.id === id; })[0] || null; }
+/* Confirmed screening days (2026-11-13): a large school can need several days, or
+   several sites on one day. worksheet.confirmedDays [{date,start,end,location,children}];
+   worksheet.confirmed stays the first day so older code and the card still read it. */
+function _pswDays(ws) {
+  ws = ws || {};
+  if (Array.isArray(ws.confirmedDays) && ws.confirmedDays.length) return ws.confirmedDays.filter(function (d) { return d && d.date; });
+  return ws.confirmed && ws.confirmed.date ? [ws.confirmed] : [];
+}
+function _pswDaysText(days) {
+  return days.map(function (d) { return _pswWhen(d.date, d.start) + (d.end ? ' to ' + _pswTime(d.end) : '') + (d.location ? ', ' + d.location : '') + (d.children ? ' (' + d.children + ' children)' : ''); });
+}
+function _pswNextSchoolDay(iso) {
+  var d = new Date(iso + 'T12:00:00Z'); do { d.setUTCDate(d.getUTCDate() + 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
 function _pswKids(p) { return p.childCountUnknown ? 'Not sure how many children' : (p.childCount ? p.childCount + ' children' : ''); }
 
 /* The extra lines on a screening request's card. */
 function _pswCardLines(p) {
   if (p.requestType !== 'screening') return '';
-  var ws = p.worksheet || {}, c = ws.confirmed || null;
+  var ws = p.worksheet || {}, days = _pswDays(ws), c = days[0] || null;
   var bits = ['Screening', _pswKids(p), (p.screenings || []).join(', '), p.island].filter(Boolean);
   var asked = (p.preferredDates || []).map(function (d) { return _pswWhen(d.date, d.time); }).filter(Boolean);
   return '<div style="font-size:.82rem;color:#0F766E;font-weight:600;margin-top:2px;">' + rsEscape(bits.join(' · ')) + '</div>' +
-    (c && c.date ? '<div style="font-size:.82rem;color:#15803D;font-weight:700;">Confirmed: ' + rsEscape(_pswWhen(c.date, c.start)) + '</div>'
+    (c && c.date ? '<div style="font-size:.82rem;color:#15803D;font-weight:700;">Confirmed: ' + rsEscape(_pswWhen(c.date, c.start)) + (days.length > 1 ? ' + ' + (days.length - 1) + ' more day' + (days.length > 2 ? 's' : '') : '') + '</div>'
       : (asked.length ? '<div style="font-size:.8rem;color:var(--text-soft);">Asked for: ' + rsEscape(asked.join(' or ')) + '</div>' : ''));
 }
 function _pswCardBtns(p) {
@@ -52615,6 +52630,8 @@ function _pswEnsureCss() {
     + '.psw-ft{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;padding:12px 20px 18px;border-top:1px solid #E2E8F0}'
     + '.psw-ft button{border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:.85rem}'
     + '.psw-msg{font-size:.82rem;margin-right:auto;align-self:center}'
+    + '.psw-dl > .psw-row{align-items:flex-end}.psw-rm{border:none;background:none;color:#B91C1C;font-size:1.1rem;cursor:pointer;padding:4px 6px;align-self:flex-end}'
+    + '.psw-add{border:1px dashed #0F766E;background:#F0FDFA;color:#0F766E;border-radius:6px;padding:4px 10px;font-size:.78rem;font-weight:700;cursor:pointer;margin:6px 6px 0 0}'
     + '.psw-pc{background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:6px;padding:4px 8px;font-weight:700;font-size:.8rem;display:inline-block;margin-top:4px}';
   document.head.appendChild(st);
 }
@@ -52635,6 +52652,46 @@ function _pswYnp(name, val) {
 function _pswOpts(list, val, blank) {
   return (blank ? '<option value="">' + blank + '</option>' : '') + list.map(function (x) { return '<option' + (x === val ? ' selected' : '') + '>' + rsEscape(x) + '</option>'; }).join('');
 }
+function _pswDateRow(kind, d, n) {
+  d = d || {};
+  var lab = kind === 'off' ? (n ? 'Date offered ' + (n + 1) : 'Date offered (LDAH)') : (n ? 'Alternate date ' + (n + 1) : 'Alternate date');
+  return '<div class="psw-row" data-dr="' + kind + '"><div><span class="psw-lbl">' + lab + '</span><input type="date" class="psw-date psw-dr-d" value="' + rsEscape(d.date || '') + '"></div>' +
+    '<div><span class="psw-lbl">Start</span><input type="time" class="psw-dr-t" value="' + rsEscape(d.time || '') + '"></div>' +
+    (n > 1 ? '<button type="button" class="psw-rm" title="Remove this date" onclick="this.parentElement.remove()">&times;</button>' : '') + '</div>';
+}
+function _pswDateRows(kind, list) {
+  list = (list || []).slice(); while (list.length < 2) list.push({});
+  return '<div class="psw-dl" id="pswDl_' + kind + '">' + list.map(function (d, i) { return _pswDateRow(kind, d, i); }).join('') + '</div>' +
+    '<button type="button" class="psw-add" onclick="pswAddDate(\'' + kind + '\')">+ Add another ' + (kind === 'off' ? 'date offered' : 'alternate date') + '</button>';
+}
+window.pswAddDate = function (kind) {
+  var box = document.getElementById('pswDl_' + kind); if (!box) return;
+  box.insertAdjacentHTML('beforeend', _pswDateRow(kind, {}, box.children.length));
+  var inp = box.lastElementChild.querySelector('input'); if (inp) inp.focus();
+};
+function _pswDayRow(d, n) {
+  d = d || {};
+  return '<div class="psw-row psw-day"><div><span class="psw-lbl">' + (n ? 'Day ' + (n + 1) : 'Date') + '</span><input type="date" class="psw-date psw-dy-d" value="' + rsEscape(d.date || '') + '"></div>' +
+    '<div><span class="psw-lbl">Start</span><input type="time" class="psw-dy-s" value="' + rsEscape(d.start || '08:30') + '"></div>' +
+    '<div><span class="psw-lbl">End</span><input type="time" class="psw-dy-e" value="' + rsEscape(d.end || '') + '"></div>' +
+    '<div style="flex:1;min-width:180px;"><span class="psw-lbl">Location</span><input type="text" class="psw-dy-l" value="' + rsEscape(d.location || '') + '"></div>' +
+    '<div><span class="psw-lbl">Children</span><input type="number" min="0" class="psw-dy-c" style="width:80px;" value="' + rsEscape(String(d.children || '')) + '" oninput="pswPcHint()"></div>' +
+    (n ? '<button type="button" class="psw-rm" title="Remove this day" onclick="this.parentElement.remove();pswPcHint()">&times;</button>' : '') + '</div>';
+}
+/* + Next school day copies the last day to the next weekday; + Add a day adds an empty row
+   (another date, or a second site on the same day). */
+window.pswAddDay = function (next) {
+  var box = document.getElementById('pswDays'); if (!box) return;
+  var rows = box.querySelectorAll('.psw-day'), last = rows[rows.length - 1], d = {};
+  if (next && last) {
+    var ld = last.querySelector('.psw-dy-d').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ld)) { _pswMsg('Fill in the date above first.'); return; }
+    d = { date: _pswNextSchoolDay(ld), start: last.querySelector('.psw-dy-s').value, end: last.querySelector('.psw-dy-e').value, location: last.querySelector('.psw-dy-l').value };
+  }
+  box.insertAdjacentHTML('beforeend', _pswDayRow(d, rows.length));
+  var nr = box.lastElementChild.querySelector('.psw-dy-d'); if (nr) { _pswHolNote(nr); if (!next) nr.focus(); }
+  pswPcHint();
+};
 function _pswDT(prefix, d, label) {
   d = d || {};
   return '<div><span class="psw-lbl">' + label + '</span><input type="date" class="psw-date" id="' + prefix + 'D" value="' + rsEscape(d.date || '') + '"></div>' +
@@ -52663,7 +52720,7 @@ function _pswSeed(p) {
 window.pswOpen = function (id) {
   var p = _pswGet(id); if (!p) { _showToast('That request is not loaded yet.', '#B45309'); return; }
   _pswId = id;
-  var ws = _pswSeed(p), c = ws.confirmed || {}, conf = !!c.date;
+  var ws = _pswSeed(p), days = _pswDays(ws), c = days[0] || ws.confirmed || {}, conf = !!c.date;
   var name = [p.firstName, p.lastName].filter(Boolean).join(' ');
   var asked = (p.preferredDates || []).map(function (d, i) { return (i ? '2nd' : '1st') + ' choice: ' + _pswWhen(d.date, d.time); });
   var need = pswPcNeeded(ws.childCount);
@@ -52683,15 +52740,12 @@ window.pswOpen = function (id) {
     '<div class="psw-q"><div>Did you offer two dates with times starting at 8:30 a.m.?</div>' + _pswYnp('pswQ5', ws.q5) + '</div>' +
     '<div class="psw-sec">Dates</div>' +
     '<div class="psw-row"><div><span class="psw-lbl">Island</span><select id="pswIsland">' + _pswOpts(PSW_ISLANDS, ws.island, 'Choose') + '</select></div></div>' +
-    '<div class="psw-row">' + _pswDT('pswO1', (ws.offered || [])[0], 'Date offered (LDAH)') + _pswDT('pswO2', (ws.offered || [])[1], '2nd date offered') + '</div>' +
-    '<div class="psw-row">' + _pswDT('pswA1', (ws.alternate || [])[0], 'Alternate date') + _pswDT('pswA2', (ws.alternate || [])[1], '2nd alternate date') + '</div>' +
+    _pswDateRows('off', ws.offered) + _pswDateRows('alt', ws.alternate) +
     '<div style="margin-top:10px;padding:10px 12px;border:2px solid ' + (conf ? '#15803D' : '#CBD5E1') + ';border-radius:8px;background:' + (conf ? '#F0FDF4' : '#fff') + ';">' +
-      '<b style="color:' + (conf ? '#15803D' : '#334155') + ';">' + (conf ? 'Confirmed date' : 'Confirmed date (fill in, then press Confirm date)') + '</b>' +
-      '<div class="psw-row"><div><span class="psw-lbl">Date</span><input type="date" class="psw-date" id="pswCD" value="' + rsEscape(c.date || '') + '"></div>' +
-      '<div><span class="psw-lbl">Start</span><input type="time" id="pswCS" value="' + rsEscape(c.start || '08:30') + '"></div>' +
-      '<div><span class="psw-lbl">End</span><input type="time" id="pswCE" value="' + rsEscape(c.end || '') + '"></div>' +
-      '<div style="flex:1;min-width:200px;"><span class="psw-lbl">Location</span><input type="text" id="pswCL" value="' + rsEscape(c.location || ws.sites || '') + '"></div></div>' +
-      (conf ? '<div style="font-size:.76rem;color:#15803D;margin-top:4px;">Confirmed by ' + rsEscape(c.byName || '') + '. It is on the staff calendar.</div>' : '') +
+      '<b style="color:' + (conf ? '#15803D' : '#334155') + ';">' + (conf ? 'Confirmed screening day' + (days.length > 1 ? 's' : '') : 'Confirmed date (fill in, then press Confirm date)') + '</b>' +
+      '<div id="pswDays">' + (days.length ? days : ((ws.draftDays || []).length ? ws.draftDays : [{ location: ws.sites || '' }])).map(function (d, i) { return _pswDayRow(d, i); }).join('') + '</div>' +
+      '<button type="button" class="psw-add" onclick="pswAddDay(true)">+ Next school day</button><button type="button" class="psw-add" onclick="pswAddDay(false)">+ Add a day or another site</button>' +
+      (conf ? '<div style="font-size:.76rem;color:#15803D;margin-top:4px;">Confirmed by ' + rsEscape((ws.confirmed || {}).byName || '') + '. ' + (days.length > 1 ? 'Each day is' : 'It is') + ' on the staff calendar.</div>' : '') +
     '</div>' +
     '<p class="psw-note">Preschools need time to send consent forms to parents and get them back signed. Pick dates that allow for that: one week from when the school receives the consent forms is the suggested time frame. If airline travel is involved, allow time to arrange flights, adjusted hours the week before, and every PC&rsquo;s schedule.</p>' +
     '<div class="psw-sec">Upon confirmation</div>' +
@@ -52713,7 +52767,9 @@ window.pswOpen = function (id) {
     '</div>';
   _pswOverlay(html);
   pswPcHint();
-  document.querySelectorAll('#pswOv .psw-date').forEach(function (inp) { inp.addEventListener('change', function () { _pswHolNote(inp); }); _pswHolNote(inp); });
+  var _ov = document.getElementById('pswOv');
+  _ov.addEventListener('change', function (e) { if (e.target && e.target.classList && e.target.classList.contains('psw-date')) _pswHolNote(e.target); });
+  _ov.querySelectorAll('.psw-date').forEach(_pswHolNote);
 };
 function _pswHolNote(inp) {
   var n = inp.parentElement.querySelector('.ldah-hol-note');
@@ -52725,7 +52781,11 @@ function _pswHolNote(inp) {
 window.pswPcHint = function () {
   var el = document.getElementById('pswPcNeed'); if (!el) return;
   var n = parseInt((document.getElementById('pswCount') || {}).value, 10), k = pswPcNeeded(n);
-  el.textContent = k ? n + ' children: ' + k + ' PC' + (k > 1 ? 's' : '') + (n > 150 ? ' (over 150, plan more)' : '') : 'Enter the number of children to see how many PCs';
+  var per = Array.prototype.map.call(document.querySelectorAll('#pswOv .psw-day'), function (r, i) {
+    var c = parseInt(r.querySelector('.psw-dy-c').value, 10), d = r.querySelector('.psw-dy-d').value;
+    return c > 0 ? (d ? _pswDate(d) : 'Day ' + (i + 1)) + ': ' + c + ' children, ' + pswPcNeeded(c) + ' PC' + (pswPcNeeded(c) > 1 ? 's' : '') : '';
+  }).filter(Boolean);
+  el.textContent = per.length ? per.join(' \u00B7 ') : (k ? n + ' children: ' + k + ' PC' + (k > 1 ? 's' : '') + (n > 150 ? ' (over 150, plan more)' : '') : 'Enter the number of children to see how many PCs');
 };
 
 function _pswRead() {
@@ -52737,17 +52797,23 @@ function _pswRead() {
   ws.q3 = r('pswQ3'); ws.childCount = g('pswCount') ? parseInt(g('pswCount'), 10) : ''; ws.childAges = g('pswAges');
   ws.q4 = r('pswQ4'); ws.screenings = Array.prototype.map.call(document.querySelectorAll('#pswOv .psw-type:checked'), function (x) { return x.value; });
   ws.q5 = r('pswQ5'); ws.island = g('pswIsland');
-  ws.offered = [dt('pswO1'), dt('pswO2')].filter(function (d) { return d.date; });
-  ws.alternate = [dt('pswA1'), dt('pswA2')].filter(function (d) { return d.date; });
+  var rows = function (kind) { return Array.prototype.map.call(document.querySelectorAll('#pswDl_' + kind + ' [data-dr]'), function (r) {
+    return { date: r.querySelector('.psw-dr-d').value, time: r.querySelector('.psw-dr-t').value }; }).filter(function (d) { return d.date; }); };
+  ws.offered = rows('off'); ws.alternate = rows('alt');
   ws.pcNames = g('pswPcNames');
   ws.done = ws.done || {};
   document.querySelectorAll('#pswOv .psw-tick').forEach(function (x) { ws.done[x.getAttribute('data-k')] = x.checked; });
   ws.pcsNeeded = pswPcNeeded(ws.childCount);
-  return { ws: ws, notes: g('pswNotes'), conf: { date: g('pswCD'), start: g('pswCS'), end: g('pswCE'), location: g('pswCL') } };
+  var days = Array.prototype.map.call(document.querySelectorAll('#pswOv .psw-day'), function (r) {
+    var c = parseInt(r.querySelector('.psw-dy-c').value, 10);
+    return { date: r.querySelector('.psw-dy-d').value, start: r.querySelector('.psw-dy-s').value, end: r.querySelector('.psw-dy-e').value,
+             location: String(r.querySelector('.psw-dy-l').value || '').trim(), children: c > 0 ? c : '' }; }).filter(function (d) { return d.date; });
+  days.sort(function (a, b) { return (a.date + a.start) < (b.date + b.start) ? -1 : 1; });
+  return { ws: ws, notes: g('pswNotes'), days: days };
 }
 function _pswAllDone(ws) {
   var d = ws.done || {};
-  return !!(ws.confirmed && ws.confirmed.date && d.email && d.outlook && d.pcs && PSW_ATTACH.every(function (a) { return d['att_' + a[0]]; }));
+  return !!(_pswDays(ws).length && d.email && d.outlook && d.pcs && PSW_ATTACH.every(function (a) { return d['att_' + a[0]]; }));
 }
 function _pswMsg(t, ok) { var m = document.getElementById('pswMsg'); if (m) { m.style.color = ok ? '#15803D' : '#DC2626'; m.textContent = t; } }
 function _pswTasks(id) {
@@ -52759,6 +52825,7 @@ function _pswTasks(id) {
 window.pswSave = async function (quiet) {
   var p = _pswGet(_pswId); if (!p) return false;
   var f = _pswRead();
+  f.ws.draftDays = f.days;   // days typed but not confirmed yet stay in the form
   var dates = f.ws.offered.concat(f.ws.alternate).map(function (d) { return d.date; });
   var prev = _pswSeed(p), was = (prev.offered || []).concat(prev.alternate || []).map(function (d) { return d.date; });
   var fresh = dates.filter(function (d) { return was.indexOf(d) === -1; });
@@ -52791,42 +52858,54 @@ async function _pswFinish(p) {
 
 window.pswConfirm = async function (btn) {
   var p = _pswGet(_pswId); if (!p) return;
-  var f = _pswRead(), c = f.conf;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date)) { _pswMsg('Fill in the confirmed date first.'); return; }
-  if (c.end && c.start && c.end < c.start) { _pswMsg('The end time is before the start time.'); return; }
-  var prevC = (p.worksheet || {}).confirmed || {};
-  if (c.date !== prevC.date && window.ldahHolidayAsk && !(await window.ldahHolidayAsk([c.date]))) return;
+  var f = _pswRead(), days = f.days;
+  if (!days.length) { _pswMsg('Fill in the confirmed date first.'); return; }
+  for (var di = 0; di < days.length; di++) if (days[di].end && days[di].start && days[di].end < days[di].start) { _pswMsg('On ' + _pswDate(days[di].date) + ' the end time is before the start time.'); return; }
+  var before = _pswDays(p.worksheet).map(function (d) { return d.date; });
+  var fresh = days.map(function (d) { return d.date; }).filter(function (d, i, a) { return before.indexOf(d) === -1 && a.indexOf(d) === i; });
+  if (fresh.length && window.ldahHolidayAsk && !(await window.ldahHolidayAsk(fresh))) return;
   btn.disabled = true;
   var me = window.currentUserData || {}, FV = firebase.firestore.FieldValue;
   var org = p.organizationName || [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Screening';
-  var n = f.ws.childCount, types = (f.ws.screenings || []).join(', ');
+  var n = f.ws.childCount, types = (f.ws.screenings || []).join(', '), c = days[0];
+  var contact = [p.firstName, p.lastName].filter(Boolean).join(' ') + (p.email ? ' <' + p.email + '>' : '') + (p.phone ? ' ' + p.phone : '');
   try {
-    f.ws.confirmed = { date: c.date, start: c.start, end: c.end, location: c.location, at: new Date().toISOString(), byName: me.displayName || me.email || '', byUid: me.uid || '' };
-    // Staff calendar entry: Dashboard + Events Dashboard, never the website or app.
-    var cal = { title: 'Screening: ' + org + (n ? ' (' + n + ' children)' : ''), date: c.date, startTime: c.start, endTime: c.end, location: c.location,
-      notes: [types ? 'Screenings: ' + types : '', [p.firstName, p.lastName].filter(Boolean).join(' ') + (p.email ? ' <' + p.email + '>' : '') + (p.phone ? ' ' + p.phone : ''),
-              n ? pswPcNeeded(n) + ' Parent Consultant' + (pswPcNeeded(n) > 1 ? 's' : '') + ' needed' : '', 'From Website Data > Provider Requests.'].filter(Boolean).join('\n'),
-      repeat: '', repeatUntil: '', skipDates: [], agendaOn: false, providerRequestId: p.id,
-      updatedAt: FV.serverTimestamp(), updatedByUid: me.uid || '', updatedByName: me.displayName || me.email || '' };
-    var calId = p.calendarEntryId || '';
-    if (calId) await db.collection('staffCalendar').doc(calId).set(cal, { merge: true });
-    else { cal.createdAt = FV.serverTimestamp(); cal.createdByUid = me.uid || ''; cal.createdByName = me.displayName || me.email || ''; calId = (await db.collection('staffCalendar').add(cal)).id; }
-    var up = { worksheet: f.ws, adminNotes: f.notes, status: 'confirmed', calendarEntryId: calId, updatedAt: FV.serverTimestamp() };
+    var stamp = { at: new Date().toISOString(), byName: me.displayName || me.email || '', byUid: me.uid || '' };
+    f.ws.confirmed = Object.assign({}, c, stamp);
+    f.ws.confirmedDays = days;
+    // One staff calendar entry per day: Dashboard + Events Dashboard, never the website or app.
+    var ids = (Array.isArray(p.calendarEntryIds) && p.calendarEntryIds.length) ? p.calendarEntryIds.slice() : (p.calendarEntryId ? [p.calendarEntryId] : []);
+    var newIds = [];
+    for (var i = 0; i < days.length; i++) {
+      var d = days[i], kids = d.children || (days.length === 1 ? n : '');
+      var cal = { title: 'Screening: ' + org + (days.length > 1 ? ' (day ' + (i + 1) + ' of ' + days.length + ')' : '') + (kids ? ' (' + kids + ' children)' : ''),
+        date: d.date, startTime: d.start, endTime: d.end, location: d.location,
+        notes: [types ? 'Screenings: ' + types : '', contact, kids ? pswPcNeeded(kids) + ' Parent Consultant' + (pswPcNeeded(kids) > 1 ? 's' : '') + ' needed' : '',
+                days.length > 1 ? 'All days: ' + _pswDaysText(days).join('; ') : '', 'From Website Data > Provider Requests.'].filter(Boolean).join('\n'),
+        repeat: '', repeatUntil: '', skipDates: [], agendaOn: false, providerRequestId: p.id,
+        updatedAt: FV.serverTimestamp(), updatedByUid: me.uid || '', updatedByName: me.displayName || me.email || '' };
+      if (ids[i]) { await db.collection('staffCalendar').doc(ids[i]).set(cal, { merge: true }); newIds.push(ids[i]); }
+      else { cal.createdAt = FV.serverTimestamp(); cal.createdByUid = me.uid || ''; cal.createdByName = me.displayName || me.email || ''; newIds.push((await db.collection('staffCalendar').add(cal)).id); }
+    }
+    for (var j = days.length; j < ids.length; j++) { try { await db.collection('staffCalendar').doc(ids[j]).delete(); } catch (e) { console.warn('psw cal delete', e); } }
+    var up = { worksheet: f.ws, adminNotes: f.notes, status: 'confirmed', calendarEntryId: newIds[0], calendarEntryIds: newIds, updatedAt: FV.serverTimestamp() };
     await db.collection('providers').doc(p.id).update(up);
     Object.assign(p, up, { worksheet: f.ws });
     // Tasks: the "new request" task is done; Noe gets (or keeps) the worksheet task.
-    var ts = await _pswTasks(p.id), when = _pswWhen(c.date, c.start), haveWs = null;
-    for (var i = 0; i < ts.length; i++) {
-      var t = ts[i]; if (t.status === 'Closed') continue;
+    var ts = await _pswTasks(p.id), when = _pswWhen(c.date, c.start) + (days.length > 1 ? ' + ' + (days.length - 1) + ' more day' + (days.length > 2 ? 's' : '') : ''), haveWs = null;
+    for (var k = 0; k < ts.length; k++) {
+      var t = ts[k]; if (t.status === 'Closed') continue;
       if (t.workflowStep === 'screeningWorksheet') haveWs = t;
       else await db.collection('interactions').doc(t._id).update({ status: 'Closed', updatedAt: FV.serverTimestamp(),
         notes: String(t.notes || '') + '\n\nDate confirmed for ' + when + ' by ' + (me.displayName || '') + '. Closed automatically.' });
     }
     var sum = 'Complete the screening worksheet: ' + org + ', ' + when;
     var due = _wnAddDaysHst(1); if (due > c.date) due = c.date;
-    var tnotes = 'The screening is confirmed for ' + when + (c.location ? ' at ' + c.location : '') + '.\n\nOpen the worksheet and tick each step:\n' +
-      '- Confirmation email with the date, time, location and screening, with the 6 attachments\n- Outlook event from the Public Calendar template\n- Assign ' +
-      (n ? pswPcNeeded(n) + ' Parent Consultant' + (pswPcNeeded(n) > 1 ? 's' : '') + ' (' + n + ' children)' : 'Parent Consultants') + '\n\nThis task closes itself when every box is ticked.';
+    var pcs = days.some(function (d) { return d.children; })
+      ? days.filter(function (d) { return d.children; }).map(function (d) { return _pswDate(d.date) + ': ' + pswPcNeeded(d.children) + ' PC' + (pswPcNeeded(d.children) > 1 ? 's' : '') + ' (' + d.children + ' children)'; }).join('; ')
+      : (n ? pswPcNeeded(n) + ' Parent Consultant' + (pswPcNeeded(n) > 1 ? 's' : '') + ' (' + n + ' children)' : 'Parent Consultants');
+    var tnotes = 'The screening is confirmed:\n' + _pswDaysText(days).map(function (x) { return '- ' + x; }).join('\n') + '\n\nOpen the worksheet and tick each step:\n' +
+      '- Confirmation email with the date, time, location and screening, with the 6 attachments\n- Outlook event from the Public Calendar template\n- Assign ' + pcs + '\n\nThis task closes itself when every box is ticked.';
     if (haveWs) await db.collection('interactions').doc(haveWs._id).update({ summary: sum, notes: tnotes, updatedAt: FV.serverTimestamp() });
     else if (!_pswAllDone(f.ws)) {
       await db.collection('interactions').add({ channel: 'Office', interactionType: 'Provider Request', contactId: '', contactName: org, contactType: '', grantProgram: '',
@@ -52834,8 +52913,8 @@ window.pswConfirm = async function (btn) {
         workflowStep: 'screeningWorksheet', providerRequestId: p.id,
         createdBy: me.displayName || me.email || '', createdByUid: me.uid || '', createdAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp() });
     }
-    if (typeof window.auditLog === 'function') window.auditLog('Screening date confirmed', org + ' on ' + c.date + ' [' + p.id + ']');
-    _showToast('Confirmed for ' + when + '. It is on the staff calendar and Noe has the worksheet task.', '#15803D');
+    if (typeof window.auditLog === 'function') window.auditLog('Screening date confirmed', org + ': ' + days.map(function (d) { return d.date; }).join(', ') + ' [' + p.id + ']');
+    _showToast('Confirmed for ' + when + '. ' + (days.length > 1 ? 'Each day is' : 'It is') + ' on the staff calendar and Noe has the worksheet task.', '#15803D');
     if (window._dashCalRefresh) try { window._dashCalRefresh(); } catch (e) {}
     cmsRenderProviders();
     pswOpen(p.id);
@@ -52847,14 +52926,14 @@ window.pswEmailOpen = function (id) {
   var p = _pswGet(id); if (!p || !p.email) return;
   var reopen = !!document.getElementById('pswOv') && _pswId === id;
   var go = function () {
-    var ws = _pswSeed(_pswGet(id) || p), c = ws.confirmed || {}, first = p.firstName || 'there';
+    var ws = _pswSeed(_pswGet(id) || p), days = _pswDays(ws), c = days[0] || {}, first = p.firstName || 'there';
     var _tl = (ws.screenings || p.screenings || []).map(function (t) { return t.toLowerCase(); });
     var types = _tl.length > 1 ? _tl.slice(0, -1).join(', ') + ' and ' + _tl[_tl.length - 1] : (_tl[0] || '');
     var subj, body;
     if (c.date) {
-      subj = 'Screening confirmed: ' + _pswDate(c.date);
-      body = 'Aloha ' + first + ',\n\nMahalo for your screening request. Your ' + (types ? types + ' ' : '') + 'screening is confirmed:\n\nDate: ' + _pswDate(c.date) +
-        '\nTime: ' + _pswTime(c.start) + (c.end ? ' to ' + _pswTime(c.end) : '') + (c.location ? '\nLocation: ' + c.location : '') +
+      subj = 'Screening confirmed: ' + _pswDate(c.date) + (days.length > 1 ? ' and ' + (days.length - 1) + ' more day' + (days.length > 2 ? 's' : '') : '');
+      body = 'Aloha ' + first + ',\n\nMahalo for your screening request. Your ' + (types ? types + ' ' : '') + 'screening is confirmed' + (days.length > 1 ? ' for these days' : '') + ':\n\n' +
+        days.map(function (d) { return 'Date: ' + _pswDate(d.date) + '\nTime: ' + _pswTime(d.start) + (d.end ? ' to ' + _pswTime(d.end) : '') + (d.location ? '\nLocation: ' + d.location : ''); }).join('\n\n') +
         '\n\nPlease send the consent forms home with families and collect them signed before the screening.\n\nIf you have any questions, just reply to this email.';
     } else {
       var off = (ws.offered || []).map(function (d) { return _pswWhen(d.date, d.time); }).filter(Boolean);
@@ -78713,7 +78792,7 @@ function lmRemoveHoliday(k) {
 <script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
 window.vebOpen = function () {
-  var V = '154.74';
+  var V = '154.75';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
   if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEBFlyers.random ? null : add('veb-random.js'); }).then(function () { return window.VEB ? null : add('veb.js'); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
