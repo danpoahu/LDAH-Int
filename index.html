@@ -6232,7 +6232,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.70</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.71</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7969,6 +7969,9 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                             :(_scSent?'Request sent to <b>'+esc(_scr.toEmail)+'</b>. Waiting for the upload.':'Goes to <b>'+esc(_scr.toName||'')+'</b> &lt;'+esc(_scr.toEmail)+'&gt; with a link to upload the signed page.'))+'</div>'
                           +(_scGot?'':'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:'+(_scSent?'#64748B':'#1a3c6e')+';color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDaySchoolConsentSend('+_jsArg(d._id)+',this)">'+(_scSent?'Send the request again':'Email '+esc((_scr.toName||'the school').split(' ')[0])+' for the signed page')+'</button>');
                       }
+                      /* Screening requests (2026-11-13): straight to the request's worksheet. */
+                      if(r.bucket!=='done'&&(d.workflowStep==='screeningRequestNew'||d.workflowStep==='screeningWorksheet')&&d.providerRequestId&&!actionBtn)
+                        actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#0F766E;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();pswOpenFromTask('+_jsArg(d.providerRequestId)+')">'+(d.workflowStep==='screeningWorksheet'?'Open the worksheet':'Open the request')+' &rarr;</button>';
                       /* One task for the coordinator instead of one card per family
                          (v152.57): opens the Case Management report, where she assigns
                          them; the Cloud Function recounts it and closes it at zero. */
@@ -12031,6 +12034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
             <button class="btn btn-ghost cms-wd-filter-providers" data-status="new" onclick="cmsFilterWebData('providers','new')">New</button>
             <button class="btn btn-ghost cms-wd-filter-providers" data-status="reviewed" onclick="cmsFilterWebData('providers','reviewed')">Reviewed</button>
             <button class="btn btn-ghost cms-wd-filter-providers" data-status="contacted" onclick="cmsFilterWebData('providers','contacted')">Contacted</button>
+            <button class="btn btn-ghost cms-wd-filter-providers" data-status="confirmed" onclick="cmsFilterWebData('providers','confirmed')">Confirmed</button>
           </div>
           <button class="btn btn-ghost" style="font-size:.82rem;" onclick="cmsExportProvidersCsv()">Export CSV <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Download this data as a spreadsheet file. Opens in Excel, Google Sheets, or Numbers.')">i</span></button>
           <button class="btn btn-ghost" style="font-size:.82rem;" id="cmsWdArchiveToggleProviders" onclick="cmsToggleWdArchived('providers')">Show Archived</button>
@@ -52461,7 +52465,7 @@ window.cmsRenderProviders = function() {
     return true;
   });
   if (!filtered.length) { container.innerHTML = '<div class="cms-empty"><p>No provider requests' + (_cmsWdProviderFilter !== 'all' ? ' with status "' + rsEscape(_cmsWdProviderFilter) + '"' : '') + '.</p></div>'; return; }
-  var colorMap = { new: '#64748B', reviewed: '#0891B2', contacted: '#16A34A' };
+  var colorMap = { new: '#64748B', reviewed: '#0891B2', contacted: '#16A34A', confirmed: '#0F766E' };
   var html = '';
   filtered.forEach(function(p) {
     var name = rsEscape([p.firstName, p.lastName].filter(Boolean).join(' ')) || '(No name)';
@@ -52471,10 +52475,11 @@ window.cmsRenderProviders = function() {
       '<div style="font-weight:600;font-size:.97rem;">' + rsEscape(p.organizationName || name) + '</div>' +
       '<div style="font-size:.85rem;color:var(--text-soft);">' + name + (p.email ? ' &middot; ' + rsEscape(p.email) : '') + '</div>' +
       (p.serviceType ? '<div style="font-size:.82rem;color:var(--text-soft);">' + rsEscape(p.serviceType) + (p.category ? ' &middot; ' + rsEscape(p.category) : '') + '</div>' : '') +
+      _pswCardLines(p) +
       (ts ? '<div style="font-size:.79rem;color:var(--text-soft);">' + ts + '</div>' : '') +
       '</div>' + _cmsWdStatusBadge(p.status || 'new', colorMap) + '</div>' +
       '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;" onclick="event.stopPropagation()">' +
-      _cmsWdStatusBtns(p.id, 'providers', ['new', 'reviewed', 'contacted'], colorMap) + '</div>';
+      _cmsWdStatusBtns(p.id, 'providers', ['new', 'reviewed', 'contacted'], colorMap) + _pswCardBtns(p) + '</div>';
     var details = (p.phone ? '<div><b>Phone:</b> ' + rsEscape(window.ldahFormatPhone(p.phone)) + '</div>' : '') +
       (p.email ? '<div><b>Email:</b> ' + rsEscape(p.email) + '</div>' : '') +
       (p.category ? '<div><b>Category:</b> ' + rsEscape(p.category) + '</div>' : '') +
@@ -52487,6 +52492,359 @@ window.cmsRenderProviders = function() {
     html += _cmsWdCard(summary, p.id, details, p.archived === true, 'providers', 'cmsLoadProviders');
   });
   container.innerHTML = html;
+};
+
+/* Screening requests (Daniel 2026-11-13). The website / app "Provider
+   Screening Services Request" form writes providers/{id} with
+   requestType:'screening' plus the first questions from the paper
+   "Scheduling a Screening" worksheet. Noe runs them now (not Chassidy):
+   - the card shows what they asked for, with Worksheet and Email contact;
+   - Worksheet = the rest of the paper sheet, saved on providers/{id}.worksheet;
+   - Confirm date puts it on the staff calendar (Dashboard + Events Dashboard,
+     internal only), closes the "new request" task and gives Noe a task to
+     finish the "Upon confirmation" checklist. Ticking the last box closes it.
+   - Email contact goes out from registration@ via sendProviderRequestEmail
+     (logged in emailLog, Noe copied, replies go to her). */
+var PSW_NOE = { uid: 'lwn8EWt6XEbCg5rhM0f8OSy8nTj2', name: 'Noelani Dela Vega' };
+var PSW_TYPES = ['Hearing', 'Vision', 'Developmental', 'Social Emotional'];
+var PSW_FOR = ['School', 'Person', 'Location', 'Event'];
+var PSW_ISLANDS = ['Oʻahu', 'Hawaiʻi Island', 'Kauaʻi', 'Maui', 'Lānaʻi', 'Molokaʻi'];
+var PSW_ATTACH = [['cover', 'Parent Cover Letter'], ['consent', 'Consent to Screen & Obtain and Release'], ['flyer', 'Flyer'],
+                  ['brochure', 'SRP Brochure'], ['factsheet', 'Factsheet'], ['video', 'Informational Video']];
+var _pswId = null;
+
+function pswPcNeeded(n) { n = parseInt(n, 10); if (!(n > 0)) return 0; return n <= 15 ? 1 : n <= 30 ? 2 : n <= 75 ? 3 : 4; }
+function _pswDate(d) { return d ? (window.ldahHolidayNice ? window.ldahHolidayNice(d) : d) : ''; }
+function _pswTime(t) { if (!/^\d{2}:\d{2}/.test(t || '')) return ''; var h = +t.slice(0, 2); return ((h % 12) || 12) + ':' + t.slice(3, 5) + (h < 12 ? ' a.m.' : ' p.m.'); }
+function _pswWhen(d, t) { return d ? _pswDate(d) + (t ? ', ' + _pswTime(t) : '') : ''; }
+function _pswGet(id) { return (_cmsProviders || []).filter(function (p) { return p.id === id; })[0] || null; }
+function _pswKids(p) { return p.childCountUnknown ? 'Not sure how many children' : (p.childCount ? p.childCount + ' children' : ''); }
+
+/* The extra lines on a screening request's card. */
+function _pswCardLines(p) {
+  if (p.requestType !== 'screening') return '';
+  var ws = p.worksheet || {}, c = ws.confirmed || null;
+  var bits = ['Screening', _pswKids(p), (p.screenings || []).join(', '), p.island].filter(Boolean);
+  var asked = (p.preferredDates || []).map(function (d) { return _pswWhen(d.date, d.time); }).filter(Boolean);
+  return '<div style="font-size:.82rem;color:#0F766E;font-weight:600;margin-top:2px;">' + rsEscape(bits.join(' · ')) + '</div>' +
+    (c && c.date ? '<div style="font-size:.82rem;color:#15803D;font-weight:700;">Confirmed: ' + rsEscape(_pswWhen(c.date, c.start)) + '</div>'
+      : (asked.length ? '<div style="font-size:.8rem;color:var(--text-soft);">Asked for: ' + rsEscape(asked.join(' or ')) + '</div>' : ''));
+}
+function _pswCardBtns(p) {
+  var b = 'font-size:.76rem;padding:3px 10px;border-radius:6px;cursor:pointer;font-weight:600;';
+  return (p.requestType === 'screening' ? '<button class="btn" style="' + b + 'background:#0F766E;color:#fff;border:none;" onclick="event.stopPropagation();pswOpen(' + _jsArg(p.id) + ')">Worksheet</button>' : '') +
+    (p.email ? '<button class="btn" style="' + b + 'background:#fff;color:#1a3c6e;border:1px solid #1a3c6e;" onclick="event.stopPropagation();pswEmailOpen(' + _jsArg(p.id) + ')">Email contact</button>' : '');
+}
+
+function _pswEnsureCss() {
+  if (document.getElementById('pswCss')) return;
+  var st = document.createElement('style'); st.id = 'pswCss';
+  st.textContent = '.psw-ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:3vh 12px;overflow-y:auto}'
+    + '.psw-box{background:#fff;border-radius:14px;width:100%;max-width:760px;box-shadow:0 20px 50px rgba(0,0,0,.3);margin-bottom:3vh}'
+    + '.psw-hd{background:#0F766E;color:#fff;padding:14px 20px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;gap:10px}'
+    + '.psw-hd h3{margin:0;font-size:1.08rem}.psw-hd small{display:block;opacity:.85;font-weight:400}'
+    + '.psw-x{background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:1.3rem;cursor:pointer}'
+    + '.psw-bd{padding:16px 20px;font-size:.88rem}'
+    + '.psw-sec{font-weight:800;color:#0F766E;margin:16px 0 8px;font-size:.92rem;border-bottom:1px solid #E2E8F0;padding-bottom:4px}'
+    + '.psw-q{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:8px 0;border-bottom:1px dashed #E2E8F0}'
+    + '.psw-ynp{display:flex;gap:4px}.psw-ynp label{border:1px solid #CBD5E1;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:.78rem;font-weight:600;color:#475569}'
+    + '.psw-ynp label:has(input:checked){background:#0F766E;border-color:#0F766E;color:#fff}.psw-ynp input{display:none}'
+    + '.psw-bd input[type=text],.psw-bd input[type=number],.psw-bd input[type=date],.psw-bd input[type=time],.psw-bd select,.psw-bd textarea{border:1px solid #CBD5E1;border-radius:6px;padding:5px 8px;font-size:.85rem;font-family:inherit}'
+    + '.psw-bd textarea{width:100%;resize:vertical}'
+    + '.psw-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin-top:6px}.psw-row > div{display:flex;flex-direction:column;gap:2px}'
+    + '.psw-lbl{font-size:.74rem;color:#64748B;font-weight:600}'
+    + '.psw-chk{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px}.psw-chk label{display:inline-flex;gap:5px;align-items:center;font-weight:500}'
+    + '.psw-note{font-size:.78rem;color:#64748B;font-style:italic;margin:8px 0 0;line-height:1.45}'
+    + '.psw-done{border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-top:8px}.psw-done.off{opacity:.45;pointer-events:none}'
+    + '.psw-done > label{display:flex;gap:8px;align-items:flex-start;font-weight:600;margin:6px 0}'
+    + '.psw-ft{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;padding:12px 20px 18px;border-top:1px solid #E2E8F0}'
+    + '.psw-ft button{border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:.85rem}'
+    + '.psw-msg{font-size:.82rem;margin-right:auto;align-self:center}'
+    + '.psw-pc{background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:6px;padding:4px 8px;font-weight:700;font-size:.8rem;display:inline-block;margin-top:4px}';
+  document.head.appendChild(st);
+}
+function _pswClose() { var o = document.getElementById('pswOv'); if (o) o.remove(); }
+function _pswOverlay(inner) {
+  _pswEnsureCss(); _pswClose();
+  var o = document.createElement('div'); o.id = 'pswOv'; o.className = 'psw-ov';
+  o.innerHTML = '<div class="psw-box" onclick="event.stopPropagation()">' + inner + '</div>';
+  o.addEventListener('click', _pswClose);
+  document.body.appendChild(o);
+  return o;
+}
+function _pswYnp(name, val) {
+  return '<div class="psw-ynp">' + [['yes', 'Yes'], ['no', 'No'], ['pending', 'Pending']].map(function (o) {
+    return '<label><input type="radio" name="' + name + '" value="' + o[0] + '"' + (val === o[0] ? ' checked' : '') + '>' + o[1] + '</label>';
+  }).join('') + '</div>';
+}
+function _pswOpts(list, val, blank) {
+  return (blank ? '<option value="">' + blank + '</option>' : '') + list.map(function (x) { return '<option' + (x === val ? ' selected' : '') + '>' + rsEscape(x) + '</option>'; }).join('');
+}
+function _pswDT(prefix, d, label) {
+  d = d || {};
+  return '<div><span class="psw-lbl">' + label + '</span><input type="date" class="psw-date" id="' + prefix + 'D" value="' + rsEscape(d.date || '') + '"></div>' +
+    '<div><span class="psw-lbl">Start</span><input type="time" id="' + prefix + 'T" value="' + rsEscape(d.time || '') + '"></div>';
+}
+
+/* Fill the worksheet from what they sent, the first time it is opened. */
+function _pswSeed(p) {
+  var ws = JSON.parse(JSON.stringify(p.worksheet || {}));
+  if (ws.seeded) return ws;
+  ws.seeded = true;
+  ws.screeningFor = ws.screeningFor || p.screeningFor || '';
+  ws.q1 = ws.q1 || (p.screeningFor ? 'yes' : '');
+  ws.q2 = ws.q2 || (p.multipleLocations || '');
+  ws.sites = ws.sites || p.sites || '';
+  ws.q3 = ws.q3 || (p.childCountUnknown ? 'pending' : (p.childCount ? 'yes' : ''));
+  ws.childCount = ws.childCount || p.childCount || '';
+  ws.childAges = ws.childAges || p.childAges || '';
+  ws.q4 = ws.q4 || ((p.screenings || []).length ? 'yes' : '');
+  ws.screenings = ws.screenings || (p.screenings || []).slice();
+  ws.island = ws.island || p.island || '';
+  ws.done = ws.done || {};
+  return ws;
+}
+
+window.pswOpen = function (id) {
+  var p = _pswGet(id); if (!p) { _showToast('That request is not loaded yet.', '#B45309'); return; }
+  _pswId = id;
+  var ws = _pswSeed(p), c = ws.confirmed || {}, conf = !!c.date;
+  var name = [p.firstName, p.lastName].filter(Boolean).join(' ');
+  var asked = (p.preferredDates || []).map(function (d, i) { return (i ? '2nd' : '1st') + ' choice: ' + _pswWhen(d.date, d.time); });
+  var need = pswPcNeeded(ws.childCount);
+  var done = ws.done || {};
+  var chk = function (k, label, extra) { return '<label><input type="checkbox" class="psw-tick" data-k="' + k + '"' + (done[k] ? ' checked' : '') + '><span>' + label + (extra || '') + '</span></label>'; };
+  var html = '<div class="psw-hd"><h3>Screening worksheet<small>' + rsEscape(p.organizationName || name) + (name ? ' · ' + rsEscape(name) : '') + (p.phone ? ' · ' + rsEscape(window.ldahFormatPhone ? window.ldahFormatPhone(p.phone) : p.phone) : '') + '</small></h3><button class="psw-x" onclick="_pswClose()">&times;</button></div>' +
+    '<div class="psw-bd">' +
+    (asked.length || p.message ? '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:8px 12px;">' +
+      (asked.length ? '<div><b>They asked for:</b> ' + rsEscape(asked.join(' · ')) + '</div>' : '<div><b>They did not give dates.</b></div>') +
+      (p.message ? '<div style="margin-top:4px;white-space:pre-wrap;color:#475569;">' + rsEscape(p.message) + '</div>' : '') + '</div>' : '') +
+    '<div class="psw-sec">Before confirming</div>' +
+    '<div class="psw-q"><div>Screening for a school, person, location or event?<div class="psw-row"><select id="pswFor">' + _pswOpts(PSW_FOR, ws.screeningFor, 'Choose') + '</select></div></div>' + _pswYnp('pswQ1', ws.q1) + '</div>' +
+    '<div class="psw-q"><div>Screening at more than one location?<div class="psw-row" style="width:100%;"><textarea id="pswSites" rows="2" placeholder="Site name(s) and address(es)">' + rsEscape(ws.sites || '') + '</textarea></div></div>' + _pswYnp('pswQ2', ws.q2) + '</div>' +
+    '<div class="psw-q"><div>Do you know how many children will be screened?<div class="psw-row"><div><span class="psw-lbl">Anticipated # of children</span><input type="number" id="pswCount" min="0" style="width:110px;" value="' + rsEscape(String(ws.childCount || '')) + '" oninput="pswPcHint()"></div>' +
+      '<div><span class="psw-lbl">Ages</span><input type="text" id="pswAges" style="width:200px;" value="' + rsEscape(ws.childAges || '') + '"></div></div></div>' + _pswYnp('pswQ3', ws.q3) + '</div>' +
+    '<div class="psw-q"><div>Do you know what screening will be done?<div class="psw-chk">' + PSW_TYPES.map(function (t) { return '<label><input type="checkbox" class="psw-type" value="' + t + '"' + ((ws.screenings || []).indexOf(t) !== -1 ? ' checked' : '') + '>' + t + '</label>'; }).join('') + '</div></div>' + _pswYnp('pswQ4', ws.q4) + '</div>' +
+    '<div class="psw-q"><div>Did you offer two dates with times starting at 8:30 a.m.?</div>' + _pswYnp('pswQ5', ws.q5) + '</div>' +
+    '<div class="psw-sec">Dates</div>' +
+    '<div class="psw-row"><div><span class="psw-lbl">Island</span><select id="pswIsland">' + _pswOpts(PSW_ISLANDS, ws.island, 'Choose') + '</select></div></div>' +
+    '<div class="psw-row">' + _pswDT('pswO1', (ws.offered || [])[0], 'Date offered (LDAH)') + _pswDT('pswO2', (ws.offered || [])[1], '2nd date offered') + '</div>' +
+    '<div class="psw-row">' + _pswDT('pswA1', (ws.alternate || [])[0], 'Alternate date') + _pswDT('pswA2', (ws.alternate || [])[1], '2nd alternate date') + '</div>' +
+    '<div style="margin-top:10px;padding:10px 12px;border:2px solid ' + (conf ? '#15803D' : '#CBD5E1') + ';border-radius:8px;background:' + (conf ? '#F0FDF4' : '#fff') + ';">' +
+      '<b style="color:' + (conf ? '#15803D' : '#334155') + ';">' + (conf ? 'Confirmed date' : 'Confirmed date (fill in, then press Confirm date)') + '</b>' +
+      '<div class="psw-row"><div><span class="psw-lbl">Date</span><input type="date" class="psw-date" id="pswCD" value="' + rsEscape(c.date || '') + '"></div>' +
+      '<div><span class="psw-lbl">Start</span><input type="time" id="pswCS" value="' + rsEscape(c.start || '08:30') + '"></div>' +
+      '<div><span class="psw-lbl">End</span><input type="time" id="pswCE" value="' + rsEscape(c.end || '') + '"></div>' +
+      '<div style="flex:1;min-width:200px;"><span class="psw-lbl">Location</span><input type="text" id="pswCL" value="' + rsEscape(c.location || ws.sites || '') + '"></div></div>' +
+      (conf ? '<div style="font-size:.76rem;color:#15803D;margin-top:4px;">Confirmed by ' + rsEscape(c.byName || '') + '. It is on the staff calendar.</div>' : '') +
+    '</div>' +
+    '<p class="psw-note">Preschools need time to send consent forms to parents and get them back signed. Pick dates that allow for that: one week from when the school receives the consent forms is the suggested time frame. If airline travel is involved, allow time to arrange flights, adjusted hours the week before, and every PC&rsquo;s schedule.</p>' +
+    '<div class="psw-sec">Upon confirmation</div>' +
+    '<div class="psw-done' + (conf ? '' : ' off') + '" id="pswDone">' +
+      (conf ? '' : '<div style="font-size:.8rem;color:#64748B;margin-bottom:4px;">These open once the date is confirmed.</div>') +
+      chk('email', 'Confirmation email sent: date, time, location and the screening to be done') +
+      '<div style="margin:0 0 4px 26px;" class="psw-chk">' + PSW_ATTACH.map(function (a, i) { return '<label><input type="checkbox" class="psw-tick" data-k="att_' + a[0] + '"' + (done['att_' + a[0]] ? ' checked' : '') + '>(' + (i + 1) + ') ' + rsEscape(a[1]) + '</label>'; }).join('') + '</div>' +
+      chk('outlook', 'Outlook event created from the Public Calendar template') +
+      chk('pcs', 'Parent Consultants assigned', '<br><span class="psw-pc" id="pswPcNeed"></span>') +
+      '<div style="margin:2px 0 0 26px;"><input type="text" id="pswPcNames" style="width:100%;" placeholder="Which PCs" value="' + rsEscape(ws.pcNames || '') + '"></div>' +
+    '</div>' +
+    '<div class="psw-sec">Notes</div><textarea id="pswNotes" rows="3" placeholder="Internal notes">' + rsEscape(p.adminNotes || '') + '</textarea>' +
+    ((p.emails || []).length ? '<div class="psw-sec">Emails sent</div>' + p.emails.map(function (e) { return '<div style="font-size:.8rem;color:#475569;">' + rsEscape(new Date(e.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + ' · ' + rsEscape(e.by || '') + ' · ' + rsEscape(e.subject || '') + '</div>'; }).join('') : '') +
+    '</div>' +
+    '<div class="psw-ft"><span class="psw-msg" id="pswMsg"></span>' +
+      (p.email ? '<button style="background:#fff;color:#1a3c6e;border:1px solid #1a3c6e;" onclick="pswEmailOpen(' + _jsArg(id) + ')">Email contact</button>' : '') +
+      '<button style="background:#fff;color:#334155;border:1px solid #CBD5E1;" onclick="pswSave()">Save</button>' +
+      '<button style="background:#15803D;color:#fff;border:none;" onclick="pswConfirm(this)">' + (conf ? 'Update confirmed date' : 'Confirm date') + '</button>' +
+    '</div>';
+  _pswOverlay(html);
+  pswPcHint();
+  document.querySelectorAll('#pswOv .psw-date').forEach(function (inp) { inp.addEventListener('change', function () { _pswHolNote(inp); }); _pswHolNote(inp); });
+};
+function _pswHolNote(inp) {
+  var n = inp.parentElement.querySelector('.ldah-hol-note');
+  var nm = (/^\d{4}-\d{2}-\d{2}$/.test(inp.value) && window.ldahHolidayOn) ? window.ldahHolidayOn(inp.value) : '';
+  if (!nm) { if (n) n.remove(); return; }
+  if (!n) { n = document.createElement('div'); n.className = 'ldah-hol-note'; inp.insertAdjacentElement('afterend', n); }
+  n.textContent = 'Office closed: ' + nm;
+}
+window.pswPcHint = function () {
+  var el = document.getElementById('pswPcNeed'); if (!el) return;
+  var n = parseInt((document.getElementById('pswCount') || {}).value, 10), k = pswPcNeeded(n);
+  el.textContent = k ? n + ' children: ' + k + ' PC' + (k > 1 ? 's' : '') + (n > 150 ? ' (over 150, plan more)' : '') : 'Enter the number of children to see how many PCs';
+};
+
+function _pswRead() {
+  var g = function (id) { return String((document.getElementById(id) || {}).value || '').trim(); };
+  var r = function (n) { var x = document.querySelector('#pswOv input[name="' + n + '"]:checked'); return x ? x.value : ''; };
+  var dt = function (pre) { return { date: g(pre + 'D'), time: g(pre + 'T') }; };
+  var p = _pswGet(_pswId) || {}, ws = _pswSeed(p);
+  ws.screeningFor = g('pswFor'); ws.q1 = r('pswQ1'); ws.q2 = r('pswQ2'); ws.sites = g('pswSites');
+  ws.q3 = r('pswQ3'); ws.childCount = g('pswCount') ? parseInt(g('pswCount'), 10) : ''; ws.childAges = g('pswAges');
+  ws.q4 = r('pswQ4'); ws.screenings = Array.prototype.map.call(document.querySelectorAll('#pswOv .psw-type:checked'), function (x) { return x.value; });
+  ws.q5 = r('pswQ5'); ws.island = g('pswIsland');
+  ws.offered = [dt('pswO1'), dt('pswO2')].filter(function (d) { return d.date; });
+  ws.alternate = [dt('pswA1'), dt('pswA2')].filter(function (d) { return d.date; });
+  ws.pcNames = g('pswPcNames');
+  ws.done = ws.done || {};
+  document.querySelectorAll('#pswOv .psw-tick').forEach(function (x) { ws.done[x.getAttribute('data-k')] = x.checked; });
+  ws.pcsNeeded = pswPcNeeded(ws.childCount);
+  return { ws: ws, notes: g('pswNotes'), conf: { date: g('pswCD'), start: g('pswCS'), end: g('pswCE'), location: g('pswCL') } };
+}
+function _pswAllDone(ws) {
+  var d = ws.done || {};
+  return !!(ws.confirmed && ws.confirmed.date && d.email && d.outlook && d.pcs && PSW_ATTACH.every(function (a) { return d['att_' + a[0]]; }));
+}
+function _pswMsg(t, ok) { var m = document.getElementById('pswMsg'); if (m) { m.style.color = ok ? '#15803D' : '#DC2626'; m.textContent = t; } }
+function _pswTasks(id) {
+  return db.collection('interactions').where('providerRequestId', '==', id).get().then(function (s) {
+    return s.docs.map(function (d) { var x = d.data(); x._id = d.id; return x; });
+  });
+}
+
+window.pswSave = async function (quiet) {
+  var p = _pswGet(_pswId); if (!p) return false;
+  var f = _pswRead();
+  var dates = f.ws.offered.concat(f.ws.alternate).map(function (d) { return d.date; });
+  var prev = _pswSeed(p), was = (prev.offered || []).concat(prev.alternate || []).map(function (d) { return d.date; });
+  var fresh = dates.filter(function (d) { return was.indexOf(d) === -1; });
+  if (fresh.length && window.ldahHolidayAsk && !(await window.ldahHolidayAsk(fresh))) return false;
+  var me = window.currentUserData || {};
+  var up = { worksheet: f.ws, adminNotes: f.notes, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedByName: me.displayName || me.email || '' };
+  if ((p.status || 'new') === 'new') up.status = 'reviewed';
+  try {
+    await db.collection('providers').doc(p.id).update(up);
+    Object.assign(p, up, { worksheet: f.ws });
+    if (_pswAllDone(f.ws)) await _pswFinish(p);
+    if (!quiet) { _pswMsg('Saved.', true); cmsRenderProviders(); }
+    return true;
+  } catch (e) { _pswMsg('Not saved: ' + (e && e.message || e)); return false; }
+};
+
+/* Every box ticked: close Noe's worksheet task. */
+async function _pswFinish(p) {
+  try {
+    var ts = await _pswTasks(p.id);
+    for (var i = 0; i < ts.length; i++) {
+      if (ts[i].workflowStep === 'screeningWorksheet' && ts[i].status !== 'Closed') {
+        await db.collection('interactions').doc(ts[i]._id).update({ status: 'Closed', updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          notes: String(ts[i].notes || '') + '\n\nWorksheet complete. Closed automatically.' });
+      }
+    }
+    _showToast('Worksheet complete. Noe’s task is closed.', '#15803D');
+  } catch (e) { console.warn('psw finish', e); }
+}
+
+window.pswConfirm = async function (btn) {
+  var p = _pswGet(_pswId); if (!p) return;
+  var f = _pswRead(), c = f.conf;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date)) { _pswMsg('Fill in the confirmed date first.'); return; }
+  if (c.end && c.start && c.end < c.start) { _pswMsg('The end time is before the start time.'); return; }
+  var prevC = (p.worksheet || {}).confirmed || {};
+  if (c.date !== prevC.date && window.ldahHolidayAsk && !(await window.ldahHolidayAsk([c.date]))) return;
+  btn.disabled = true;
+  var me = window.currentUserData || {}, FV = firebase.firestore.FieldValue;
+  var org = p.organizationName || [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Screening';
+  var n = f.ws.childCount, types = (f.ws.screenings || []).join(', ');
+  try {
+    f.ws.confirmed = { date: c.date, start: c.start, end: c.end, location: c.location, at: new Date().toISOString(), byName: me.displayName || me.email || '', byUid: me.uid || '' };
+    // Staff calendar entry: Dashboard + Events Dashboard, never the website or app.
+    var cal = { title: 'Screening: ' + org + (n ? ' (' + n + ' children)' : ''), date: c.date, startTime: c.start, endTime: c.end, location: c.location,
+      notes: [types ? 'Screenings: ' + types : '', [p.firstName, p.lastName].filter(Boolean).join(' ') + (p.email ? ' <' + p.email + '>' : '') + (p.phone ? ' ' + p.phone : ''),
+              n ? pswPcNeeded(n) + ' Parent Consultant' + (pswPcNeeded(n) > 1 ? 's' : '') + ' needed' : '', 'From Website Data > Provider Requests.'].filter(Boolean).join('\n'),
+      repeat: '', repeatUntil: '', skipDates: [], agendaOn: false, providerRequestId: p.id,
+      updatedAt: FV.serverTimestamp(), updatedByUid: me.uid || '', updatedByName: me.displayName || me.email || '' };
+    var calId = p.calendarEntryId || '';
+    if (calId) await db.collection('staffCalendar').doc(calId).set(cal, { merge: true });
+    else { cal.createdAt = FV.serverTimestamp(); cal.createdByUid = me.uid || ''; cal.createdByName = me.displayName || me.email || ''; calId = (await db.collection('staffCalendar').add(cal)).id; }
+    var up = { worksheet: f.ws, adminNotes: f.notes, status: 'confirmed', calendarEntryId: calId, updatedAt: FV.serverTimestamp() };
+    await db.collection('providers').doc(p.id).update(up);
+    Object.assign(p, up, { worksheet: f.ws });
+    // Tasks: the "new request" task is done; Noe gets (or keeps) the worksheet task.
+    var ts = await _pswTasks(p.id), when = _pswWhen(c.date, c.start), haveWs = null;
+    for (var i = 0; i < ts.length; i++) {
+      var t = ts[i]; if (t.status === 'Closed') continue;
+      if (t.workflowStep === 'screeningWorksheet') haveWs = t;
+      else await db.collection('interactions').doc(t._id).update({ status: 'Closed', updatedAt: FV.serverTimestamp(),
+        notes: String(t.notes || '') + '\n\nDate confirmed for ' + when + ' by ' + (me.displayName || '') + '. Closed automatically.' });
+    }
+    var sum = 'Complete the screening worksheet: ' + org + ', ' + when;
+    var due = _wnAddDaysHst(1); if (due > c.date) due = c.date;
+    var tnotes = 'The screening is confirmed for ' + when + (c.location ? ' at ' + c.location : '') + '.\n\nOpen the worksheet and tick each step:\n' +
+      '- Confirmation email with the date, time, location and screening, with the 6 attachments\n- Outlook event from the Public Calendar template\n- Assign ' +
+      (n ? pswPcNeeded(n) + ' Parent Consultant' + (pswPcNeeded(n) > 1 ? 's' : '') + ' (' + n + ' children)' : 'Parent Consultants') + '\n\nThis task closes itself when every box is ticked.';
+    if (haveWs) await db.collection('interactions').doc(haveWs._id).update({ summary: sum, notes: tnotes, updatedAt: FV.serverTimestamp() });
+    else if (!_pswAllDone(f.ws)) {
+      await db.collection('interactions').add({ channel: 'Office', interactionType: 'Provider Request', contactId: '', contactName: org, contactType: '', grantProgram: '',
+        summary: sum, notes: tnotes, followUpDate: due, status: 'Open', isDraft: false, owner: PSW_NOE.name, ownerUid: PSW_NOE.uid,
+        workflowStep: 'screeningWorksheet', providerRequestId: p.id,
+        createdBy: me.displayName || me.email || '', createdByUid: me.uid || '', createdAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp() });
+    }
+    if (typeof window.auditLog === 'function') window.auditLog('Screening date confirmed', org + ' on ' + c.date + ' [' + p.id + ']');
+    _showToast('Confirmed for ' + when + '. It is on the staff calendar and Noe has the worksheet task.', '#15803D');
+    if (window._dashCalRefresh) try { window._dashCalRefresh(); } catch (e) {}
+    cmsRenderProviders();
+    pswOpen(p.id);
+  } catch (e) { _pswMsg('Not confirmed: ' + (e && e.message || e)); btn.disabled = false; }
+};
+
+/* Email the point of contact. Drafted from the worksheet; staff edit it. */
+window.pswEmailOpen = function (id) {
+  var p = _pswGet(id); if (!p || !p.email) return;
+  var reopen = !!document.getElementById('pswOv') && _pswId === id;
+  var go = function () {
+    var ws = _pswSeed(_pswGet(id) || p), c = ws.confirmed || {}, first = p.firstName || 'there';
+    var _tl = (ws.screenings || p.screenings || []).map(function (t) { return t.toLowerCase(); });
+    var types = _tl.length > 1 ? _tl.slice(0, -1).join(', ') + ' and ' + _tl[_tl.length - 1] : (_tl[0] || '');
+    var subj, body;
+    if (c.date) {
+      subj = 'Screening confirmed: ' + _pswDate(c.date);
+      body = 'Aloha ' + first + ',\n\nMahalo for your screening request. Your ' + (types ? types + ' ' : '') + 'screening is confirmed:\n\nDate: ' + _pswDate(c.date) +
+        '\nTime: ' + _pswTime(c.start) + (c.end ? ' to ' + _pswTime(c.end) : '') + (c.location ? '\nLocation: ' + c.location : '') +
+        '\n\nPlease send the consent forms home with families and collect them signed before the screening.\n\nIf you have any questions, just reply to this email.';
+    } else {
+      var off = (ws.offered || []).map(function (d) { return _pswWhen(d.date, d.time); }).filter(Boolean);
+      subj = 'Your screening request' + (p.organizationName ? ' for ' + p.organizationName : '');
+      body = 'Aloha ' + first + ',\n\nMahalo for your screening request. ' +
+        (off.length ? 'We can offer ' + off.join(' or ') + '. Please let me know which one works for you.' : 'I would like to set up a date with you.') +
+        '\n\nIf you have any questions, just reply to this email.';
+    }
+    var html = '<div class="psw-hd"><h3>Email ' + rsEscape([p.firstName, p.lastName].filter(Boolean).join(' ') || p.email) + '<small>' + rsEscape(p.email) + ' · from registration@, you are copied and replies come to you</small></h3><button class="psw-x" onclick="' + (reopen ? 'pswOpen(' + _jsArg(id).replace(/"/g, '&quot;') + ')' : '_pswClose()') + '">&times;</button></div>' +
+      '<div class="psw-bd"><div><span class="psw-lbl">Subject</span><input type="text" id="pswEmSubj" style="width:100%;" value="' + rsEscape(subj) + '"></div>' +
+      '<div style="margin-top:8px;"><span class="psw-lbl">Message</span><textarea id="pswEmBody" rows="12">' + rsEscape(body) + '</textarea></div>' +
+      '<p class="psw-note">Your name and the School Readiness Project sign-off are added at the bottom.</p></div>' +
+      '<div class="psw-ft"><span class="psw-msg" id="pswMsg"></span>' +
+      '<button style="background:#fff;color:#334155;border:1px solid #CBD5E1;" onclick="' + (reopen ? 'pswOpen(' + _jsArg(id).replace(/"/g, '&quot;') + ')' : '_pswClose()') + '">Cancel</button>' +
+      '<button style="background:#1a3c6e;color:#fff;border:none;" onclick="pswEmailSend(' + _jsArg(id).replace(/"/g, '&quot;') + ',this,' + (reopen ? 'true' : 'false') + ')">Send email</button></div>';
+    _pswOverlay(html);
+  };
+  if (reopen) pswSave(true).then(function (ok) { if (ok !== false) go(); }); else go();
+};
+window.pswEmailSend = async function (id, btn, back) {
+  var subj = String(document.getElementById('pswEmSubj').value || '').trim(), msg = String(document.getElementById('pswEmBody').value || '').trim();
+  if (!subj || !msg) { _pswMsg('A subject and a message are both needed.'); return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    var tok = await firebase.auth().currentUser.getIdToken();
+    var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendProviderRequestEmail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: tok, providerId: id, subject: subj, message: msg }) });
+    var j = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) throw new Error(j.error || 'send failed');
+    _showToast('Email sent to ' + (j.sentTo || 'the contact') + '.', '#15803D');
+    var p = _pswGet(id);
+    if (p) { p.emails = (p.emails || []).concat([{ at: new Date().toISOString(), by: (window.currentUserData || {}).displayName || '', subject: subj }]); if ((p.status || 'new') === 'new' || p.status === 'reviewed') p.status = 'contacted'; }
+    cmsRenderProviders();
+    if (back) pswOpen(id); else _pswClose();
+  } catch (e) { _pswMsg('Not sent: ' + e.message); btn.disabled = false; btn.textContent = 'Send email'; }
+};
+
+/* From a My Day task: Website Data > Provider Requests, then the worksheet. */
+window.pswOpenFromTask = function (id) {
+  var link = document.querySelector('[data-section="cmsWebData"]'); if (link) link.click();
+  setTimeout(async function () {
+    cmsSwitchWebDataTab('providers');
+    if (!_pswGet(id)) await cmsLoadProviders();
+    if (_pswGet(id)) pswOpen(id); else _showToast('That request was not found. It may have been archived.', '#B45309');
+  }, 250);
 };
 
 window.cmsRenderPledges = function() {
@@ -78158,7 +78516,7 @@ window.ldahIssueContext = function () {
 <script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
 window.vebOpen = function () {
-  var V = '154.70';
+  var V = '154.71';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
   if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEB ? null : add('veb.js'); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
