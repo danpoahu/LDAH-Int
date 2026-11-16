@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.67-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.68-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -10386,6 +10386,20 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
           <input type="hidden" id="staffEditId" value="" />
           <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Name</label>
           <input id="staffName" type="text" placeholder="Full name" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.95rem;margin-bottom:12px;font-family:inherit;" />
+          <!-- Staff or outside (Daniel 2026-11-16): staff are linked to their DAN login so tasks reach them; outside presenters need an email. -->
+          <div id="staffKindRow" style="display:flex;gap:16px;margin-bottom:10px;font-size:.9rem;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="staffKind" value="staff" checked onchange="cmsStaffKindChange()"> Staff member</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="radio" name="staffKind" value="outside" onchange="cmsStaffKindChange()"> Outside presenter</label>
+          </div>
+          <div id="staffUidWrap" style="margin-bottom:12px;">
+            <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Their DAN login *</label>
+            <select id="staffUid" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.95rem;font-family:inherit;"><option value="">Loading&hellip;</option></select>
+            <div style="font-size:.75rem;color:var(--text-soft);margin-top:4px;">Their presenter tasks go to this login. The name above can be what staff call them.</div>
+          </div>
+          <div id="staffEmailWrap" style="display:none;margin-bottom:12px;">
+            <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Email *</label>
+            <input id="staffEmail" type="email" placeholder="name@example.com" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.95rem;font-family:inherit;" />
+          </div>
           <label style="font-size:.82rem;font-weight:700;color:var(--text-soft);display:block;margin-bottom:4px;">Sort Order <span style="font-weight:400;color:var(--text-soft);">(lower = earlier in the dropdown)</span></label>
           <input id="staffSortOrder" type="number" min="0" step="10" placeholder="10" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.95rem;margin-bottom:12px;font-family:inherit;" />
           <label style="display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--text-dark);margin-bottom:16px;cursor:pointer;">
@@ -13940,6 +13954,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
         if (sa !== sb) return sa - sb;
         return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
       });
+      try { await _staffLoadLogins(); } catch (e2) { console.warn('presenter logins:', e2.message); }
       cmsRenderStaffList();
     } catch (err) {
       container.innerHTML = '<div style="color:#DC2626;padding:16px;">Error: ' + err.message + '</div>';
@@ -13972,6 +13987,27 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
     }
   }
 
+  /* Who a presenter row points at (2026-11-16): staff login, outside email, or not linked yet. */
+  var _staffLogins = null;
+  async function _staffLoadLogins() {
+    if (_staffLogins) return _staffLogins;
+    var snap = await _rdb().collection('userRoles').get();
+    var list = [];
+    snap.forEach(function (d) { var v = d.data() || {}; if (v.displayName || v.email) list.push({ uid: d.id, name: v.displayName || v.email, email: v.email || '', role: v.role || '' }); });
+    list.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    _staffLogins = list;
+    return list;
+  }
+  function _staffLinkNote(s) {
+    var st = 'display:block;font-weight:500;font-size:.75rem;margin-top:2px;';
+    if (s.kind === 'outside') return '<span style="' + st + 'color:#7C3AED;">Outside presenter' + (s.email ? ' &middot; ' + _escR(s.email) : ' &middot; <b style="color:#DC2626;">no email</b>') + '</span>';
+    if (s.uid) {
+      var who = (_staffLogins || []).filter(function (x) { return x.uid === s.uid; })[0];
+      return '<span style="' + st + 'color:#16A34A;">Staff &middot; login: ' + _escR(who ? who.name + (who.email ? ' (' + who.email + ')' : '') : (s.uidName || 'linked')) + '</span>';
+    }
+    return '<span style="' + st + 'color:#DC2626;font-weight:700;">Not linked to a login. Tasks can\'t reach them. Click Edit.</span>';
+  }
+
   function cmsRenderStaffList() {
     var container = document.getElementById('cmsStaffListContent');
     if (!container) return;
@@ -13998,7 +14034,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
       var upDisabled = (idx === 0) ? ' disabled style="opacity:.35;cursor:not-allowed;"' : '';
       var downDisabled = (idx === _staff.length - 1) ? ' disabled style="opacity:.35;cursor:not-allowed;"' : '';
       html += '<tr style="border-bottom:1px solid var(--border-light);">'
-        + '<td style="padding:10px 14px;' + nameStyle + '">' + _escR(s.name || '') + '</td>'
+        + '<td style="padding:10px 14px;' + nameStyle + '">' + _escR(s.name || '') + _staffLinkNote(s) + '</td>'
         + '<td style="padding:10px 14px;text-align:center;font-variant-numeric:tabular-nums;">' + sortVal
         + ' <button onclick="cmsStaffNudge(\'' + s.id + '\',-1)" title="Move up"' + upDisabled + ' style="border:none;background:none;cursor:pointer;font-size:.9rem;padding:2px 6px;color:var(--ocean-deep);">&uarr;</button>'
         + '<button onclick="cmsStaffNudge(\'' + s.id + '\',1)" title="Move down"' + downDisabled + ' style="border:none;background:none;cursor:pointer;font-size:.9rem;padding:2px 6px;color:var(--ocean-deep);">&darr;</button>'
@@ -14038,8 +14074,34 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
       if (sortInput) sortInput.value = String(maxSort + 10);
       if (activeInput) activeInput.checked = true;
     }
+    _staffFillLinkFields(editId ? _staff.find(function(x) { return x.id === editId; }) : null);
     var overlay = document.getElementById('staffModalOverlay');
     if (overlay) overlay.style.display = 'flex';
+  };
+
+  async function _staffFillLinkFields(s) {
+    var kind = (s && s.kind === 'outside') ? 'outside' : 'staff';
+    document.querySelectorAll('input[name="staffKind"]').forEach(function (r) { r.checked = r.value === kind; });
+    var em = document.getElementById('staffEmail'); if (em) em.value = (s && s.email) || '';
+    cmsStaffKindChange();
+    var sel = document.getElementById('staffUid');
+    if (!sel) return;
+    var list = [];
+    try { list = await _staffLoadLogins(); } catch (e) { sel.innerHTML = '<option value="">Could not load logins</option>'; return; }
+    var cur = (s && s.uid) || '';
+    if (!cur && s && s.name) {   /* suggest the login whose name matches */
+      var m = list.filter(function (x) { return String(x.name).trim().toLowerCase() === String(s.name).trim().toLowerCase(); })[0];
+      if (m) cur = m.uid;
+    }
+    sel.innerHTML = '<option value="">Pick their login&hellip;</option>' + list.map(function (x) {
+      return '<option value="' + _escR(x.uid) + '"' + (x.uid === cur ? ' selected' : '') + '>' + _escR(x.name) + (x.email ? ' (' + _escR(x.email) + ')' : '') + '</option>';
+    }).join('');
+  }
+  window.cmsStaffKindChange = function () {
+    var k = (document.querySelector('input[name="staffKind"]:checked') || {}).value || 'staff';
+    var a = document.getElementById('staffUidWrap'), b = document.getElementById('staffEmailWrap');
+    if (a) a.style.display = k === 'staff' ? '' : 'none';
+    if (b) b.style.display = k === 'outside' ? '' : 'none';
   };
 
   window.cmsCloseStaffModal = function() {
@@ -14060,6 +14122,13 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
     if (isNaN(sortOrder)) sortOrder = 0;
     var active = !!(activeEl && activeEl.checked);
     if (!name) { alert('Please enter a name.'); return; }
+    var kind = (document.querySelector('input[name="staffKind"]:checked') || {}).value || 'staff';
+    var uid = kind === 'staff' ? ((document.getElementById('staffUid') || {}).value || '') : '';
+    var email = kind === 'outside' ? ((document.getElementById('staffEmail') || {}).value || '').trim() : '';
+    if (kind === 'staff' && !uid) { alert('Pick their DAN login so their presenter tasks reach them. If they have no login, choose Outside presenter.'); return; }
+    if (kind === 'outside' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter the outside presenter\'s email.'); return; }
+    var login = uid ? (_staffLogins || []).filter(function (x) { return x.uid === uid; })[0] : null;
+    var link = { kind: kind, uid: uid, uidName: login ? login.name : '', email: email || (login ? login.email : '') };
     try {
       var actor = (window.currentUserData && window.currentUserData.email) || 'unknown';
       if (_staffEditId) {
@@ -14068,6 +14137,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
           name: name,
           active: active,
           sortOrder: sortOrder,
+          kind: link.kind, uid: link.uid, uidName: link.uidName, email: link.email,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedBy: actor
         });
@@ -14079,6 +14149,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
           name: name,
           active: active,
           sortOrder: sortOrder,
+          kind: link.kind, uid: link.uid, uidName: link.uidName, email: link.email,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           createdBy: actor
         });
@@ -14152,6 +14223,98 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
   // Public API for the Event Summary dropdown. Returns active staff names
   // (sorted), with hardcoded fallback if the Firestore read fails or the
   // collection is empty.
+  /* ── Presenter identity (Daniel 2026-11-16) ──
+     A presenter is either STAFF (linked to their DAN login so tasks reach them)
+     or OUTSIDE (no login, email required). Wherever a name is typed that DAN
+     doesn't know, it asks which, so a staff name is never saved without a login. */
+  var _presPeople = null;
+  window._presLoadPeople = async function () {
+    if (_presPeople) return _presPeople;
+    var staff = [], logins = [];
+    try { var ps = await db.collection('presenterStaff').get(); ps.forEach(function (d) { var v = d.data() || {}; if (v.name) staff.push(v); }); } catch (e) {}
+    try {
+      var ur = await db.collection('userRoles').get();
+      ur.forEach(function (d) { var v = d.data() || {}; if (v.displayName || v.email) logins.push({ uid: d.id, name: v.displayName || v.email, email: v.email || '' }); });
+    } catch (e) {   /* partners may not read every login: fall back to linked presenters + themselves */
+      staff.forEach(function (s) { if (s.uid && s.kind !== 'outside') logins.push({ uid: s.uid, name: s.uidName || s.name, email: s.email || '' }); });
+      var me = window.currentUserData || {}, au = (window.firebase && firebase.auth().currentUser) || {};
+      if (au.uid && !logins.some(function (x) { return x.uid === au.uid; })) logins.push({ uid: au.uid, name: me.displayName || au.email || 'Me', email: au.email || '' });
+    }
+    logins.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    _presPeople = { staff: staff, logins: logins };
+    setTimeout(function () { _presPeople = null; }, 5 * 60 * 1000);
+    return _presPeople;
+  };
+  /* name -> { uid, email, outside, known } using the Presenters list link first, then login names. */
+  window._presResolve = async function (name) {
+    var want = String(name || '').trim().toLowerCase();
+    if (!want) return { uid: '', email: '', outside: false, known: true };
+    var pp = await window._presLoadPeople();
+    var row = pp.staff.filter(function (s) { return String(s.name).trim().toLowerCase() === want; })[0];
+    if (row && row.kind === 'outside') return { uid: '', email: row.email || '', outside: true, known: true };
+    if (row && row.uid) return { uid: row.uid, email: row.email || '', outside: false, known: true };
+    var lg = pp.logins.filter(function (x) { return String(x.name).trim().toLowerCase() === want; })[0];
+    if (lg) return { uid: lg.uid, email: lg.email, outside: false, known: true };
+    return { uid: '', email: '', outside: false, known: false };
+  };
+  window._presAskHtml = function (pfx) {
+    var lab = 'font-size:.78rem;font-weight:700;color:#475569;display:block;margin:8px 0 4px;';
+    var box = 'width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;box-sizing:border-box;';
+    return '<div id="' + pfx + 'Ask" style="display:none;margin-top:8px;padding:10px 12px;border:1.5px solid #F59E0B;background:#FFFBEB;border-radius:8px;">'
+      + '<div style="font-size:.85rem;font-weight:700;color:#92400E;">We don\'t know this presenter yet. Are they staff?</div>'
+      + '<div style="display:flex;gap:14px;margin-top:6px;font-size:.88rem;">'
+      + '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="radio" name="' + pfx + 'Kind" value="staff" onchange="_presAskKind(\'' + pfx + '\')"> Staff member</label>'
+      + '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="radio" name="' + pfx + 'Kind" value="outside" onchange="_presAskKind(\'' + pfx + '\')"> Outside presenter</label></div>'
+      + '<div id="' + pfx + 'LoginWrap" style="display:none;"><label style="' + lab + '">Their DAN login *</label><select id="' + pfx + 'Login" style="' + box + 'background:#fff;"></select></div>'
+      + '<div id="' + pfx + 'EmailWrap" style="display:none;"><label style="' + lab + '">Their email *</label><input id="' + pfx + 'Email" type="email" placeholder="name@example.com" style="' + box + '"></div>'
+      + '</div>';
+  };
+  window._presAskKind = function (pfx) {
+    var k = (document.querySelector('input[name="' + pfx + 'Kind"]:checked') || {}).value || '';
+    var a = document.getElementById(pfx + 'LoginWrap'), b = document.getElementById(pfx + 'EmailWrap');
+    if (a) a.style.display = k === 'staff' ? '' : 'none';
+    if (b) b.style.display = k === 'outside' ? '' : 'none';
+  };
+  /* Show or hide the question for the typed name. */
+  window._presAskCheck = async function (pfx, name) {
+    var box = document.getElementById(pfx + 'Ask');
+    if (!box) { var slot = document.getElementById(pfx + 'AskSlot'); if (slot) { slot.innerHTML = window._presAskHtml(pfx); box = document.getElementById(pfx + 'Ask'); } }
+    if (!box) return;
+    var r = await window._presResolve(name);
+    box.style.display = (String(name || '').trim() && !r.known) ? '' : 'none';
+    if (box.style.display === 'none') return;
+    var sel = document.getElementById(pfx + 'Login');
+    if (sel && !sel.options.length) {
+      var pp = await window._presLoadPeople();
+      sel.innerHTML = '<option value="">Pick their login&hellip;</option>' + pp.logins.map(function (x) {
+        return '<option value="' + x.uid + '">' + String(x.name).replace(/</g, '&lt;') + (x.email ? ' (' + String(x.email).replace(/</g, '&lt;') + ')' : '') + '</option>';
+      }).join('');
+    }
+  };
+  /* At save: { ok, uid, email, outside, msg }. Adds a new presenter to the Presenters list when allowed. */
+  window._presAskRead = async function (pfx, name) {
+    name = String(name || '').trim();
+    var r = await window._presResolve(name);
+    if (!name || r.known) { var bx = document.getElementById(pfx + 'Ask'); if (bx) bx.style.display = 'none'; return { ok: true, uid: r.uid, email: r.email, outside: r.outside }; }
+    var k = (document.querySelector('input[name="' + pfx + 'Kind"]:checked') || {}).value || '';
+    if (!k) { await window._presAskCheck(pfx, name); return { ok: false, msg: 'Is ' + name + ' a staff member or an outside presenter? Please answer the question under the presenter name.' }; }
+    var uid = k === 'staff' ? ((document.getElementById(pfx + 'Login') || {}).value || '') : '';
+    var email = k === 'outside' ? ((document.getElementById(pfx + 'Email') || {}).value || '').trim() : '';
+    if (k === 'staff' && !uid) return { ok: false, msg: 'Pick ' + name + '\'s DAN login so their presenter tasks reach them.' };
+    if (k === 'outside' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, msg: 'Please enter ' + name + '\'s email.' };
+    var pp = await window._presLoadPeople();
+    var lg = uid ? pp.logins.filter(function (x) { return x.uid === uid; })[0] : null;
+    if (!email && lg) email = lg.email || '';
+    try {   /* only admins can add to the list; everyone else's answer still saves on the event */
+      var maxSort = 0; pp.staff.forEach(function (s) { if (typeof s.sortOrder === 'number' && s.sortOrder > maxSort) maxSort = s.sortOrder; });
+      await db.collection('presenterStaff').add({ name: name, active: k === 'staff', sortOrder: maxSort + 10, kind: k, uid: uid, uidName: lg ? lg.name : '', email: email,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: (window.currentUserData && window.currentUserData.email) || 'unknown', addedFrom: 'typed presenter' });
+      if (typeof window._presenterStaffCache !== 'undefined') window._presenterStaffCache = null;
+    } catch (e) {}
+    _presPeople = null;
+    return { ok: true, uid: uid, email: email, outside: k === 'outside' };
+  };
+
   window.cmsGetActivePresenterStaff = async function(opts) {
     opts = opts || {};
     if (!opts.force && Array.isArray(window._presenterStaffCache)) {
@@ -38378,8 +38541,9 @@ async function edLoadPresenters() {
     // Keyed case-insensitively: a capital-letter difference between this list and the
     // account name left a 10-14 session with no uid, so its tasks fell back to the creator.
     ur.forEach(function(d){ var v = d.data() || {}; if (v.displayName) roles[String(v.displayName).trim().toLowerCase()] = d.id; });
-    rows.forEach(function(r){ out.push({ name: r.name, uid: roles[String(r.name).trim().toLowerCase()] || '' }); });
-    var unresolved = out.filter(function(p){ return !p.uid; }).map(function(p){ return p.name; });
+    /* The linked login wins (2026-11-16); name matching is only the fallback for rows not linked yet. Outside presenters have no login. */
+    rows.forEach(function(r){ out.push({ name: r.name, uid: r.kind === 'outside' ? '' : (r.uid || roles[String(r.name).trim().toLowerCase()] || ''), outside: r.kind === 'outside' }); });
+    var unresolved = out.filter(function(p){ return !p.uid && !p.outside; }).map(function(p){ return p.name; });
     if (unresolved.length) console.warn('Events Dashboard: no userRoles match for ' + unresolved.join(', ') + ' — tasks for their sessions will fall back.');
   } catch (e) { console.warn('edLoadPresenters:', e.message); }
   return out;
@@ -46754,7 +46918,8 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   html += '<option value="__other__"' + (_presenterSelectVal === '__other__' ? ' selected' : '') + '>Other (specify)</option>';
   html += '</select>';
   html += '<div class="es-presenter-other" id="esPresenterOtherWrap" style="display:' + (_presenterIsOther ? 'block' : 'none') + ';">';
-  html += '<input type="text" id="esPresenterOther" placeholder="Enter presenter name" value="' + rsEscape(_presenterIsOther ? _savedPresenter : '') + '">';
+  html += '<input type="text" id="esPresenterOther" placeholder="Enter presenter name" value="' + rsEscape(_presenterIsOther ? _savedPresenter : '') + '" onblur="_presAskCheck(\'esPres\', this.value)">';
+  html += _presAskHtml('esPres');
   html += '</div>';
   html += '</div>';
   html += '</div>';
@@ -47021,6 +47186,10 @@ window.cmsSaveEventSummary = async function() {
   } else {
     newPresenter = _presenterSelVal || '';
   }
+  /* Staff or outside? (2026-11-16) A typed name DAN doesn't know must be answered before saving. */
+  var _presAns = { ok: true, uid: '', email: '', outside: false };
+  try { _presAns = await window._presAskRead('esPres', newPresenter); } catch (_) {}
+  if (!_presAns.ok) { alert(_presAns.msg); return; }
   // Material keys derive from the admin-managed list (slug-keyed), matching the
   // ids the renderer produced.
   var _matSlugFn = (window.LDAHFormat && LDAHFormat.materialSlug) ? LDAHFormat.materialSlug : function(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); };
@@ -47110,9 +47279,9 @@ window.cmsSaveEventSummary = async function() {
   } else if (evDoc.summary) {
     _priorSummaryForUid = evDoc.summary;
   }
-  var _newPresenterUid = '';
-  if (newPresenter) {
-    if (_priorSummaryForUid.presenter === newPresenter && _priorSummaryForUid.presenterUid) {
+  var _newPresenterUid = (_presAns && _presAns.uid) || '';
+  if (newPresenter && !_newPresenterUid && !(_presAns && _presAns.outside)) {
+    if (_priorSummaryForUid.presenter === newPresenter && _priorSummaryForUid.presenterUid && _priorSummaryForUid.presenterUid !== '(form-set)') {
       _newPresenterUid = _priorSummaryForUid.presenterUid;
     } else {
       try {
@@ -47220,6 +47389,7 @@ window.cmsSaveEventSummary = async function() {
     totalNoShow: totalNoShow,
     presenter: newPresenter,
     presenterUid: _newPresenterUid,
+    presenterEmail: (_presAns && _presAns.outside) ? (_presAns.email || '') : '',
     materialsPacked: newMaterialsPacked,
     materialsDisseminated: newMaterialsDisseminated,
     materialsOther: newMaterialsOther,
@@ -64188,6 +64358,10 @@ window.prExportCsv = function() {
     var presenter = _isPartnerSave
       ? ((_pTxtEl && _pTxtEl.value) || '').trim()
       : (document.getElementById('oneOffPresenter').value || '').trim();
+    /* Staff or outside? (2026-11-16) Typed names DAN doesn't know must be answered; the login goes on the event so tasks reach them. */
+    var _ooPres = { ok: true, uid: '', email: '', outside: false };
+    try { _ooPres = await window._presAskRead('ooPres', presenter); } catch (_) {}
+    if (!_ooPres.ok) { alert(_ooPres.msg); return; }
     /* Blank stays blank rather than becoming 0 — a partner who leaves the
        headcount empty has not told us the attendance was zero. */
     var _pCntEl = document.getElementById('oneOffPartnerCount');
@@ -64233,7 +64407,7 @@ window.prExportCsv = function() {
       if (eventId) {
         var _ooUpd = {
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.materialsOther': mats.other, 'summary.presenterComments': comments, feedbackEmails: _ooFeedbackOn(), updatedAt: ts()
+          isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.presenterUid': _ooPres.uid || '', 'summary.presenterEmail': _ooPres.outside ? (_ooPres.email || '') : '', 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.materialsOther': mats.other, 'summary.presenterComments': comments, feedbackEmails: _ooFeedbackOn(), updatedAt: ts()
         };
         if (m524) _ooUpd['summary.measure524'] = m524;
         if (_ooGrant) Object.assign(_ooUpd, _ooGrant);   // (v154.09-STAGE)
@@ -64250,7 +64424,7 @@ window.prExportCsv = function() {
       } else {
         var _ooNew = window.partnerStamp({
           title: name, description: description, location: location, eventDate: dateIso,
-          isOneOff: true, feedbackEmails: _ooFeedbackOn(), summary: Object.assign({ presenter: presenter, tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, materialsOther: mats.other, presenterComments: comments },
+          isOneOff: true, feedbackEmails: _ooFeedbackOn(), summary: Object.assign({ presenter: presenter, presenterUid: _ooPres.uid || '', presenterEmail: _ooPres.outside ? (_ooPres.email || '') : '', tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, materialsOther: mats.other, presenterComments: comments },
             m524 && m524.length ? { measure524: m524 } : {},
             partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [],
           /* Upcoming events stay live until the day after they happen — the
@@ -77299,8 +77473,9 @@ window.cmsBuildMembershipReport = async function() {
           <!-- Partners present their own sessions; the dropdown lists LDAH staff,
                so there is nobody in it for them to pick. Free text instead, shown
                only for partners. (2026-09-02) -->
-          <input id="oneOffPresenterText" type="text" placeholder="First and last name"
+          <input id="oneOffPresenterText" type="text" placeholder="First and last name" onblur="_presAskCheck('ooPres', this.value)"
                  style="display:none;width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.9rem;">
+          <div id="ooPresAskSlot"></div>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
