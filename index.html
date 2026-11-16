@@ -6232,7 +6232,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.84</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.85</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -9019,6 +9019,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
               <option value="entered">Entered in ASQ Online</option>
               <option value="notNeeded">Not needed</option>
               <option value="over">Over ASQ age, held back</option>
+              <option value="noaddr">No mailing address</option>
             </select></label>
           </div>
           <div id="asqBody"><div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading ASQ&hellip;</div></div>
@@ -72791,6 +72792,8 @@ function _asqShape(contacts, recs, today, visible) {
         /* Everything ASQ Online asks for sits on the row (Daniel 2026-10-14). */
         address: [String(c.streetAddress || p.address || '').trim(),
                   [String(c.city || p.city || '').trim(), String(c.zipCode || p.zipCode || '').trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+        /* Same test as the CF's _asqHasAddress: ASQ Online needs a street (Daniel 2026-11-16). */
+        hasStreet: !!String(c.streetAddress || p.address || '').trim(),
         child: _asqChild(e) || '(no child name)',
         /* ASQ Online asks for it too (Daniel 2026-10-14): the screening form's
            answer, else the same child on the contact's children list. */
@@ -72824,6 +72827,9 @@ function _asqShape(contacts, recs, today, visible) {
   /* Over ASQ age and not yet handled: off the list until someone presses
      Send anyway (Daniel 2026-10-14). The KPI counts them and shows them. */
   rows.forEach(function (r, i) { r.i = i; r.held = r.over && !r.sendAnyway && r.status === 'todo'; });
+  /* No mailing address and not yet entered: off the main list, counted and
+     shown by their own KPI button (Daniel 2026-11-16). Over-age wins. */
+  rows.forEach(function (r) { r.noAddr = !r.held && !r.hasStreet && r.status === 'todo'; });
   return rows;
 }
 
@@ -72848,6 +72854,8 @@ window.cmsBuildAsqReport = async function (opts) {
   }
   if (opts.quiet && !_asqPanelVisible()) return;
   if (!opts.quiet) _cmsShowOnlyReport('asqReportInGrid');
+  /* Always open on the to-do list, never on a KPI view (Daniel 2026-11-16: Dustin sees what needs doing). */
+  if (!opts.quiet) { var _st0 = document.getElementById('asqStatus'); if (_st0 && (_st0.value === 'noaddr' || _st0.value === 'over')) _st0.value = ''; }
   var body = document.getElementById('asqBody'), main = document.getElementById('asqMain');
   var _open = [];
   (_asqRows || []).forEach(function (r) { var el = document.getElementById('asqDet' + r.i); if (el && el.style.display !== 'none') _open.push(r.key); });
@@ -72967,6 +72975,12 @@ window.asqSendAnyway = async function (key, on, el) {
     if (el) el.disabled = false;
     _showToast('Could not save: ' + ((e && e.message) || e), '#DC2626');
   }
+};
+window.asqToggleNoAddr = function () {
+  var s = document.getElementById('asqStatus');
+  if (!s) return;
+  s.value = s.value === 'noaddr' ? '' : 'noaddr';
+  asqRender();
 };
 window.asqToggleHeld = function () {
   var s = document.getElementById('asqStatus');
@@ -73222,7 +73236,8 @@ window.asqRender = function () {
   var stF = _asqVal('asqStatus');
   var all0 = _asqBaseFiltered();
   var held = all0.filter(function (r) { return r.held; });
-  var base = all0.filter(function (r) { return !r.held; });
+  var noAddr = all0.filter(function (r) { return r.noAddr; });
+  var base = all0.filter(function (r) { return !r.held && !r.noAddr; });
   var TODAY = _asqToday;
   var weekAgo = _cmrAddDays(TODAY, -6);
   var todo = base.filter(function (r) { return r.status === 'todo'; });
@@ -73240,6 +73255,8 @@ window.asqRender = function () {
     _cmrKpi(week, 'entered in the last 7 days', '') +
     '<div class="cmr-kpi click' + (held.length ? ' alert' : '') + (stF === 'over' ? ' on' : '') + '" onclick="asqToggleHeld()" title="Over ASQ age and held off the list. Click to see only them; click again to go back.">' +
       '<div class="n">' + held.length + '</div><div class="l">over ASQ age, held back' + (stF === 'over' ? ' &middot; <b>showing</b>' : '') + '</div></div>' +
+    '<div class="cmr-kpi click' + (noAddr.length ? ' alert' : '') + (stF === 'noaddr' ? ' on' : '') + '" onclick="asqToggleNoAddr()" title="Not entered yet and no mailing address on file, so they can\'t go into ASQ Online. Click to see only them; click again to go back.">' +
+      '<div class="n">' + noAddr.length + '</div><div class="l">no mailing address' + (stF === 'noaddr' ? ' &middot; <b>showing</b>' : '') + '</div></div>' +
     _cmrKpi(notNeeded, 'not needed', '');
 
   var fams = [];
@@ -73250,6 +73267,7 @@ window.asqRender = function () {
   _asqRenderStrip();
 
   var rows = stF === 'over' ? held.slice()
+    : stF === 'noaddr' ? noAddr.slice()
     : base.filter(function (r) { return showDone || r.status === 'todo'; })
           .filter(function (r) { return !stF || r.status === stF; });
   var mode = _asqVal('asqSort') || 'col';
@@ -73336,7 +73354,7 @@ window.asqRender = function () {
 function _asqRenderStrip() {
   var host = document.getElementById('asqStaffStrip');
   if (!host) return;
-  var all = _asqRows.filter(function (r) { return _asqInRange(r) && !r.held; });
+  var all = _asqRows.filter(function (r) { return _asqInRange(r) && !r.held && !r.noAddr; });
   var srcCur = _asqVal('asqSource'), byCur = _asqVal('asqStaff'), schCur = _asqVal('asqSchool');
   var card = function (label, list, on, click, unit) {
     var c = { e: 0, t: 0, n: 0 };
