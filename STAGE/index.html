@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.71-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.72-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -78531,6 +78531,7 @@ window.cmsBuildMembershipReport = async function() {
           screeningDate: String(s.screeningDate || ((s.results && typeof s.results.screenedAt === 'string') ? s.results.screenedAt.slice(0,10) : '') || ''),
           signedAt: s.signedAt,
           hasResults: (window._srAnyResult ? window._srAnyResult(s.results) : !!s.results), resultsSent: !!(s.results&&s.results.resultsSentAt), absent: s.absent || {},
+          notScreening: (s.notScreening && s.notScreening.reason) ? s.notScreening : null,   /* Won't be screened (v155.72-STAGE) */
           /* School view (v153.35) */
           results: s.results || null, printouts: Array.isArray(s.printouts) ? s.printouts : [],
           hearingFail: _srHearingFail(s.results), visionFail: _srVisionFail(s.results),
@@ -78703,6 +78704,7 @@ window.cmsBuildMembershipReport = async function() {
      vision). Names only go to the school, never results, so no release is
      needed for this list. Returns e.g. ['Vision (absent Oct 15)', 'Hearing']. */
   function _srRescreenNeeds(r){
+    if (r.notScreening) return [];   /* taken off the list: won't be screened (v155.72-STAGE) */
     var res = r.results || {}, a = r.absent || {}, out = [];
     var day = function(v){ var d = new Date(v + 'T12:00:00'); return isNaN(d) ? v : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
     var gap = function(o){ var p = _srPair(o); return !p[0] || !p[1] || p[0] === 'Could not test' || p[1] === 'Could not test'; };
@@ -78727,6 +78729,9 @@ window.cmsBuildMembershipReport = async function() {
           if (!(s && s.id === screeningId)) return s;
           found = true;
           var a = Object.assign({}, s.absent || {});
+          /* Keep the first day missed (v155.72-STAGE) so "missed on an earlier
+             day" still holds after the child is marked absent again. */
+          if (on && a[part] && a[part] < day && !(a[part + 'First'] && a[part + 'First'] <= a[part])) a[part + 'First'] = a[part];
           a[part] = on ? day : ''; a[part + 'By'] = on ? me : '';
           return Object.assign({}, s, { absent: a });
         });
@@ -78734,6 +78739,45 @@ window.cmsBuildMembershipReport = async function() {
         tx.update(ref, { screenings: arr });
       });
       if (typeof _showToast === 'function') _showToast(on ? (part === 'vision' ? 'Vision' : 'Hearing') + ' marked absent.' : 'Absent removed.', '#475569');
+    } catch (e) {
+      if (typeof _showToast === 'function') _showToast('Could not change absent: ' + e.message, '#DC2626');
+    }
+  };
+  /* Won't be screened (v155.72-STAGE, Daniel 11-17). Takes a child off the
+     still-to-be-screened list (counts, the school's re-screen list, the PDF and
+     the email count). Kept on screenings[].notScreening = { reason, at, by }.
+     Only offered once the first wave is over for that child: a part with no
+     result was marked absent on a day before today. */
+  var _SR_NS_REASONS = ['Parent opted out', 'Never present', 'Left the school', 'Other'];
+  function _srMissedEarlier(r){
+    var a = r.absent || {}, day = (typeof window._todayHst === 'function') ? window._todayHst() : new Date().toISOString().slice(0, 10);
+    return ['vision', 'hearing'].some(function(k){ return (a[k] && a[k] < day) || (a[k + 'First'] && a[k + 'First'] < day); });
+  }
+  window._srNotScrPick = function(el, contactId, screeningId){
+    var a = function(v){ return '_srSetNotScreening(\'' + contactId + '\',\'' + screeningId + '\',' + v + ')'; };
+    var b = 'font-size:.72rem;font-weight:700;border-radius:999px;padding:3px 9px;cursor:pointer;margin:3px 4px 0 0;';
+    el.parentNode.innerHTML = '<div style="font-size:.72rem;color:#475569;margin-top:4px;">Why won\u2019t they be screened?</div>' +
+      _SR_NS_REASONS.map(function(x){ return '<button onclick="' + a('\'' + x + '\'') + '" style="' + b + 'color:#334155;background:#F1F5F9;border:1px solid #94A3B8;">' + x + '</button>'; }).join('') +
+      '<button onclick="_srRenderReport()" style="' + b + 'color:#64748B;background:#fff;border:1px dashed #CBD5E1;">Cancel</button>';
+  };
+  window._srSetNotScreening = async function(contactId, screeningId, reason){
+    try {
+      var day = (typeof window._todayHst === 'function') ? window._todayHst() : new Date().toISOString().slice(0, 10);
+      var me = (window.currentUserData && window.currentUserData.displayName) || '';
+      var ref = _db().collection('contacts').doc(contactId);
+      await _db().runTransaction(async function(tx){
+        var snap = await tx.get(ref), found = false;
+        var arr = (((snap.data() || {}).screenings) || []).map(function(s){
+          if (!(s && s.id === screeningId)) return s;
+          found = true;
+          var nx = Object.assign({}, s);
+          if (reason) nx.notScreening = { reason: reason, at: day, by: me }; else delete nx.notScreening;
+          return nx;
+        });
+        if (!found) throw new Error('screening not found');
+        tx.update(ref, { screenings: arr });
+      });
+      if (typeof _showToast === 'function') _showToast(reason ? 'Taken off the list: ' + reason + '.' : 'Back on the list.', '#475569');
     } catch (e) {
       if (typeof _showToast === 'function') _showToast('Could not change absent: ' + e.message, '#DC2626');
     }
@@ -78805,9 +78849,16 @@ window.cmsBuildMembershipReport = async function() {
       /* Mark or undo Absent right here in the report (Daniel 10-19). */
       var _absArgs = function(k, on){ return '_srMarkAbsent(\'' + r.contactId + '\',\'' + r.screeningId + '\',\'' + k + '\',' + on + ')'; };
       var _gap = function(k){ var a = _abs(k);
+        if (r.notScreening) return '<span style="color:#64748B;font-weight:600;">Not screening</span>';
         return a ? '<button title="Click to undo" onclick="' + _absArgs(k, false) + '" style="color:#334155;font-weight:700;background:#E2E8F0;border:1.5px solid #94A3B8;border-radius:999px;padding:2px 9px;font-size:.74rem;cursor:pointer;">Absent ' + _esc(a) + ' &#10005;</button>'
                  : '<span style="color:#B45309;font-weight:600;">Not entered</span> <button onclick="' + _absArgs(k, true) + '" style="color:#475569;font-weight:700;background:#fff;border:1.5px dashed #94A3B8;border-radius:999px;padding:2px 9px;font-size:.72rem;cursor:pointer;margin-left:4px;">Absent</button>'; };
       var _hasPair = function(p){ return !!(p[0] || p[1]); };
+      /* Won't be screened (v155.72-STAGE): grey pill with Undo, or the button
+         once the child was missed on an earlier day and still has a part to do. */
+      var _nsArgs = '\'' + r.contactId + '\',\'' + r.screeningId + '\'';
+      var _nsCell = r.notScreening
+        ? '<div><button title="Click to put back on the list" onclick="_srSetNotScreening(' + _nsArgs + ',null)" style="font-size:.72rem;font-weight:700;color:#334155;background:#E2E8F0;border:1.5px solid #94A3B8;border-radius:999px;padding:2px 9px;cursor:pointer;margin-top:4px;">Not screening: ' + _esc(r.notScreening.reason) + ' &#10005;</button></div>'
+        : ((_srRescreenNeeds(r).length && _srMissedEarlier(r)) ? '<div><button onclick="_srNotScrPick(this,' + _nsArgs + ')" style="font-size:.72rem;font-weight:700;color:#475569;background:#fff;border:1.5px dashed #94A3B8;border-radius:999px;padding:2px 9px;cursor:pointer;margin-top:4px;">Won\u2019t be screened</button></div>' : '');
       var hearing = (r.hasResults && _hasPair(_srPair(hr.oae))) ? _srResCell(_srPair(hr.oae)) + ((tymp[0] || tymp[1]) ? '<div style="font-size:.74rem;color:#475569;">Tymp ' + _srResCell(tymp) + '</div>' : '') : _gap('hearing');
       var vision = (r.hasResults && _hasPair(_srPair((res.vision || {}).distance))) ? _srResCell(_srPair((res.vision || {}).distance)) : _gap('vision');
       var files = (r.printouts || []).map(function(p, i){
@@ -78819,7 +78870,7 @@ window.cmsBuildMembershipReport = async function() {
       var sentTxt = '<div style="font-size:.78rem;">Family: ' + (r.resultsSent ? '<b style="color:#1D4ED8;">' + _esc(_srTsDay(r.resultsSentAt) || 'sent') + '</b>' : '<span style="color:#94A3B8;">not sent</span>') + '</div>' +
         '<div style="font-size:.78rem;">School: ' + (r.schoolSentAt ? '<b style="color:#6D28D9;">' + _esc(_srTsDay(r.schoolSentAt)) + '</b>' : '<span style="color:#94A3B8;">not sent</span>') + '</div>';
       h += '<tr style="' + (r.hearingFail ? 'background:#FEF2F2;' : (r.visionFail ? 'background:#FFFBEB;' : '')) + '">' +
-        '<td style="' + td + 'font-weight:600;">' + _esc(r.childName || '—') + flags + '</td>' +
+        '<td style="' + td + 'font-weight:600;">' + _esc(r.childName || '—') + flags + _nsCell + '</td>' +
         '<td style="' + td + '"><a href="#" onclick="event.preventDefault();openContactDetail(\'' + r.contactId + '\')" style="color:#0E7490;font-weight:600;">' + _esc(r.parentName || '—') + '</a></td>' +
         '<td style="' + td + '">' + _esc(r.classroom || '—') + '</td>' +
         '<td style="' + td + 'white-space:nowrap;">' + vision + '</td>' +
