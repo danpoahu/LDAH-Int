@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.70-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.71-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -70439,8 +70439,41 @@ function _pcReachable(x) {
 function _pcKids(x) {
   x = x || {};
   if (Array.isArray(x.children) && x.children.length) return x.children.filter(Boolean);
-  if (x.childAgeRange || x.ageRange || x.disabilityCategories || x.ethnicity) return [x];
+  /* (v155.71-STAGE) An empty disabilityCategories array is not a child, and a
+     professional / organization / agency / community / other card is never
+     its own child: those made phantom "age not recorded" children in III. */
+  if (/professional|organization|agency|community|other/.test(String(x.type || '').toLowerCase())) return [];
+  if (x.childAgeRange || x.ageRange || (Array.isArray(x.disabilityCategories) && x.disabilityCategories.length) || x.ethnicity) return [x];
   return [];
+}
+
+/* (v155.71-STAGE) A child's age in whole years on a given day, from a birth
+   date (YYYY-MM-DD, MM/DD/YYYY, a Date or a Firestore Timestamp). null when
+   there is no usable birth date. */
+function _pcAgeYears(dob, onIso) {
+  if (!dob) return null;
+  var b = null;
+  try {
+    if (dob.toDate) b = dob.toDate();
+    else if (dob instanceof Date) b = dob;
+    else {
+      var t = String(dob).trim(), m;
+      if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) b = new Date(+m[1], +m[2] - 1, +m[3]);
+      else if ((m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) b = new Date(+m[3], +m[1] - 1, +m[2]);
+    }
+  } catch (e) { b = null; }
+  if (!b || isNaN(b.getTime())) return null;
+  var o = String(onIso || '').match(/^(\d{4})-(\d{2})-(\d{2})/), on = o ? new Date(+o[1], +o[2] - 1, +o[3]) : new Date();
+  var y = on.getFullYear() - b.getFullYear();
+  if (on.getMonth() < b.getMonth() || (on.getMonth() === b.getMonth() && on.getDate() < b.getDate())) y--;
+  return (y >= 0 && y < 120) ? y : null;
+}
+/* (v155.71-STAGE) The III.B row: from the age in years when a birth date is
+   known (so 12 and 13 land in "12 to transition age"), else from the range. */
+function _pcAgeKey(band, years) {
+  if (typeof years === 'number') return years < 3 ? '0-2' : years < 6 ? '3-5' : years < 12 ? '6-12' : years < _PC_TA ? 'twelve' : 'ta';
+  var n = window._normalizeAgeRange ? window._normalizeAgeRange(band) : '';
+  return n === '13-17' || n === 'Adult' ? 'ta' : (n || '');
 }
 
 /* Which worksheet audience a contact belongs to:
@@ -70467,7 +70500,7 @@ var _PC_AUDS = [['pu', 'Parents of children under transition age'], ['pt', 'Pare
 var _PC_CHANNEL = { 'inbound phone': 'phone', 'outbound phone': 'phone', 'phone': 'phone',
                     'email': 'email', 'chat': 'email', 'web': 'email', 'text': 'email',
                     'office': 'inperson', 'in office meeting': 'inperson', 'out of office meeting': 'inperson',   /* In Office Meeting is the New Interaction label; it was missing, so 8 HI PTI meetings never reached I.B (v154.12-STAGE) */
-                    'letter': 'letter', 'mail': 'letter' };
+                    'letter': 'letter', 'mail': 'letter', 'letters send / receive': 'letter' };   /* Letters send / receive is the Neon label (v155.71-STAGE) */
 /* Our 17 disability choices onto the 17 federal categories. A proposal for Noe
    to confirm: ADD-ADHD is Other Health Impairment under IDEA; Gifted and "No
    IDEA Disability" have no federal box. Deaf and Hard of Hearing are one choice
@@ -70489,7 +70522,7 @@ var _PC_DIS = [
   ['Visual Impairment including Blindness', ['visual (incl. blindness)', 'visual impairment']],
   ['Children who may be inappropriately identified', []],
   ['Children where a disability is suspected or not yet identified', ['suspected']],
-  ['Children whose disability was not disclosed', ['gifted', 'no idea disability']]
+  ['Children whose disability was not disclosed', []]   /* Gifted / No IDEA Disability are not "not disclosed": left out of III.A, named in the note (v155.71-STAGE) */
 ];
 function _pcDisRow(name) {
   var s = String(name || '').trim().toLowerCase();
@@ -70507,6 +70540,55 @@ function _pcEthRace(raw) {
   var race = ({ 'Caucasian': 'Caucasian/White', 'African American': 'African-American/Black', 'Asian': 'Asian', 'Filipino': 'Asian',
                 'Hawaiian/Part Hawaiian': 'Native Hawaiian/Pacific Islander', 'Pacific Islander': 'Native Hawaiian/Pacific Islander' })[b] || 'Two or more races';
   return { hisp: 'no', race: race };
+}
+
+/* (v155.71-STAGE) Attendance for a row, as _pbRowAttendance, but a figure
+   stored as text ("2", the Neon backfill neon-cpir-2026-11-04) still counts. */
+function _pcRowAtt(r) {
+  var sm = (r && r.s) || {}, o = sm.attendanceOverrides;
+  var isN = function (v) { return v !== null && v !== undefined && String(v).trim() !== '' && isFinite(Number(v)); };
+  if (o && typeof o === 'object' && typeof o.attTotal !== 'number' && isN(o.attTotal)) return Number(o.attTotal);
+  var a = _pbRowAttendance(r);
+  if (a != null) return a;
+  if (isN(sm.attendanceTotalResolved)) return Number(sm.attendanceTotalResolved);
+  if (isN(sm.totalAttended)) return Number(sm.totalAttended);
+  return null;
+}
+/* (v155.71-STAGE) The Reach box, text or number. */
+function _pcReachBox(r) { return _pbNum(r && r.s ? r.s.dissemReach : 0); }
+/* (v155.71-STAGE) A session held on Facebook / social media (Parent Talk Cafe
+   streams) rather than in a room: a virtual training, whatever the venue
+   field's wording ("Facebook", "Parent Talk Cafe", "Follow us on facebook"). */
+var _PC_SOCIAL_RX = /facebook|instagram|youtube|tiktok|social media|parent talk caf|\bfb\b|live ?stream/i;
+function _pcIsSocial(r) { return !!r && _PC_SOCIAL_RX.test(String(r.location || '')); }
+/* (v155.71-STAGE) CPIR: "Views of training videos posted in social media are
+   counted under Virtual Trainings only." A Tier 2 / 3 session's Reach box is
+   those views when the session is a Parent Talk Cafe, was held on social
+   media, or the Reach source says it is views. Returns the views to add to
+   I.A virtual (0 if none); on a social session the people already counted as
+   its attendance are inside the views, so only the rest are added. */
+function _pcIsTrainViewRow(r) {
+  if (!r || (r.tier !== 'Tier 2' && r.tier !== 'Tier 3') || _pbIsDissemEvent(r) || _pcReachBox(r) <= 0) return false;
+  return _pcIsSocial(r) || /parent talk caf|\bPTC\b/i.test(String(r.title || '')) || /facebook|youtube|instagram|views/i.test(String((r.s || {}).dissemReachSource || ''));
+}
+function _pcTrainViews(r, att) {
+  if (!_pcIsTrainViewRow(r)) return 0;
+  var box = _pcReachBox(r);
+  return _pcIsSocial(r) ? Math.max(0, box - _pbNum(att)) : box;
+}
+/* (v155.71-STAGE) Dissemination for V: _pbIsDissemEvent, plus title-only
+   flyer records ("Disseminate Event Flyer", "VOLUNTEER WITH US!"), which are
+   emailed / posted flyers, not exhibits. */
+function _pcIsDissem(r) {
+  return _pbIsDissemEvent(r) || /^\s*dissemin|\bflyers?\b|volunteer with us/i.test(String((r && r.title) || ''));
+}
+/* (v155.71-STAGE) Why a Tier 4 row is not an exhibit / fair ('' = it is one).
+   Screening tables count as exhibits. */
+function _pcNotExhibit(t) {
+  t = String(t || '');
+  if (/training|director|cohort|fellows|promising minds|\bPD\b|institute|convening|neon one|aimhhi|webinar|workshop|drop-in|volunteer ally/i.test(t)) return 'Training received / workshop / office time, not an exhibit';
+  if (/\b(ccc|council|committee|commission|board|workgroups?|work group|task ?force|advisory|coalition|meeting|mtg|spin|silc|cspd|lend|seac|launch|rsa|feeding matters|co-presenter|parent group)\b/i.test(t)) return 'Committee / council / meeting (see IV.B), not an exhibit';
+  return '';
 }
 
 function _pcCompute() {
@@ -70537,31 +70619,48 @@ function _pcCompute() {
   R.train = { p: zero(), v: zero() };
   R.notes.trainNoAtt = 0; R.notes.trainFmtUnknown = 0; R.notes.trainInferred = 0; R.dissem = 0; R.dissemN = 0; R.reach = 0; R.reachN = 0;
   var trainServed = {}, trainPeople = [];
+  R.notes.trainViews = 0;
   sessions.forEach(function (r) {
-    /* Social media reach for V (Daniel 2026-11-04, v154.16-STAGE): online reach
-       counts, the larger of the Reach box and, on a Dissemination record, its
-       headcount (_pbRowReach, the Board Report rule). */
-    /* Reach = people who viewed an online recording, flyer or post (Daniel
-       2026-11-04). Every Reach box counts, ADDED to a Dissemination record's
-       headcount (where its views are typed), not the larger of the two. */
-    var _rbox = (r.s && typeof r.s.dissemReach === 'number') ? r.s.dissemReach : 0;
-    var _rv = _rbox + (_pbIsDissemEvent(r) ? (_pbNum(_pbRowAttendance(r)) || 0) : 0);
-    if (_rv) { R.reach += _rv; R.reachN++; det('reach', { d: r.date, w: r.title + (r.s && r.s.dissemReachSource ? ' (' + r.s.dissemReachSource + ')' : ''), n: _rv, dissem: _pbIsDissemEvent(r), ev: r.eventId, coll: r.coll }); }
+    /* Social media reach for V (Daniel 2026-11-04, v154.16-STAGE). Every Reach
+       box counts, ADDED to a Dissemination record's headcount, except
+       (v155.71-STAGE): a Dissemination record whose Reach equals its headcount
+       (the backfill copied one into the other) counts once; a Tier 4 event's
+       Reach box is people at / reached by that event, not social media, so it
+       is listed as left out; and a training's social views go to I.A virtual
+       instead (_pcTrainViews), never both. Text figures count (_pbNum). */
+    var _isD = _pbIsDissemEvent(r), _rbox = _pcReachBox(r), _rhead = _isD ? (_pbNum(_pcRowAtt(r)) || 0) : 0;
+    var _rv = _isD ? ((_rbox && _rbox === _rhead) ? _rhead : _rbox + _rhead) : _rbox;
+    var _rwhy = '';
+    if (!_isD && _rbox && r.tier === 'Tier 4') _rwhy = 'Tier 4 event: its Reach box is people at or reached by the event, not social media';
+    else if (_pcIsTrainViewRow(r)) _rwhy = 'Social media views of a training: counted in I.A virtual trainings';
+    var _rw = r.title + (r.s && r.s.dissemReachSource ? ' (' + r.s.dissemReachSource + ')' : '');
+    if (_rwhy) det('reachSkip', { d: r.date, w: _rw, n: _rbox, why: _rwhy, ev: r.eventId, coll: r.coll });
+    else if (_rv) { R.reach += _rv; R.reachN++; det('reach', { d: r.date, w: _rw, n: _rv, dissem: _isD, once: _isD && _rbox && _rbox === _rhead, ev: r.eventId, coll: r.coll }); }
     /* Dissemination records hold people REACHED (Facebook post views), not
        attendees, and carry no tier -- the default made them Tier 2 and put
        27,000 "parents" into virtual training. They belong under V. (same flag
        the OSEP export uses) */
-    if (_pbIsDissemEvent(r)) {
-      R.dissem += _pbNum(_pbRowAttendance(r)); R.dissemN++;
-      det('dissem', { d: r.date, w: r.title, n: _pbNum(_pbRowAttendance(r)), ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' });   /* (v154.11-STAGE) */
+    if (_isD) {
+      R.dissem += _pbNum(_pcRowAtt(r)); R.dissemN++;
+      det('dissem', { d: r.date, w: r.title, n: _pbNum(_pcRowAtt(r)), ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' });   /* (v154.11-STAGE) */
       if (r.tier === 'Tier 2' || r.tier === 'Tier 3') det('trainSkip', { d: r.date, w: r.title, tier: r.tier, why: 'Dissemination record: people reached, counted under V', ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' });
       return;
     }
     if (r.tier !== 'Tier 2' && r.tier !== 'Tier 3') return;
-    var att = _pbRowAttendance(r);
+    var att = _pcRowAtt(r);   /* text figures count (v155.71-STAGE) */
+    /* Social media views of this training: their own virtual row, people
+       unnamed, counted as parents under transition age (v155.71-STAGE). */
+    var views = _pcTrainViews(r, att);
+    if (views > 0) {
+      R.train.v.pu += views; R.notes.trainViews += views;
+      det('train', { d: r.date, w: r.title + ' \u2014 social media views', f: 'v', fmtSet: true, tier: r.tier, att: views, named: zero(), split: { pu: views, pt: 0, prof: 0, stud: 0, youth: 0 },
+                     namedTot: 0, fromSummary: 0, rest: views, views: true, ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' });
+      push('train', { d: r.date, w: r.title + ' (social media views)', n: views });
+    }
     if (att == null) { R.notes.trainNoAtt++; push('trainNoAtt', { d: r.date, w: r.title }); det('trainSkip', { d: r.date, w: r.title, tier: r.tier, why: 'No attendance recorded', ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' }); return; }
-    var f = r.format === 'Virtual' ? 'v' : 'p';
-    if (!r.format) R.notes.trainFmtUnknown++;
+    /* Held on Facebook / social media = virtual (v155.71-STAGE). */
+    var f = (r.format === 'Virtual' || _pcIsSocial(r)) ? 'v' : 'p';
+    if (!r.format && !_pcIsSocial(r)) R.notes.trainFmtUnknown++;
     var named = zero(), namedTot = 0;
     attendedOn(r).forEach(function (s) {
       var x = s.raw || {}, reg = _pbSignupReg(x), aud;
@@ -70588,7 +70687,7 @@ function _pcCompute() {
     R.notes.trainInferred += rest;
     named.prof += xProf; named.youth += xYouth; named.pu += rest;
     Object.keys(named).forEach(function (k) { R.train[f][k] += named[k]; });
-    det('train', { d: r.date, w: r.title, f: f, fmtSet: !!r.format, tier: r.tier, att: att, named: nm0, split: named,
+    det('train', { d: r.date, w: r.title, f: f, fmtSet: !!r.format || _pcIsSocial(r), social: _pcIsSocial(r), tier: r.tier, att: att, named: nm0, split: named,
                    namedTot: namedTot, fromSummary: xProf + xYouth, rest: rest, ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' });   /* (v154.11-STAGE) */
     push('train', { d: r.date, w: r.title + ' (' + (f === 'v' ? 'virtual' : 'in person') + ')', n: att });
   });
@@ -70597,16 +70696,33 @@ function _pcCompute() {
   R.ia = { phone: zero(), letter: zero(), email: zero(), inperson: zero() };
   R.notes.iaUnmapped = 0; R.notes.iaNoContact = 0; R.notes.iaGuessed = 0;
   var iaServed = {};
+  /* (v155.71-STAGE) "Attended -- IEP Meeting/504" and the other "Attended --"
+     types (Neon backfill) are one-to-one help at a meeting: Tier 1, in person. */
+  var _ixAttended = function (ix) { return /^\s*attended\s*-+/i.test(String(ix.type || '')); };
+  var _ixIsT1 = function (ix) { return ix.tier === 'Tier 1' || _ixAttended(ix); };
+  /* (v155.71-STAGE) Not individual assistance: readiness-kiosk check-ins, and
+     workflow tasks (any workflowStep other than caseAdvocacy). */
+  var _ixNotIA = function (ix) {
+    var x = ix.raw || {}, wf = String(x.workflowStep || '').trim();
+    if (x.source === 'readiness-kiosk') return 'Readiness kiosk check-in, not one-to-one help';
+    if (wf && wf !== 'caseAdvocacy') return 'Workflow task (' + wf + '), not one-to-one help';
+    return '';
+  };
+  /* (v155.71-STAGE) Staff / test cards (an @ldahawaii.org email) are not
+     families: left out of II and Part 2. */
+  var _ctStaff = function (ct) { return /@ldahawaii\.org\s*$/i.test(String(((ct && ct.raw) || {}).email || '')); };
   ixs.forEach(function (ix) {
-    if (ix.tier !== 'Tier 1') return;
-    var ch = _PC_CHANNEL[String((ix.raw || {}).channel || '').trim().toLowerCase()] || '';
+    if (!_ixIsT1(ix)) return;
+    var _nia = _ixNotIA(ix);
+    if (_nia) { det('iaSkip', { d: ix.date, who: ix.contactName || '', ch: (ix.raw || {}).channel || '', ix: ix.id, why: _nia }); return; }
+    var ch = _ixAttended(ix) ? 'inperson' : (_PC_CHANNEL[String((ix.raw || {}).channel || '').trim().toLowerCase()] || '');
     if (!ch) { R.notes.iaUnmapped++; push('iaUnmapped', { d: ix.date, w: (ix.contactName || '(no contact)') + ' — channel "' + ((ix.raw || {}).channel || 'none') + '"' });
-               det('iaSkip', { d: ix.date, who: ix.contactName || '', ch: (ix.raw || {}).channel || '', ix: ix.id }); return; }
+               det('iaSkip', { d: ix.date, who: ix.contactName || '', ch: (ix.raw || {}).channel || '', ix: ix.id, why: 'The worksheet has no box for this channel' }); return; }
     var ct = ix.contactId && byId[ix.contactId], a = { aud: 'pu', guessed: true };
     if (ct) a = _pcAudience(ct.raw); else R.notes.iaNoContact++;
     if (ct && a.guessed) R.notes.iaGuessed++;
     R.ia[ch][a.aud]++;
-    det('ia', { d: ix.date, who: ct ? ct.name : (ix.contactName || ''), linked: !!ct, ch: (ix.raw || {}).channel || '', box: ch, aud: a.aud, guessed: a.guessed, ix: ix.id });   /* (v154.11-STAGE) */
+    det('ia', { d: ix.date, who: ct ? ct.name : (ix.contactName || ''), linked: !!ct, ch: ((ix.raw || {}).channel || '') + (_ixAttended(ix) ? ' (' + ix.type + ')' : ''), box: ch, aud: a.aud, guessed: a.guessed, ix: ix.id });   /* (v154.11-STAGE) */
     if (ix.contactId) iaServed[ix.contactId] = 1;
   });
 
@@ -70620,6 +70736,7 @@ function _pcCompute() {
     var ct = byId[id]; if (!ct || !hi(ct)) { det('undupSkip', { who: ct ? ct.name : '', via: via(id), why: ct ? 'Outside the records this view covers' : 'Contact record not found', cid: ct ? id : '' }); return; }
     var a = _pcAudience(ct.raw).aud;
     if (a === 'prof') { det('undupSkip', { who: ct.name, via: via(id), why: 'Professional / other: not counted in II', cid: id }); return; }
+    if (_ctStaff(ct)) { det('undupSkip', { who: ct.name, via: via(id), why: 'LDAH staff / test card (@ldahawaii.org email)', cid: id }); return; }   /* (v155.71-STAGE) */
     if (!_pcReachable(ct.raw)) { R.notes.undupUnreachable++; det('undupSkip', { who: ct.name, via: via(id), why: 'No real phone number or email', cid: id }); return; }
     R.undup[a === 'stud' ? 'youth' : a]++;
     det('undup', { who: ct.name, aud: a === 'stud' ? 'youth' : a, via: via(id), cid: id });   /* (v154.11-STAGE) */
@@ -70629,11 +70746,11 @@ function _pcCompute() {
   var t = new Date(Number(to.slice(0, 4)), Number(to.slice(5, 7)) - 1, Number(to.slice(8, 10)));
   var six = _pbISO(new Date(t.getFullYear(), t.getMonth() - 6, t.getDate() + 1));
   var recent = {};
-  ixs.forEach(function (ix) { if (ix.tier === 'Tier 1' && ix.contactId && ix.date >= six) recent[ix.contactId] = 1; });
+  ixs.forEach(function (ix) { if (_ixIsT1(ix) && !_ixNotIA(ix) && ix.contactId && ix.date >= six) recent[ix.contactId] = 1; });   /* same records as I.B (v155.71-STAGE) */
   trainPeople.forEach(function (p) { if (p.s.contactId && p.r.date >= six) recent[p.s.contactId] = 1; });
   R.p2 = { FC: [], FT: [], Y: [], since: six };
   Object.keys(recent).forEach(function (id) {
-    var ct = byId[id]; if (!ct || !hi(ct) || !_pcReachable(ct.raw)) return;
+    var ct = byId[id]; if (!ct || !hi(ct) || !_pcReachable(ct.raw) || _ctStaff(ct)) return;   /* staff / test cards out (v155.71-STAGE) */
     var a = _pcAudience(ct.raw).aud, list = a === 'pu' ? 'FC' : a === 'pt' ? 'FT' : (a === 'youth' || a === 'stud') ? 'Y' : '';
     if (!list) return;
     var x = ct.raw || {};
@@ -70649,11 +70766,16 @@ function _pcCompute() {
   R.hisp = { yes: dz(), no: dz(), undisclosed: dz() }; R.race = {}; _PC_RACES.forEach(function (k) { R.race[k] = dz(); });
   R.notes.disOther = {};
   /* meta = { src, parent, child, w } for the list behind III.A-C (v154.11-STAGE) */
-  var addChild = function (col, band, disList, eth, meta) {
-    var side = _pcAgeSide(band) || 'u';
+  /* dob (v155.71-STAGE): a birth date, when known, places the child by age in
+     years on the day served (so 12 and 13 reach "12 to transition age" and the
+     side is exact); otherwise the age range decides, as before. */
+  var addChild = function (col, band, disList, eth, meta, dob) {
+    meta = meta || {};
+    var yrs = _pcAgeYears(dob, meta.on || to);
+    var side = typeof yrs === 'number' ? (yrs >= _PC_TA ? 't' : 'u') : (_pcAgeSide(band) || 'u');
     var c = col + side;
     var n = window._normalizeAgeRange ? window._normalizeAgeRange(band) : '';
-    var ageKey = n === '13-17' || n === 'Adult' ? 'ta' : (n || '');
+    var ageKey = _pcAgeKey(band, yrs);
     R.age[ageKey][c]++;
     var rows = {}, any = false, disIdx = [], disOther = [];
     (disList || []).forEach(function (d) {
@@ -70664,9 +70786,8 @@ function _pcCompute() {
     if (!any && !(disList || []).length) { R.dis[16][c]++; disIdx.push(16); }      /* nothing ticked = not disclosed */
     var er = _pcEthRace(eth);
     R.hisp[er.hisp][c]++; R.race[er.race][c]++;
-    meta = meta || {};
-    det('kids', { src: meta.src || '', parent: meta.parent || '', child: meta.child || '', w: meta.w || '', band: n || '', ageKey: ageKey, cid: meta.cid || '', ev: meta.ev || '', coll: meta.coll || '', sk: meta.sk || '',
-                  col: col, side: side, sideSet: !!_pcAgeSide(band), dis: disIdx, disOther: disOther, eth: eth || '', hisp: er.hisp, race: er.race });
+    det('kids', { src: meta.src || '', parent: meta.parent || '', child: meta.child || '', w: meta.w || '', band: (n || '') + (typeof yrs === 'number' ? (n ? ', ' : '') + 'age ' + yrs : ''), ageKey: ageKey, cid: meta.cid || '', ev: meta.ev || '', coll: meta.coll || '', sk: meta.sk || '',
+                  col: col, side: side, sideSet: typeof yrs === 'number' || !!_pcAgeSide(band), dis: disIdx, disOther: disOther, eth: eth || '', hisp: er.hisp, race: er.race });
   };
   var kidName = function (k, self) {
     if (!k) return '';
@@ -70678,7 +70799,7 @@ function _pcCompute() {
     var x = ct.raw || {};
     _pcKids(x).forEach(function (k) {
       addChild('i', _pbChildAgeRange(k), Array.isArray(k.disabilityCategories) ? k.disabilityCategories : [], k.ethnicity || x.ethnicity || '',
-               { src: 'Individual assistance', parent: ct.name, child: kidName(k, k === x), cid: id });
+               { src: 'Individual assistance', parent: ct.name, child: kidName(k, k === x), cid: id }, k.birthdate || k.dob || k.dateOfBirth || '');
     });
   });
   var namedByEvent = {};
@@ -70688,10 +70809,20 @@ function _pcCompute() {
     var eth = reg.primaryEthnicity || reg.ethnicity || x.ethnicity || '';
     var pct = p.s.contactId && byId[p.s.contactId];
     var pName = pct ? pct.name : (x.name || reg.parentName || [x.firstName, x.lastName].filter(Boolean).join(' ') || '');
+    /* (v155.71-STAGE) A professional / community / organization / agency /
+       other registrant with no age, disability or ethnicity of their own is
+       not a child: they were a phantom "age not recorded" row. */
+    var _regRole = String(reg.role || x.role || '').toLowerCase();
+    var _regBare = function (k) {
+      return k === reg && /professional|community|organization|agency|other/.test(_regRole) &&
+             !(k.ageRange || k.childAgeRange || k.birthdate || (Array.isArray(k.disabilityCategories) && k.disabilityCategories.length) || k.ethnicity || k.primaryEthnicity);
+    };
+    kids = kids.filter(function (k) { return k && !_regBare(k); });
     kids.forEach(function (k) {
       if (!k) return;
       addChild('t', k.ageRange || k.childAgeRange || '', Array.isArray(k.disabilityCategories) ? k.disabilityCategories : [], k.ethnicity || eth,
-               { src: 'Training', parent: pName, child: kidName(k, k === reg), w: p.r.title, cid: pct ? p.s.contactId : '', ev: p.r.eventId, coll: p.r.coll, sk: p.r.perSession ? p.r.sessionKey : '' });
+               { src: 'Training', parent: pName, child: kidName(k, k === reg), w: p.r.title, cid: pct ? p.s.contactId : '', ev: p.r.eventId, coll: p.r.coll, sk: p.r.perSession ? p.r.sessionKey : '', on: p.r.date },
+               k.birthdate || k.dob || k.dateOfBirth || (kids.length === 1 ? (x.studentDOB || reg.studentDOB || '') : ''));
     });
     var nb = namedByEvent[p.r.eventId] = namedByEvent[p.r.eventId] || { age: {}, eth: {}, dis: {} };
     kids.forEach(function (k) {
@@ -70735,7 +70866,8 @@ function _pcCompute() {
      (virtual meetings), and (c) LDAH one-off events titled as an IEP / IFSP /
      504 meeting (the PTI backfill logged Jan-Jun 2026 meetings that way), once
      per date + title. (c) counts as an IFSP / IEP / 504 meeting. */
-  var _mtgNm = /\b(IEP|IFSP|504)\b/i, _mtgWd = /\b(mtg|meeting|eligibility)\b/i;
+  /* (v155.71-STAGE) also SFT, eligibility and re-evaluation meetings. */
+  var _mtgNm = /\b(IEP|IFSP|504|SFT|eligibility|re-?eval(uation)?s?)\b/i, _mtgWd = /\b(mtg|meeting|eligibility)\b/i;
   R.meetings = ixs.filter(function (ix) {
     var x = ix.raw || {}, ch = String(x.channel || '').trim().toLowerCase(), sm = String(ix.summary || x.summary || '');
     if (ch === 'out of office meeting' || x.meetingType) return true;
@@ -70745,20 +70877,55 @@ function _pcCompute() {
   sessions.forEach(function (r) {
     if (!r.isOneOff) return;
     var t = String(r.title || '').trim();
-    if (!/^(IEP|IFSP|504)\b/i.test(t) || /training|series|module|talk cafe|learning lab|tmc|workshop|using a\.?i|developing|prep|review|services|recording|marathon|empower|improved/i.test(t)) return;
-    var k = String(r.date || '').slice(0, 10) + '|' + t.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!/^(IEP|IFSP|504|Eligibility|SFT|Re-?eval(uation)?)\b/i.test(t) || /training|series|module|talk cafe|learning lab|tmc|workshop|using a\.?i|developing|prep|review|services|recording|marathon|empower|improved/i.test(t)) return;
+    var k = r.eventId;   /* once per event (v155.71-STAGE; was date + title, which merged two meetings on one day) */
     if (_mtgEvSeen[k]) return; _mtgEvSeen[k] = 1;
     R.meetings.push({ date: r.date, contactName: '', summary: t + ' (one-off event)', raw: { meetingType: 'iep' }, _ev: true });
   });
   R.mtgCount = {};
   R.meetings.forEach(function (ix) { var k = (ix.raw || {}).meetingType; if (k) R.mtgCount[k] = (R.mtgCount[k] || 0) + 1; });
-  /* ── V Outreach: Tier 4 sessions (booths, fairs, exhibits) ── */
+  /* Meetings with a real type, for the header ('none' = Not one of these) (v155.71-STAGE). */
+  R.mtgReal = R.meetings.filter(function (ix) { return (ix.raw || {}).meetingType !== 'none'; }).length;
+
+  /* ── IV.B Systems collaborations (v155.71-STAGE) ── LDAH events in the
+     period ticked 524B measure 5.a (workgroup, task force or advisory group),
+     each once, leaving out professional development staff RECEIVED (trainings,
+     director / cohort / fellows programmes, PD, institutes, convenings,
+     screenings, workshops). Level by title: national = national / OSEP / CPIR /
+     federal; state = CSPD, SEAC, SILC, SPIN, LEND, Project LAUNCH, Feeding
+     Matters, state councils / task forces / advisory groups; everything else
+     (Community Children's Councils, island groups) = local. Youth = transition
+     / youth / young adult / Footsteps titles, a subset of the three. */
+  R.sys = { local: 0, state: 0, national: 0, youth: 0 };
+  sessions.forEach(function (r) {
+    var tags = Array.isArray((r.s || {}).measure524) ? r.s.measure524.map(String) : [];
+    if (tags.indexOf('5.a') === -1) return;
+    var t = String(r.title || '');
+    if (/training|director|cohort|fellows|promising minds|\bPD\b|institute|convening|screening|workshop/i.test(t)) {
+      det('sysSkip', { d: r.date, w: t, why: 'Professional development received, not a systems meeting', ev: r.eventId, coll: r.coll }); return;
+    }
+    var lv = /national|\bOSEP\b|\bCPIR\b|federal/i.test(t) ? 'national'
+           : /\b(CSPD|SEAC|SILC|SPIN|LEND)\b|project launch|feeding matters|state\b.*\b(council|task ?force|advisory)|task ?force|advisory|independent living council/i.test(t) ? 'state' : 'local';
+    var y = /transition|youth|young adult|footsteps/i.test(t);
+    R.sys[lv]++; if (y) R.sys.youth++;
+    det('sys', { d: r.date, w: t, lv: lv, youth: y, ev: r.eventId, coll: r.coll });
+  });
+
+  /* ── V Outreach: Tier 4 sessions (booths, fairs, exhibits) ──
+     (v155.71-STAGE) Materials: every Tier 4 row except dissemination / flyer
+     records (_pcIsDissem: emailed flyers, title-only dissemination records).
+     Events attended: of those, only real exhibits, booths, fairs and screening
+     tables -- not committee / council / meeting titles (IV.B) and not
+     professional development staff received. */
   R.outEvents = 0; R.outMaterials = 0;
   sessions.forEach(function (r) {
     if (r.tier !== 'Tier 4' || (r.s || {}).activityType === 'Dissemination') return;
-    R.outEvents++;
-    R.outMaterials += _pbMaterials(r.s || {}, 'materialsDisseminated').total;
-    push('out', { d: r.date, w: r.title, n: _pbMaterials(r.s || {}, 'materialsDisseminated').total, ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' });
+    var mats = _pbMaterials(r.s || {}, 'materialsDisseminated').total;
+    if (_pcIsDissem(r)) { det('outSkip', { d: r.date, w: r.title, n: mats, why: 'Dissemination / flyer record (counted online, not an exhibit)', ev: r.eventId, coll: r.coll }); return; }
+    var why = _pcNotExhibit(r.title);
+    R.outMaterials += mats;
+    if (!why) R.outEvents++;
+    push('out', { d: r.date, w: r.title, n: mats, ex: !why, why: why, ev: r.eventId, coll: r.coll, sk: r.perSession ? r.sessionKey : '' });
   });
   R.pipLeftOut = C.sessions.filter(function (r) { return !_pbKeepScope(r) && inR(r.date); }).length +
                  C.interactions.filter(function (x) { return !_pbKeepScope(x) && inR(x.date); }).length;
@@ -70856,7 +71023,7 @@ function _pcDetIA(R, tA) {
   var tbl = _pcDetTbl(['', 'Date', 'Session', 'Format', 'Tier', '#Recorded', '#Counted'].concat(_PC_AUDS.map(function (a) { return '#' + _PC_AUD_SHORT[a[0]]; })).concat(['#Named', '#From Event Summary', '#Unnamed, as parent &lt; TA']),
     rows.map(function (r) {
       var tot = 0; Object.keys(r.split).forEach(function (k) { tot += r.split[k]; });
-      return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd((r.f === 'v' ? 'Virtual' : 'In person') + (r.fmtSet ? '' : ' ' + _pcFlag('(not marked)')), 'nw'), _pcTd(_pbEsc(r.tier), 'nw'),
+      return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd((r.f === 'v' ? 'Virtual' : 'In person') + (r.views ? ' ' + _pcSoft('(social media views)') : r.social ? ' ' + _pcSoft('(held on social media)') : '') + (r.fmtSet ? '' : ' ' + _pcFlag('(not marked)')), 'nw'), _pcTd(_pbEsc(r.tier), 'nw'),
               _pcTd(_pbFmt(r.att), 'num'), _pcTd('<b>' + _pbFmt(tot) + '</b>', 'num')]
         .concat(_PC_AUDS.map(function (a) { var k = a[0]; return _pcTd(_pbFmt(r.split[k]) + (r.named[k] ? ' ' + _pcSoft('(' + r.named[k] + ' named)') : ''), 'num'); }))
         .concat([_pcTd(_pbFmt(r.namedTot), 'num'), _pcTd(_pbFmt(r.fromSummary), 'num'), _pcTd(_pbFmt(r.rest), 'num')]);
@@ -70874,11 +71041,10 @@ function _pcDetIB(R, tB) {
   Object.keys(_PC_BOX).forEach(function (b) { _PC_AUDS.forEach(function (a) { pairs.push([_PC_BOX[b] + ', ' + _pbEsc(a[1]), sum[b + '.' + a[0]] || 0, R.ia[b][a[0]]]); }); });
   var tbl = _pcDetTbl(['', 'Date', 'Contact', 'Channel recorded', 'Counted in', 'Audience', 'Note'], rows.map(function (r) {
     var note = !r.linked ? _pcFlag('No contact linked: counted as parent &lt; TA') : r.guessed ? _pcFlag('No child age on file: audience guessed') : '';
-    if (r.box === 'letter') note += (note ? '<br>' : '') + _pcFlag('Letters is a typed-in box; this record is in the total only');
     return [_pcTd(_pcOpenIx(r), 'nw'), _pcDay(r.d), _pcTd(_pcName(r.who)), _pcTd(_pbEsc(r.ch), 'nw'), _pcTd(_PC_BOX[r.box], 'nw'), _pcTd(_PC_AUD_SHORT[r.aud], 'nw'), _pcTd(note)];
   }));
   var skipTbl = _pcDetTbl(['', 'Date', 'Contact', 'Channel recorded', 'Why not counted'], skip.map(function (r) {
-    return [_pcTd(_pcOpenIx(r), 'nw'), _pcDay(r.d), _pcTd(_pcName(r.who)), _pcTd(r.ch ? _pbEsc(r.ch) : _pcSoft('none'), 'nw'), _pcTd('The worksheet has no box for this channel')];
+    return [_pcTd(_pcOpenIx(r), 'nw'), _pcDay(r.d), _pcTd(_pcName(r.who)), _pcTd(r.ch ? _pbEsc(r.ch) : _pcSoft('none'), 'nw'), _pcTd(_pbEsc(r.why || 'The worksheet has no box for this channel'))];
   }));
   return _pcChk(pairs) + _pcDet('Show the interactions behind these figures', rows.length, tbl + _pcDetSub('Tier 1 interactions not counted (' + skip.length + ')') + skipTbl);
 }
@@ -70944,16 +71110,36 @@ function _pcDetIII(R, part) {
 }
 
 function _pcDetV(R) {
+  /* (v155.71-STAGE) Events list now carries every Tier 4 row whose materials
+     count, marked whether it is an exhibit; Reach rows left out are listed. */
   var out = (R.lists.out || []).slice().sort(_pcByDate), dis = (R.detail.reach || []).slice().sort(_pcByDate);
-  if (!out.length && !dis.length) return '';
-  var mat = 0; out.forEach(function (r) { mat += _pbNum(r.n); });
+  var rskip = (R.detail.reachSkip || []).slice().sort(_pcByDate), oskip = (R.detail.outSkip || []).slice().sort(_pcByDate);
+  if (!out.length && !dis.length && !rskip.length && !oskip.length) return '';
+  var mat = 0, evn = 0; out.forEach(function (r) { mat += _pbNum(r.n); if (r.ex) evn++; });
   var reach = 0; dis.forEach(function (r) { reach += _pbNum(r.n); });
-  var pairs = [['events attended', out.length, R.outEvents], ['materials disseminated', mat, R.outMaterials], ['records with a Reach figure', dis.length, R.reachN], ['social media reach', reach, R.reach]];
+  var pairs = [['events attended', evn, R.outEvents], ['materials disseminated', mat, R.outMaterials], ['records with a Reach figure', dis.length, R.reachN], ['social media reach', reach, R.reach]];
   return _pcChk(pairs) + _pcDet('Show the records behind these figures', out.length + dis.length,
-    _pcDetSub('Tier 4 outreach events (' + out.length + ')') +
-    _pcDetTbl(['', 'Date', 'Event', '#Materials disseminated'], out.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(_pbFmt(r.n), 'num')]; })) +
+    _pcDetSub('Tier 4 outreach rows: materials counted (' + out.length + '), exhibits / fairs / screening tables counted as events attended (' + evn + ')') +
+    _pcDetTbl(['', 'Date', 'Event', 'Event attended?', '#Materials disseminated'], out.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(r.ex ? 'Yes' : _pcSoft('No: ' + _pbEsc(r.why))), _pcTd(_pbFmt(r.n), 'num')]; })) +
+    _pcDetSub('Tier 4 dissemination / flyer records, not counted in either Exhibits box (' + oskip.length + ')') +
+    _pcDetTbl(['', 'Date', 'Record', '#Materials recorded', 'Why'], oskip.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(_pbFmt(r.n), 'num'), _pcTd(_pbEsc(r.why))]; })) +
     _pcDetSub('Records with a Reach figure, counted in Social media (' + dis.length + ')') +
-    _pcDetTbl(['', 'Date', 'Record', '#Reached'], dis.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w) + (r.dissem ? ' ' + _pcSoft('(Dissemination record)') : '')), _pcTd(_pbFmt(r.n), 'num')]; })));
+    _pcDetTbl(['', 'Date', 'Record', '#Reached'], dis.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w) + (r.dissem ? ' ' + _pcSoft(r.once ? '(Dissemination record; Reach equals the headcount, counted once)' : '(Dissemination record)') : '')), _pcTd(_pbFmt(r.n), 'num')]; })) +
+    _pcDetSub('Reach figures NOT counted in Social media (' + rskip.length + ')') +
+    _pcDetTbl(['', 'Date', 'Record', '#Reach box', 'Why'], rskip.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(_pbFmt(r.n), 'num'), _pcTd(_pbEsc(r.why))]; })));
+}
+
+/* IV.B list (v155.71-STAGE): the 5.a meetings behind Logged, and the ticked
+   events left out as professional development. */
+function _pcDetIVB(R) {
+  var rows = (R.detail.sys || []).slice().sort(_pcByDate), skip = (R.detail.sysSkip || []).slice().sort(_pcByDate);
+  var sum = { local: 0, state: 0, national: 0, youth: 0 }; rows.forEach(function (r) { sum[r.lv]++; if (r.youth) sum.youth++; });
+  var LV = { local: 'Local / community', state: 'State', national: 'National / federal' };
+  var pairs = [['local', sum.local, R.sys.local], ['state', sum.state, R.sys.state], ['national', sum.national, R.sys.national], ['youth', sum.youth, R.sys.youth]];
+  return _pcChk(pairs) + _pcDet('Show the meetings behind these figures', rows.length,
+    _pcDetTbl(['', 'Date', 'Meeting', 'Level', 'Youth'], rows.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(LV[r.lv], 'nw'), _pcTd(r.youth ? 'Yes' : '', 'nw')]; })) +
+    _pcDetSub('Ticked 5.a but not counted (' + skip.length + ')') +
+    _pcDetTbl(['', 'Date', 'Event', 'Why not counted'], skip.map(function (r) { return [_pcTd(_pcOpenEv(r), 'nw'), _pcDay(r.d), _pcTd(_pbEsc(r.w)), _pcTd(_pbEsc(r.why))]; })));
 }
 
 function _pcDetP2(R) {
@@ -71123,25 +71309,28 @@ function _pcHtml() {
     h += '<tr><td>' + _pbEsc(a[1]) + '</td><td class="num">' + _pcN(R.train.p[a[0]]) + '</td><td class="num">' + _pcN(R.train.v[a[0]]) + '</td><td>' + _pcTag(a[0] === 'pu' || a[0] === 'pt' ? 'part' : 'auto') + '</td></tr>';
   });
   h += '</tbody></table></div>' + _pcNote('Tier 2 and Tier 3 sessions in the period (Workshops, Learning Labs, Parent Talk Cafe, Connect-Gen). Each person counts once per session, as the worksheet asks. ' +
+       'Sessions held on Facebook / social media count as virtual, and social media views of a training (its Reach box) are counted here as virtual trainings, as CPIR asks' + (R.notes.trainViews ? ' (<b>' + _pbFmt(R.notes.trainViews) + '</b> views, as parents of children under transition age)' : '') + ', never under V as well. ' +
        'People named on a signup are placed by their role and their child&rsquo;s age. The rest of each session&rsquo;s attendance is split using the Professional/Other and Youth figures on the Event Summary; <b>' + _pbFmt(R.notes.trainInferred) + '</b> unnamed attendees are counted as parents of children under transition age.' +
        (R.notes.trainNoAtt ? ' <b>' + R.notes.trainNoAtt + '</b> session(s) have no attendance recorded and are not counted.' : '') +
        (R.notes.trainFmtUnknown ? ' ' + R.notes.trainFmtUnknown + ' session(s) are not marked virtual or in person and are counted as in person.' : '')) + _pcDetIA(R, tA) + '</div>';
 
   /* I.B */
   var tB = 0; Object.keys(R.ia).forEach(function (c) { Object.keys(R.ia[c]).forEach(function (k) { tB += R.ia[c][k]; }); });
-  var chRows = [['phone', 'Phone calls', 'Inbound and Outbound Phone'], ['letter', 'Letters', 'no letter channel is recorded'], ['email', 'Emails / texts / other electronic', 'Email, Chat, Web'], ['inperson', 'In-person meetings', 'In Office Meeting, Office and Out of office meeting']];
+  var chRows = [['phone', 'Phone calls', 'Inbound and Outbound Phone'], ['letter', 'Letters', 'Letter, Mail and Letters send / receive, plus any typed in'], ['email', 'Emails / texts / other electronic', 'Email, Text, Chat, Web'], ['inperson', 'In-person meetings', 'In Office Meeting, Office, Out of office meeting and &ldquo;Attended --&rdquo; meetings']];   /* (v155.71-STAGE) */
   h += '<div class="pb-card"><h3 class="pb-h">I.B &nbsp;Individual assistance contacts <span class="pb-count">' + _pbFmt(tB) + ' contacts</span></h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Reached through</th>';
   _PC_AUDS.forEach(function (a) { h += '<th class="num" title="' + _pbEsc(a[1]) + '">' + ({ pu: 'Parents &lt; TA', pt: 'Parents TA+', prof: 'Prof. / other', stud: 'Students &lt; TA', youth: 'Youth TA+' })[a[0]] + '</th>'; });
   h += '<th></th></tr></thead><tbody>';
   chRows.forEach(function (c) {
     h += '<tr><td>' + c[1] + '<div style="font-size:.7rem;color:var(--text-soft);">' + c[2] + '</div></td>';
-    _PC_AUDS.forEach(function (a) { h += '<td class="num">' + (c[0] === 'letter' ? _pcIn('ib.letter.' + a[0]) : _pcN(R.ia[c[0]][a[0]])) + '</td>'; });
-    h += '<td>' + _pcTag(c[0] === 'letter' ? 'type' : 'auto') + '</td></tr>';
+    /* Letters (v155.71-STAGE): logged letters, plus a typed-in box for any not logged; the figure is the two added. */
+    _PC_AUDS.forEach(function (a) { h += '<td class="num">' + _pcN(R.ia[c[0]][a[0]]) + (c[0] === 'letter' ? '<div style="font-size:.7rem;color:var(--text-soft);white-space:nowrap;">+ ' + _pcIn('ib.letter.' + a[0]) + '</div>' : '') + '</td>'; });
+    h += '<td>' + _pcTag('auto') + '</td></tr>';
   });
   h += '</tbody></table></div>' + _pcNote('Tier 1 interactions in the period, placed by the contact&rsquo;s type and their children&rsquo;s ages.' +
        (R.notes.iaNoContact ? ' ' + R.notes.iaNoContact + ' have no contact linked and are counted as parents under transition age.' : '') +
        (R.notes.iaGuessed ? ' ' + R.notes.iaGuessed + ' are with parents who have no child age on file, also counted under transition age.' : '') +
-       (R.notes.iaUnmapped ? ' <b>' + R.notes.iaUnmapped + '</b> use a channel the worksheet has no box for (Other, Event Feedback) and are not counted.' : '')) + _pcDetIB(R, tB) + '</div>';
+       (R.notes.iaUnmapped ? ' <b>' + R.notes.iaUnmapped + '</b> use a channel the worksheet has no box for (Other, Event Feedback) and are not counted.' : '') +
+       ' Letters: the logged figure plus any typed in the purple box are reported together. Readiness-kiosk check-ins and workflow tasks are not one-to-one help and are left out (listed below).') + _pcDetIB(R, tB) + '</div>';   /* (v155.71-STAGE) */
 
   /* II */
   h += '<div class="pb-card"><h3 class="pb-h">II &nbsp;Unduplicated number served</h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Reached through individual assistance, support at meetings, and trainings</th><th class="num">Number</th><th></th></tr></thead><tbody>' +
@@ -71163,17 +71352,19 @@ function _pcHtml() {
   });
   var other = Object.keys(R.notes.disOther);
   h += '</tbody></table></div>' + _pcNote('Individual assistance = each child of a family helped one-to-one in the period, counted once. Training = children named on attended signups, plus figures typed on the Event Attendance card. ' +
-       'Our choices map to the federal list like this, <b>for Noe to confirm</b>: Deaf/Hard of Hearing is one choice for us, so it is all reported as Hearing Impairment and Deafness reads 0; ADD-ADHD is counted as Other Health Impairment; Gifted, No IDEA Disability and nothing ticked are counted as Not disclosed. A child with two categories ticked counts in both.' +
-       (other.length ? ' Not placed: ' + other.map(function (k) { return _pbEsc(k) + ' (' + R.notes.disOther[k] + ')'; }).join(', ') + '.' : '')) + _pcDetIII(R, 'dis') + '</div>';
+       'Our choices map to the federal list like this, <b>for Noe to confirm</b>: Deaf/Hard of Hearing is one choice for us, so it is all reported as Hearing Impairment and Deafness reads 0; ADD-ADHD is counted as Other Health Impairment; nothing ticked is counted as Not disclosed. Gifted and No IDEA Disability are not a federal disability and are not &ldquo;not disclosed&rdquo; either, so they are left out of III.A. A child with two categories ticked counts in both.' +
+       (other.length ? ' Not placed (other values): ' + other.map(function (k) { return _pbEsc(k) + ' (' + R.notes.disOther[k] + ')'; }).join(', ') + '.' : '')) + _pcDetIII(R, 'dis') + '</div>';
 
   /* III.B */
   var ageRows = [['0-2', 'Birth up to age 3', 'auto'], ['3-5', 'Ages 3 through 5', 'auto'], ['6-12', 'Ages 6 through 11', 'part'], ['twelve', 'Ages 12 to transition age', 'part'], ['ta', 'Youth who are of transition age and older', 'part'], ['', 'Age not recorded', 'auto']];
   h += '<div class="pb-card"><h3 class="pb-h">III.B &nbsp;Ages</h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Age</th><th class="num">Individual assistance</th><th class="num">Trainings</th><th></th></tr></thead><tbody>';
   ageRows.forEach(function (a) {
     var r = R.age[a[0]];
-    h += '<tr><td>' + a[1] + '</td><td class="num">' + _pcN(r.iu + r.it) + '</td><td class="num">' + _pcN(r.tu + r.tt) + '</td><td>' + _pcTag(a[2]) + '</td></tr>';
+    /* 12 to transition age (v155.71-STAGE): counted from birth dates, plus a typed-in box for the children whose birth date is not on file. */
+    var tw = a[0] === 'twelve', tb = function (k) { return tw ? '<div style="font-size:.7rem;color:var(--text-soft);white-space:nowrap;">+ ' + _pcIn(k) + '</div>' : ''; };
+    h += '<tr><td>' + a[1] + '</td><td class="num">' + _pcN(r.iu + r.it) + tb('age.twelve.ia') + '</td><td class="num">' + _pcN(r.tu + r.tt) + tb('age.twelve.tr') + '</td><td>' + _pcTag(a[2]) + '</td></tr>';
   });
-  h += '</tbody></table></div>' + _pcNote('Our age ranges are Birth-2, 3-5, 6-12, 13-17 and Adult. So 12-year-olds are counted in &ldquo;6 through 11&rdquo;, and 13-17 is counted as transition age (' + _PC_TA + '+), which puts 13-year-olds one row late. &ldquo;12 to transition age&rdquo; stays 0 until the child&rsquo;s birth year is recorded.' +
+  h += '</tbody></table></div>' + _pcNote('When a child&rsquo;s birth date is on file the child is placed by age in years (so 12- and 13-year-olds land in &ldquo;12 to transition age&rdquo;). Otherwise our age ranges decide: Birth-2, 3-5, 6-12, 13-17 and Adult, so a 12-year-old with no birth date is counted in &ldquo;6 through 11&rdquo; and 13-17 as transition age (' + _PC_TA + '+). <b>&ldquo;12 to transition age&rdquo; fills only from known birth dates</b>; type the rest in its purple boxes (they are added to the figure in the CSV).' +   /* (v155.71-STAGE) */
        (R.notes.topup ? ' Includes ' + _pbFmt(R.notes.topup) + ' figures typed on Event Attendance cards across sections III.A-C.' : '')) + _pcDetIII(R, 'age') + '</div>';
 
   /* III.C */
@@ -71198,7 +71389,7 @@ function _pcHtml() {
   /* IV.A */
   var mt = [['iep', 'IFSP / IEP / 504 meetings'], ['tiep', 'Transition IEP meetings'], ['fiep', 'Facilitated IEP meetings'], ['dp', 'Due process hearings'], ['mdr', 'Manifestation determination hearings'],
             ['med', 'Mediations'], ['res', 'Resolution sessions'], ['susp', 'Suspension / expulsion hearings'], ['slep', 'Student-led IEP meetings supported']];
-  h += '<div class="pb-card"><h3 class="pb-h">IV.A &nbsp;Meetings attended to support parents <span class="pb-count">' + _pbFmt(R.meetings.length) + ' school meetings logged</span></h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Meeting</th><th class="num">Logged</th><th class="num">Typed in</th><th class="num">Total</th></tr></thead><tbody>';
+  h += '<div class="pb-card"><h3 class="pb-h">IV.A &nbsp;Meetings attended to support parents <span class="pb-count">' + _pbFmt(R.mtgReal) + ' school meetings logged</span></h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Meeting</th><th class="num">Logged</th><th class="num">Typed in</th><th class="num">Total</th></tr></thead><tbody>';
   /* Logged = meetings whose Meeting type is set (2026-10-14); Typed in = any
      the records do not show. The figure reported is the two added together. */
   var mtUnsorted = R.meetings.filter(function (x) { return !R.mtgCount[(x.raw || {}).meetingType]; }).length;
@@ -71206,7 +71397,7 @@ function _pcHtml() {
     var tv = Number(_pcManual['mtg.' + m[0]]) || 0, lv = R.mtgCount[m[0]] || 0;
     h += '<tr><td>' + m[1] + '</td><td class="num">' + _pcN(lv) + '</td><td class="num">' + _pcIn('mtg.' + m[0]) + '</td><td class="num">' + _pcN(lv + tv) + '</td></tr>';
   });
-  h += '</tbody></table></div>' + _pcNote('Each &ldquo;Out of office meeting&rdquo; and each meeting held over the web (Web channel) asks what kind of meeting it was, and the Logged column counts those answers. One-off events titled as an IEP / IFSP / 504 meeting count as IFSP / IEP / 504 meetings. ' +
+  h += '</tbody></table></div>' + _pcNote('Each &ldquo;Out of office meeting&rdquo; and each meeting held over the web (Web channel) asks what kind of meeting it was, and the Logged column counts those answers. One-off events titled as an IEP / IFSP / 504, Eligibility, SFT or Re-evaluation meeting count as IFSP / IEP / 504 meetings, once per event; Web interactions naming an SFT, eligibility or re-evaluation meeting count too (v155.71-STAGE). Meetings marked &ldquo;Not one of these&rdquo; are listed but not in the header count. ' +
        (mtUnsorted ? '<b>' + _pbFmt(mtUnsorted) + '</b> of the <b>' + _pbFmt(R.meetings.length) + '</b> meetings in the period have no meeting type yet. Open each one in Interactions and pick its Meeting type, or type the figures in.' : 'Every meeting in the period has a meeting type.')) +
        /* Same play button as every other section (v154.11-STAGE); the Logged
           column is checked against the meetings listed, type by type. */
@@ -71219,18 +71410,24 @@ function _pcHtml() {
 
   /* IV.B */
   var sb = [['local', 'Local / community-level systems meetings'], ['state', 'State-level systems meetings'], ['national', 'National / federal-level systems meetings'], ['youth', '&hellip; of those, related to systems serving youth / young adults']];
-  h += '<div class="pb-card"><h3 class="pb-h">IV.B &nbsp;Collaborations for improving systems</h3><div class="pb-scroll"><table class="pb-tbl"><tbody>';
-  sb.forEach(function (m) { h += '<tr><td>' + m[1] + '</td><td class="num">' + _pcIn('sys.' + m[0]) + '</td><td>' + _pcTag('type') + '</td></tr>'; });
-  h += '</tbody></table></div></div>';
+  /* Filled from events ticked 524B 5.a, plus anything typed in (v155.71-STAGE). */
+  h += '<div class="pb-card"><h3 class="pb-h">IV.B &nbsp;Collaborations for improving systems</h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Meetings</th><th class="num">Logged</th><th class="num">Typed in</th><th class="num">Total</th><th></th></tr></thead><tbody>';
+  sb.forEach(function (m) {
+    var lv = R.sys[m[0]] || 0, tv = Number(_pcManual['sys.' + m[0]]) || 0;
+    h += '<tr><td>' + m[1] + '</td><td class="num">' + _pcN(lv) + '</td><td class="num">' + _pcIn('sys.' + m[0]) + '</td><td class="num">' + _pcN(lv + tv) + '</td><td>' + _pcTag('part') + '</td></tr>';
+  });
+  h += '</tbody></table></div>' + _pcNote('Logged = LDAH events in the period ticked <b>5.a</b> (workgroup, task force or advisory group) on the Event Summary or One-Off Event, each once. Trainings, director / cohort / fellows programmes, PD, institutes, convenings, screenings and workshops are professional development staff received and are left out. ' +
+       'The level comes from the title: national / OSEP / CPIR / federal = national; CSPD, SEAC, SILC, SPIN, LEND, Project LAUNCH, Feeding Matters and state councils, task forces and advisory groups = state; everything else, such as the Community Children&rsquo;s Councils, = local. ' +
+       'Youth = titles about transition, youth, young adults or Footsteps (already inside the three rows). Meetings not ticked 5.a, or held as interactions, go in Typed in.') + _pcDetIVB(R) + '</div>';
 
   /* V */
   h += '<div class="pb-card"><h3 class="pb-h">V &nbsp;Outreach and dissemination</h3><div class="pb-scroll"><table class="pb-tbl"><tbody>' +
        '<tr><td>Newsletters &mdash; number disseminated</td><td class="num">' + _pcIn('out.newsletters') + '</td><td>' + _pcTag('type') + '</td></tr>' +
-       '<tr><td>Social media &mdash; number of individuals reached<div style="font-size:.7rem;color:var(--text-soft);">Online views on ' + R.reachN + ' record(s) this period: every Reach figure, plus the headcount on Dissemination records. To report a Facebook Insights total instead, type it here: ' + _pcIn('out.social') + '</div></td><td class="num">' + _pcN(_pcSocial(R)) + '</td><td>' + _pcTag(_pcManual['out.social'] !== undefined && _pcManual['out.social'] !== null && _pcManual['out.social'] !== '' ? 'type' : 'auto') + '</td></tr>' +
-       '<tr><td>Exhibits, poster sessions, resource fairs &mdash; materials disseminated<div style="font-size:.7rem;color:var(--text-soft);">handed out at Tier 4 outreach events</div></td><td class="num">' + _pcN(R.outMaterials) + '</td><td>' + _pcTag('auto') + '</td></tr>' +
-       '<tr><td>Exhibits, poster sessions, resource fairs &mdash; events attended<div style="font-size:.7rem;color:var(--text-soft);">Tier 4 outreach events</div></td><td class="num">' + _pcN(R.outEvents) + '</td><td>' + _pcTag('auto') + '</td></tr>' +
-       '<tr><td>Website &mdash; number of page views<div style="font-size:.7rem;color:var(--text-soft);">website and app, from Web/App Analytics</div></td><td class="num" id="pcWebPv">' + WC.pv + '</td><td>' + _pcTag('auto') + '</td></tr>' +
-       '<tr><td>Website and app &mdash; materials disseminated online<div id="pcWebNote" style="font-size:.7rem;color:var(--text-soft);">' + WC.note + '</div></td><td class="num" id="pcWebDis">' + WC.dis + '</td><td>' + _pcTag('auto') + '</td></tr>' +
+       '<tr><td>Social media &mdash; number of individuals reached<div style="font-size:.7rem;color:var(--text-soft);">Online views on ' + R.reachN + ' record(s) this period: Reach figures plus the headcount on Dissemination records (once when the two are the same figure). Not counted here: the Reach box on Tier 4 events (people at the event, not social media) and social media views of trainings, which CPIR counts as virtual trainings (I.A). To report a Facebook Insights total instead, type it here: ' + _pcIn('out.social') + '</div></td><td class="num">' + _pcN(_pcSocial(R)) + '</td><td>' + _pcTag(_pcManual['out.social'] !== undefined && _pcManual['out.social'] !== null && _pcManual['out.social'] !== '' ? 'type' : 'auto') + '</td></tr>' +
+       '<tr><td>Exhibits, poster sessions, resource fairs &mdash; materials disseminated<div style="font-size:.7rem;color:var(--text-soft);">handed out at Tier 4 outreach events; emailed flyers and other dissemination records are left out</div></td><td class="num">' + _pcN(R.outMaterials) + '</td><td>' + _pcTag('auto') + '</td></tr>' +
+       '<tr><td>Exhibits, poster sessions, resource fairs &mdash; events attended<div style="font-size:.7rem;color:var(--text-soft);">Tier 4 exhibits, booths, fairs and screening tables (screenings included). Committee / council meetings (IV.B), training staff received and dissemination records are left out.</div></td><td class="num">' + _pcN(R.outEvents) + '</td><td>' + _pcTag('auto') + '</td></tr>' +
+       '<tr><td>Website &mdash; number of page views<div style="font-size:.7rem;color:var(--text-soft);">website and app, from Web/App Analytics. <b>Records start 3/22/26</b>: months before that need a typed figure from another source.</div></td><td class="num" id="pcWebPv">' + WC.pv + '</td><td>' + _pcTag('auto') + '</td></tr>' +
+       '<tr><td>Website and app &mdash; materials disseminated online <span style="font-size:.66rem;font-weight:800;color:#B45309;background:#FEF3C7;border-radius:5px;padding:1px 6px;">INTERNAL &mdash; not a CPIR box, do not type into the form</span><div id="pcWebNote" style="font-size:.7rem;color:var(--text-soft);">' + WC.note + '</div></td><td class="num" id="pcWebDis">' + WC.dis + '</td><td>' + _pcTag('auto') + '</td></tr>' +
        '<tr><td>Media events &mdash; number held</td><td class="num">' + _pcIn('out.media') + '</td><td>' + _pcTag('type') + '</td></tr>' +
        '</tbody></table></div>' + _pcDetV(R) + '</div>';
 
@@ -71293,23 +71490,24 @@ function _pcRows() {
   var m = function (k) { return _pcManual[k] === undefined ? '' : _pcManual[k]; };
   _PC_AUDS.forEach(function (a) { rows.push(['I.A', a[1] + ' - in-person trainings', R.train.p[a[0]], 'Auto']); rows.push(['I.A', a[1] + ' - virtual trainings', R.train.v[a[0]], 'Auto']); });
   [['phone', 'Phone calls'], ['letter', 'Letters'], ['email', 'Emails/Texts/electronic'], ['inperson', 'In-person meetings']].forEach(function (c) {
-    _PC_AUDS.forEach(function (a) { rows.push(['I.B', a[1] + ' - ' + c[1], c[0] === 'letter' ? m('ib.letter.' + a[0]) : R.ia[c[0]][a[0]], c[0] === 'letter' ? 'Typed' : 'Auto']); });
+    _PC_AUDS.forEach(function (a) { rows.push(['I.B', a[1] + ' - ' + c[1], c[0] === 'letter' ? R.ia.letter[a[0]] + (Number(m('ib.letter.' + a[0])) || 0) : R.ia[c[0]][a[0]], c[0] === 'letter' ? 'Auto + typed' : 'Auto']); });   /* (v155.71-STAGE) */
   });
   rows.push(['II', 'Parents of children under transition age', R.undup.pu, 'Auto'], ['II', 'Parents of transition-age youth and older', R.undup.pt, 'Auto'], ['II', 'Youth and young adults', R.undup.youth, 'Auto']);
   var cols = [['iu', 'IA under TA'], ['it', 'IA TA+'], ['tu', 'Training under TA'], ['tt', 'Training TA+']];
   _PC_DIS.forEach(function (d, i) { cols.forEach(function (c) { rows.push(['III.A', (i + 1) + '. ' + d[0] + ' - ' + c[1], i === 14 ? m('dis.15.' + c[0]) : R.dis[i][c[0]], i === 14 ? 'Typed' : 'Auto']); }); });
   [['0-2', 'Birth up to age 3'], ['3-5', 'Ages 3 through 5'], ['6-12', 'Ages 6 through 11'], ['twelve', 'Ages 12 to transition age'], ['ta', 'Transition age and older']].forEach(function (a) {
-    var r = R.age[a[0]]; rows.push(['III.B', a[1] + ' - Individual assistance', r.iu + r.it, 'Auto'], ['III.B', a[1] + ' - Trainings', r.tu + r.tt, 'Auto']);
+    var r = R.age[a[0]], tw = a[0] === 'twelve';   /* + typed for 12 to TA (v155.71-STAGE) */
+    rows.push(['III.B', a[1] + ' - Individual assistance', r.iu + r.it + (tw ? Number(m('age.twelve.ia')) || 0 : 0), tw ? 'Auto + typed' : 'Auto'], ['III.B', a[1] + ' - Trainings', r.tu + r.tt + (tw ? Number(m('age.twelve.tr')) || 0 : 0), tw ? 'Auto + typed' : 'Auto']);
   });
   [['yes', 'Hispanic or Latino'], ['no', 'Not Hispanic or Latino'], ['undisclosed', 'Ethnicity undisclosed']].forEach(function (e) { cols.forEach(function (c) { rows.push(['III.C', e[1] + ' - ' + c[1], R.hisp[e[0]][c[0]], 'Auto']); }); });
   _PC_RACES.forEach(function (k) { cols.forEach(function (c) { rows.push(['III.C', k + ' - ' + c[1], R.race[k][c[0]], 'Auto']); }); });
   ['English', 'Spanish', 'Other'].forEach(function (l) { cols.forEach(function (c) { rows.push(['III.D', l + ' - ' + c[1], m('lang.' + l.toLowerCase() + '.' + c[0]), 'Typed']); }); });
   [['iep', 'IFSP/IEP/504 meetings'], ['tiep', 'Transition IEP meetings'], ['fiep', 'Facilitated IEP meetings'], ['dp', 'Due process hearings'], ['mdr', 'Manifestation determination hearings'], ['med', 'Mediations'], ['res', 'Resolution sessions'], ['susp', 'Suspension/expulsion hearings'], ['slep', 'Student-led IEP meetings']].forEach(function (x) { rows.push(['IV.A', x[1], (R.mtgCount[x[0]] || 0) + (Number(m('mtg.' + x[0])) || 0), 'Auto + typed']); });
-  [['local', 'Local/community-level systems meetings'], ['state', 'State-level systems meetings'], ['national', 'National/federal-level systems meetings'], ['youth', 'Of those, related to youth/young adults']].forEach(function (x) { rows.push(['IV.B', x[1], m('sys.' + x[0]), 'Typed']); });
+  [['local', 'Local/community-level systems meetings'], ['state', 'State-level systems meetings'], ['national', 'National/federal-level systems meetings'], ['youth', 'Of those, related to youth/young adults']].forEach(function (x) { rows.push(['IV.B', x[1], (R.sys[x[0]] || 0) + (Number(m('sys.' + x[0])) || 0), 'Auto + typed']); });   /* (v155.71-STAGE) */
   rows.push(['V', 'Newsletters disseminated', m('out.newsletters'), 'Typed'], ['V', 'Social media reach', _pcSocial(R), (m('out.social') !== '' && m('out.social') != null) ? 'Typed' : 'Auto'],
             ['V', 'Exhibits/fairs - materials disseminated', R.outMaterials, 'Auto'], ['V', 'Exhibits/fairs - events attended', R.outEvents, 'Auto'],
             ['V', 'Website page views (website and app)', _pcWeb ? _pcWeb.pv : '', 'Auto'],
-            ['V', 'Website and app - materials disseminated online', _pcWeb ? _pcWeb.total : '', _pcWeb && _pcWeb.estDays ? 'Auto + estimated' : 'Auto'],
+            ['V', 'INTERNAL (not a CPIR box) - website and app materials disseminated online', _pcWeb ? _pcWeb.total : '', _pcWeb && _pcWeb.estDays ? 'Auto + estimated' : 'Auto'],
             ['V', 'Media events held', m('out.media'), 'Typed']);
   return rows;
 }
