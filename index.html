@@ -6232,7 +6232,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.93</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.94</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -38462,6 +38462,8 @@ function cmsBuildSessionKey(sess) {
 var _edMonth = null;                 // first of the displayed month
 var _edPresenters = [];              // [{name, uid}]
 var _edEvents = [];                  // flattened, dated
+var _edPswState = {};                // providerRequestId -> {done, started}
+window.edOpenScreeningWs = function (id) { if (_pswGet(id)) pswOpen(id); else pswOpenFromTask(id); };
 var _edWpForms = {};                 // eventId -> {started, submitted}
 var _edSigToken = 0;                 // guards a late count against a month change
 
@@ -38755,7 +38757,8 @@ async function _edLoadStaffCal(fromIso, toIso) {
         out.push({ coll: 'staffCalendar', id: d.id, staff: true, title: x.title || 'Staff calendar', date: iso, key: '',
                    when: _edStaffWhen(x), sortTime: x.startTime || '', where: x.location || '', notes: x.notes || '',
                    repeats: !!x.repeat, agendaOn: !!x.agendaOn && _edAgIsMember(x),
-                   agendaN: 0, presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false });
+                   agendaN: 0, presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false,
+                   providerRequestId: x.providerRequestId || '' });
       });
     });
     /* Item counts for the meetings I am in, from the private agenda docs. */
@@ -40117,6 +40120,20 @@ window.edRender = async function() {
     } catch (e) {
       console.warn('workshop forms lookup failed, calendar buttons will read as not started:', e.message);
     }
+    /* Screening worksheet state for calendar entries made by confirming a
+       screening request (2026-11-18), same idea as the Workshop form button. */
+    _edPswState = {};
+    var _prIds = _edEvents.map(function(ev) { return ev.providerRequestId; }).filter(function(v, i, a) { return v && a.indexOf(v) === i; });
+    for (var _pi = 0; _pi < _prIds.length; _pi++) {
+      try {
+        var _pd = await db.collection('providers').doc(_prIds[_pi]).get();
+        if (!_pd.exists) continue;
+        var _pr = Object.assign({ id: _pd.id }, _pd.data() || {});
+        if (!_pswGet(_pr.id)) _cmsProviders.push(_pr);
+        var _ws = _pr.worksheet || {}, _dn = _ws.done || {};
+        _edPswState[_pr.id] = { done: _pswAllDone(_ws), started: Object.keys(_dn).some(function(k) { return _dn[k]; }) };
+      } catch (e) { console.warn('screening worksheet lookup', e.message); }
+    }
 
     var byDate = {};
     _edEvents.forEach(function(ev, i) { (byDate[ev.date] = byDate[ev.date] || []).push(i); });
@@ -40212,6 +40229,11 @@ window.edRender = async function() {
           if (_sMeta) html += '<div class="ed-ev-m">' + rsEscape(_sMeta) + '</div>';
           if (ev.notes && _edView !== 'month') html += '<div class="ed-ev-n">' + rsEscape(_edView === 'day' ? ev.notes : String(ev.notes).slice(0, 120)) + '</div>';
           if (ev.agendaOn) html += '<button type="button" class="ed-agbtn" onclick="event.stopPropagation();edOpenAgenda(\'' + _attrJsArg(ev.id) + '\',\'' + ev.date + '\')">Agenda \u00b7 ' + (ev.agendaN || 0) + (ev.agendaN === 1 ? ' item' : ' items') + '</button>';
+          if (ev.providerRequestId && _edPswState[ev.providerRequestId]) {
+            var _ps = _edPswState[ev.providerRequestId];
+            html += '<button type="button" class="ed-wp-link ' + (_ps.done ? 'done' : (_ps.started ? 'draft' : 'todo')) + '" title="Screening worksheet for this screening request" onclick="event.stopPropagation();edOpenScreeningWs(\'' + _attrJsArg(ev.providerRequestId) + '\')">'
+              + (_ps.done ? 'Screening worksheet &#10003;' : (_ps.started ? 'Screening worksheet — in progress' : 'Screening worksheet — start')) + '</button>';
+          }
           html += '</div>';
           return;
         }
