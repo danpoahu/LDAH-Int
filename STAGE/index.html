@@ -3426,6 +3426,17 @@
 .ed-ev-t{ font-size:.72rem; font-weight:700; color:#1E293B; line-height:1.25; }
 .ed-ev-m{ font-size:.68rem; color:#64748B; margin-top:1px; }
 .ed-slot{font-size:.7rem;font-weight:600;color:#475569;margin:5px 0 2px;line-height:1.25;}
+.ed-help{ display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; align-items:center; }
+.ed-help-chip{ font-size:.62rem; font-weight:800; letter-spacing:.03em; border:1px dashed #0E7490; background:#ECFEFF; color:#0E5F7A; border-radius:5px; padding:1px 5px; cursor:pointer; }
+.ed-help-chip:hover{ background:#FEE2E2; border-color:#DC2626; color:#991B1B; text-decoration:line-through; }
+.ed-help-add{ font-size:.62rem; font-weight:700; border:none; background:transparent; color:#0E7490; cursor:pointer; padding:1px 2px; }
+.ed-help-add:hover{ text-decoration:underline; }
+.ed-help-pop{ position:fixed; z-index:10200; background:#fff; border:1px solid #CBD5E1; border-radius:10px; box-shadow:0 12px 30px rgba(15,23,42,.18); width:240px; font-size:.82rem; color:#0F172A; }
+.ed-help-pop-h{ font-weight:800; padding:8px 12px; border-bottom:1px solid #E2E8F0; }
+.ed-help-pop-l{ max-height:260px; overflow:auto; padding:6px 12px; display:flex; flex-direction:column; gap:4px; }
+.ed-help-pop-l label{ display:flex; gap:6px; align-items:center; cursor:pointer; }
+.ed-help-pop-f{ display:flex; justify-content:flex-end; gap:6px; padding:8px 12px; border-top:1px solid #E2E8F0; }
+body.ed-printing .ed-help-add{ display:none !important; }
 .ed-sel{ width:100%; margin-top:4px; font-size:.68rem; padding:2px 4px; border:1px solid #CBD5E1; border-radius:5px; background:#fff; color:#334155; cursor:pointer; }
 .ed-sel.unassigned{ border-color:#F59E0B; background:#FFFBEB; color:#92400E; font-weight:700; }
 .ed-sel:disabled{ opacity:.6; cursor:progress; }
@@ -6265,7 +6276,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.79-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.80-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -38627,6 +38638,62 @@ function _scLayoutDay(items) {
 }
 /* SC-PURE-END */
 
+/* Staff calendar loader (2026-11-18): the Events Dashboard rows (same sources and
+   skip rules), each told who leads / helps / attends and when it starts and ends. */
+async function scLoad(fromIso, toIso) {
+  var rows = await edLoadEvents(fromIso, toIso);
+  var staff = await _edAgLoadStaff();
+  var pres = []; try { pres = await edLoadPresenters(); } catch (e) {}
+  var uidByName = {};
+  staff.forEach(function(p) { uidByName[String(p.name).trim().toLowerCase()] = p.uid; });
+  pres.forEach(function(p) { if (p.uid) uidByName[String(p.name).trim().toLowerCase()] = p.uid; });
+  var pcs = {};
+  var prIds = rows.map(function(r) { return r.providerRequestId; }).filter(function(v, i, a) { return v && a.indexOf(v) === i; });
+  await Promise.all(prIds.map(function(id) {
+    return db.collection('providers').doc(id).get().then(function(d) {
+      var ws = (d.exists && (d.data() || {}).worksheet) || {};
+      pcs[id] = Array.isArray(ws.pcs) ? ws.pcs.map(function(x) { return x.uid; }) : _pswOldPcMatch(ws.pcNames || '', staff);
+    }).catch(function(e) { console.warn('staff calendar: screening request', id, e.message); pcs[id] = []; });
+  }));
+  var leadOf = function(uid, name) {
+    var u = (uid && uid !== '(form-set)') ? uid : (uidByName[String(name || '').trim().toLowerCase()] || '');
+    return { uids: u ? [u] : [], names: (!u && name) ? [name] : [] };
+  };
+  var out = [];
+  rows.forEach(function(r) {
+    var x = Object.assign({}, r, { leadUids: [], leadNames: [], helperUids: [], attendeeUids: [], everyone: false, start: '', end: '' });
+    var t = null;
+    if (r.staff) {
+      if (r.providerRequestId) x.leadUids = (pcs[r.providerRequestId] || []).slice();
+      else if (r.isAgenda) x.attendeeUids = r.participantUids.concat(r.agendaToUid ? [r.agendaToUid] : []);
+      else if (r.peopleUids && r.peopleUids.length) x.leadUids = r.peopleUids.slice();
+      else x.everyone = true;
+      t = r.startTime ? { start: r.startTime, end: r.endTime || '' } : null;
+    } else if (r.office || r.vol) {
+      var l = leadOf(r.leadUid, r.leadName); x.leadUids = l.uids; x.leadNames = l.names;
+      t = r.office ? { start: r.startTime, end: r.endTime } : _scParseTime(r.timeText);
+    } else {
+      var l2 = leadOf(r.presenterUid, r.rawPresenter); x.leadUids = l2.uids; x.leadNames = l2.names;
+      x.helperUids = (r.helpers || []).map(function(h) { return h.uid; });
+      t = r.startTime ? { start: r.startTime, end: r.endTime || '' } : _scParseTime(r.timeText || r.when);
+    }
+    if (t) { x.start = t.start; x.end = t.end || ''; }
+    out.push(x);
+  });
+  /* An outreach booth's slots are the host's agenda: one block for the day. */
+  var booths = {}, merged = [];
+  out.forEach(function(x) {
+    if (String(x.eventType || '') !== 'outreach_booth') { merged.push(x); return; }
+    var k = x.id + '|' + x.date, b = booths[k];
+    if (!b) { booths[k] = x; merged.push(x); return; }
+    if (x.start && (!b.start || x.start < b.start)) b.start = x.start;
+    var xe = x.end || x.start; if (xe && (!b.end || xe > b.end)) b.end = xe;
+    x.leadUids.forEach(function(u) { if (b.leadUids.indexOf(u) === -1) b.leadUids.push(u); });
+    x.helperUids.forEach(function(u) { if (b.helperUids.indexOf(u) === -1) b.helperUids.push(u); });
+  });
+  return merged;
+}
+
 // Every dated thing in the window. Flyers and internal one-off log entries are
 // excluded — they have nothing to present.
 async function edLoadEvents(fromIso, toIso) {
@@ -38679,7 +38746,11 @@ async function edLoadEvents(fromIso, toIso) {
         when: cmsFmt12(sess.startTime), where: sess.location || '',
         presenter: sess.cancelled ? '' : (summ.presenter || ''), single: false,
         eventType: e.eventType || '', typeKey: _edTypeKey(e, 'recurringEvents'),
-        cancelled: !!sess.cancelled, cancelReason: sess.cancelReason || ''
+        cancelled: !!sess.cancelled, cancelReason: sess.cancelReason || '',
+        /* Staff calendar (2026-11-18): who and when, kept even when cancelled. */
+        rawPresenter: summ.presenter || '', presenterUid: summ.presenterUid || '',
+        helpers: Array.isArray(summ.helpers) ? summ.helpers : [],
+        startTime: sess.startTime || '', endTime: sess.endTime || ''
       });
     });
   });
@@ -38704,7 +38775,9 @@ async function edLoadEvents(fromIso, toIso) {
         var summ = (e.sessionSummaries && e.sessionSummaries[lbl]) || (e.sessionSummaries && e.sessionSummaries[k]) || {};
         list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: k, key: lbl,
                     when: '', where: e.location || '', presenter: summ.presenter || '',
-                    single: false, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '', typeKey: _edTypeKey(e, 'events') });
+                    single: false, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '', typeKey: _edTypeKey(e, 'events'),
+                    rawPresenter: summ.presenter || '', presenterUid: summ.presenterUid || '',
+                    helpers: Array.isArray(summ.helpers) ? summ.helpers : [], timeText: lbl });
       });
     } else {
       var d = String(e.eventDate || '').slice(0,10);
@@ -38712,7 +38785,9 @@ async function edLoadEvents(fromIso, toIso) {
       list.push({ coll: 'events', id: doc.id, title: e.title || 'Event', date: d, key: '',
                   when: e.time || '', where: e.location || '',
                   presenter: (e.summary && e.summary.presenter) || '',
-                  single: true, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '', typeKey: _edTypeKey(e, 'events') });
+                  single: true, offsite: _edIsOffsiteEvent(e), eventType: e.eventType || '', typeKey: _edTypeKey(e, 'events'),
+                  rawPresenter: (e.summary && e.summary.presenter) || '', presenterUid: (e.summary && e.summary.presenterUid) || '',
+                  helpers: (e.summary && Array.isArray(e.summary.helpers)) ? e.summary.helpers : [], timeText: e.time || e.startTime || '' });
     }
   });
 
@@ -38828,7 +38903,8 @@ window._vrLoadForCalendar = async function (fromIso, toIso) {
       var iso = window._vrDateIso(r); if (!iso || iso < fromIso || iso > toIso) return;
       out.push({ coll: 'volunteerRequests', id: d.id, vol: true, title: r.title || 'Volunteer help request', date: iso, key: '',
                  when: r.time || '', sortTime: '', where: r.location || '', notes: r.details || '', single: true,
-                 eventType: 'volunteer_request', typeKey: 'volunteer_request', cancelled: false, maxVolunteers: Number(r.maxVolunteers) || 0 });
+                 eventType: 'volunteer_request', typeKey: 'volunteer_request', cancelled: false, maxVolunteers: Number(r.maxVolunteers) || 0,
+                 leadUid: r.leadUid || '', leadName: r.leadName || '', timeText: r.time || '' });
     });
   } catch (e) { console.warn('Volunteer help requests not loaded for the calendar:', e && e.message); }
   return out;
@@ -38856,7 +38932,9 @@ async function _edLoadStaffCal(fromIso, toIso) {
                    when: _edStaffWhen(x), sortTime: x.startTime || '', where: x.location || '', notes: x.notes || '',
                    repeats: !!x.repeat, agendaOn: !!x.agendaOn && _edAgIsMember(x),
                    agendaN: 0, presenter: '', single: true, eventType: 'staff_calendar', typeKey: 'staff_calendar', cancelled: false,
-                   providerRequestId: x.providerRequestId || '' });
+                   providerRequestId: x.providerRequestId || '',
+                   isAgenda: !!x.agendaOn, participantUids: Array.isArray(x.participantUids) ? x.participantUids : [], agendaToUid: x.agendaToUid || '',
+                   peopleUids: Array.isArray(x.peopleUids) ? x.peopleUids : [], startTime: x.startTime || '', endTime: x.endTime || '' });
       });
     });
     /* Item counts for the meetings I am in, from the private agenda docs. */
@@ -38901,6 +38979,8 @@ function _edStaffEnsureForm() {
         '</div>' +
         '<div id="edStRepText" class="ed-st-hint"></div>' +
         '<label for="edStWhere">Place</label><input id="edStWhere" type="text" maxlength="160">' +
+        '<div id="edStPeopleWrap"><label>Who is this for?</label><div class="ed-chips" id="edStPeople"></div>' +
+          '<div class="ed-st-hint" id="edStPeopleHint">Shows on these people&rsquo;s Staff calendar. Leave blank and everyone sees it.</div></div>' +
         '<div class="ed-st-agbox">' +
           '<label class="ed-st-tick"><input type="checkbox" id="edStAgOn" onchange="edStaffAgendaToggle()"> Meeting with an agenda: people add items each week</label>' +
           '<div id="edStAgWrap" style="display:none;">' +
@@ -38947,6 +39027,9 @@ window.edOpenStaffEntry = async function(id, seedDate, fromFunnel, occ) {
   edStaffRepeatChanged();
   _edAgPicked = {}; (Array.isArray(x.participants) ? x.participants : []).forEach(function(p) { if (p && p.uid) _edAgPicked[p.uid] = p.name || ''; });
   _edAgToUid = x.agendaToUid || ED_AG_DEFAULT_TO;
+  _edStPeople = {}; (Array.isArray(x.people) ? x.people : []).forEach(function(p) { if (p && p.uid) _edStPeople[p.uid] = p.name || ''; });
+  _edStProvider = x.providerRequestId || '';
+  _edStRenderPeople();
   document.getElementById('edStAgOn').checked = !!x.agendaOn;
   var _ao = document.getElementById('edStAgOpen'); if (_ao) _ao.style.display = (_edStaffId && x.agendaOn) ? '' : 'none';
   edStaffAgendaToggle(true);
@@ -38966,6 +39049,28 @@ window.edOpenStaffEntry = async function(id, seedDate, fromFunnel, occ) {
   document.getElementById('edStMsg').textContent = '';
   document.getElementById('edStaffOverlay').classList.add('active');
   setTimeout(function() { var t = document.getElementById('edStTitle'); if (t) t.focus(); }, 60);
+};
+/* "Who is this for?" (Staff calendar, 2026-11-18). Ticked people get the entry
+   on their Staff calendar; blank = everyone. A screening day goes to the PCs on
+   its worksheet instead, and an agenda meeting to its participants. */
+var _edStPeople = {}, _edStProvider = '';
+async function _edStRenderPeople() {
+  var host = document.getElementById('edStPeople'), hint = document.getElementById('edStPeopleHint'), wrap = document.getElementById('edStPeopleWrap');
+  if (!host) return;
+  var ag = (document.getElementById('edStAgOn') || {}).checked;
+  if (_edStProvider) { host.innerHTML = ''; hint.textContent = 'For the Parent Consultants ticked on the screening worksheet.'; return; }
+  wrap.style.display = ag ? 'none' : '';
+  var staff = await _edAgLoadStaff();
+  host.innerHTML = staff.map(function(p) {
+    return '<button type="button" class="ed-chip' + (_edStPeople[p.uid] !== undefined ? ' on' : '') + '" onclick="edStaffPeoplePick(\'' + _attrJsArg(p.uid) + '\')">' + rsEscape(p.name) + '</button>';
+  }).join('');
+  hint.innerHTML = 'Shows on these people&rsquo;s Staff calendar. Leave blank and everyone sees it.';
+}
+window.edStaffPeoplePick = function(uid) {
+  uid = decodeURIComponent(uid);
+  var p = (_edAgStaff || []).filter(function(s) { return s.uid === uid; })[0];
+  if (_edStPeople[uid] !== undefined) delete _edStPeople[uid]; else _edStPeople[uid] = p ? p.name : '';
+  _edStRenderPeople();
 };
 window.edStaffRepeatChanged = function() {
   var r = (document.getElementById('edStRepeat') || {}).value || '';
@@ -38992,6 +39097,10 @@ window.edSaveStaffEntry = async function() {
   if (!rec.title || !/^\d{4}-\d{2}-\d{2}$/.test(rec.date)) { msg.style.color = '#DC2626'; msg.textContent = 'A title and a date are needed.'; return; }
   if (rec.repeatUntil && rec.repeatUntil < rec.date) { msg.style.color = '#DC2626'; msg.textContent = 'The Until date is before the first date.'; return; }
   rec.agendaOn = !!document.getElementById('edStAgOn').checked;
+  if (!_edStProvider) {
+    rec.people = rec.agendaOn ? [] : Object.keys(_edStPeople).map(function(u) { return { uid: u, name: _edStPeople[u] }; });
+    rec.peopleUids = rec.people.map(function(p) { return p.uid; });
+  }
   if (rec.agendaOn) {
     rec.participants = Object.keys(_edAgPicked).map(function(u) { return { uid: u, name: _edAgPicked[u] }; });
     rec.participantUids = rec.participants.map(function(p) { return p.uid; });
@@ -39070,6 +39179,7 @@ async function _edAgLoadStaff() {
 window.edStaffAgendaToggle = async function(fromOpen) {
   var on = document.getElementById('edStAgOn').checked;
   document.getElementById('edStAgWrap').style.display = on ? '' : 'none';
+  var _pw = document.getElementById('edStPeopleWrap'); if (_pw && !_edStProvider) _pw.style.display = on ? 'none' : '';
   if (!on) return;
   var staff = await _edAgLoadStaff();
   if (!fromOpen && !Object.keys(_edAgPicked).length) {
@@ -39271,6 +39381,57 @@ window.edAgRemoveFile = async function(i, btn) {
   } catch (e) { _edAgErr('Not removed: ' + e.message); }
 };
 
+/* Helpers on a session (2026-11-18, Daniel). Stored next to the presenter as
+   helpers:[{uid,name}] with merge:true, under the same key edSetPresenter uses
+   (a booth: every session that day). They put the session on each helper's
+   Staff calendar. No tasks, no emails. */
+function _edHelperInit(n) { var w = String(n || '').trim().split(/\s+/); return ((w[0] || '').charAt(0) + (w[1] ? w[1].charAt(0) : '')).toUpperCase(); }
+function _edHelpersHtml(helpers, target) {
+  var t = String(target);
+  return (helpers || []).map(function(h) {
+    return '<button type="button" class="ed-help-chip" title="Helper: ' + rsEscape(h.name || '') + ' (click to remove)" onclick="event.stopPropagation();edHelperRemove(' + t + ',\'' + _attrJsArg(h.uid || '') + '\')">' + rsEscape(_edHelperInit(h.name)) + '</button>';
+  }).join('') + '<button type="button" class="ed-help-add" title="Add a helper for this session" onclick="event.stopPropagation();edHelperPick(this,' + t + ')">+ Helper</button>';
+}
+async function edSetHelpers(idx, helpers) {
+  var group = Array.isArray(idx) ? idx : [idx];
+  var ev = _edEvents[group[0]]; if (!ev) return;
+  var clean = (helpers || []).filter(function(h) { return h && h.uid; }).map(function(h) { return { uid: h.uid, name: h.name || '' }; });
+  var payload;
+  if (ev.single) payload = { summary: { helpers: clean } };
+  else { payload = { sessionSummaries: {} }; group.forEach(function(i) { var s2 = _edEvents[i]; if (s2 && s2.key) payload.sessionSummaries[s2.key] = { helpers: clean }; }); }
+  await db.collection(ev.coll).doc(ev.id).set(payload, { merge: true });
+  group.forEach(function(i) { if (_edEvents[i]) _edEvents[i].helpers = clean; });
+  group.forEach(function(i) { var box = document.getElementById('edHelp' + i); if (box) box.innerHTML = _edHelpersHtml(clean, Array.isArray(idx) ? '[' + group.join(',') + ']' : i); });
+  if (typeof auditLog === 'function') auditLog('Set event helpers', ev.title + ' — ' + ev.date + ' → ' + (clean.map(function(h) { return h.name; }).join(', ') || 'none'));
+}
+window.edHelperRemove = async function(idx, uid) {
+  var ev = _edEvents[Array.isArray(idx) ? idx[0] : idx]; if (!ev) return;
+  try { await edSetHelpers(idx, (ev.helpers || []).filter(function(h) { return h.uid !== uid; })); }
+  catch (e) { alert('Could not save that: ' + e.message); }
+};
+window.edHelperPick = async function(btn, idx) {
+  var old = document.getElementById('edHelpPop'); if (old) old.remove();
+  var ev = _edEvents[Array.isArray(idx) ? idx[0] : idx]; if (!ev) return;
+  var staff = await _edAgLoadStaff();
+  var pres = String(ev.presenter || '').trim().toLowerCase();
+  var have = (ev.helpers || []).map(function(h) { return h.uid; });
+  var pop = document.createElement('div'); pop.id = 'edHelpPop'; pop.className = 'ed-help-pop';
+  pop.innerHTML = '<div class="ed-help-pop-h">Helpers</div><div class="ed-help-pop-l">' + staff.filter(function(st) { return st.name.trim().toLowerCase() !== pres; }).map(function(st) {
+      return '<label><input type="checkbox" value="' + rsEscape(st.uid) + '" data-name="' + rsEscape(st.name) + '"' + (have.indexOf(st.uid) !== -1 ? ' checked' : '') + '> ' + rsEscape(st.name) + '</label>';
+    }).join('') + '</div><div class="ed-help-pop-f"><button type="button" class="btn btn-ghost">Cancel</button><button type="button" class="btn" style="background:#0E7490;color:#fff;border:none;">Save</button></div>';
+  document.body.appendChild(pop);
+  var r = btn.getBoundingClientRect();
+  pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 4) + 'px';
+  pop.style.left = Math.min(window.innerWidth - pop.offsetWidth - 8, r.left) + 'px';
+  var bs = pop.querySelectorAll('.ed-help-pop-f button');
+  bs[0].onclick = function() { pop.remove(); };
+  bs[1].onclick = async function() {
+    var picked = Array.prototype.map.call(pop.querySelectorAll('input:checked'), function(x) { return { uid: x.value, name: x.getAttribute('data-name') }; });
+    bs[1].disabled = true;
+    try { await edSetHelpers(idx, picked); pop.remove(); if (typeof _showToast === 'function') _showToast('Helpers saved', '#16A34A'); }
+    catch (e) { bs[1].disabled = false; alert('Could not save that: ' + e.message); }
+  };
+};
 window.edSetPresenter = async function(sel, idx) {
   /* idx is normally one index. For an outreach booth it is an ARRAY of every
      session that day: LDAH puts one person on the table, and that one choice is
@@ -40061,7 +40222,7 @@ async function _osLoadForCalendar(fromIso, toIso) {
       var x = d.data() || {}, iso = x.date || d.id;
       out.push({ coll: 'officeScreeningDays', id: iso, office: true, title: 'Office screenings', date: iso, key: '',
                  when: cmsFmt12(x.start) + ' – ' + cmsFmt12(x.end), sortTime: x.start || '', where: OS_LOCATION,
-                 leadName: x.leadName || '', booked: n[iso] || 0, published: x.published === true,
+                 leadName: x.leadName || '', leadUid: x.leadUid || '', startTime: x.start || '', endTime: x.end || '', booked: n[iso] || 0, published: x.published === true,
                  presenter: '', single: true, eventType: 'office_screening', typeKey: 'office_screening', cancelled: false });
     });
   } catch (e) { console.warn('Office screening days not loaded:', e && e.message); }
@@ -40421,6 +40582,7 @@ window.edRender = async function() {
           // an old assignment is never silently rewritten to unassigned.
           if (s2.presenter && !known) html += '<option value="' + rsEscape(s2.presenter) + '" selected>' + rsEscape(s2.presenter) + ' (not on list)</option>';
           html += '</select>';
+          html += '<div class="ed-help" id="edHelp' + i + '">' + _edHelpersHtml(s2.helpers, _target) + '</div>';
         });
 
         /* Off-site events carry a Workshop & Presentation form. Until now the
@@ -47557,6 +47719,10 @@ window.cmsSaveEventSummary = async function() {
   // only assigned further down, so every save wrote '' and the PTI Report lost
   // the event's DISSEM disposition.
   summaryData.activityType = (summary && summary.activityType) || '';
+  // Keep the session's helpers (Staff calendar, 2026-11-18). They are set on the
+  // Events Dashboard; this save rewrites the whole object and would drop them.
+  var _helpSrc = (sessionDate && (isRecurring || isOneTimeMulti) && evDoc.sessionSummaries && evDoc.sessionSummaries[sessionDate]) || summary || {};
+  if (Array.isArray(_helpSrc.helpers) && _helpSrc.helpers.length) summaryData.helpers = _helpSrc.helpers;
 
   try {
     var updateObj = {};
