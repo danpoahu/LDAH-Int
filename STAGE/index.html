@@ -6265,7 +6265,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.77-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.78-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -53211,7 +53211,7 @@ window.pswOpen = function (id) {
       chk('outlook', 'Outlook event created from the Public Calendar template') +
       chk('pcs', 'Parent Consultants assigned', '<br><span class="psw-pc" id="pswPcNeed"></span>') +
       '<div style="margin:2px 0 0 26px;"><div id="pswPcPick" class="psw-chk" data-old="' + rsEscape(ws.pcNames || '') + '" style="min-height:24px;"><span style="font-size:.78rem;color:#64748B;">Loading staff…</span></div>' +
-        '<div style="font-size:.74rem;color:#64748B;margin-top:2px;">Each PC ticked gets a &ldquo;Do the screening&rdquo; task on each confirmed day. Unticking closes their upcoming task.</div></div>' +
+        '<div style="font-size:.74rem;color:#64748B;margin-top:2px;">Each PC ticked gets one &ldquo;Do the screening&rdquo; task listing every day. Unticking closes it.</div></div>' +
     '</div>' +
     '<div class="psw-sec">Notes</div><textarea id="pswNotes" rows="3" placeholder="Internal notes">' + rsEscape(p.adminNotes || '') + '</textarea>' +
     ((p.emails || []).length ? '<div class="psw-sec">Emails sent</div>' + p.emails.map(function (e) { return '<div style="font-size:.8rem;color:#475569;">' + rsEscape(new Date(e.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + ' · ' + rsEscape(e.by || '') + ' · ' + rsEscape(e.subject || '') + '</div>'; }).join('') : '') +
@@ -53312,38 +53312,45 @@ async function _pswPcPickFill(ws) {
     box.setAttribute('data-ready', '1');
   } catch (e) { box.innerHTML = '<span style="color:#DC2626;font-size:.78rem;">Could not load staff: ' + rsEscape(e && e.message || String(e)) + '</span>'; }
 }
-/* One open "Do the screening" task per PC per confirmed day. Creates what is
-   missing; closes upcoming ones for a PC who was unticked or a day that was
-   dropped. Past days are never touched. */
+/* One open "Do the screening" task per PC per screening (Daniel 2026-11-18),
+   listing every day. Due on the next upcoming day. Created for a PC newly
+   ticked, refreshed when days change, closed when a PC is unticked. Once
+   every day has passed the tasks are left alone. */
 async function _pswSyncPcTasks(p, ws) {
   if (!Array.isArray(ws.pcs)) return;
-  var days = _pswDays(ws); if (!days.length) return;
-  var today = _wnAddDaysHst(0), FV = firebase.firestore.FieldValue, me = window.currentUserData || {};
+  var today = _wnAddDaysHst(0);
+  var days = _pswDays(ws).slice().sort(function (x, y) { return (x.date + (x.start || '')) < (y.date + (y.start || '')) ? -1 : 1; });
+  var next = days.filter(function (d) { return d.date >= today; });
+  if (!next.length) return;
+  var FV = firebase.firestore.FieldValue, me = window.currentUserData || {};
   var org = p.organizationName || [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Screening';
   var types = (ws.screenings || []).join(' and ').toLowerCase();
-  var want = {};
-  days.forEach(function (d) { if (d.date >= today) ws.pcs.forEach(function (pc) { want[pc.uid + '|' + d.date] = { pc: pc, d: d }; }); });
-  var ts = (await _pswTasks(p.id)).filter(function (t) { return t.workflowStep === 'screeningDay' && t.status !== 'Closed'; }), have = {};
+  var who = [p.firstName, p.lastName].filter(Boolean).join(' ');
+  var line = function (d) { return _pswDate(d.date) + (d.start ? ', ' + _pswTime(d.start) + (d.end ? '–' + _pswTime(d.end) : '') : '') + (d.location ? ', ' + d.location : '') + (d.children ? ' (' + d.children + ' children)' : ''); };
+  var summary = 'Do the screening: ' + org + ', ' + _pswDate(days[0].date) + (days.length > 1 ? ' + ' + (days.length - 1) + ' more day' + (days.length > 2 ? 's' : '') : '');
+  var notes = 'You are a Parent Consultant for this screening' + (types ? ' (' + types + ')' : '') + '.\n' +
+    (days.length > 1 ? 'Days:\n' : '') + days.map(function (d) { return '- ' + line(d); }).join('\n') +
+    (who ? '\nContact: ' + who + (p.phone ? ', ' + p.phone : '') : '') +
+    '\n\nClose this task when the screening is done.';
+  var due = next[0].date;
+  var ts = (await _pswTasks(p.id)).filter(function (t) { return t.workflowStep === 'screeningDay' && t.status !== 'Closed'; });
+  var wantUids = ws.pcs.map(function (x) { return x.uid; }), seen = {};
   for (var i = 0; i < ts.length; i++) {
-    var k = ts[i].ownerUid + '|' + ts[i].screeningDate;
-    if (want[k]) { have[k] = 1; continue; }
-    if ((ts[i].screeningDate || '') < today) continue;
-    await db.collection('interactions').doc(ts[i]._id).update({ status: 'Closed', updatedAt: FV.serverTimestamp(),
-      notes: String(ts[i].notes || '') + '\n\nNo longer assigned to this screening day. Closed automatically.' });
+    var t = ts[i];
+    if (wantUids.indexOf(t.ownerUid) === -1 || seen[t.ownerUid]) {
+      await db.collection('interactions').doc(t._id).update({ status: 'Closed', updatedAt: FV.serverTimestamp(),
+        notes: String(t.notes || '') + '\n\nNo longer assigned to this screening. Closed automatically.' });
+      continue;
+    }
+    seen[t.ownerUid] = 1;
+    if (t.summary !== summary || t.notes !== notes || t.followUpDate !== due)
+      await db.collection('interactions').doc(t._id).update({ summary: summary, notes: notes, followUpDate: due, screeningDate: due, screeningDates: days.map(function (d) { return d.date; }), updatedAt: FV.serverTimestamp() });
   }
-  var keys = Object.keys(want);
-  for (var j = 0; j < keys.length; j++) {
-    if (have[keys[j]]) continue;
-    var w = want[keys[j]], d = w.d;
-    var tm = _pswTime(d.start) + (d.end ? '–' + _pswTime(d.end) : '');
+  for (var j = 0; j < ws.pcs.length; j++) {
+    var pc = ws.pcs[j]; if (seen[pc.uid]) continue;
     await db.collection('interactions').add({ channel: 'Office', interactionType: 'Provider Request', contactId: '', contactName: org, contactType: '', grantProgram: '',
-      summary: 'Do the screening: ' + org + ', ' + _pswDate(d.date) + (d.start ? ', ' + tm : ''),
-      notes: 'You are a Parent Consultant for this screening.\n- ' + _pswDate(d.date) + (d.start ? ', ' + tm : '') + (d.location ? '\n- ' + d.location : '') +
-        ((types || d.children) ? '\n- ' + [types, d.children ? d.children + ' children' : ''].filter(Boolean).join(', ') : '') +
-        ([p.firstName, p.lastName].filter(Boolean).length ? '\n- Contact: ' + [p.firstName, p.lastName].filter(Boolean).join(' ') + (p.phone ? ', ' + p.phone : '') : '') +
-        '\n\nClose this task when the screening is done.',
-      followUpDate: d.date, status: 'Open', isDraft: false, owner: w.pc.name, ownerUid: w.pc.uid,
-      workflowStep: 'screeningDay', providerRequestId: p.id, screeningDate: d.date,
+      summary: summary, notes: notes, followUpDate: due, status: 'Open', isDraft: false, owner: pc.name, ownerUid: pc.uid,
+      workflowStep: 'screeningDay', providerRequestId: p.id, screeningDate: due, screeningDates: days.map(function (d) { return d.date; }),
       createdBy: me.displayName || me.email || '', createdByUid: me.uid || '', createdAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp() });
   }
 }
