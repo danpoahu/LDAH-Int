@@ -38569,6 +38569,64 @@ async function edLoadPresenters() {
   return out;
 }
 
+/* ── Staff calendar: pure helpers (2026-11-18). No DOM, no Firestore; tested by
+   scripts/test-staff-calendar.js, which reads exactly this marked block. ── */
+/* SC-PURE-START */
+function _scParseTime(text) {
+  var t = String(text == null ? '' : text).toLowerCase().replace(/a\.m\.?/g, 'am').replace(/p\.m\.?/g, 'pm')
+    .replace(/[–—]/g, '-').replace(/\s+to\s+/g, '-').replace(/-{2,}/g, ' - ');
+  var hm = function (h, m, mer) {
+    h = +h; m = +(m || 0);
+    if (h > 23 || m > 59) return '';
+    if (mer === 'pm' && h < 12) h += 12;
+    if (mer === 'am' && h === 12) h = 0;
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  };
+  var r = t.match(/(^|[^\d:])(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?![a-z\d])/);
+  if (r && (r[4] || r[7] || r[3] || r[6])) {
+    var m2 = r[7] || '', m1 = r[4] || '';
+    if (!m1 && m2) {
+      m1 = m2;
+      var a = +r[2] % 12 + (m2 === 'pm' ? 12 : 0), b = +r[5] % 12 + (m2 === 'pm' ? 12 : 0);
+      if (m2 === 'pm' && a > b) m1 = 'am';
+    }
+    var s1 = hm(r[2], r[3], m1), e1 = hm(r[5], r[6], m2);
+    if (s1 && e1) return { start: s1, end: e1 };
+  }
+  var one = t.match(/(^|[^\d:])(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?![a-z])/) || t.match(/(^|[^\d:])(\d{1,2}):(\d{2})(?![\d])()/);
+  if (one) { var s2 = hm(one[2], one[3], one[4] || ''); if (s2) return { start: s2, end: '' }; }
+  return null;
+}
+function _scRoleFor(row, uid, nameOf) {
+  if (!row || !uid) return '';
+  var has = function (a) { return Array.isArray(a) && a.indexOf(uid) !== -1; };
+  var nm = String((nameOf && nameOf(uid)) || '').trim().toLowerCase();
+  var named = function (a) { return !!nm && Array.isArray(a) && a.some(function (x) { return String(x || '').trim().toLowerCase() === nm; }); };
+  if (has(row.leadUids) || named(row.leadNames)) return 'lead';
+  if (has(row.helperUids) || named(row.helperNames)) return 'helper';
+  if (has(row.attendeeUids)) return 'attendee';
+  if (row.everyone) return 'everyone';
+  return '';
+}
+function _scLayoutDay(items) {
+  var mins = function (v) { var p = String(v || '').split(':'); return (+p[0]) * 60 + (+p[1] || 0); };
+  var ix = items.map(function (it, i) { var s = mins(it.start); var e = it.end ? mins(it.end) : s + 60; if (e <= s) e = s + 30; return { i: i, s: s, e: e }; })
+    .sort(function (a, b) { return a.s - b.s || b.e - a.e; });
+  var out = new Array(items.length), cluster = [], colEnds = [], clusterEnd = -1;
+  var close = function () { var n = colEnds.length; cluster.forEach(function (c) { out[c.i] = { col: c.col, cols: n }; }); cluster = []; colEnds = []; };
+  ix.forEach(function (it) {
+    if (cluster.length && it.s >= clusterEnd) close();
+    var col = -1;
+    for (var k = 0; k < colEnds.length; k++) if (colEnds[k] <= it.s) { col = k; break; }
+    if (col === -1) { col = colEnds.length; colEnds.push(it.e); } else colEnds[col] = it.e;
+    it.col = col; cluster.push(it);
+    clusterEnd = cluster.length === 1 ? it.e : Math.max(clusterEnd, it.e);
+  });
+  if (cluster.length) close();
+  return out;
+}
+/* SC-PURE-END */
+
 // Every dated thing in the window. Flyers and internal one-off log entries are
 // excluded — they have nothing to present.
 async function edLoadEvents(fromIso, toIso) {
