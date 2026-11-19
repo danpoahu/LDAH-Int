@@ -6320,7 +6320,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.90-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.91-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -54228,7 +54228,7 @@ window.pswEmailOpen = function (id) {
         (due ? ' The deadline for the consents is ' + _pswDate(due) + ' by ' + _pswTime(ws.consentDueTime || '12:00') : '') +
         '\n\nWe will need to process the consents prior to the screening and will be preparing results sheets. Please scan and send over the two consents for each child. A list of the children who will be screened that day, and a list of the current families attending the program, would also be helpful.' +
         '\n\nOn the day of the screening, we will need access to a quiet room and the ability to control the lighting. Hearing screenings are highly sensitive to background noise and vision screenings require minimal lighting, so the right environment is essential for accurate results. I understand this may be a significant request, but it will really help ensure the best possible outcomes for both screenings.' +
-        '\n\nI have attached the following:\n' + PSW_PACKET.map(function (t) { return '- ' + t; }).join('\n') +
+        '\n\nI have attached the following:\n' + PSW_PACKET.concat(['Flyer for families' + (days.length > 1 ? ' (one for each screening day)' : '')]).map(function (t) { return '- ' + t; }).join('\n') +
         '\n\nIf you have any other questions, feel free to let me know.';
     } else {
       var off = (ws.offered || []).map(function (d) { return _pswWhen(d.date, d.time); }).filter(Boolean);
@@ -54241,6 +54241,7 @@ window.pswEmailOpen = function (id) {
       '<div class="psw-bd"><div><span class="psw-lbl">Subject</span><input type="text" id="pswEmSubj" style="width:100%;" value="' + rsEscape(subj) + '"></div>' +
       '<div style="margin-top:8px;"><span class="psw-lbl">Message</span><textarea id="pswEmBody" rows="12">' + rsEscape(body) + '</textarea></div>' +
       '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-weight:600;"><input type="checkbox" id="pswEmPack"' + (c.date ? ' checked' : '') + '><span>Attach the screening packet<br><span style="font-weight:400;color:#64748B;font-size:.8rem;">1 Consent for Screening Services, 2 Consent to Release and Obtain, 3 Fact Sheet, 4 SRP Brochure (PDFs)</span></span></label>' +
+      (c.date ? '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-weight:600;"><input type="checkbox" id="pswEmFlyer" checked><span>Attach the flyer for families: ' + (days.length > 1 ? days.length + ' flyers, one for each confirmed day' : 'one flyer') + '<br><span style="font-weight:400;color:#64748B;font-size:.8rem;">Filled in with the school, the day, time and location, the screenings and the consent due date. The design is picked in Virtual Event Builder &gt; Series: Screenings.</span></span></label>' : '') +
       '<p class="psw-note">Your name and the School Readiness Project sign-off are added at the bottom.</p></div>' +
       '<div class="psw-ft"><span class="psw-msg" id="pswMsg"></span>' +
       '<button style="background:#fff;color:#334155;border:1px solid #CBD5E1;" onclick="' + (reopen ? 'pswOpen(' + _jsArg(id).replace(/"/g, '&quot;') + ')' : '_pswClose()') + '">Cancel</button>' +
@@ -54254,9 +54255,18 @@ window.pswEmailSend = async function (id, btn, back) {
   if (!subj || !msg) { _pswMsg('A subject and a message are both needed.'); return; }
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
+    /* Flyers for families (2026-11-19): one PDF per confirmed day, drawn here and sent with the email. */
+    var flyers = [];
+    if ((document.getElementById('pswEmFlyer') || {}).checked) {
+      btn.textContent = 'Making the flyers…';
+      await window._sfLoad();
+      var SF = window.ScreeningFlyer, specs = SF.specsFor(_pswGet(id) || {}), tpl = await SF.getDefault();
+      for (var fi = 0; fi < specs.length; fi++) flyers.push({ filename: SF.fileName(specs[fi]), pdfBase64: SF.pdf(await SF.render(specs[fi], tpl)) });
+      btn.textContent = 'Sending…';
+    }
     var tok = await firebase.auth().currentUser.getIdToken();
     var resp = await fetch('https://us-central1-ldah-932d5.cloudfunctions.net/sendProviderRequestEmail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken: tok, providerId: id, subject: subj, message: msg, attachPacket: !!(document.getElementById('pswEmPack') || {}).checked }) });
+      body: JSON.stringify({ idToken: tok, providerId: id, subject: subj, message: msg, attachPacket: !!(document.getElementById('pswEmPack') || {}).checked, flyers: flyers }) });
     var j = await resp.json().catch(function () { return {}; });
     if (!resp.ok) throw new Error(j.error || 'send failed');
     _showToast('Email sent to ' + (j.sentTo || 'the contact') + ((j.attached || []).length ? ', with ' + j.attached.length + ' forms attached' : '') + '.', '#15803D');
@@ -54265,6 +54275,7 @@ window.pswEmailSend = async function (id, btn, back) {
     if (p && (j.attached || []).length && _pswDays(p.worksheet).length) {
       var ws2 = JSON.parse(JSON.stringify(p.worksheet || {})); ws2.done = ws2.done || {};
       ws2.done.email = true; ws2.done.att_consent = true; ws2.done.att_factsheet = true; ws2.done.att_brochure = true;
+      if (flyers.length) ws2.done.att_flyer = true;
       try { await db.collection('providers').doc(id).update({ worksheet: ws2 }); p.worksheet = ws2; if (_pswAllDone(ws2)) await _pswFinish(p); } catch (e) { console.warn('psw tick after send', e); }
     }
     if (p) { p.emails = (p.emails || []).concat([{ at: new Date().toISOString(), by: (window.currentUserData || {}).displayName || '', subject: subj }]); if ((p.status || 'new') === 'new' || p.status === 'reviewed') p.status = 'contacted'; }
@@ -80578,10 +80589,17 @@ function lmRemoveHoliday(k) {
 </script>
 <script>
 /* Virtual Event Builder loader: fetch the builder only when a Super Admin opens it. */
+/* Screening flyer module (2026-11-19): used by the builder's Screenings series and by the
+   screening confirmation email. Loaded on demand. */
+window._sfLoad = function () {
+  if (window.ScreeningFlyer) return Promise.resolve();
+  if (!window._sfLoading) window._sfLoading = new Promise(function (res, rej) { var t = document.createElement('script'); t.src = 'screening-flyer.js?v=v155.91-STAGE'; t.onload = res; t.onerror = function () { window._sfLoading = null; rej(new Error('Could not load the flyer tool')); }; document.head.appendChild(t); });
+  return window._sfLoading;
+};
 window.vebOpen = function () {
-  var V = '155.65-STAGE';
+  var V = '155.91-STAGE';
   function add(src) { return new Promise(function (res, rej) { var t = document.createElement('script'); t.src = src + '?v=' + V; t.onload = res; t.onerror = function () { rej(new Error('Could not load ' + src)); }; document.head.appendChild(t); }); }
-  if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEBFlyers.random ? null : add('veb-random.js'); }).then(function () { return window.VEB ? null : add('veb.js'); });
+  if (!window._vebLoading) window._vebLoading = (window.VEBFlyers ? Promise.resolve() : add('veb-flyers.js')).then(function () { return window.VEBFlyers.random ? null : add('veb-random.js'); }).then(function () { return window.VEB ? null : add('veb.js'); }).then(function () { return window._sfLoad().catch(function () {}); });
   window._vebLoading.then(function () { window.VEB.load(); }).catch(function (e) { window._vebLoading = null; var b = document.getElementById('vebBody'); if (b) b.textContent = e.message + '. Refresh and try again.'; });
 };
 </script>

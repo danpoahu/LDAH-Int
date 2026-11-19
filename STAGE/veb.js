@@ -311,7 +311,7 @@
     body.innerHTML =
       '<div class="veb-wrap' + (rnd ? ' veb-rnd' : '') + '"><div class="veb-form">'
       + (S.id ? '<div class="veb-editing">Editing: ' + esc(S.title || 'saved event') + ' <span class="veb-pill ' + (S.active ? 'live' : '') + '">' + (S.active ? 'On the website' : 'Hidden draft') + '</span> <a href="javascript:void(0)" onclick="VEB.newEvent()">Start a new event</a></div>' : '')
-      + '<div class="veb-row3"><label>Series *<select id="vebSeries" onchange="VEB.seriesChanged()"><option' + (S.series === 'Learning Labs' ? ' selected' : '') + '>Learning Labs</option><option' + (S.series === 'Parent Talk Café' ? ' selected' : '') + '>Parent Talk Café</option><option' + (rnd ? ' selected' : '') + '>Random</option></select></label>'
+      + '<div class="veb-row3"><label>Series *<select id="vebSeries" onchange="VEB.seriesChanged()"><option' + (S.series === 'Learning Labs' ? ' selected' : '') + '>Learning Labs</option><option' + (S.series === 'Parent Talk Café' ? ' selected' : '') + '>Parent Talk Café</option><option' + (rnd ? ' selected' : '') + '>Random</option><option>Screenings</option></select></label>'
       + (rnd ? '<label style="grid-column:span 2">Event name *<input id="vebTitle" maxlength="48" value="' + esc(S.title) + '" oninput="VEB.changed()" placeholder="For example: Holiday Family Night"></label></div>'
           + '<label>One short line under the name<input id="vebTagline" maxlength="70" value="' + esc(S.tagline) + '" oninput="VEB.changed()" placeholder="For example: Games, crafts and a visit from Santa"></label>'
           + '<div class="veb-lbl">Where</div><div style="margin:0 0 10px"><label class="veb-chk"><input type="radio" name="vebMode" id="vebModeZoom"' + (S.mode !== 'inperson' ? ' checked' : '') + ' onchange="VEB.modeChanged()"> On Zoom</label>'
@@ -681,6 +681,15 @@
       window.showConfirmModal({ title: 'Remove this design?', subtitle: d.name, body: 'Flyers already made with it keep their look. It just won’t be in the picker any more.', confirmLabel: 'Remove design', cancelLabel: 'Keep it', confirmStyle: 'danger', onConfirm: go });
     },
     seriesChanged: function () {
+      /* Screenings (2026-11-19): not an event. The panel from screening-flyer.js picks the
+         design every screening flyer uses; choosing another series comes back here. */
+      var sel = document.getElementById('vebSeries');
+      if (sel && sel.value === 'Screenings') {
+        var bodyEl = document.getElementById('vebBody');
+        if (!window.ScreeningFlyer) { toast('Refresh the page to use Screenings.', '#B45309'); sel.value = S.series; return; }
+        window.ScreeningFlyer.openPanel(bodyEl, function (name) { render(); var s2 = document.getElementById('vebSeries'); if (s2) { s2.value = name; window.VEB.seriesChanged(); } });
+        return;
+      }
       var prevSeries = S.series; readForm(); S.showPresenter = isPtc(S.series);
       if (isRandom(S.series) && !isRndTpl(S.template)) S.template = 'R1';
       if (!isRandom(S.series) && /^(R\d+|U)/.test(S.template || '')) S.template = 'A';
