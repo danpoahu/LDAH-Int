@@ -6287,7 +6287,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.2</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.3</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -71185,6 +71185,7 @@ function _pbRender() {
     host.innerHTML = _pcWsHtml();
     Promise.all([_pcWebLoad(), _pcLoadManual()]).then(function (ch) {
       if ((ch[0] || ch[1]) && _pbState.view === 'cpirws') host.innerHTML = _pcWsHtml();
+      return _pcWsPrevEnsure().then(function (c) { if (c && _pbState.view === 'cpirws') host.innerHTML = _pcWsHtml(); });
     });
     return;
   }
@@ -72359,6 +72360,32 @@ window.cmsBuildCpirWorksheet = async function () {
   }
   await window.cmsBuildPtiBoardReport();
 };
+/* Last year's numbers on the CPIR Worksheet (Daniel 2026-11-19: "a toggle on the CPIR
+   worksheet where I can view or not view last years numbers"). The same records and rules
+   with the period moved back one year, plus last year's typed figures and website page
+   views. Computed in one synchronous swap so nothing else ever sees the moved dates. */
+var _pcWsPrev = { key: '', V: null, from: '', to: '' };
+try { _pbState.wsLY = localStorage.getItem('pcWsLY') === '1'; } catch (e) {}
+function _pcShiftYear(d) { var md = String(d).slice(4); if (md === '-02-29') md = '-02-28'; return (+String(d).slice(0, 4) - 1) + md; }
+function _pcWsPrevKey() { return _pcDocId() + '|' + (typeof _pbIsland === 'function' ? (_pbIsland() || '') : ''); }
+async function _pcWsPrevEnsure() {
+  if (!_pbState.wsLY || _pbState.view !== 'cpirws') return false;
+  var key = _pcWsPrevKey(); if (_pcWsPrev.key === key && _pcWsPrev.V) return false;
+  var f0 = _pbState.from, t0 = _pbState.to, pf = _pcShiftYear(f0), pt = _pcShiftYear(t0);
+  _pbState.from = pf; _pbState.to = pt; var pid = _pcDocId(); _pbState.from = f0; _pbState.to = t0;
+  var man = {}, pv = 0;
+  try { var d = await db.collection('settings').doc(pid).get(); if (d.exists) man = (d.data() || {}).values || {}; } catch (e) {}
+  try { var sa = await db.collection('siteAnalytics').get({ source: 'server' }); sa.forEach(function (x) { var o = x.data() || {}, day = o.date || x.id; if (day >= pf && day <= pt) pv += Number(o.totalPageviews) || 0; }); } catch (e) {}
+  if (_pcWsPrevKey() !== key || _pbState.from !== f0 || _pbState.to !== t0 || !_pbCache) return false;   // moved on while loading
+  var keep = { last: _pcLast, man: _pcManual, web: _pcWeb }, V = {};
+  try {
+    _pbState.from = pf; _pbState.to = pt; _pcManual = man; _pcWeb = pv ? { pv: pv, total: '' } : null; _pcLast = null;
+    _pcLast = _pcCompute(); _pcRows().forEach(function (r) { V[r[0] + '|' + r[1]] = r[2]; });
+  } finally { _pbState.from = f0; _pbState.to = t0; _pcManual = keep.man; _pcWeb = keep.web; _pcLast = keep.last; }
+  _pcWsPrev = { key: key, V: V, from: pf, to: pt };
+  return true;
+}
+window.pcWsToggleLY = function (on) { _pbState.wsLY = !!on; try { localStorage.setItem('pcWsLY', on ? '1' : '0'); } catch (e) {} _pbRender(); };
 function _pcWsHtml() {
   var R = _pcCompute(); _pcLast = R;
   var rows = _pcRows(), V = {};
@@ -72370,10 +72397,14 @@ function _pcWsHtml() {
   var SEC = 'background:#1E3A5F;color:#fff;font-size:.88rem;font-weight:800;letter-spacing:.03em;padding:6px 10px;border-radius:6px 6px 0 0;margin:18px 0 0;';
   var SUB = 'font-size:.88rem;font-weight:800;margin:12px 0 4px;';
   var TBL = '<table style="width:100%;border-collapse:collapse;font-size:.86rem;">';
+  var LY = _pbState.wsLY && _pcWsPrev.key === _pcWsPrevKey() ? _pcWsPrev.V : null;
+  var lyFmt = function (v) { return '<div style="font-size:.7rem;font-weight:600;color:#64748B;margin-top:2px;" title="Last year">LY ' + (v === '' || v === undefined || v === null ? '&ndash;' : (Number(v) || 0).toLocaleString()) + '</div>'; };
+  var ly = function (sec, item) { return LY ? lyFmt(LY[sec + '|' + item]) : ''; };
+  var lySum = function (pre, keys) { return LY ? lyFmt(keys.reduce(function (a, k) { return a + (Number(LY[pre + k]) || 0); }, 0)) : ''; };
   function cell(sec, item) {
     var v = V[sec + '|' + item];
-    if (v === '' || v === undefined || v === null) return '<td style="' + C + 'width:96px;text-align:center;background:#FEF3C7;color:#92400E;font-weight:600;">type in</td>';
-    return '<td style="' + C + 'width:96px;text-align:right;font-weight:700;background:#F0FDF4;color:#15803D;font-variant-numeric:tabular-nums;">' + (Number(v) || 0).toLocaleString() + '</td>';
+    if (v === '' || v === undefined || v === null) return '<td style="' + C + 'width:96px;text-align:center;background:#FEF3C7;color:#92400E;font-weight:600;">type in' + ly(sec, item) + '</td>';
+    return '<td style="' + C + 'width:96px;text-align:right;font-weight:700;background:#F0FDF4;color:#15803D;font-variant-numeric:tabular-nums;">' + (Number(v) || 0).toLocaleString() + ly(sec, item) + '</td>';
   }
   function one(label, sec, item, ind) { return '<tr><td style="' + C + (ind ? 'padding-left:24px;' : '') + '">' + label + '</td>' + cell(sec, item) + '</tr>'; }
   function grp(label, n) { return '<tr><td colspan="' + n + '" style="' + C + 'background:#F1F5F9;font-weight:700;">' + label + '</td></tr>'; }
@@ -72393,10 +72424,12 @@ function _pcWsHtml() {
        (sc === 'both' ? '<b>Both is LDAH and PIP added together: not a figure for either CPIR form.</b> ' : '') +
        'Transition age is ' + _PC_TA + ' and over. <span style="background:#F0FDF4;color:#15803D;font-weight:700;padding:0 5px;border-radius:4px;">Green</span> = from DAN. <span style="background:#FEF3C7;color:#92400E;font-weight:700;padding:0 5px;border-radius:4px;">Yellow</span> = nothing in DAN: type it on the Parent Center Data Collection tab and save, or type it straight into the CPIR form.</div></div>' +
        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+       '<label style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;border:1px solid #CBD5E1;border-radius:8px;padding:5px 11px;cursor:pointer;background:' + (_pbState.wsLY ? '#E0F2FE' : '#fff') + ';" title="Puts last year\u2019s figure (LY) in small grey type under each number, for the same dates one year earlier."><input type="checkbox"' + (_pbState.wsLY ? ' checked' : '') + ' onchange="pcWsToggleLY(this.checked)"> Show last year</label>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pcPrint()" title="Opens a printable copy. Choose Save as PDF in the print window.">Print / PDF</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pcExportCsv()">Download CSV</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pbSetView(\'cpir\')" title="Where typed figures are entered and saved, with the records behind every figure.">Type in figures</button>' +
-       '</div></div>';
+       '</div></div>' +
+       (_pbState.wsLY ? '<div style="font-size:.8rem;margin-top:6px;color:#475569;">' + (LY ? '<b>LY</b> under each number = last year, ' + _pbEsc(_pcWsPrev.from) + ' to ' + _pbEsc(_pcWsPrev.to) + ', from the same records and that year\u2019s typed figures. &ndash; = nothing for that box.' : 'Loading last year&hellip;') + '</div>' : '');
   /* I */
   h += '<div style="' + SEC + '">I. CONTACTS</div><div style="' + SUB + '">A. Trainings</div>' + TBL + '<tr><th style="' + TH + 'text-align:left;">Training</th><th style="' + TH + '">Numbers</th></tr>';
   var trTot = 0;
@@ -72406,7 +72439,8 @@ function _pcWsHtml() {
       h += one('Number of ' + A[i][1] + ' attending ' + k + ' trainings', 'I.A', a[1] + ' - ' + k + ' trainings');
     });
   });
-  h += '<tr><td style="' + C + 'font-weight:800;">Total trainings</td><td style="' + C + 'text-align:right;font-weight:800;">' + trTot.toLocaleString() + '</td></tr></table>';
+  var trKeys = []; _PC_AUDS.forEach(function (a) { trKeys.push(a[1] + ' - in-person trainings', a[1] + ' - virtual trainings'); });
+  h += '<tr><td style="' + C + 'font-weight:800;">Total trainings</td><td style="' + C + 'text-align:right;font-weight:800;">' + trTot.toLocaleString() + lySum('I.A|', trKeys) + '</td></tr></table>';
   h += '<div style="' + SUB + '">B. Individual Assistance Contacts</div>' + TBL + '<tr><th style="' + TH + 'text-align:left;">Individual Assistance</th><th style="' + TH + '">Numbers</th></tr>';
   var iaTot = 0;
   _PC_AUDS.forEach(function (a, i) {
@@ -72416,7 +72450,8 @@ function _pcWsHtml() {
       h += one(c[1], 'I.B', a[1] + ' - ' + c[0], true);
     });
   });
-  h += '<tr><td style="' + C + 'font-weight:800;">Total individual assistance contacts</td><td style="' + C + 'text-align:right;font-weight:800;">' + iaTot.toLocaleString() + '</td></tr></table>';
+  var iaKeys = []; _PC_AUDS.forEach(function (a) { ['Phone calls', 'Letters', 'Emails/Texts/electronic', 'In-person meetings'].forEach(function (c) { iaKeys.push(a[1] + ' - ' + c); }); });
+  h += '<tr><td style="' + C + 'font-weight:800;">Total individual assistance contacts</td><td style="' + C + 'text-align:right;font-weight:800;">' + iaTot.toLocaleString() + lySum('I.B|', iaKeys) + '</td></tr></table>';
   /* II */
   h += '<div style="' + SEC + '">II. UNDUPLICATED NUMBER OF PARENTS SERVED</div>' + TBL + '<tr><th style="' + TH + 'text-align:left;">Parents Served: Unduplicated Number</th><th style="' + TH + '">Number</th></tr>' +
     one('Unduplicated number of parents of children under transition age reached through individual assistance, support at meetings, and trainings', 'II', 'Parents of children under transition age') +
