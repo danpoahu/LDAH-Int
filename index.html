@@ -6287,7 +6287,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.12</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.13</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -72489,6 +72489,50 @@ window.pcSendBackMissing = async function () {
   if (window.auditLog) window.auditLog('CPIR missing details sent back', made + ' task(s): ' + lines.join('; '));
   _showToast(made + ' task' + (made === 1 ? '' : 's') + ' sent, due tomorrow.', '#15803D');
 };
+/* Records to fix tonight (Daniel 2026-11-19: "we can't do due tomorrow ... make me a report
+   showing what needs updating"). Every child counted on this worksheet with NO age (Section III.B
+   "age not recorded"), one row each, with the parent's contact to open and who entered it.
+   Ethnicity and name gaps are shown alongside; disability is not flagged (most children have none). */
+window.pcFixList = async function () {
+  var R = _pcLast || _pcCompute(), kids = (R.detail && R.detail.kids) || [], C = _pbCache || {};
+  var byId = {}; (C.contacts || []).forEach(function (c) { byId[c.id] = c; });
+  var roles = {};
+  try { var rs = await db.collection('userRoles').get(); rs.forEach(function (d) { roles[d.id] = (d.data() || {}).displayName || ''; }); } catch (e) {}
+  var E = _pbEsc, rows = [], seen = {}, nIA = 0, nTr = 0;
+  kids.forEach(function (k) {
+    if (k.sideSet) return;
+    if (k.col === 'i') nIA++; else nTr++;
+    var ct = k.cid && byId[k.cid] ? byId[k.cid] : null, raw = ct ? (ct.raw || {}) : {};
+    var who = roles[raw.createdBy] || raw.createdByName || (k.cid ? 'Not recorded' : '');
+    var key = (k.cid || k.parent) + '|' + (k.child || '');
+    var miss = ['age'];
+    if (!k.child) miss.push('child’s name');
+    if (!k.eth) miss.push('ethnicity');
+    if (seen[key]) { seen[key].n++; seen[key].where.push(k.w || k.src); return; }
+    rows.push(seen[key] = { cid: k.cid, parent: k.parent || (ct ? ct.name : ''), child: k.child, miss: miss, where: [k.w || k.src], who: who || 'Not recorded', n: 1 });
+  });
+  rows.sort(function (a, b) { return a.who.localeCompare(b.who) || String(a.parent).localeCompare(String(b.parent)); });
+  var byWho = {}; rows.forEach(function (r) { byWho[r.who] = (byWho[r.who] || 0) + 1; });
+  var old = document.getElementById('pcFixOv'); if (old) old.remove();
+  var ov = document.createElement('div'); ov.id = 'pcFixOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:12px;';
+  var tbl = '<table style="width:100%;border-collapse:collapse;font-size:.84rem;min-width:640px"><tr>' + ['', 'Parent / contact', 'Child', 'Missing', 'Counted at', 'Entered by'].map(function (h) { return '<th style="text-align:left;padding:6px 8px;background:#F1F5F9;border:1px solid #E2E8F0;font-size:.72rem;text-transform:uppercase;color:#475569">' + h + '</th>'; }).join('') + '</tr>' +
+    rows.map(function (r, i) { var td = function (v) { return '<td style="padding:5px 8px;border:1px solid #E2E8F0;vertical-align:top">' + v + '</td>'; };
+      return '<tr>' + td((i + 1) + '. ' + (r.cid ? '<a href="javascript:void(0)" onclick="pcOpenContact(\'' + E(r.cid) + '\')">Open</a>' : '')) + td(E(r.parent || '(no name)')) + td(r.child ? E(r.child) : '<span style="color:#94A3B8">not named</span>') +
+        td('<b style="color:#B91C1C">' + E(r.miss.join(', ')) + '</b>') + td(E(r.where.slice(0, 3).join('; ')) + (r.where.length > 3 ? ' +' + (r.where.length - 3) + ' more' : '') + (r.n > 1 ? ' <span style="color:#64748B">(' + r.n + '×)</span>' : '')) + td(E(r.who)) + '</tr>'; }).join('') + '</table>';
+  ov.innerHTML = '<div style="background:#fff;width:min(1100px,100%);max-height:calc(100vh - 24px);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.3)">' +
+    '<div style="background:#B45309;color:#fff;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b style="margin-right:auto">Records to fix: children with no age (' + _pbEsc(_pbRangeLabel()) + ')</b>' +
+    '<button class="btn" id="pcFixPrint" style="font-size:.8rem;background:#fff;color:#B45309;border:none">Print</button><button id="pcFixX" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer">&times;</button></div>' +
+    '<div id="pcFixBody" style="overflow:auto;flex:1;min-height:0;padding:12px 16px 16px;font-size:.88rem">' +
+    '<p style="margin:0 0 8px"><b>' + rows.length + ' children</b> counted on this worksheet have no age or date of birth (' + nIA + ' times in individual assistance, ' + nTr + ' in trainings; a child at several sessions is listed once). On the CPIR they land in no age row. Open each contact, add the child’s date of birth or age range (and name / ethnicity if missing), then reopen the worksheet.</p>' +
+    '<p style="margin:0 0 10px;color:#475569">By who entered them: ' + Object.keys(byWho).map(function (w) { return E(w) + ' ' + byWho[w]; }).join(' · ') + '. Imports (Neon, CiviCore) and automatic signups have no person, so whoever works the list fixes those.</p>' + tbl + '</div></div>';
+  document.body.appendChild(ov);
+  var close = function () { ov.remove(); };
+  document.getElementById('pcFixX').onclick = close; ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+  document.getElementById('pcFixPrint').onclick = function () { var f = document.createElement('iframe'); f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0'; document.body.appendChild(f);
+    var d = f.contentWindow.document; d.open(); d.write('<!doctype html><html><head><meta charset="utf-8"><title>Records to fix</title><style>body{font:12px Arial,sans-serif;margin:16px}a{display:none}</style></head><body>' + document.getElementById('pcFixBody').innerHTML + '</body></html>'); d.close();
+    setTimeout(function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {} setTimeout(function () { f.remove(); }, 1500); }, 250); };
+};
 function _pcWsHtml() {
   var R = _pcCompute(); _pcLast = R;
   var rows = _pcRows(), V = {};
@@ -72528,7 +72572,7 @@ function _pcWsHtml() {
        'Transition age is ' + _PC_TA + ' and over. <span style="background:#F0FDF4;color:#15803D;font-weight:700;padding:0 5px;border-radius:4px;">Green</span> = from DAN. <span style="background:#FEF3C7;color:#92400E;font-weight:700;padding:0 5px;border-radius:4px;">Yellow</span> = nothing in DAN: type it on the Parent Center Data Collection tab and save, or type it straight into the CPIR form.</div></div>' +
        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
        '<label style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;border:1px solid #CBD5E1;border-radius:8px;padding:5px 11px;cursor:pointer;background:' + (_pbState.wsLY ? '#E0F2FE' : '#fff') + ';" title="Puts last year\u2019s figure (LY) in small grey type under each number, for the same dates one year earlier."><input type="checkbox"' + (_pbState.wsLY ? ' checked' : '') + ' onchange="pcWsToggleLY(this.checked)"> Show last year</label>' +
-       '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;color:#B45309;border-color:#FCD34D;" onclick="pcSendBackMissing()" title="Every child counted in Section III with no name, age, ethnicity or disability: one task to whoever entered the family, due tomorrow.">Send back missing details</button>' +
+       '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;color:#B45309;border-color:#FCD34D;" onclick="pcFixList()" title="Every child counted on this worksheet with no age: the parent to open, what is missing, and who entered it. Fix them, then reopen the worksheet.">Records to fix</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pcPrint()" title="Opens a printable copy. Choose Save as PDF in the print window.">Print / PDF</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pcExportCsv()">Download CSV</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pbSetView(\'cpir\')" title="Where typed figures are entered and saved, with the records behind every figure.">Type in figures</button>' +
