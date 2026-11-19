@@ -6291,7 +6291,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.20</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.21</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -72335,6 +72335,8 @@ function _pcHtml() {
        '</div></div><div id="pcSaveNote" style="font-size:.76rem;color:var(--text-soft);margin-top:6px;">' +
        (_pcManualMeta ? 'Typed figures last saved by ' + _pbEsc(_pcManualMeta.by || 'staff') + (_pcManualMeta.at ? ' on ' + _pbEsc(_pcManualMeta.at) : '') + '.' : 'Typed figures for this date range have not been saved yet.') + '</div></div>';
 
+  h += _pcAdjCard(R);   /* adjust boxes (v156.13-STAGE) */
+
   /* I.A */
   var tA = 0; ['p', 'v'].forEach(function (f) { Object.keys(R.train[f]).forEach(function (k) { tA += R.train[f][k]; }); });
   h += '<div class="pb-card"><h3 class="pb-h">I.A &nbsp;Trainings <span class="pb-count">' + _pbFmt(tA) + ' attendees</span></h3><div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Number of &hellip; attending</th><th class="num">In-person trainings</th><th class="num">Virtual trainings</th><th></th>' + (PY ? _pcPyTh(PYL + '<br>In-person', 1) + _pcPyTh(PYL + '<br>Virtual') : '') + '</tr></thead><tbody>';
@@ -72781,7 +72783,46 @@ function _pcWsHtml() {
   return h + '</div>';
 }
 
+/* Adjust boxes (v156.13-STAGE): every figure in the report can be adjusted up or down
+   (Daniel 2026-11-19: "give me adjuster boxes for each number"), e.g. partner
+   islands' own logs. Stored as adj.<Section>|<Item> beside the other typed
+   figures, so the Export, the CPIR Worksheet and Print all carry them. */
+function _pcAdjKey(r) { return 'adj.' + r[0] + '|' + r[1]; }
 function _pcRows() {
+  var rows = _pcRowsBase();
+  for (var i = 1; i < rows.length; i++) {
+    var a = _pcManual[_pcAdjKey(rows[i])];
+    if (a === undefined || a === null || a === '' || !Number(a)) continue;
+    rows[i] = [rows[i][0], rows[i][1], (Number(rows[i][2]) || 0) + Number(a), rows[i][3] + ' + adjusted ' + (a > 0 ? '+' : '') + a];
+  }
+  return rows;
+}
+window.pcAdjEdit = function (el) {
+  var k = el.getAttribute('data-pc'), v = el.value;
+  if (v === '' || v === '-') delete _pcManual[k]; else _pcManual[k] = Math.round(Number(v) || 0);
+  var b = Number(el.getAttribute('data-base')) || 0, a = Number(_pcManual[k]) || 0, out = el.parentNode && el.parentNode.nextSibling;
+  if (out) { out.textContent = (b + a).toLocaleString(); out.style.color = a ? '#B45309' : ''; }
+  var n = 0; Object.keys(_pcManual).forEach(function (x) { if (x.indexOf('adj.') === 0 && Number(_pcManual[x])) n++; });
+  var c = document.getElementById('pcAdjCount'); if (c) c.textContent = n ? n + ' adjusted, press Save typed figures to keep them' : 'none adjusted yet';
+};
+function _pcAdjCard(R) {
+  var keep = _pcLast; _pcLast = R; var rows; try { rows = _pcRowsBase(); } finally { _pcLast = keep; }
+  var n = 0, sec = '', body = '';
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i], k = _pcAdjKey(r), a = _pcManual[k], has = a !== undefined && a !== null && a !== '' && Number(a);
+    if (has) n++;
+    if (r[0] !== sec) { sec = r[0]; body += '<tr><td colspan="4" style="font-weight:800;background:var(--surface-2,#F1F5F9);">' + _pbEsc(sec) + '</td></tr>'; }
+    var base = Number(r[2]) || 0;
+    body += '<tr><td>' + _pbEsc(r[1]) + '</td><td class="num">' + (r[2] === '' || r[2] === null || r[2] === undefined ? '&ndash;' : _pbFmt(base)) + '</td>' +
+      '<td class="num"><input type="number" step="1" data-pc="' + _pbEsc(k) + '" data-base="' + base + '" value="' + (has ? _pbEsc(a) : '') + '" placeholder="+/-" oninput="pcAdjEdit(this)" ' +
+      'style="width:84px;text-align:right;padding:3px 6px;border:1.5px dashed #D97706;border-radius:6px;background:#FFFBEB;font-weight:700;color:#92400E;" title="Add (or subtract with a minus sign) to this figure, then press Save typed figures."></td>' +
+      '<td class="num" style="font-weight:800;' + (has ? 'color:#B45309;' : '') + '">' + _pbFmt(base + (has ? Number(a) : 0)) + '</td></tr>';
+  }
+  return '<details class="pb-card" id="pcAdjCard"' + (n ? ' open' : '') + '><summary style="cursor:pointer;font-weight:800;color:#92400E;">Adjust any number <span class="pb-count" id="pcAdjCount">' + (n ? n + ' adjusted' : 'none adjusted yet') + '</span></summary>' +
+    '<div class="pb-note" style="margin:6px 0;">Type how much to add to a figure (a minus sign takes away), for example contacts a partner island logged outside the dashboard. <b>Reported</b> is what goes to Export CSV, Print and the CPIR Worksheet. Press <b>Save typed figures</b> to keep them; they are saved for this scope and date range only.</div>' +
+    '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Item</th><th class="num">From DAN</th><th class="num">Adjust +/&minus;</th><th class="num">Reported</th></tr></thead><tbody>' + body + '</tbody></table></div></details>';
+}
+function _pcRowsBase() {
   var R = _pcLast || _pcCompute(), rows = [['Section', 'Item', 'Value', 'Source']];
   var m = function (k) { return _pcManual[k] === undefined ? '' : _pcManual[k]; };
   _PC_AUDS.forEach(function (a) { rows.push(['I.A', a[1] + ' - in-person trainings', R.train.p[a[0]], 'Auto']); rows.push(['I.A', a[1] + ' - virtual trainings', R.train.v[a[0]], 'Auto']); });
