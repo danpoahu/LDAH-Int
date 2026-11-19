@@ -95,7 +95,7 @@ const mo=iso=>D(iso).toLocaleDateString('en-US',{month:'short'});
 const dn=iso=>D(iso).getDate();
 const nice=iso=>D(iso).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
 const tm=t=>{if(!t)return'';let h=+t.slice(0,2),m=t.slice(3,5);return((h%12)||12)+(m!=='00'?':'+m:'')+(h<12?' a.m.':' p.m.')};
-const span=d=>tm(d.start)+(d.end?' to '+tm(d.end):'');
+const span=d=>tm(d.start)+(d.end&&(!d.start||d.end>d.start)?' to '+tm(d.end):'');  // an end that is not after the start is left off
 const sameLoc=s=>s.days.every(d=>d.location===s.days[0].location);
 const TYPE_LABEL={'Hearing':'Hearing','Vision':'Vision','Developmental':'Growing & learning','Social Emotional':'Feelings & friends'};
 const typesText=s=>s.types.map(t=>TYPE_LABEL[t]||t);
@@ -138,7 +138,7 @@ function B(s){
  return `<div class="sf sfb"><svg class="bgart" viewBox="0 0 100 129.4" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="130" fill="#FFF7E8"/>${conf}<rect x="0" y="0" width="100" height="11" fill="#7B2CBF"/><path d="M0 11 Q12.5 15 25 11 T50 11 T75 11 T100 11 V9 H0Z" fill="#7B2CBF"/>${star(90,5.6,3.2,'#FFD43B')}${star(82,3.4,1.6,'#fff')}${star(95.5,10,1.2,'#FF8FA3')}</svg>
  <div class="kick">FREE SCREENING FOR YOUR KEIKI</div>
  <div class="stack">
-  <div class="ttl K">Big check-up days are coming to<br><em>${esc(s.school)}!</em></div>
+  <div class="ttl K">${s.days.length>1?'Big check-up days are':'A big check-up day is'} coming to<br><em>${esc(s.school)}!</em></div>
   <div class="stk">${s.types.map((t,i)=>`<div class="st"><div class="c" style="background:${STC[t]||'#7B2CBF'};transform:rotate(${[-6,4,-3,7][i%4]}deg)">${ICON[t]||''}</div><span class="K">${esc(TYPE_LABEL[t]||t)}</span></div>`).join('')}</div>
   <div class="tix">${tix}</div>
   <div class="clip"><h3 class="K">Two quick steps so your child gets a turn</h3><ol><li class="K"><i>1</i><span>Fill out and sign the consent form that came with this flyer.</span></li><li class="K"><i>2</i><span>Return it to your child’s teacher by <u>${esc(dueLine(s))}</u>.</span></li></ol></div>
@@ -247,7 +247,7 @@ function specsFor(p) {
   if (!due && days.length) { const x = new Date(days[0].date + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() - 7); due = x.toISOString().slice(0, 10); }
   const types = (ws.screenings && ws.screenings.length ? ws.screenings : (p.screenings || [])).slice();
   return days.map(d => ({ school: p.organizationName || 'your school', types: types.length ? types : ['Hearing', 'Vision'], consentDue: due || '', consentDueTime: ws.consentDueTime || '12:00',
-    day: { date: d.date, start: d.start || '', end: d.end || '', location: d.location || '' } }));
+    day: { date: d.date, start: d.start || '', end: d.end || '', location: String(d.location || '').replace(/\s+/g, ' ').trim() } }));
 }
 function fileName(spec) {
   const d = new Date(spec.day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).replace(/,/g, '');
