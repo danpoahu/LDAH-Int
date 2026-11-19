@@ -9,7 +9,7 @@
 'use strict';
 if (window.ScreeningFlyer) return;
 const LOGO = new URL('logo_blue.png', document.baseURI).href;
-const FONTS = 'https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800;900&family=Baloo+2:wght@600;700;800&display=swap';
+const FONTS = 'https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800;900&family=Baloo+2:wght@600;700;800&family=Roboto+Condensed:wght@700&display=swap';
 const W = 1275, H = 1650;   // 8.5 x 11 in at 150 dpi
 const CSS = `/* ===== shared flyer root: letter size, all sizes in cqw x --k (shrinks to fit) ===== */
 .sf{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;width:100%;--k:1}
@@ -86,6 +86,22 @@ const CSS = `/* ===== shared flyer root: letter size, all sizes in cqw x --k (sh
 .sfc .ring b{--fs:3.8cqw;display:block;font-weight:700;line-height:1.08}
 .sfc .ring span{--fs:2.4cqw;font-family:Nunito,Arial,sans-serif;font-weight:800;display:block;margin-top:.4cqw}
 .sfc .fband{color:#fff}
+
+/* ===== D: School Readiness Project (Noe's flyer, 2026-11-19) ===== */
+.sfd{background:#fff;font-family:Arial,Helvetica,sans-serif;color:#000}
+.sfd .ph{position:absolute;left:0;top:0;width:100%;height:36.8cqw;object-fit:cover;object-position:50% 35%;display:block}
+.sfd .bar{position:absolute;left:0;right:0;top:36.8cqw;height:.9cqw;background:#1FBAD0}
+.sfd .srp{position:absolute;left:50%;top:40.6cqw;width:39cqw;transform:translateX(-50%)}
+.sfd .ttl{position:absolute;left:4cqw;right:4cqw;top:55.6cqw;height:32cqw;display:flex;flex-direction:column;justify-content:center;text-align:center;font-family:Nunito,Arial,sans-serif;font-weight:800;line-height:1.02}
+.sfd .ttl div{white-space:nowrap}
+.sfd .ttl .amp{font-size:1.3em;line-height:.8;vertical-align:-.08em;margin-right:.06em}
+.sfd .low{position:absolute;left:6cqw;right:6cqw;top:89.6cqw;height:13cqw;display:flex;align-items:center;justify-content:space-between;gap:4cqw;font-family:'Roboto Condensed',Arial,sans-serif;font-weight:700;color:#29B6CC;line-height:1.18}
+.sfd .sch{font-size:3.6cqw;text-align:center;flex:1}
+.sfd .sch small{display:block;font-size:.72em}
+.sfd .when{font-size:3.6cqw;text-align:center;flex:1.15}
+.sfd .rule{position:absolute;left:11.8cqw;right:13.7cqw;top:104.4cqw;height:.75cqw;background:#FED100}
+.sfd .para{position:absolute;left:7cqw;right:7cqw;top:108.6cqw;font-weight:700;font-size:2.12cqw;line-height:1.38}
+.sfd .more{position:absolute;left:0;right:0;top:121.4cqw;text-align:center;font-weight:700;font-size:2.12cqw}
 `;
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const D=iso=>new Date(iso+'T12:00:00');
@@ -168,7 +184,33 @@ function C(s){
 }
 
 
-const DESIGNS = [['A', 'Sunshine check-up', A], ['B', 'Sticker board', B], ['C', 'Ocean buddies', C]];
+
+/* ---------- D: School Readiness Project (Noe's flyer, the default) ----------
+   Laid out as drawn on Noe's Central Union Church Preschool flyer: playground photo,
+   School Readiness Project logo, the screenings in big type, school + date + time,
+   yellow rule, her paragraph and the website. Photo and logo are cut from her PDF. */
+const D_UP = { Hearing: 'HEARING', Vision: 'VISION', Developmental: 'DEVELOPMENT', 'Social Emotional': 'SOCIAL-EMOTIONAL' };
+function Dd(s) {
+  const d = s.days[0], one = (d.location && d.location !== s.school) ? d.location : '';
+  const names = (s.types && s.types.length ? s.types : ['Hearing', 'Vision']).map(t => D_UP[t] || String(t).toUpperCase());
+  let lines;
+  if (names.length === 1) lines = [names[0], 'SCREENING'];
+  else if (names.length === 2) lines = [names[0], '&' + names[1], 'SCREENING'];
+  else lines = [names.slice(0, -1).join(', '), '&' + names[names.length - 1], 'SCREENING'];
+  const size = t => Math.min(lines.length > 2 && names.length > 2 ? 7.4 : 10.4, 84 / (Math.max(t.length, 1) * 0.72));
+  const ttl = lines.map(t => `<div style="font-size:${size(t).toFixed(2)}cqw">${t.charAt(0) === '&' ? '<span class="amp">&amp;</span>' + esc(t.slice(1)) : esc(t)}</div>`).join('');
+  const dt = D(d.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) + ' ' + D(d.date).getFullYear();
+  const tmD = t => { if (!t) return ''; let h = +t.slice(0, 2), m = t.slice(3, 5); return ((h % 12) || 12) + ':' + m + (h < 12 ? 'am' : 'pm'); };
+  const span2 = tmD(d.start) + (d.end && (!d.start || d.end > d.start) ? '-' + tmD(d.end) : '');
+  return `<div class="sf sfd"><img class="ph" src="${new URL('screening-flyer-photo.jpg', document.baseURI).href}" alt="">
+ <div class="bar"></div><img class="srp" src="${new URL('screening-flyer-srp.png', document.baseURI).href}" alt="School Readiness Project">
+ <div class="ttl">${ttl}</div>
+ <div class="low"><div class="sch">${esc(s.school)}${one ? '<small>' + esc(one) + '</small>' : ''}</div><div class="when">${esc(dt)}<br>${esc(span2)}</div></div>
+ <div class="rule"></div>
+ <div class="para">Routine screenings of eyes, ears, and development ensure early detection possible concerns for your child. By detecting and addressing these concerns early on, you ensure your child is ready to learn, ready to succeed! Plus, it’s fast &amp; free!</div>
+ <div class="more">For more information visit www.LDAHawaii.org</div></div>`;
+}
+const DESIGNS = [['D', 'School Readiness (Noe’s flyer)', Dd], ['A', 'Sunshine check-up', A], ['B', 'Sticker board', B], ['C', 'Ocean buddies', C]];
 function fn(t) { const d = DESIGNS.find(x => x[0] === t) || DESIGNS[0]; return d[2]; }
 /* One flyer = one day. spec: { school, types[], consentDue, consentDueTime, day:{date,start,end,location} } */
 function norm(spec) { return Object.assign({ school: 'Your school', types: ['Hearing', 'Vision'], consentDue: '', consentDueTime: '12:00' }, spec, { days: [spec.day || (spec.days || [])[0] || { date: new Date().toISOString().slice(0, 10), start: '08:30', end: '11:30', location: '' }] }); }
@@ -232,7 +274,7 @@ function pdf(jpegDataUrl) {
 }
 /* The design staff picked (Virtual Event Builder > Screenings). */
 async function getDefault() {
-  try { const s = await firebase.firestore().collection('settings').doc('screeningFlyer').get(); const t = (s.data() || {}).template; return DESIGNS.some(d => d[0] === t) ? t : 'A'; } catch (e) { return 'A'; }
+  try { const s = await firebase.firestore().collection('settings').doc('screeningFlyer').get(); const t = (s.data() || {}).template; return DESIGNS.some(d => d[0] === t) ? t : 'D'; } catch (e) { return 'D'; }
 }
 async function setDefault(t) {
   if (!DESIGNS.some(d => d[0] === t)) throw new Error('Unknown design');
@@ -261,7 +303,7 @@ function fileName(spec) {
 const SAMPLE = { school: 'Sunny Days Preschool', types: ['Hearing', 'Vision', 'Developmental', 'Social Emotional'], consentDue: '', consentDueTime: '12:00', day: { date: '', start: '08:30', end: '11:30', location: '' } };
 (function () { const t = new Date(); t.setDate(t.getDate() + 14); while (t.getDay() === 0 || t.getDay() === 6) t.setDate(t.getDate() + 1);
   SAMPLE.day.date = t.toISOString().slice(0, 10); const u = new Date(t); u.setDate(u.getDate() - 7); SAMPLE.consentDue = u.toISOString().slice(0, 10); })();
-let P = { tpl: 'A', saved: 'A', schools: [], pick: '' };
+let P = { tpl: 'D', saved: 'D', schools: [], pick: '' };
 function e2(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 async function loadSchools() {
   try {
