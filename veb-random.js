@@ -52,7 +52,7 @@
     presenter: function (spec) { return esc(spec.presenter || ''); }
   };
   F.random = R;
-  F.RANDOM_COUNT = 20;
+  F.RANDOM_COUNT = 27;   // R21–R27 are the Holiday designs (2026-11-19); the picker skips any not registered yet
 })();
 /* Virtual Event Builder: Random series, designs R1–R5 (2026-11-12, STAGE).
    R1 Retro sunset stripes · R2 Risograph print · R3 Memphis shapes · R4 Scrapbook snapshots · R5 Newspaper front page.
@@ -2723,4 +2723,454 @@
       return h;
     } };
   };
+})();
+
+/* ===== Holiday designs (Daniel 2026-11-19: "Add Holiday themes in Random ... make sure Xmas is Mele Kalikimaka").
+   R21 Mele Kalikimaka · R22 Hauʻoli Makahiki Hou. Partner flyers carry plain English greetings. ===== */
+/* Virtual Event Builder: Random series, holiday design R21 Holiday · Mele Kalikimaka (island Christmas: palm strung with lights at sunset, gifts, poinsettia and plumeria lei).
+   Self-contained: helpers copied from the R16–R20 block. Hawaiʻi flyers greet in Hawaiian; Partner flyers in plain English. */
+(function () {
+  'use strict';
+  var F = window.VEBFlyers; if (!F || !F.random || !F.registerSet) return;
+
+  function f(n) { return String(Math.round(n * 100) / 100); }
+  function plain(s) { return String(s || '').replace(/<[^>]+>/g, '').replace(/&[a-z#0-9]+;/gi, 'x'); }
+  function st(fs, lh, extra) { return ' style="font-size:' + f(fs) + 'cqw;line-height:' + lh + ';' + (extra || '') + '"'; }
+
+  /* Shared toolkit for one flyer. p = class prefix ('r16' ...). */
+  function kit(p, spec, partner, sq, H) {
+    var R = F.random, Z = R.zoom(spec), P = !!partner && Z;   // partner layout only for Zoom events
+    var k = { R: R, H: H, spec: spec, Z: Z, P: P, sq: !!sq, HH: sq ? 100 : 129.41, p: p,
+              S: R.sessions(spec), W: R.where(spec), G: R.register(spec, P), tag: R.tagline(spec) };
+    k.v = sq ? (P ? 'psq' : 'sq') : (P ? 'pl' : 'l');
+    k.box = function (cls, x, y, w, inner, extra) {
+      return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+    };
+    k.lines = function (html, fs, w, ch) { return Math.max(1, Math.ceil(plain(html).length * fs * (ch || 0.5) / w)); };
+    k.text = function (cls, x, y, w, html, fs, lh, ch, extra) {
+      var n = k.lines(html, fs, w, ch);
+      return { html: k.box(cls, x, y, w, html, 'font-size:' + f(fs) + 'cqw;line-height:' + lh + ';' + (extra || '')), h: n * fs * lh, n: n };
+    };
+    // Title: fewest lines that reach ok*cap, else the line count that gives the biggest type.
+    k.title = function (cls, x, y, w, maxL, cap, ch, lh, extra, ok, wrap) {
+      var best = null;
+      for (var n = 1; n <= maxL; n++) {
+        var ls = R.titleLines(spec, n), fs = R.fitSize(ls, w, cap, ch);
+        if (!best || fs > best.fs + 0.01) best = { ls: ls, fs: fs };
+        if (fs >= cap * (ok || 0.8)) { best = { ls: ls, fs: fs }; break; }
+      }
+      var inner = wrap ? best.ls.map(wrap).join('<br>') : best.ls.join('<br>');
+      return { html: k.box(cls, x, y, w, inner, 'font-size:' + f(best.fs) + 'cqw;line-height:' + lh + ';' + (extra || '')), h: best.ls.length * best.fs * lh, fs: best.fs, n: best.ls.length };
+    };
+    k.logo = function (cls, x, y, w, h, extra) { return k.box(cls, x, y, w, R.logo(spec, P), 'height:' + f(h) + 'cqw;' + (extra || '')); };
+    k.qr = function (cls, x, y, s, extra) { return k.box(cls, x, y, s, H.qrImg(spec, P), 'height:' + f(s) + 'cqw;' + (extra || '')); };
+    k.badges = function (cls, x, y, w, h, extra) { return k.box(cls, x, y, w, '<div class="' + p + '-bdr">' + R.badges(spec, P) + '</div>', 'height:' + f(h) + 'cqw;' + (extra || '')); };
+    // 7-row local time table for the Pacific partner flyers.
+    k.table = function (cls, x, y, w, rh, fs) {
+      var rows = H.zoneRows(spec.sessions || []);
+      var h = '<div class="' + p + '-tr th" style="height:' + f(rh * 0.9) + 'cqw;font-size:' + f(fs * 0.78) + 'cqw"><span>WHERE YOU ARE</span><span>DAY</span><span>YOUR TIME</span></div>';
+      h += rows.map(function (r) {
+        return '<div class="' + p + '-tr' + (r.home ? ' hm' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw"><span>' + r.label + '</span><span>' + r.days + '</span><span>' + r.time + '</span></div>';
+      }).join('');
+      return { html: k.box(cls, x, y, w, h), h: rh * 7 + rh * 0.9 };
+    };
+    // Footer: register lines + sponsor row on the left, QR on the right, bottoms aligned at yb.
+    k.foot = function (x, yb, w, qs, big, sm, bh, o) {
+      o = o || {};
+      var wt = w - qs - (o.gapQ == null ? 3 : o.gapQ), bigFs = Math.min(big, wt / (25 * (o.bch || 0.6)));
+      var sl = k.lines(k.G.small, sm, wt, o.sch || 0.5), h = bigFs * 1.15 + 0.7 + sl * sm * 1.3 + 1 + bh, top = yb - h;
+      var html = k.box(p + '-rg', x, top, wt, k.G.big, 'font-size:' + f(bigFs) + 'cqw;line-height:1.15;' + (o.al || ''))
+        + k.box(p + '-sm', x, top + bigFs * 1.15 + 0.7, wt, k.G.small.replace(/(\S+)$/, '<span style="white-space:nowrap">$1</span>'), 'font-size:' + f(sm) + 'cqw;line-height:1.3;' + (o.al || ''))
+        + k.badges(p + '-bd', x, yb - bh, wt, bh)
+        + k.qr(p + '-qr', x + w - qs, yb - qs, qs);
+      return { html: html, top: Math.min(top, yb - qs) };
+    };
+    k.root = function (inner, cls) { return '<div class="vfx ' + p + (sq ? ' sq' : '') + (P ? ' partner' : '') + (cls ? ' ' + cls : '') + '">' + inner + '</div>'; };
+    return k;
+  }
+
+  // Session cards side by side (1 or 2). o: cls, gap, pad, padX, d, m, t, l, dense, lch
+  function sessCards(k, x, y, w, o) {
+    var S = k.S, n = Math.max(1, S.length), cw = (w - o.gap * (n - 1)) / n, inner = cw - 2 * o.padX, ll = 0;
+    S.forEach(function (s) { if (s.lesson) ll = Math.max(ll, k.lines(s.lesson, o.l, inner, o.lch || 0.5)); });
+    var tl = Math.max(1, k.lines(S[0] ? S[0].time : '', o.t, inner, 0.55));
+    var h = 2 * o.pad + (o.dense ? o.m * 1.15 : o.d * 1.3 + o.m * 1.1) + tl * o.t * 1.3 + (ll ? ll * o.l * 1.25 + 0.5 : 0);
+    var html = S.map(function (s, i) {
+      var top = o.dense ? '<div class="m"' + st(o.m, 1.15) + '><small>' + s.dow + '</small> ' + s.mon + ' ' + s.day + '</div>'
+                        : '<div class="d"' + st(o.d, 1.3) + '>' + s.dow + '</div><div class="m"' + st(o.m, 1.1) + '>' + s.mon + ' ' + s.day + '</div>';
+      return k.box(o.cls, x + i * (cw + o.gap), y, cw, top + '<div class="t"' + st(o.t, 1.3) + '>' + s.time + '</div>'
+        + (s.lesson ? '<div class="l"' + st(o.l, 1.25, 'margin-top:.5cqw') + '>' + s.lesson + '</div>' : ''),
+        'height:' + f(h) + 'cqw;padding:' + f(o.pad) + 'cqw ' + f(o.padX) + 'cqw;');
+    }).join('');
+    return { html: html, h: h, cw: cw };
+  }
+  // Where card: kicker + line1 + line2. o: cls, pad, padX, kf, l1, l2
+  function whereCard(k, x, y, w, o) {
+    var W = k.W, inner = w - 2 * o.padX, n1 = W.line1 ? k.lines(W.line1, o.l1, inner, 0.55) : 0, n2 = W.line2 ? k.lines(W.line2, o.l2, inner, 0.5) : 0;
+    var h = 2 * o.pad + o.kf * 1.3 + n1 * o.l1 * 1.2 + n2 * o.l2 * 1.3;
+    return { html: k.box(o.cls, x, y, w, '<div class="k"' + st(o.kf, 1.3) + '>' + W.kicker + '</div>'
+      + (W.line1 ? '<div class="a"' + st(o.l1, 1.2) + '>' + W.line1 + '</div>' : '') + (W.line2 ? '<div class="b"' + st(o.l2, 1.3) + '>' + W.line2 + '</div>' : ''),
+      'height:' + f(h) + 'cqw;padding:' + f(o.pad) + 'cqw ' + f(o.padX) + 'cqw;'), h: h };
+  }
+  // Copy of a variant table with its type sizes scaled by sc (used to shrink a crowded layout until it fits).
+  var SCALE = ['cap', 'tagFs', 'd', 'm', 't', 'l', 'w1', 'w2', 'kf', 'dw', 't2', 'chip', 'pad', 'rh', 'tfs'];
+  function sv(V, sc) { var o = {}; for (var key in V) o[key] = (SCALE.indexOf(key) >= 0 && typeof V[key] === 'number') ? V[key] * sc : V[key]; return o; }
+  function fitStack(lim, build) { var c; for (var sc = 1; ; sc -= 0.04) { c = build(sc); if (c.y <= lim || sc < 0.66) return c; } }
+  function baseCss(p, font, color, bg) {
+    return '.' + p + '{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;font-family:' + font + ';color:' + color + ';' + bg + '}'
+      + '.' + p + '.sq{aspect-ratio:1/1}.' + p + ' *{box-sizing:border-box}'
+      + '.' + p + '>div{position:absolute;z-index:2}.' + p + '>svg{position:absolute;left:0;top:0;width:100%;height:100%;z-index:0;pointer-events:none}'
+      + '.' + p + ' .' + p + '-logo img{width:100%;height:100%;object-fit:contain;display:block}'
+      + '.' + p + ' .' + p + '-qr{background:#fff;padding:.6cqw}.' + p + ' .' + p + '-qr img{width:100%;height:100%;display:block}'
+      + '.' + p + ' .' + p + '-bdr{display:flex;align-items:center;gap:1.2cqw;height:100%;flex-wrap:nowrap}'
+      + '.' + p + ' .' + p + '-bdr>span:not(.vfx-logo){font-weight:700;font-size:1.7cqw;white-space:nowrap}'
+      + '.' + p + ' .' + p + '-tr{display:grid;grid-template-columns:37% 36% 27%;align-items:center;padding:0 1.2cqw;white-space:nowrap}'
+      + '.' + p + ' .' + p + '-tr span:last-child{text-align:right}'
+      + '.' + p + ' .' + p + '-rg span{white-space:nowrap}';
+  }
+  // A generic content stack (title, tagline, sessions, where, [table]) used by R16/R18/R19/R20.
+  function stack(k, c) {
+    var o = '', y = c.top, x = c.x, w = c.w;
+    var t = k.title(c.p + '-ttl', x, y, w, c.maxL, c.cap, c.ch, c.lh, c.tAl || '', c.ok, c.wrap); o += t.html; y += t.h + c.g1;
+    if (c.after) { o += c.after(y); y += c.afterH || 0; }
+    if (k.tag) { var g = k.text(c.p + '-tag', x + (c.tagX || 0), y, c.tagW || w, k.tag, c.tagFs, 1.25, c.tagCh || 0.5, c.tAl || ''); o += g.html; y += g.h + c.g2; }
+    var row = c.row || k.S.length < 2, rowW = row ? (k.S.length > 1 ? w * 0.68 : w * 0.56) : w;
+    var s = c.sess(k, x, y, rowW); o += s.html;
+    if (row) { var wh = c.where(k, x + rowW + c.gapX, y, w - rowW - c.gapX, s.h); o += wh.html; y += Math.max(s.h, wh.h) + c.g3; }
+    else { y += s.h + c.g3; var wh2 = c.where(k, c.whX == null ? x : c.whX, y, c.whW || w); o += wh2.html; y += wh2.h + c.g3; }
+    if (k.P) { var tb = k.table(c.p + '-tb', x, y, w, c.rh, c.tfs); o += tb.html; y += tb.h; }
+    return { html: o, y: y, t: t };
+  }
+
+
+  /* =================== R21 · Holiday · Mele Kalikimaka =================== */
+  F.registerSet('R', 21, (function () {
+    var GREEN = '#14532D', LEAF = '#1F7A45', RED = '#C8102E', GOLD = '#E8A317', INK = '#1E2B23', CREAM = '#FFF8EC', SUB = '#4B5A50';
+    var BULB = ['#FF3B3B', '#FFD23F', '#3DDC84', '#4FC3F7', '#FF8AD8'];
+    function sess(V) { return function (k, x, y, w) {
+      return sessCards(k, x, y, w, { cls: 'r21-s', gap: V.gap, pad: V.pad, padX: V.padX, d: V.d, m: V.m, t: V.t, l: V.l, dense: V.dense });
+    }; }
+    function where(V) { return function (k, x, y, w, h) {
+      var r = whereCard(k, x, y, w, { cls: 'r21-w', pad: V.pad, padX: V.padX, kf: V.d, l1: V.w1, l2: V.w2 });
+      if (h && h > r.h) r.html = r.html.replace('height:' + f(r.h) + 'cqw', 'height:' + f(h) + 'cqw');
+      return r;
+    }; }
+    function bulb(x, y, r, c) { return '<circle cx="' + f(x) + '" cy="' + f(y) + '" r="' + f(r * 2.2) + '" fill="' + c + '" opacity=".28"/><circle cx="' + f(x) + '" cy="' + f(y) + '" r="' + f(r) + '" fill="' + c + '"/>'; }
+    function poinsettia(x, y, s) {
+      var o = '', i;
+      for (i = 0; i < 6; i++) o += '<ellipse cx="' + f(x + 1.25 * s) + '" cy="' + f(y) + '" rx="' + f(1.45 * s) + '" ry="' + f(0.55 * s) + '" fill="#D7192F" transform="rotate(' + (i * 60) + ' ' + f(x) + ' ' + f(y) + ')"/>';
+      for (i = 0; i < 6; i++) o += '<ellipse cx="' + f(x + 0.8 * s) + '" cy="' + f(y) + '" rx="' + f(0.95 * s) + '" ry="' + f(0.4 * s) + '" fill="#A50E22" transform="rotate(' + (i * 60 + 30) + ' ' + f(x) + ' ' + f(y) + ')"/>';
+      return o + [[0, -.3], [.3, .2], [-.3, .2]].map(function (d) { return '<circle cx="' + f(x + d[0] * s) + '" cy="' + f(y + d[1] * s) + '" r="' + f(0.22 * s) + '" fill="#FFD23F"/>'; }).join('');
+    }
+    function plumeria(x, y, s) {
+      var o = '';
+      for (var i = 0; i < 5; i++) o += '<ellipse cx="' + f(x + 0.85 * s) + '" cy="' + f(y) + '" rx="' + f(0.95 * s) + '" ry="' + f(0.62 * s) + '" fill="#FFFDF5" stroke="#F3D9A4" stroke-width="' + f(0.06 * s) + '" transform="rotate(' + (i * 72 - 90) + ' ' + f(x) + ' ' + f(y) + ')"/>';
+      return o + '<circle cx="' + f(x) + '" cy="' + f(y) + '" r="' + f(0.55 * s) + '" fill="#FFC93C"/>';
+    }
+    // A lei garland of leaves with poinsettias and plumerias, laid along y.
+    function garland(y, s) {
+      var o = '', x, i = 0;
+      for (x = -2; x < 103; x += 1.9 * s, i++) {
+        var a = (i % 2 ? 32 : -32), yy = y + Math.sin(x / 7) * 0.5 * s;
+        o += '<ellipse cx="' + f(x) + '" cy="' + f(yy) + '" rx="' + f(1.8 * s) + '" ry="' + f(0.72 * s) + '" fill="' + (i % 3 ? LEAF : GREEN) + '" transform="rotate(' + a + ' ' + f(x) + ' ' + f(yy) + ')"/>';
+      }
+      for (x = 5, i = 0; x < 100; x += 11 * s, i++) { var y2 = y + Math.sin(x / 7) * 0.5 * s; o += i % 2 ? plumeria(x, y2, s) : poinsettia(x, y2, s); }
+      return o;
+    }
+    function gift(x, yb, w, h, c, rb) {
+      return '<rect x="' + f(x) + '" y="' + f(yb - h) + '" width="' + f(w) + '" height="' + f(h) + '" rx="' + f(w * 0.06) + '" fill="' + c + '"/>'
+        + '<rect x="' + f(x + w * 0.42) + '" y="' + f(yb - h) + '" width="' + f(w * 0.16) + '" height="' + f(h) + '" fill="' + rb + '"/>'
+        + '<rect x="' + f(x) + '" y="' + f(yb - h * 0.62) + '" width="' + f(w) + '" height="' + f(h * 0.14) + '" fill="' + rb + '"/>'
+        + '<ellipse cx="' + f(x + w * 0.36) + '" cy="' + f(yb - h - w * 0.1) + '" rx="' + f(w * 0.17) + '" ry="' + f(w * 0.1) + '" fill="' + rb + '" transform="rotate(-25 ' + f(x + w * 0.36) + ' ' + f(yb - h - w * 0.1) + ')"/>'
+        + '<ellipse cx="' + f(x + w * 0.64) + '" cy="' + f(yb - h - w * 0.1) + '" rx="' + f(w * 0.17) + '" ry="' + f(w * 0.1) + '" fill="' + rb + '" transform="rotate(25 ' + f(x + w * 0.64) + ' ' + f(yb - h - w * 0.1) + ')"/>';
+    }
+    // Sunset sky, ocean, a palm strung with lights, gifts on the sand, a string of bulbs, a lei garland.
+    function scene(SH, V) {
+      var u = SH / 44, hz = SH * 0.8, o = '<defs><linearGradient id="r21sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7A1230"/><stop offset=".45" stop-color="#D2453B"/><stop offset=".8" stop-color="#F59B42"/><stop offset="1" stop-color="#FFD27A"/></linearGradient>'
+        + '<linearGradient id="r21sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#127A78"/><stop offset="1" stop-color="#0B4D57"/></linearGradient></defs>';
+      o += '<rect x="0" y="0" width="100" height="' + f(hz + .2) + '" fill="url(#r21sky)"/>';
+      [[30, 4], [44, 9], [58, 5], [36, 14], [66, 13], [50, 17]].forEach(function (p) { var x = p[0], y = p[1] * u, r = 0.9 * u;
+        if (y < V.gy - 2) o += '<path d="M' + f(x) + ' ' + f(y - r) + 'L' + f(x + r * .28) + ' ' + f(y - r * .28) + 'L' + f(x + r) + ' ' + f(y) + 'L' + f(x + r * .28) + ' ' + f(y + r * .28) + 'L' + f(x) + ' ' + f(y + r) + 'L' + f(x - r * .28) + ' ' + f(y + r * .28) + 'L' + f(x - r) + ' ' + f(y) + 'L' + f(x - r * .28) + ' ' + f(y - r * .28) + 'Z" fill="#FFE9A8" opacity=".9"/>'; });
+      var sx = V.sun, sr = 6.5 * u;
+      o += '<circle cx="' + f(sx) + '" cy="' + f(hz) + '" r="' + f(sr) + '" fill="#FFE08A"/>';
+      o += '<rect x="0" y="' + f(hz) + '" width="100" height="' + f(SH - hz + 1) + '" fill="url(#r21sea)"/>';
+      [[0.9, 1], [1.9, .75], [2.9, .5], [3.9, .3]].forEach(function (d, i) { if (hz + d[0] * u < SH - 1.6 * u) o += '<rect x="' + f(sx - sr * d[1]) + '" y="' + f(hz + d[0] * u) + '" width="' + f(sr * 2 * d[1]) + '" height="' + f(0.45 * u) + '" rx=".2" fill="#FFD27A" opacity="' + (0.85 - i * 0.15) + '"/>'; });
+      o += '<path d="M66 ' + f(SH + 1) + 'A26 ' + f(5.2 * u) + ' 0 0 1 118 ' + f(SH + 1) + 'Z" fill="#F2C98A"/>';
+      // palm
+      var bx = 90, by = SH - 0.4 * u, cx = 80, cy = SH * 0.2, qx = 93, qy = SH * 0.55;
+      function pt(t) { var a = (1 - t) * (1 - t), b = 2 * (1 - t) * t, c = t * t; return [a * bx + b * qx + c * cx, a * by + b * qy + c * cy]; }
+      o += '<path d="M' + f(bx) + ' ' + f(by) + 'Q' + f(qx) + ' ' + f(qy) + ' ' + f(cx) + ' ' + f(cy) + '" fill="none" stroke="#6B3D1F" stroke-width="' + f(2.3 * u) + '" stroke-linecap="round"/>';
+      for (var t = 0.08; t < 0.95; t += 0.09) { var p = pt(t); o += '<ellipse cx="' + f(p[0]) + '" cy="' + f(p[1]) + '" rx="' + f(1.2 * u) + '" ry="' + f(0.28 * u) + '" fill="#4E2A12" opacity=".55"/>'; }
+      [-172, -146, -118, -88, -58, -28, 2, 30, 150].forEach(function (a, i) {
+        var L = (i % 2 ? 12 : 14.5) * u, r = a * Math.PI / 180, tx = cx + Math.cos(r) * L, ty = cy + Math.sin(r) * L + 4.5 * u, mx = (cx + tx) / 2, my = (cy + ty) / 2 - 2.6 * u;
+        var nx = -(ty - cy) / L, ny = (tx - cx) / L, wdt = 2.1 * u;
+        o += '<path d="M' + f(cx) + ' ' + f(cy) + 'Q' + f(mx + nx * wdt) + ' ' + f(my + ny * wdt) + ' ' + f(tx) + ' ' + f(ty) + 'Q' + f(mx - nx * wdt * 0.4) + ' ' + f(my - ny * wdt * 0.4) + ' ' + f(cx) + ' ' + f(cy) + 'Z" fill="' + (i % 2 ? '#1F7A45' : '#155C34') + '"/>';
+      });
+      o += '<circle cx="' + f(cx - .6 * u) + '" cy="' + f(cy + 1.2 * u) + '" r="' + f(.9 * u) + '" fill="#5B3A1A"/><circle cx="' + f(cx + .9 * u) + '" cy="' + f(cy + 1.4 * u) + '" r="' + f(.9 * u) + '" fill="#4A2E14"/>';
+      // lights spiralling the trunk
+      var wire = '', bl = '', j = 0;
+      for (t = 0.06; t < 0.9; t += 0.055, j++) { var q = pt(t), side = (j % 2 ? 1 : -1) * 1.3 * u; wire += (j ? 'L' : 'M') + f(q[0] + side) + ' ' + f(q[1]); bl += bulb(q[0] + side, q[1], 0.5 * u, BULB[j % BULB.length]); }
+      o += '<path d="' + wire + '" fill="none" stroke="#2A1A0E" stroke-width="' + f(0.18 * u) + '"/>' + bl;
+      // gifts on the sand
+      var gb = SH - 0.6 * u;
+      o += gift(70, gb, 6.2 * u, 5 * u, RED, '#FFD23F') + gift(76.8, gb, 4.6 * u, 7 * u, '#1F7A45', '#FF3B3B') + gift(64.8, gb + 0.2, 4.4 * u, 3.4 * u, '#F2B134', RED);
+      // a string of bulbs across the top of the sky
+      var x0 = V.logo[0] + V.logo[2] + 2, y0 = Math.max(3.2 * u, V.logo[1] + 1), x1 = cx - 3, y1 = cy - 1, sag = Math.min(7 * u, V.gy - 2.5 - Math.max(y0, y1));
+      o += '<path d="M' + f(x0) + ' ' + f(y0) + 'Q' + f((x0 + x1) / 2) + ' ' + f(Math.max(y0, y1) + 2 * sag) + ' ' + f(x1) + ' ' + f(y1) + '" fill="none" stroke="#3A1420" stroke-width="' + f(0.2 * u) + '"/>';
+      for (var n = 1; n < 12; n++) { var s = n / 12, X = (1 - s) * (1 - s) * x0 + 2 * (1 - s) * s * (x0 + x1) / 2 + s * s * x1, Y = (1 - s) * (1 - s) * y0 + 2 * (1 - s) * s * (Math.max(y0, y1) + 2 * sag) + s * s * y1;
+        o += bulb(X, Y + 0.7 * u, 0.55 * u, BULB[n % BULB.length]); }
+      o += garland(SH, V.gs);
+      // invisible tiles over the scene so callouts land on the cream, not on the art
+      for (var tx = 0; tx < 100; tx += 25) o += '<rect x="' + tx + '" y="0" width="25" height="' + f(SH + 1.5 * V.gs) + '" fill="none"/>';
+      return o;
+    }
+    var VS = {
+      l:   { SH: 44, logo: [5, 4.5, 16, 16], gy: 22.5, gfs: 6.3, sun: 63, gs: 1.15, top: 50, cap: 10, maxL: 3, tagFs: 3.2, gap: 3, pad: 2.2, padX: 2.6, d: 1.9, m: 4.6, t: 2.5, l: 2.3, w1: 2.9, w2: 2.2, dense: false, row: false, whW: 60, rh: 0, tfs: 0, foot: [5, 17, 4.1, 2.2, 5.4] },
+      pl:  { SH: 36, logo: [5, 4, 26, 12.5], gy: 19, gfs: 5.4, sun: 63, gs: 1, top: 41.5, cap: 8.6, maxL: 3, tagFs: 2.8, gap: 2.4, pad: 1.5, padX: 2.1, d: 1.6, m: 3.4, t: 2.05, l: 1.95, w1: 2.35, w2: 1.85, dense: true, row: true, rh: 3.1, tfs: 1.85, foot: [4, 14.5, 3.6, 2, 4.8] },
+      sq:  { SH: 31, logo: [4.5, 3.8, 12.5, 12.5], gy: 17.2, gfs: 4.9, sun: 64, gs: .9, top: 36, cap: 8.2, maxL: 3, tagFs: 2.6, gap: 2, pad: 1.5, padX: 2, d: 1.5, m: 3.4, t: 2, l: 1.85, w1: 2.25, w2: 1.8, dense: true, row: true, rh: 0, tfs: 0, foot: [3.6, 13, 3.3, 1.85, 4.4] },
+      psq: { SH: 25, logo: [4.5, 3.4, 19, 9.2], gy: 13.6, gfs: 4.1, sun: 65, gs: .78, top: 29.2, cap: 5.8, maxL: 2, tagFs: 2.1, gap: 1.6, pad: 1, padX: 1.5, d: 1.3, m: 2.6, t: 1.7, l: 1.6, w1: 1.85, w2: 1.55, dense: true, row: true, rh: 3, tfs: 1.6, foot: [3, 11, 2.9, 1.6, 3.6] }
+    };
+    return {
+      name: 'Holiday · Mele Kalikimaka: island Christmas, a palm strung with lights at sunset, gifts on the sand, poinsettia and plumeria lei',
+      fonts: 'family=Pacifico&family=Fraunces:opsz,wght@9..144,700;9..144,800;9..144,900&family=Nunito:wght@500;600;700;800;900',
+      css: baseCss('r21', 'Nunito,Arial,sans-serif', INK, 'background:' + CREAM)
+        + '.r21 .r21-logo{background:#fff;border-radius:50%;padding:1.5cqw;box-shadow:0 .5cqw 1.6cqw rgba(60,10,20,.35)}.r21.partner .r21-logo{border-radius:2cqw;padding:1cqw 1.6cqw}'
+        + '.r21 .r21-gr{font-family:Pacifico,cursive;color:#fff;white-space:nowrap;text-shadow:0 .35cqw 0 rgba(122,18,48,.55),0 0 1.6cqw rgba(122,18,48,.45)}'
+        + '.r21 .r21-ttl{font-family:Fraunces,Georgia,serif;font-weight:900;color:' + GREEN + ';white-space:nowrap;text-align:center;letter-spacing:-.01em}'
+        + '.r21 .r21-tag{font-weight:700;color:' + RED + ';text-align:center}'
+        + '.r21 .r21-s{background:#fff;border-radius:1.4cqw;border-top:.9cqw solid ' + RED + ';box-shadow:0 .4cqw 1.4cqw rgba(20,83,45,.16)}.r21 .r21-s+.r21-s{border-top-color:' + LEAF + '}'
+        + '.r21 .r21-s .d{font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:' + RED + '}'
+        + '.r21 .r21-s .m{font-family:Fraunces,Georgia,serif;font-weight:800;color:' + GREEN + ';white-space:nowrap}.r21 .r21-s .m small{font-family:Nunito,Arial,sans-serif;font-size:.6em;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:' + RED + ';vertical-align:.14em;margin-right:.3em}'
+        + '.r21 .r21-s .t{font-weight:800;color:' + INK + '}.r21 .r21-s .l{font-weight:600;color:' + SUB + '}'
+        + '.r21 .r21-w{background:' + GREEN + ';color:#fff;border-radius:1.4cqw;box-shadow:inset 0 0 0 .3cqw ' + GOLD + '}.r21 .r21-w .k{font-weight:900;letter-spacing:.2em;color:#FFD23F}.r21 .r21-w .a{font-weight:800}.r21 .r21-w .b{font-weight:600;color:#D9EBDD}'
+        + '.r21 .r21-tb{background:#fff;border:.3cqw solid ' + GREEN + ';border-radius:1.2cqw;overflow:hidden}.r21 .r21-tr{font-weight:600}.r21 .r21-tr:nth-child(even){background:#F6F1E4}.r21 .r21-tr.th{background:' + GREEN + ';color:#fff;font-weight:900;letter-spacing:.14em}.r21 .r21-tr.hm{background:#FFE7A3;font-weight:900;color:' + RED + '}'
+        + '.r21 .r21-rg{font-weight:900;color:' + GREEN + '}.r21 .r21-rg span{color:' + RED + '}.r21 .r21-sm{font-weight:600;color:' + SUB + '}'
+        + '.r21 .r21-qr{border-radius:1cqw;box-shadow:0 0 0 .4cqw ' + GOLD + '}',
+      fn: function (spec, partner, sq, H) {
+        var k = kit('r21', spec, partner, sq, H), V = VS[k.v], HH = k.HH, o = '';
+        var FT = V.foot, yb = HH - FT[0] - 1.2, ft = k.foot(FT[0] + 1.5, yb, 100 - 2 * FT[0] - 3, FT[1], FT[2], FT[3], FT[4]);
+        o += '<svg viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true">' + scene(V.SH, V)
+          + '<rect x="0" y="' + f(HH - 1.4) + '" width="100" height="1.4" fill="' + RED + '"/><rect x="0" y="' + f(HH - 1.9) + '" width="100" height=".5" fill="' + GOLD + '"/>'
+          + '</svg>';
+        o += k.logo('r21-logo', V.logo[0], V.logo[1], V.logo[2], V.logo[3]);
+        o += k.box('r21-gr', V.logo[0] + 0.4, V.gy, null, k.P ? 'Merry Christmas' : 'Mele Kalikimaka', 'font-size:' + f(V.gfs) + 'cqw;line-height:1.35;');
+        var c = fitStack(ft.top - (sq ? 2.6 : 3.4), function (sc) { var W2 = sv(V, sc);
+          return stack(k, { p: 'r21', x: 6, w: 88, top: V.top, maxL: V.maxL, cap: W2.cap, ch: 0.58, lh: 1.05, g1: sq ? 1 : 1.5, g2: sq ? 2 : 3, g3: sq ? 1.8 : 2.6, gapX: V.gap,
+            tagFs: W2.tagFs, tagX: 2, tagW: 84, tagCh: 0.54, tAl: 'text-align:center;', sess: sess(W2), where: where(W2), row: V.row, whW: V.whW, whX: 6 + (88 - V.whW) / 2, rh: W2.rh, tfs: W2.tfs }); });
+        o += c.html + ft.html;
+        return k.root(o);
+      }
+    };
+  })());
+})();
+/* Virtual Event Builder: Random series, holiday design R22 Holiday · Hauʻoli Makahiki Hou (midnight fireworks over Diamond Head, navy and gold).
+   Self-contained: helpers copied from the R16–R20 block. Hawaiʻi flyers greet in Hawaiian; Partner flyers in plain English. */
+(function () {
+  'use strict';
+  var F = window.VEBFlyers; if (!F || !F.random || !F.registerSet) return;
+
+  function f(n) { return String(Math.round(n * 100) / 100); }
+  function plain(s) { return String(s || '').replace(/<[^>]+>/g, '').replace(/&[a-z#0-9]+;/gi, 'x'); }
+  function st(fs, lh, extra) { return ' style="font-size:' + f(fs) + 'cqw;line-height:' + lh + ';' + (extra || '') + '"'; }
+
+  /* Shared toolkit for one flyer. p = class prefix ('r16' ...). */
+  function kit(p, spec, partner, sq, H) {
+    var R = F.random, Z = R.zoom(spec), P = !!partner && Z;   // partner layout only for Zoom events
+    var k = { R: R, H: H, spec: spec, Z: Z, P: P, sq: !!sq, HH: sq ? 100 : 129.41, p: p,
+              S: R.sessions(spec), W: R.where(spec), G: R.register(spec, P), tag: R.tagline(spec) };
+    k.v = sq ? (P ? 'psq' : 'sq') : (P ? 'pl' : 'l');
+    k.box = function (cls, x, y, w, inner, extra) {
+      return '<div class="' + cls + '" style="left:' + f(x) + 'cqw;top:' + f(y) + 'cqw;' + (w != null ? 'width:' + f(w) + 'cqw;' : '') + (extra || '') + '">' + inner + '</div>';
+    };
+    k.lines = function (html, fs, w, ch) { return Math.max(1, Math.ceil(plain(html).length * fs * (ch || 0.5) / w)); };
+    k.text = function (cls, x, y, w, html, fs, lh, ch, extra) {
+      var n = k.lines(html, fs, w, ch);
+      return { html: k.box(cls, x, y, w, html, 'font-size:' + f(fs) + 'cqw;line-height:' + lh + ';' + (extra || '')), h: n * fs * lh, n: n };
+    };
+    // Title: fewest lines that reach ok*cap, else the line count that gives the biggest type.
+    k.title = function (cls, x, y, w, maxL, cap, ch, lh, extra, ok, wrap) {
+      var best = null;
+      for (var n = 1; n <= maxL; n++) {
+        var ls = R.titleLines(spec, n), fs = R.fitSize(ls, w, cap, ch);
+        if (!best || fs > best.fs + 0.01) best = { ls: ls, fs: fs };
+        if (fs >= cap * (ok || 0.8)) { best = { ls: ls, fs: fs }; break; }
+      }
+      var inner = wrap ? best.ls.map(wrap).join('<br>') : best.ls.join('<br>');
+      return { html: k.box(cls, x, y, w, inner, 'font-size:' + f(best.fs) + 'cqw;line-height:' + lh + ';' + (extra || '')), h: best.ls.length * best.fs * lh, fs: best.fs, n: best.ls.length };
+    };
+    k.logo = function (cls, x, y, w, h, extra) { return k.box(cls, x, y, w, R.logo(spec, P), 'height:' + f(h) + 'cqw;' + (extra || '')); };
+    k.qr = function (cls, x, y, s, extra) { return k.box(cls, x, y, s, H.qrImg(spec, P), 'height:' + f(s) + 'cqw;' + (extra || '')); };
+    k.badges = function (cls, x, y, w, h, extra) { return k.box(cls, x, y, w, '<div class="' + p + '-bdr">' + R.badges(spec, P) + '</div>', 'height:' + f(h) + 'cqw;' + (extra || '')); };
+    // 7-row local time table for the Pacific partner flyers.
+    k.table = function (cls, x, y, w, rh, fs) {
+      var rows = H.zoneRows(spec.sessions || []);
+      var h = '<div class="' + p + '-tr th" style="height:' + f(rh * 0.9) + 'cqw;font-size:' + f(fs * 0.78) + 'cqw"><span>WHERE YOU ARE</span><span>DAY</span><span>YOUR TIME</span></div>';
+      h += rows.map(function (r) {
+        return '<div class="' + p + '-tr' + (r.home ? ' hm' : '') + '" style="height:' + f(rh) + 'cqw;font-size:' + f(fs) + 'cqw"><span>' + r.label + '</span><span>' + r.days + '</span><span>' + r.time + '</span></div>';
+      }).join('');
+      return { html: k.box(cls, x, y, w, h), h: rh * 7 + rh * 0.9 };
+    };
+    // Footer: register lines + sponsor row on the left, QR on the right, bottoms aligned at yb.
+    k.foot = function (x, yb, w, qs, big, sm, bh, o) {
+      o = o || {};
+      var wt = w - qs - (o.gapQ == null ? 3 : o.gapQ), bigFs = Math.min(big, wt / (25 * (o.bch || 0.6)));
+      var sl = k.lines(k.G.small, sm, wt, o.sch || 0.5), h = bigFs * 1.15 + 0.7 + sl * sm * 1.3 + 1 + bh, top = yb - h;
+      var html = k.box(p + '-rg', x, top, wt, k.G.big, 'font-size:' + f(bigFs) + 'cqw;line-height:1.15;' + (o.al || ''))
+        + k.box(p + '-sm', x, top + bigFs * 1.15 + 0.7, wt, k.G.small.replace(/(\S+)$/, '<span style="white-space:nowrap">$1</span>'), 'font-size:' + f(sm) + 'cqw;line-height:1.3;' + (o.al || ''))
+        + k.badges(p + '-bd', x, yb - bh, wt, bh)
+        + k.qr(p + '-qr', x + w - qs, yb - qs, qs);
+      return { html: html, top: Math.min(top, yb - qs) };
+    };
+    k.root = function (inner, cls) { return '<div class="vfx ' + p + (sq ? ' sq' : '') + (P ? ' partner' : '') + (cls ? ' ' + cls : '') + '">' + inner + '</div>'; };
+    return k;
+  }
+
+  // Session cards side by side (1 or 2). o: cls, gap, pad, padX, d, m, t, l, dense, lch
+  function sessCards(k, x, y, w, o) {
+    var S = k.S, n = Math.max(1, S.length), cw = (w - o.gap * (n - 1)) / n, inner = cw - 2 * o.padX, ll = 0;
+    S.forEach(function (s) { if (s.lesson) ll = Math.max(ll, k.lines(s.lesson, o.l, inner, o.lch || 0.5)); });
+    var tl = Math.max(1, k.lines(S[0] ? S[0].time : '', o.t, inner, 0.55));
+    var h = 2 * o.pad + (o.dense ? o.m * 1.15 : o.d * 1.3 + o.m * 1.1) + tl * o.t * 1.3 + (ll ? ll * o.l * 1.25 + 0.5 : 0);
+    var html = S.map(function (s, i) {
+      var top = o.dense ? '<div class="m"' + st(o.m, 1.15) + '><small>' + s.dow + '</small> ' + s.mon + ' ' + s.day + '</div>'
+                        : '<div class="d"' + st(o.d, 1.3) + '>' + s.dow + '</div><div class="m"' + st(o.m, 1.1) + '>' + s.mon + ' ' + s.day + '</div>';
+      return k.box(o.cls, x + i * (cw + o.gap), y, cw, top + '<div class="t"' + st(o.t, 1.3) + '>' + s.time + '</div>'
+        + (s.lesson ? '<div class="l"' + st(o.l, 1.25, 'margin-top:.5cqw') + '>' + s.lesson + '</div>' : ''),
+        'height:' + f(h) + 'cqw;padding:' + f(o.pad) + 'cqw ' + f(o.padX) + 'cqw;');
+    }).join('');
+    return { html: html, h: h, cw: cw };
+  }
+  // Where card: kicker + line1 + line2. o: cls, pad, padX, kf, l1, l2
+  function whereCard(k, x, y, w, o) {
+    var W = k.W, inner = w - 2 * o.padX, n1 = W.line1 ? k.lines(W.line1, o.l1, inner, 0.55) : 0, n2 = W.line2 ? k.lines(W.line2, o.l2, inner, 0.5) : 0;
+    var h = 2 * o.pad + o.kf * 1.3 + n1 * o.l1 * 1.2 + n2 * o.l2 * 1.3;
+    return { html: k.box(o.cls, x, y, w, '<div class="k"' + st(o.kf, 1.3) + '>' + W.kicker + '</div>'
+      + (W.line1 ? '<div class="a"' + st(o.l1, 1.2) + '>' + W.line1 + '</div>' : '') + (W.line2 ? '<div class="b"' + st(o.l2, 1.3) + '>' + W.line2 + '</div>' : ''),
+      'height:' + f(h) + 'cqw;padding:' + f(o.pad) + 'cqw ' + f(o.padX) + 'cqw;'), h: h };
+  }
+  // Copy of a variant table with its type sizes scaled by sc (used to shrink a crowded layout until it fits).
+  var SCALE = ['cap', 'tagFs', 'd', 'm', 't', 'l', 'w1', 'w2', 'kf', 'dw', 't2', 'chip', 'pad', 'rh', 'tfs'];
+  function sv(V, sc) { var o = {}; for (var key in V) o[key] = (SCALE.indexOf(key) >= 0 && typeof V[key] === 'number') ? V[key] * sc : V[key]; return o; }
+  function fitStack(lim, build) { var c; for (var sc = 1; ; sc -= 0.04) { c = build(sc); if (c.y <= lim || sc < 0.66) return c; } }
+  function baseCss(p, font, color, bg) {
+    return '.' + p + '{container-type:inline-size;aspect-ratio:8.5/11;position:relative;overflow:hidden;font-family:' + font + ';color:' + color + ';' + bg + '}'
+      + '.' + p + '.sq{aspect-ratio:1/1}.' + p + ' *{box-sizing:border-box}'
+      + '.' + p + '>div{position:absolute;z-index:2}.' + p + '>svg{position:absolute;left:0;top:0;width:100%;height:100%;z-index:0;pointer-events:none}'
+      + '.' + p + ' .' + p + '-logo img{width:100%;height:100%;object-fit:contain;display:block}'
+      + '.' + p + ' .' + p + '-qr{background:#fff;padding:.6cqw}.' + p + ' .' + p + '-qr img{width:100%;height:100%;display:block}'
+      + '.' + p + ' .' + p + '-bdr{display:flex;align-items:center;gap:1.2cqw;height:100%;flex-wrap:nowrap}'
+      + '.' + p + ' .' + p + '-bdr>span:not(.vfx-logo){font-weight:700;font-size:1.7cqw;white-space:nowrap}'
+      + '.' + p + ' .' + p + '-tr{display:grid;grid-template-columns:37% 36% 27%;align-items:center;padding:0 1.2cqw;white-space:nowrap}'
+      + '.' + p + ' .' + p + '-tr span:last-child{text-align:right}'
+      + '.' + p + ' .' + p + '-rg span{white-space:nowrap}';
+  }
+  // A generic content stack (title, tagline, sessions, where, [table]) used by R16/R18/R19/R20.
+  function stack(k, c) {
+    var o = '', y = c.top, x = c.x, w = c.w;
+    var t = k.title(c.p + '-ttl', x, y, w, c.maxL, c.cap, c.ch, c.lh, c.tAl || '', c.ok, c.wrap); o += t.html; y += t.h + c.g1;
+    if (c.after) { o += c.after(y); y += c.afterH || 0; }
+    if (k.tag) { var g = k.text(c.p + '-tag', x + (c.tagX || 0), y, c.tagW || w, k.tag, c.tagFs, 1.25, c.tagCh || 0.5, c.tAl || ''); o += g.html; y += g.h + c.g2; }
+    var row = c.row || k.S.length < 2, rowW = row ? (k.S.length > 1 ? w * 0.68 : w * 0.56) : w;
+    var s = c.sess(k, x, y, rowW); o += s.html;
+    if (row) { var wh = c.where(k, x + rowW + c.gapX, y, w - rowW - c.gapX, s.h); o += wh.html; y += Math.max(s.h, wh.h) + c.g3; }
+    else { y += s.h + c.g3; var wh2 = c.where(k, c.whX == null ? x : c.whX, y, c.whW || w); o += wh2.html; y += wh2.h + c.g3; }
+    if (k.P) { var tb = k.table(c.p + '-tb', x, y, w, c.rh, c.tfs); o += tb.html; y += tb.h; }
+    return { html: o, y: y, t: t };
+  }
+
+
+  /* =================== R22 · Holiday · Hauʻoli Makahiki Hou =================== */
+  F.registerSet('R', 22, (function () {
+    var NAVY = '#0B1433', GOLD = '#F7C948', GOLD2 = '#FFE3A0', PINK = '#FF6FA8', TEAL = '#4FD1C5', SOFT = '#C9D4F5';
+    function rnd(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+    // One firework: rays with bright tips, an inner ring in a second colour, a glowing heart.
+    function burst(cx, cy, r, c1, c2, n) {
+      var o = '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.9) + '" fill="' + c1 + '" opacity=".08"/>';
+      n = n || 18;
+      for (var i = 0; i < n; i++) {
+        var a = (i / n) * Math.PI * 2 + 0.17, ca = Math.cos(a), sa = Math.sin(a);
+        o += '<line x1="' + f(cx + ca * r * 0.3) + '" y1="' + f(cy + sa * r * 0.3) + '" x2="' + f(cx + ca * r * 0.86) + '" y2="' + f(cy + sa * r * 0.86 + r * 0.04) + '" stroke="' + c1 + '" stroke-width="' + f(r * 0.045) + '" stroke-linecap="round"/>'
+          + '<circle cx="' + f(cx + ca * r) + '" cy="' + f(cy + sa * r + r * 0.06) + '" r="' + f(r * 0.05) + '" fill="' + c1 + '"/>';
+        if (i % 2 === 0) { var b = a + Math.PI / n; o += '<circle cx="' + f(cx + Math.cos(b) * r * 0.55) + '" cy="' + f(cy + Math.sin(b) * r * 0.55) + '" r="' + f(r * 0.04) + '" fill="' + c2 + '"/>'; }
+      }
+      return o + '<circle cx="' + f(cx) + '" cy="' + f(cy) + '" r="' + f(r * 0.1) + '" fill="#fff"/>';
+    }
+    // Lēʻahi (Diamond Head) at night: horizon glow, silhouette, Waikīkī lights, ocean with reflections.
+    function headland(y, B) {
+      var u = B * 0.74 / 13, base = y + B * 0.8, o = '<defs><radialGradient id="r22glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FF6FA8" stop-opacity=".5"/><stop offset="1" stop-color="#FF6FA8" stop-opacity="0"/></radialGradient>'
+        + '<linearGradient id="r22sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1D3275"/><stop offset="1" stop-color="#0B1433" stop-opacity="0"/></linearGradient></defs>';
+      o += '<ellipse cx="58" cy="' + f(base) + '" rx="48" ry="' + f(B * 0.7) + '" fill="url(#r22glow)"/>';
+      var pts = [[0, 4.2], [10, 5], [20, 6.2], [30, 7.6], [40, 9], [48, 10.3], [54, 11.4], [59, 12.2], [62.5, 12.6], [64.5, 12.1], [66, 10.6], [68, 8.2], [70.5, 6], [74, 4.6], [80, 3.4], [88, 2.8], [100, 2.6]];
+      o += '<path d="M0 ' + f(base) + pts.map(function (p) { return 'L' + p[0] + ' ' + f(base - p[1] * u); }).join('') + 'L100 ' + f(base) + 'Z" fill="#050A1F"/>';
+      o += '<path d="M44 ' + f(base - 9.6 * u) + 'Q52 ' + f(base - 10.4 * u) + ' 60 ' + f(base - 12 * u) + '" fill="none" stroke="#1E2C63" stroke-width="' + f(.35 * u) + '"/>';
+      var r = rnd(331);
+      for (var x = 70; x < 99; x += 0.9) { var h = (x < 76 ? 0.6 : 1.4 + r() * 1.6) * u; o += '<rect x="' + f(x) + '" y="' + f(base - h) + '" width=".6" height="' + f(h) + '" fill="#0E1638"/>'; if (r() < 0.75) o += '<rect x="' + f(x + .15) + '" y="' + f(base - h * (0.2 + r() * 0.6)) + '" width=".3" height="' + f(.3 * u) + '" fill="' + (r() < .5 ? GOLD2 : '#fff') + '"/>'; }
+      o += '<rect x="0" y="' + f(base) + '" width="100" height="' + f(B * 0.5) + '" fill="url(#r22sea)"/>';
+      for (var i = 0; i < 14; i++) { var xx = 3 + r() * 94, yy = base + 0.5 * u + r() * B * 0.18, w = 1.5 + r() * 4; o += '<rect x="' + f(xx) + '" y="' + f(yy) + '" width="' + f(w) + '" height="' + f(.28 * u) + '" rx=".14" fill="' + [GOLD, PINK, TEAL, '#fff'][i % 4] + '" opacity="' + f(.35 + r() * .4) + '"/>'; }
+      return o;
+    }
+    function sess(V) { return function (k, x, y, w) {
+      return sessCards(k, x, y, w, { cls: 'r22-s', gap: V.gap, pad: V.pad, padX: V.padX, d: V.d, m: V.m, t: V.t, l: V.l, dense: V.dense });
+    }; }
+    function where(V) { return function (k, x, y, w, h) {
+      var r = whereCard(k, x, y, w, { cls: 'r22-w', pad: V.pad, padX: V.padX, kf: V.d, l1: V.w1, l2: V.w2 });
+      if (h && h > r.h) r.html = r.html.replace('height:' + f(r.h) + 'cqw', 'height:' + f(h) + 'cqw');
+      return r;
+    }; }
+    var VS = {
+      l:   { logo: [5, 5, 16, 16], gy: 24, gfs: 5.6, bursts: [[78, 15, 12.5, GOLD, PINK, 22], [56, 7.5, 5.2, PINK, GOLD2, 16], [94, 31, 5, TEAL, '#fff', 14], [35, 9, 3.6, TEAL, GOLD, 12]], top: 34.5, cap: 10.5, maxL: 3, tagFs: 3.2, B: 14, gap: 3, pad: 2.2, padX: 2.6, d: 1.9, m: 4.6, t: 2.5, l: 2.3, w1: 2.9, w2: 2.2, dense: false, row: false, whW: 60, rh: 0, tfs: 0, foot: [5, 17, 4.1, 2.2, 5.4] },
+      pl:  { logo: [5, 4.5, 26, 12.5], gy: 19.5, gfs: 4.9, bursts: [[80, 13, 10, GOLD, PINK, 20], [58, 6, 4.4, PINK, GOLD2, 14], [94, 26, 4.2, TEAL, '#fff', 12]], top: 28, cap: 8.6, maxL: 3, tagFs: 2.8, B: 10, gap: 2.4, pad: 1.5, padX: 2.1, d: 1.6, m: 3.4, t: 2.05, l: 1.95, w1: 2.35, w2: 1.85, dense: true, row: true, rh: 3.1, tfs: 1.85, foot: [4, 14.5, 3.6, 2, 4.8] },
+      sq:  { logo: [4.5, 4, 12.5, 12.5], gy: 18.2, gfs: 4.5, bursts: [[80, 12.5, 10, GOLD, PINK, 20], [59, 6, 4.2, PINK, GOLD2, 14], [94.5, 24.5, 3.6, TEAL, '#fff', 12], [30, 7, 2.8, TEAL, GOLD, 10]], top: 26, cap: 8, maxL: 3, tagFs: 2.6, B: 9, gap: 2, pad: 1.5, padX: 2, d: 1.5, m: 3.4, t: 2, l: 1.85, w1: 2.25, w2: 1.8, dense: true, row: true, rh: 0, tfs: 0, foot: [3.6, 13, 3.3, 1.85, 4.4] },
+      psq: { logo: [4.5, 3.6, 19, 9.2], gy: 14.4, gfs: 3.9, bursts: [[82, 10, 8, GOLD, PINK, 18], [64, 5, 3.6, PINK, GOLD2, 12], [95, 19.5, 3, TEAL, '#fff', 10]], top: 20.4, cap: 5.8, maxL: 2, tagFs: 2.1, B: 6.5, gap: 1.6, pad: 1, padX: 1.5, d: 1.3, m: 2.6, t: 1.7, l: 1.6, w1: 1.85, w2: 1.55, dense: true, row: true, rh: 3, tfs: 1.6, foot: [3, 11, 2.9, 1.6, 3.6] }
+    };
+    return {
+      name: 'Holiday · Hauʻoli Makahiki Hou: midnight fireworks over Diamond Head and the ocean, navy and gold',
+      fonts: 'family=Noto+Serif+Display:ital,wght@0,800;0,900;1,700;1,800&family=Poppins:wght@400;500;600;700;800',
+      css: baseCss('r22', 'Poppins,Arial,sans-serif', '#fff', 'background:linear-gradient(180deg,#060C24 0%,#101C4C 38%,#0D1840 62%,#0A1330 100%)')
+        + '.r22 .r22-logo{background:#fff;border-radius:1.8cqw;padding:1.3cqw;box-shadow:0 0 0 .35cqw ' + GOLD + ',0 .6cqw 2cqw rgba(0,0,0,.45)}.r22.partner .r22-logo{padding:1cqw 1.6cqw}'
+        + '.r22 .r22-gr{font-family:"Noto Serif Display",Georgia,serif;font-style:italic;font-weight:800;color:' + GOLD + ';white-space:nowrap;text-shadow:0 0 1.6cqw rgba(247,201,72,.45)}'
+        + '.r22 .r22-ttl{font-weight:800;color:#fff;white-space:nowrap;letter-spacing:-.015em}'
+        + '.r22 .r22-tag{font-weight:500;color:' + SOFT + '}'
+        + '.r22 .r22-s,.r22 .r22-w{background:rgba(255,255,255,.07);border:.25cqw solid rgba(247,201,72,.75);border-radius:1.4cqw}'
+        + '.r22 .r22-s .d{font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:' + GOLD + '}'
+        + '.r22 .r22-s .m{font-family:"Noto Serif Display",Georgia,serif;font-weight:900;color:#fff;white-space:nowrap}.r22 .r22-s .m small{font-family:Poppins,Arial,sans-serif;font-size:.56em;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:' + GOLD + ';vertical-align:.16em;margin-right:.3em}'
+        + '.r22 .r22-s .t{font-weight:600;color:' + GOLD2 + '}.r22 .r22-s .l{font-weight:500;color:' + SOFT + '}'
+        + '.r22 .r22-w .k{font-weight:800;letter-spacing:.2em;color:' + PINK + '}.r22 .r22-w .a{font-weight:700;color:#fff}.r22 .r22-w .b{font-weight:500;color:' + SOFT + '}'
+        + '.r22 .r22-tb{background:rgba(255,255,255,.06);border:.25cqw solid rgba(247,201,72,.75);border-radius:1.2cqw;overflow:hidden}.r22 .r22-tr{font-weight:500;color:#fff}.r22 .r22-tr:nth-child(even){background:rgba(255,255,255,.06)}'
+        + '.r22 .r22-tr.th{background:' + GOLD + ';color:' + NAVY + ';font-weight:800;letter-spacing:.14em}.r22 .r22-tr.hm{background:' + PINK + ';color:#fff;font-weight:800}'
+        + '.r22 .r22-rg{font-weight:800;color:#fff}.r22 .r22-rg span{color:' + GOLD + '}.r22 .r22-sm{font-weight:500;color:' + SOFT + '}'
+        + '.r22 .r22-qr{border-radius:1cqw;box-shadow:0 0 0 .4cqw ' + GOLD + '}',
+      fn: function (spec, partner, sq, H) {
+        var k = kit('r22', spec, partner, sq, H), V = VS[k.v], HH = k.HH, o = '';
+        var FT = V.foot, yb = HH - FT[0] - 0.6, ft = k.foot(FT[0] + 1.5, yb, 100 - 2 * FT[0] - 3, FT[1], FT[2], FT[3], FT[4]);
+        // Content flow: title, tagline, then Diamond Head band, then sessions / where / local times.
+        function build(sc) {
+          var W2 = sv(V, sc), x = 6, w = 88, y = V.top, h = '';
+          var t = k.title('r22-ttl', x, y, w, V.maxL, W2.cap, 0.6, 1.04, '', 0.8); h += t.html; y += t.h + (sq ? 1 : 1.5);
+          if (k.tag) { var g = k.text('r22-tag', x, y, 84, k.tag, W2.tagFs, 1.25, 0.56); h += g.html; y += g.h; }
+          var B = V.B * Math.max(sc, 0.8), by = y; y += B + (sq ? 0.6 : 1);
+          var row = V.row || k.S.length < 2, rowW = row ? (k.S.length > 1 ? w * 0.68 : w * 0.56) : w, gx = V.gap;
+          var s = sess(W2)(k, x, y, rowW); h += s.html;
+          if (row) { var wh = where(W2)(k, x + rowW + gx, y, w - rowW - gx, s.h); h += wh.html; y += Math.max(s.h, wh.h) + (sq ? 1.8 : 2.6); }
+          else { y += s.h + 2.6; var wh2 = where(W2)(k, x + (w - V.whW) / 2, y, V.whW); h += wh2.html; y += wh2.h + 2.6; }
+          if (k.P) { var tb = k.table('r22-tb', x, y, w, W2.rh, W2.tfs); h += tb.html; y += tb.h; }
+          return { html: h, y: y, by: by, B: B };
+        }
+        var c = fitStack(ft.top - (sq ? 2.4 : 3.2), build);
+        var svg = '<svg viewBox="0 0 100 ' + f(HH) + '" preserveAspectRatio="none" aria-hidden="true">', r = rnd(77);
+        for (var i = 0; i < 40; i++) { var sx = r() * 100, sy = r() * (V.gy - 1); svg += '<circle cx="' + f(sx) + '" cy="' + f(sy) + '" r="' + f(.12 + r() * .18) + '" fill="#fff" opacity="' + f(.4 + r() * .5) + '"/>'; }
+        V.bursts.forEach(function (b) { svg += burst(b[0], b[1], b[2], b[3], b[4], b[5]); });
+        svg += headland(c.by, c.B);
+        // confetti in the side margins and along the bottom edge
+        for (i = 0; i < 46; i++) { var side = i % 2, cx = side ? 96.4 + r() * 3 : 0.6 + r() * 3, cy = V.gy + r() * (HH - V.gy - 4);
+          svg += '<rect x="' + f(cx) + '" y="' + f(cy) + '" width="' + f(.5 + r() * .5) + '" height="' + f(.25 + r() * .25) + '" fill="' + [GOLD, PINK, TEAL, '#fff', GOLD2][i % 5] + '" transform="rotate(' + Math.round(r() * 180) + ' ' + f(cx) + ' ' + f(cy) + ')" opacity=".9"/>'; }
+        for (i = 0; i < 30; i++) { var bx = 2 + r() * 96, by2 = HH - 0.4 - r() * 1.6; svg += '<rect x="' + f(bx) + '" y="' + f(by2) + '" width="' + f(.5 + r() * .5) + '" height=".3" fill="' + [GOLD, PINK, TEAL, '#fff'][i % 4] + '" transform="rotate(' + Math.round(r() * 180) + ' ' + f(bx) + ' ' + f(by2) + ')"/>'; }
+        o += svg + '</svg>';
+        o += k.logo('r22-logo', V.logo[0], V.logo[1], V.logo[2], V.logo[3]);
+        o += k.box('r22-gr', V.logo[0] + 0.6, V.gy, null, k.P ? 'Happy New Year' : 'Hau<span style="margin-left:-.09em">ʻ</span>oli Makahiki Hou', 'font-size:' + f(V.gfs) + 'cqw;line-height:1.3;');
+        o += c.html + ft.html;
+        return k.root(o);
+      }
+    };
+  })());
 })();
