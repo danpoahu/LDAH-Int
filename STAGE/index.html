@@ -6320,7 +6320,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.84-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.85-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -51008,12 +51008,15 @@ window.cmsVolAddToRequest = async function(reqId) {
   document.getElementById('cmsVolAddClose').addEventListener('click', close);
   ov.addEventListener('click', function(e){ if (e.target === ov) close(); });
 
-  var have = {};
-  (r.participants || []).forEach(function(p){ have[p.volunteerId || p.id] = 1; });
+  /* Only people already confirmed (or attended) are left out (v155.85): someone
+     invited who never answered, or on the waiting list, can be added as
+     confirmed. Before this they were hidden, so staff could not add them. */
+  var have = {}, onReq = {};
+  (r.participants || []).forEach(function(p){ var k = p.volunteerId || p.id; if (p.confirmed || p.attended) have[k] = 1; else onReq[k] = p; });
   var vols = [];
   try {
     var snap = await db.collection('volunteers').where('status', '==', 'accepted').get();
-    snap.forEach(function(d){ var v = d.data() || {}; if (v.archived === true || have[d.id]) return; vols.push({ id: d.id, name: [v.firstName, v.lastName].filter(Boolean).join(' ').trim() || v.email || '(no name)', email: String(v.email || '').trim(), opportunityId: v.opportunityId || '' }); });
+    snap.forEach(function(d){ var v = d.data() || {}; if (v.archived === true || have[d.id]) return; var op = onReq[d.id]; vols.push({ id: d.id, name: [v.firstName, v.lastName].filter(Boolean).join(' ').trim() || v.email || '(no name)', email: String(v.email || '').trim(), opportunityId: v.opportunityId || '', pid: op ? op.id : '', note: op ? (op.waitlisted ? 'On the waiting list' : 'Invited, no answer yet') : '' }); });
   } catch (e) {
     document.getElementById('cmsVolAddList').innerHTML = '<div style="color:#DC2626;padding:10px 0;">Could not load volunteers: ' + rsEscape(e.message) + '</div>';
     return;
@@ -51026,8 +51029,8 @@ window.cmsVolAddToRequest = async function(reqId) {
     list.innerHTML = shown.length ? shown.map(function(v){
       return '<label style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #F1F5F9;cursor:pointer;">' +
         '<input type="checkbox" class="cmsVolAddPick" data-id="' + rsEscape(v.id) + '"' + (v._on ? ' checked' : '') + ' style="width:18px;height:18px;">' +
-        '<div><div style="font-weight:600;">' + rsEscape(v.name) + '</div><div style="font-size:.8rem;color:#64748B;">' + rsEscape(v.email) + '</div></div></label>';
-    }).join('') : '<div style="color:#64748B;padding:10px 0;">' + (vols.length ? 'No one matches.' : 'Every accepted volunteer is already on this request.') + '</div>';
+        '<div><div style="font-weight:600;">' + rsEscape(v.name) + '</div><div style="font-size:.8rem;color:#64748B;">' + rsEscape(v.email) + (v.note ? ' &middot; <span style="color:#B45309;">' + rsEscape(v.note) + '</span>' : '') + '</div></div></label>';
+    }).join('') : '<div style="color:#64748B;padding:10px 0;">' + (vols.length ? 'No one matches.' : 'Every accepted volunteer is already confirmed on this request.') + '</div>';
     Array.prototype.forEach.call(list.querySelectorAll('.cmsVolAddPick'), function(cb){
       cb.addEventListener('change', function(){ var v = vols.find(function(x){ return x.id === cb.getAttribute('data-id'); }); if (v) v._on = cb.checked; count(); });
     });
@@ -51046,6 +51049,13 @@ window.cmsVolAddToRequest = async function(reqId) {
       var me = window.currentUserData || {};
       var batch = db.batch();
       pick.forEach(function(v){
+        if (v.pid) {  // already invited: confirm them, keep their invite, link and contact
+          batch.set(db.collection('volunteerRequests').doc(reqId).collection('participants').doc(v.pid), {
+            confirmed: true, confirmedAt: firebase.firestore.FieldValue.serverTimestamp(), waitlisted: false,
+            addedByStaff: true, addedByUid: me.uid || '', addedByName: me.displayName || ''
+          }, { merge: true });
+          return;
+        }
         batch.set(db.collection('volunteerRequests').doc(reqId).collection('participants').doc(v.id), {
           volunteerId: v.id, name: v.name, email: v.email, opportunityId: v.opportunityId,
           invitedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -51517,7 +51527,11 @@ window.cmsViewRoster = function(reqId) {
             '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + rsEscape(p.name || '') + '</div><div style="font-size:.8rem;color:#64748B;overflow:hidden;text-overflow:ellipsis;">' + rsEscape(p.email || '') + '</div>' +
               '<div data-vid="' + rsEscape(p.volunteerId || p.id) + '" style="font-size:.8rem;color:#94A3B8;margin-top:2px;">loading hours…</div>' +
               (/@/.test(p.email || '') ? '<a href="javascript:void(0)" style="font-size:.78rem;" onclick="cmsVolResendAsk(\'' + rsEscape(reqId) + '\',\'' + rsEscape(p.volunteerId || p.id) + '\',\'' + rsEscape(p.name || '') + '\')">Send request email</a>' : '') + '</div>' +
-            pill(p) + '</div>';
+            pill(p) +
+            /* Red X takes someone off this request (v155.85). Not shown once they
+               attended: that logged a visit on their contact card. */
+            (p.attended ? '' : '<span class="vrm-slot"><button type="button" title="Take ' + rsEscape(p.name || 'them') + ' off this request" aria-label="Remove" onclick="cmsVolRemoveFromRequest(\'' + rsEscape(reqId) + '\',\'' + rsEscape(p.id) + '\',this)" style="background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;border-radius:50%;width:28px;height:28px;font-size:17px;font-weight:700;line-height:1;cursor:pointer;flex-shrink:0;">&times;</button></span>') +
+            '</div>';
         }).join('') : '<div style="color:#64748B;padding:14px 0;">No one is on this request yet. Use + Add volunteers.</div>') +
       '</div>' +
       '<div style="padding:12px 18px;border-top:1px solid #E2E8F0;display:flex;justify-content:flex-end;gap:8px;">' +
@@ -51539,6 +51553,33 @@ window.cmsViewRoster = function(reqId) {
       el.innerHTML = '<span style="color:#0E7490;">' + rsEscape(txt) + '</span>' + (can ? ' &middot; <a href="javascript:void(0)" onclick="cmsVolAdjustHours(\'' + rsEscape(reqId) + '\',\'' + rsEscape(vid) + '\')">Adjust hours</a>' : '');
     });
   });
+};
+
+/* Take one person off a help request (v155.85, Daniel 11-18 "a red x next to
+   people"). First click asks inline (no browser dialog); Yes deletes their
+   participant record. No email is sent. */
+window.cmsVolRemoveFromRequest = async function(reqId, pid, btn, sure) {
+  var r = (window._cmsVolRequests || []).find(function(x){ return x.id === reqId; });
+  var p = r && (r.participants || []).find(function(x){ return x.id === pid; });
+  if (!r || !p) return;
+  if (!sure) {
+    var slot = btn.parentNode;
+    slot.innerHTML = '<span style="font-size:.78rem;color:#B91C1C;white-space:nowrap;">Remove? ' +
+      '<button type="button" class="btn btn-coral" style="font-size:.74rem;padding:4px 9px;" onclick="cmsVolRemoveFromRequest(\'' + rsEscape(reqId) + '\',\'' + rsEscape(pid) + '\',this,true)">Yes</button> ' +
+      '<button type="button" class="btn btn-ghost" style="font-size:.74rem;padding:4px 9px;" onclick="cmsViewRoster(\'' + rsEscape(reqId) + '\')">Keep</button></span>';
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    await db.collection('volunteerRequests').doc(reqId).collection('participants').doc(pid).delete();
+    if (window.auditLog) window.auditLog('Removed volunteer from help request', (r.title || reqId) + ': ' + (p.name || pid));
+    _showToast((p.name || 'Volunteer') + ' taken off ' + (r.title || 'the request') + '.', '#15803D');
+    await cmsLoadVolunteerRequests();
+    cmsViewRoster(reqId);
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    _showToast('Could not remove: ' + (e && e.message || e), '#DC2626');
+  }
 };
 
 window.cmsPrintRoster = function(reqId) {
