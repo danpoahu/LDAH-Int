@@ -6232,7 +6232,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.98</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v154.99</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -11926,7 +11926,8 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div class="field"><label>Location</label><input id="cmsVolReqLocation" type="text" placeholder="e.g. Mango Theatre, Kaunakakai"></div>
-              <div class="field"><label>Max volunteers needed <span style="color:#94A3B8;font-weight:400;font-size:.8rem;">— blank = no limit</span></label><input id="cmsVolReqMax" type="number" min="1" placeholder="e.g. 6"></div>
+              <div class="field"><label>How many LDAH staff?</label><input id="cmsVolReqStaff" type="number" min="0" placeholder="e.g. 2"></div>
+              <div class="field"><label>How many volunteers? <span style="color:#94A3B8;font-weight:400;font-size:.8rem;">Extra staff who sign up count toward this. Both blank = no limit</span></label><input id="cmsVolReqVols" type="number" min="0" placeholder="e.g. 3"></div>
             </div>
             <div class="field"><label>Other details</label><textarea id="cmsVolReqDetails" rows="2" placeholder="Anything else the volunteer should know before they say yes (parking, what to bring, who to ask for…)"></textarea></div>
             <div class="field"><label>Message</label><textarea id="cmsVolEmailBody" rows="5" placeholder="Write your message to the volunteers…"></textarea></div>
@@ -50357,6 +50358,181 @@ window._volReqIsDone = function(r) {
   return d < today;
 };
 
+/* ── LDAH staff vs volunteers + Sign-Up Sheet (Daniel 2026-11-18) ──────────
+   "have the staff volunteer cards be re-categorized as staff, then when you ask
+   how many volunteers ask how many LDAH staff and how many volunteer ... If more
+   than requested staff sign up count the extras as volunteers and lower that
+   count." The same two rules live in W2 functions/volunteerStaff.js (the server
+   uses them for the Yes link); keep the copies in step. */
+window._volIsStaffCard = function(v) {
+  if (!v) return false;
+  if (v.isStaff === true) return true;
+  if (v.isStaff === false) return false;
+  return /@ldahawaii\.org$/i.test(String(v.email || '').trim());
+};
+window._volPartIsStaff = function(p) {
+  if (!p) return false;
+  if (p.isStaff === true) return true;
+  if (p.isStaff === false) return false;
+  var card = ((typeof _cmsVolunteerApps !== 'undefined' && _cmsVolunteerApps) || []).find(function(a) { return a.id === (p.volunteerId || p.id); });
+  return window._volIsStaffCard(card || { email: p.email });
+};
+window._volCountNeeds = function(r, parts) {
+  r = r || {};
+  var n = function(x) { var v = parseInt(x, 10); return isFinite(v) && v > 0 ? v : 0; };
+  var ps = (parts || []).filter(function(p) { return p && p.confirmed === true; });
+  var staffConf = ps.filter(function(p) { return window._volPartIsStaff(p); }).length;
+  var volConf = ps.length - staffConf;
+  var split = (r.staffNeeded != null || r.volunteersNeeded != null) && (n(r.staffNeeded) + n(r.volunteersNeeded)) > 0;
+  var staffNeeded = split ? n(r.staffNeeded) : 0;
+  var volunteersNeeded = split ? n(r.volunteersNeeded) : n(r.maxVolunteers);
+  var extraStaff = split ? Math.max(0, staffConf - staffNeeded) : 0;
+  var staffStill = split ? Math.max(0, staffNeeded - staffConf) : 0;
+  var volFilled = split ? volConf + extraStaff : volConf + staffConf;
+  return { split: split, staffNeeded: staffNeeded, volunteersNeeded: volunteersNeeded, staffConf: staffConf, volConf: volConf,
+    extraStaff: extraStaff, staffStill: staffStill, volStill: Math.max(0, volunteersNeeded - volFilled), volFilled: volFilled };
+};
+window._volInitials = function(name) {
+  return String(name || '').trim().split(/\s+/).filter(Boolean).map(function(w) { return w.replace(/[^A-Za-z]/g, '').charAt(0).toUpperCase(); }).join('').slice(0, 3);
+};
+window._volMyEmail = function() {
+  try { return String((firebase.auth().currentUser || {}).email || (window.currentUserData || {}).email || '').trim().toLowerCase(); } catch (e) { return ''; }
+};
+/* The signed-in staff member's line on a request, if any. */
+window._volMyPart = function(r) {
+  var me = window.currentUserData || {}, em = window._volMyEmail();
+  return (r.participants || []).find(function(p) {
+    return (me.uid && p.staffUid === me.uid) || (em && String(p.email || '').trim().toLowerCase() === em);
+  }) || null;
+};
+window._volIAmStaff = function() {
+  var em = window._volMyEmail();
+  if (/@ldahawaii\.org$/i.test(em)) return true;
+  return ((typeof _cmsVolunteerApps !== 'undefined' && _cmsVolunteerApps) || []).some(function(a) {
+    return a.status === 'accepted' && a.archived !== true && String(a.email || '').trim().toLowerCase() === em && window._volIsStaffCard(a);
+  });
+};
+
+/* Count me in, from DAN. Confirms the staff member's own line (or adds one) and
+   closes their sign-up task. */
+window.cmsVolCountMeIn = async function(reqId) {
+  var r = (window._cmsVolRequests || []).find(function(x) { return x.id === reqId; });
+  if (!r) return;
+  var me = window.currentUserData || {}, em = window._volMyEmail();
+  var nd = window._volCountNeeds(r, r.participants);
+  if (nd.split && nd.staffStill === 0 && nd.volStill === 0 && !confirm('This one is already full. Sign up anyway?')) return;
+  var mine = window._volMyPart(r);
+  try {
+    var ref = db.collection('volunteerRequests').doc(reqId).collection('participants');
+    var FV = firebase.firestore.FieldValue;
+    if (mine) {
+      await ref.doc(mine.id).set({ confirmed: true, confirmedAt: FV.serverTimestamp(), waitlisted: false, isStaff: true, staffUid: me.uid || mine.staffUid || null,
+        addedByStaff: true, addedByUid: me.uid || '', addedByName: me.displayName || '' }, { merge: true });
+      if (mine.taskId) { try { await db.collection('interactions').doc(mine.taskId).set({ status: 'Closed', closedAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp(), closeNote: 'Signed up' }, { merge: true }); } catch (e) {} }
+    } else {
+      var card = ((typeof _cmsVolunteerApps !== 'undefined' && _cmsVolunteerApps) || []).find(function(a) { return String(a.email || '').trim().toLowerCase() === em && a.status === 'accepted' && a.archived !== true; });
+      await ref.doc(card ? card.id : ('staff_' + me.uid)).set({
+        volunteerId: card ? card.id : '', name: me.displayName || (card ? [card.firstName, card.lastName].filter(Boolean).join(' ') : em), email: em,
+        opportunityId: card ? (card.opportunityId || '') : '', isStaff: true, staffUid: me.uid || null,
+        invitedAt: FV.serverTimestamp(), confirmed: true, confirmedAt: FV.serverTimestamp(), waitlisted: false,
+        attended: false, attendedAt: null, contactId: null, addedByStaff: true, addedByUid: me.uid || '', addedByName: me.displayName || ''
+      }, { merge: true });
+    }
+    if (window.auditLog) window.auditLog('Staff signed up for help request', r.title || reqId);
+    _showToast('You are signed up for ' + (r.title || 'this request') + '.', '#15803D');
+    await cmsLoadVolunteerRequests();
+  } catch (e) { _showToast('Could not sign you up: ' + (e && e.message || e), '#DC2626'); }
+};
+
+/* Roster: mark a card as LDAH staff (or not). */
+window.cmsVolSetStaff = async function(id, on) {
+  try {
+    await db.collection('volunteers').doc(id).update({ isStaff: !!on });
+    var v = (_cmsVolunteerApps || []).find(function(a) { return a.id === id; });
+    if (v) v.isStaff = !!on;
+    if (window.auditLog) window.auditLog(on ? 'Marked volunteer card as LDAH staff' : 'Marked volunteer card as not staff', id);
+    _showToast(on ? 'Now listed as LDAH staff.' : 'Now listed as a volunteer.', '#15803D');
+    if (typeof cmsRenderRoster === 'function') cmsRenderRoster();
+    if (typeof cmsRosterDetails === 'function') cmsRosterDetails(id);
+  } catch (e) { _showToast('Could not change it: ' + (e && e.message || e), '#DC2626'); }
+};
+
+/* Sign-Up Sheet: the layout staff used in Excel (one block per event, numbered
+   lines, name, staff initials). Opens in its own window with Print and a
+   download that opens in Excel. */
+window.cmsVolSignupSheet = function() {
+  var reqs = (window._cmsVolRequests || []).filter(function(r) { return r.status !== 'closed'; }).slice();
+  var when = function(r) { var d = (window._vrDateIso && window._vrDateIso(r)) || ''; if (d) return d; var p = window._volParseReqDate(r.date); return p ? p.toISOString().slice(0, 10) : '9999'; };
+  reqs.sort(function(a, b) { return when(a) < when(b) ? -1 : when(a) > when(b) ? 1 : 0; });
+  var E = function(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var ms = function(t) { return t && t.toDate ? t.toDate().getTime() : (t && t.seconds ? t.seconds * 1000 : 0); };
+  var csv = [['Date of event', 'Time', '#', 'Name of volunteer / staff', 'Type', 'Staff (initials)']];
+  var body = '';
+  reqs.forEach(function(r) {
+    var nd = window._volCountNeeds(r, r.participants);
+    var done = window._volReqIsDone(r);
+    var conf = (r.participants || []).filter(function(p) { return p.confirmed || p.attended; }).slice().sort(function(a, b) { return ms(a.confirmedAt) - ms(b.confirmedAt); });
+    var staffSeen = 0;
+    var rows = conf.map(function(p) {
+      var st = window._volPartIsStaff(p), extra = false;
+      if (st) { staffSeen++; extra = nd.split && staffSeen > nd.staffNeeded; }
+      var ini = st ? window._volInitials(p.name) : (p.addedByStaff && p.addedByName ? window._volInitials(p.addedByName) : 'online');
+      var type = st ? (extra ? 'Staff, extra (counts as volunteer)' : 'Staff') : 'Volunteer';
+      return { name: p.name || p.email || '', type: type, cls: st ? 's' : 'v', ini: ini };
+    });
+    if (done) { /* a finished event lists who came, no open lines */ }
+    else if (nd.split) {
+      for (var i = 0; i < nd.staffStill; i++) rows.push({ name: '', type: 'Staff needed', cls: 'o', ini: '' });
+      for (var j = 0; j < nd.volStill; j++) rows.push({ name: '', type: 'Volunteer needed', cls: 'o', ini: '' });
+    } else {
+      for (var k = 0; k < nd.volStill; k++) rows.push({ name: '', type: 'Open', cls: 'o', ini: '' });
+    }
+    if (!rows.length) rows.push({ name: '', type: 'No one yet', cls: 'o', ini: '' });
+    var need = nd.split
+      ? 'Asked for ' + nd.staffNeeded + ' staff + ' + nd.volunteersNeeded + ' volunteer' + (nd.volunteersNeeded === 1 ? '' : 's') +
+        '<br>Staff ' + nd.staffConf + ' of ' + nd.staffNeeded + ' &middot; Volunteers ' + nd.volFilled + ' of ' + nd.volunteersNeeded +
+        (nd.extraStaff ? '<br>' + nd.extraStaff + ' extra staff counted as volunteer' + (nd.extraStaff === 1 ? '' : 's') : '')
+      : (Number(r.maxVolunteers) > 0 ? Number(r.maxVolunteers) + ' needed' : 'No limit set');
+    var head = '<td class="ev" rowspan="' + rows.length + '">' + E(r.title || '(untitled request)') +
+      '<div class="t">' + E([r.date, r.time].filter(Boolean).join(' · ')) + (r.location ? '<br>' + E(r.location) : '') + (done ? ' · Completed' : '') + '</div>' +
+      '<div class="need">' + need + '</div></td>';
+    body += '<tbody class="blk' + (done ? ' done' : '') + '">' + rows.map(function(x, i) {
+      csv.push([r.title + (r.date ? ' (' + r.date + ')' : ''), r.time || '', i + 1, x.name || '(open)', x.type, x.ini]);
+      return '<tr>' + (i === 0 ? head : '') + '<td class="n">' + (i + 1) + '</td><td' + (x.name ? '' : ' class="empty"') + '>' + E(x.name || 'open') + '</td>' +
+        '<td><span class="chip ' + x.cls + '">' + E(x.type) + '</span></td><td class="in">' + E(x.ini) + '</td></tr>';
+    }).join('') + '<tr class="gap"><td colspan="5"></td></tr></tbody>';
+  });
+  if (!reqs.length) body = '<tbody><tr><td colspan="5" class="empty">No help requests yet.</td></tr></tbody>';
+  var csvText = csv.map(function(row) { return row.map(function(c) { c = String(c == null ? '' : c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(','); }).join('\r\n');
+  var yr = new Date().getFullYear(), m = new Date().getMonth();
+  var py = m >= 6 ? yr + '–' + (yr + 1) : (yr - 1) + '–' + yr;
+  var css = 'body{margin:0;background:#fff;color:#0F172A;font:14px/1.45 Arial,Helvetica,sans-serif}.w{max-width:960px;margin:0 auto;padding:18px 16px 40px}' +
+    'h1{font-size:1.3rem;margin:0 0 10px;text-align:center}.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center;margin-bottom:12px;font-size:.85rem}' +
+    '.bar button{background:#1a3c6e;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:.85rem;cursor:pointer}.bar button.g{background:#fff;color:#1a3c6e;border:1px solid #1a3c6e}' +
+    'table{width:100%;border-collapse:collapse}th,td{border:1px solid #CBD5E1;padding:6px 9px;text-align:left;vertical-align:top}' +
+    'th{background:#1a3c6e;color:#fff;font-size:.74rem;text-transform:uppercase;letter-spacing:.03em}td.ev{width:34%;font-weight:700}' +
+    'td.ev .t{font-weight:400;color:#64748B;font-size:.84rem}td.ev .need{margin-top:6px;font-weight:400;font-size:.8rem}td.n{width:34px;text-align:center;color:#64748B}' +
+    'td.in{width:100px;text-align:center;font-weight:700}tr.gap td{border-left:none;border-right:none;height:10px}.empty{color:#94A3B8;font-style:italic}' +
+    '.chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:.72rem;font-weight:700}.s{background:#ECFEFF;color:#0E7490}.v{background:#F5F3FF;color:#7C3AED}.o{background:#FFFBEB;color:#B45309}' +
+    'body.hide-done tbody.done{display:none}@media print{.bar{display:none}.w{padding:0}tbody.blk{break-inside:avoid}}';
+  var w = window.open('', '_blank');
+  if (!w) { _showToast('Allow pop-ups to view the sign-up sheet.', '#D97706'); return; }
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Volunteer Sign-Up Sheet</title><style>' + css + '</style></head><body class="hide-done"><div class="w">' +
+    '<h1>Volunteer Sign-Up Sheet for LDAH ' + py + '</h1>' +
+    '<div class="bar"><label><input type="checkbox" id="sd" onchange="document.body.classList.toggle(\'hide-done\',!this.checked)"> Show completed</label>' +
+    '<button onclick="window.print()">Print</button><button class="g" id="dl">Download for Excel</button>' +
+    '<span><span class="chip s">Staff</span> <span class="chip v">Volunteer</span> <span class="chip o">Still needed</span></span></div>' +
+    '<table><thead><tr><th>Date of event</th><th>#</th><th>Name of volunteer / staff</th><th>Type</th><th>Staff (initials)</th></tr></thead>' + body + '</table></div></body></html>');
+  w.document.close();
+  var dl = w.document.getElementById('dl');
+  if (dl) dl.onclick = function() {
+    var a = w.document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + csvText], { type: 'text/csv' }));
+    a.download = 'Volunteer-Sign-Up-Sheet-' + new Date().toISOString().slice(0, 10) + '.csv';
+    w.document.body.appendChild(a); a.click(); a.remove();
+  };
+};
+
 window.cmsRenderVolunteerRequests = function() {
   var host = document.getElementById('cmsVolRequestsList');
   var reqs = window._cmsVolRequests || [];
@@ -50367,7 +50543,8 @@ window.cmsRenderVolunteerRequests = function() {
     host.innerHTML = '<div class="cms-empty"><p>No help requests yet. Send one from the Roster tab &mdash; select volunteers and choose &ldquo;Email them&rdquo;.</p></div>';
     return;
   }
-  host.innerHTML = reqs.map(function(r) {
+  var _iAmStaff = window._volIAmStaff();
+  host.innerHTML = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn btn-primary" style="font-size:.82rem;" onclick="cmsVolSignupSheet()" title="Every help request in the Excel sign-up sheet layout, with Print and Download">Sign-Up Sheet</button></div>' + reqs.map(function(r) {
     var conf = (r.participants || []).filter(function(p){ return p.confirmed; }).length;
     var att = (r.participants || []).filter(function(p){ return p.attended; }).length;
     var wait = (r.participants || []).filter(function(p){ return p.waitlisted && !p.confirmed; }).length;
@@ -50375,9 +50552,17 @@ window.cmsRenderVolunteerRequests = function() {
     var max = Number(r.maxVolunteers || 0);
     var when = [r.date, r.time].filter(Boolean).join(' · ');
     var meta = [when, r.location].filter(Boolean).join(' — ');
-    var isFull = max > 0 && conf >= max;
+    var nd = window._volCountNeeds(r, r.participants);
+    var isFull = nd.split ? (nd.staffStill === 0 && nd.volStill === 0) : (max > 0 && conf >= max);
     var done = window._volReqIsDone(r);
-    var confLabel = max > 0 ? (conf + ' confirmed \u00b7 ' + max + ' needed') : (conf + ' of ' + inv + ' confirmed');  // "of 6" read as the volunteer total (Daniel 11-09)
+    var confLabel = nd.split
+      ? ('Staff ' + nd.staffConf + ' of ' + nd.staffNeeded + ' \u00b7 Volunteers ' + nd.volFilled + ' of ' + nd.volunteersNeeded)
+      : (max > 0 ? (conf + ' confirmed \u00b7 ' + max + ' needed') : (conf + ' of ' + inv + ' confirmed'));  // "of 6" read as the volunteer total (Daniel 11-09)
+    var mine = window._volMyPart(r);
+    var meBtn = (!done && (_iAmStaff || (mine && window._volPartIsStaff(mine))))
+      ? (mine && mine.confirmed ? '<span class="vac-badge" style="background:#ECFEFF;color:#0E7490;">You are signed up</span>'
+         : '<button class="btn" style="font-size:.8rem;background:#0E7490;color:#fff;border:none;" onclick="cmsVolCountMeIn(\'' + rsEscape(r.id) + '\')">Count me in</button>')
+      : '';
     // Done requests use the muted (slate) badge; active ones stay blue.
     var confStyle = done ? 'background:#E2E8F0;color:#475569;' : '';
     var confCls = done ? 'vac-badge' : 'vac-badge vb-contacted';
@@ -50391,11 +50576,12 @@ window.cmsRenderVolunteerRequests = function() {
         '</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
           '<span class="' + confCls + '"' + (confStyle ? ' style="' + confStyle + '"' : '') + '>' + confLabel + '</span>' +
+          (nd.extraStaff ? '<span class="vac-badge" style="background:#ECFEFF;color:#0E7490;" title="Staff beyond the number asked for count as volunteers">' + nd.extraStaff + ' extra staff counted as volunteer' + (nd.extraStaff === 1 ? '' : 's') + '</span>' : '') +
           (wait ? '<span class="vac-badge" style="background:#FEF3C7;color:#B45309;">' + wait + ' waiting</span>' : '') +
           (att ? '<span class="vac-badge"' + (done ? ' style="background:#E2E8F0;color:#475569;"' : ' style="background:#DCFCE7;color:#15803D;"') + '>' + att + ' attended</span>' : '') +
         '</div>' +
       '</div>' +
-      '<div class="vac-foot">' +
+      '<div class="vac-foot">' + meBtn +
         '<button class="btn btn-primary" style="font-size:.8rem;" onclick="cmsRequestAttendance(\'' + rsEscape(r.id) + '\')">Take attendance</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsViewRoster(\'' + rsEscape(r.id) + '\')">View roster</button>' +
         '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="cmsVolHoursSheet(\'' + rsEscape(r.id) + '\')">Hours</button>' +
@@ -50551,7 +50737,7 @@ window.cmsVolAddToRequest = async function(reqId) {
   var vols = [];
   try {
     var snap = await db.collection('volunteers').where('status', '==', 'accepted').get();
-    snap.forEach(function(d){ var v = d.data() || {}; if (v.archived === true || have[d.id]) return; var op = onReq[d.id]; vols.push({ id: d.id, name: [v.firstName, v.lastName].filter(Boolean).join(' ').trim() || v.email || '(no name)', email: String(v.email || '').trim(), opportunityId: v.opportunityId || '', pid: op ? op.id : '', note: op ? (op.waitlisted ? 'On the waiting list' : 'Invited, no answer yet') : '' }); });
+    snap.forEach(function(d){ var v = d.data() || {}; if (v.archived === true || have[d.id]) return; var op = onReq[d.id]; vols.push({ isStaff: window._volIsStaffCard(v), id: d.id, name: [v.firstName, v.lastName].filter(Boolean).join(' ').trim() || v.email || '(no name)', email: String(v.email || '').trim(), opportunityId: v.opportunityId || '', pid: op ? op.id : '', note: op ? (op.waitlisted ? 'On the waiting list' : 'Invited, no answer yet') : '' }); });
   } catch (e) {
     document.getElementById('cmsVolAddList').innerHTML = '<div style="color:#DC2626;padding:10px 0;">Could not load volunteers: ' + rsEscape(e.message) + '</div>';
     return;
@@ -50586,13 +50772,13 @@ window.cmsVolAddToRequest = async function(reqId) {
       pick.forEach(function(v){
         if (v.pid) {  // already invited: confirm them, keep their invite, link and contact
           batch.set(db.collection('volunteerRequests').doc(reqId).collection('participants').doc(v.pid), {
-            confirmed: true, confirmedAt: firebase.firestore.FieldValue.serverTimestamp(), waitlisted: false,
+            confirmed: true, confirmedAt: firebase.firestore.FieldValue.serverTimestamp(), waitlisted: false, isStaff: !!v.isStaff,
             addedByStaff: true, addedByUid: me.uid || '', addedByName: me.displayName || ''
           }, { merge: true });
           return;
         }
         batch.set(db.collection('volunteerRequests').doc(reqId).collection('participants').doc(v.id), {
-          volunteerId: v.id, name: v.name, email: v.email, opportunityId: v.opportunityId,
+          volunteerId: v.id, name: v.name, email: v.email, opportunityId: v.opportunityId, isStaff: !!v.isStaff,
           invitedAt: firebase.firestore.FieldValue.serverTimestamp(),
           confirmed: true, confirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
           attended: false, attendedAt: null, contactId: null,
@@ -50600,6 +50786,11 @@ window.cmsVolAddToRequest = async function(reqId) {
         }, { merge: true });
       });
       await batch.commit();
+      /* A staff member added here no longer needs their sign-up task. */
+      pick.forEach(function(v) {
+        var p = v.pid && (r.participants || []).find(function(x) { return x.id === v.pid; });
+        if (p && p.taskId) db.collection('interactions').doc(p.taskId).set({ status: 'Closed', closedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp(), closeNote: 'Signed up' }, { merge: true }).catch(function() {});
+      });
       if (window.auditLog) window.auditLog('Added volunteers to help request', (r.title || reqId) + ': ' + pick.map(function(v){ return v.name; }).join(', '));
       close();
       _showToast(pick.length + ' volunteer' + (pick.length === 1 ? '' : 's') + ' added to ' + (r.title || 'the request') + '.', '#15803D');
@@ -50647,7 +50838,10 @@ window.cmsVolEditRequest = function(reqId) {
       '<label style="' + lab + '">Calendar date <span style="font-weight:500;color:#64748B;">(puts it on the Dashboard and Events Dashboard calendars)</span><input id="cvIso" type="date" class="vr-iso" value="' + rsEscape(window._vrDateIso(r)) + '" style="' + inp + 'max-width:190px;"></label>' +
       f('cvTime', 'Time', r.time) + f('cvLoc', 'Location', r.location) +
       f('cvDetails', 'Details', r.details, true) +
-      '<label style="' + lab + '">Volunteers needed<input id="cvMax" type="number" min="0" value="' + (Number(r.maxVolunteers) || '') + '" style="' + inp + 'max-width:120px;"></label>' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
+        '<label style="' + lab + '">How many LDAH staff?<input id="cvStaff" type="number" min="0" value="' + (r.staffNeeded != null ? (Number(r.staffNeeded) || 0) : '') + '" style="' + inp + 'max-width:120px;"></label>' +
+        '<label style="' + lab + '">How many volunteers?<input id="cvVols" type="number" min="0" value="' + (r.volunteersNeeded != null ? (Number(r.volunteersNeeded) || 0) : (Number(r.maxVolunteers) || '')) + '" style="' + inp + 'max-width:120px;"></label>' +
+      '</div><div style="font-size:.76rem;color:#64748B;margin:-4px 0 10px;">Extra staff who sign up count toward the volunteers. Both blank = no limit.</div>' +
       '<div style="border-top:1px solid #E2E8F0;margin-top:6px;padding-top:12px;">' +
         f('cvNote', 'Note for the email (what changed)', '', true) +
         '<div style="font-size:.8rem;color:#64748B;">"Save and email everyone" sends the new details and this note to ' + withEmail + ' of ' + conf.length + ' confirmed' + (conf.length > withEmail ? ' (' + (conf.length - withEmail) + ' without an email)' : '') + '.</div>' +
@@ -50670,7 +50864,8 @@ window.cmsVolEditRequest = function(reqId) {
     msg.style.color = '#64748B'; msg.textContent = 'Saving…';
     try {
       var upd = { title: title, date: val('cvDate'), dateIso: val('cvIso'), time: val('cvTime'), location: val('cvLoc'), details: val('cvDetails'),
-        maxVolunteers: Math.max(0, parseInt(val('cvMax'), 10) || 0),
+        staffNeeded: Math.max(0, parseInt(val('cvStaff'), 10) || 0), volunteersNeeded: Math.max(0, parseInt(val('cvVols'), 10) || 0),
+        maxVolunteers: Math.max(0, parseInt(val('cvStaff'), 10) || 0) + Math.max(0, parseInt(val('cvVols'), 10) || 0),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedByName: (window.currentUserData || {}).displayName || '' };
       await db.collection('volunteerRequests').doc(reqId).set(upd, { merge: true });
       if (window.auditLog) window.auditLog('Edited help request', title);
@@ -51154,7 +51349,8 @@ window.cmsVisibleRoster = function() {
   var q = ((document.getElementById('cmsVolRosterSearch') || {}).value || '').trim().toLowerCase();
   var f = window._cmsRosterOppFilter;
   return window.cmsAcceptedVolunteers().filter(function(v) {
-    if (f && f !== 'all' && v.opportunityId !== f) return false;
+    if (f === '__staff__' && !window._volIsStaffCard(v)) return false;
+    if (f && f !== 'all' && f !== '__staff__' && (v.opportunityId !== f || window._volIsStaffCard(v))) return false;
     if (!q) return true;
     var hay = ([v.firstName, v.lastName, v.email].filter(Boolean).join(' ')).toLowerCase();
     return hay.indexOf(q) !== -1;
@@ -51171,10 +51367,11 @@ window.cmsRenderRoster = function() {
   var badge = document.getElementById('cmsVolRosterCountBadge');
   if (badge) { badge.textContent = all.length; badge.style.display = all.length ? 'inline-block' : 'none'; }
   // Opportunity filter chips (only opportunities that have accepted volunteers)
-  var counts = {}; all.forEach(function(v) { counts[v.opportunityId || ''] = (counts[v.opportunityId || ''] || 0) + 1; });
+  var counts = {}, staffN = 0; all.forEach(function(v) { if (window._volIsStaffCard(v)) { staffN++; return; } counts[v.opportunityId || ''] = (counts[v.opportunityId || ''] || 0) + 1; });
   var fwrap = document.getElementById('cmsVolRosterFilters');
   if (fwrap) {
-    var chips = '<span class="vros-chip' + (window._cmsRosterOppFilter === 'all' ? ' on' : '') + '" onclick="cmsRosterFilterOpp(\'all\')">All ' + all.length + '</span>';
+    var chips = '<span class="vros-chip' + (window._cmsRosterOppFilter === 'all' ? ' on' : '') + '" onclick="cmsRosterFilterOpp(\'all\')">All ' + all.length + '</span>' +
+      (staffN ? '<span class="vros-chip' + (window._cmsRosterOppFilter === '__staff__' ? ' on' : '') + '" onclick="cmsRosterFilterOpp(\'__staff__\')">LDAH Staff ' + staffN + '</span>' : '');
     Object.keys(counts).forEach(function(oid) {
       if (!oid) return;
       var opp = _cmsVolunteerOpps.find(function(o) { return o.id === oid; });
@@ -51195,7 +51392,7 @@ window.cmsRenderRoster = function() {
     grid.innerHTML = list.map(function(v) {
       var fullName = [v.firstName, v.lastName].filter(Boolean).join(' ') || '(No name)';
       var opp = _cmsVolunteerOpps.find(function(o) { return o.id === v.opportunityId; });
-      var oppTitle = opp ? rsEscape(opp.title) : (v.opportunityId ? rsEscape(v.opportunityId) : 'General');
+      var oppTitle = window._volIsStaffCard(v) ? 'LDAH Staff' : (opp ? rsEscape(opp.title) : (v.opportunityId ? rsEscape(v.opportunityId) : 'General'));
       var since = '';
       try { since = (v.submittedAt && v.submittedAt.toDate) ? v.submittedAt.toDate().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''; } catch (e) {}
       var selCls = window._cmsRosterSel[v.id] ? ' sel' : '';
@@ -51225,10 +51422,12 @@ window.cmsRenderRoster = function() {
 // Recipients for a send: the selected roster subset if any are ticked,
 // otherwise the whole accepted roster.
 window.cmsEmailTargets = function() {
-  var accepted = window.cmsAcceptedVolunteers();
+  var all = window.cmsAcceptedVolunteers();
+  var accepted = all.filter(function(v) { return !window._volIsStaffCard(v); });   // staff get their own notice (2026-11-18)
   var sel = window._cmsRosterSel || {};
+  var anySel = all.some(function(v) { return sel[v.id]; });
   var picked = accepted.filter(function(v) { return sel[v.id]; });
-  return picked.length ? picked : accepted;
+  return anySel ? picked : accepted;
 };
 
 window.cmsRosterDetails = function(id) {
@@ -51262,6 +51461,10 @@ window.cmsRosterDetails = function(id) {
     '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;margin-top:8px;" onclick="cmsSaveAppNotes(\'' + rsEscape(v.id) + '\',\'' + notesId + '\')">Save notes</button>';
   // Leaving the roster (2026-10-02): an accepted volunteer needs a way off it.
   // Same handlers as the Applications cards (cmsUpdateAppStatus / cmsArchiveApp).
+  html += '<div class="vd-lbl">LDAH staff</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.86rem;color:var(--text-soft);">' +
+    (window._volIsStaffCard(v)
+      ? '<span>Listed as <b style="color:#0E7490;">LDAH staff</b>: gets a staff email and task for each new help request, never the volunteer email.</span><button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;" onclick="cmsVolSetStaff(' + _vdEsc(JSON.stringify(v.id)) + ',false)">Not staff</button>'
+      : '<span>Listed as a volunteer.</span><button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;" onclick="cmsVolSetStaff(' + _vdEsc(JSON.stringify(v.id)) + ',true)">Mark as LDAH staff</button>') + '</div>';
   html += '<div class="vd-lbl">Roster status</div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
       '<button class="btn btn-ghost" style="font-size:.8rem;padding:5px 14px;" onclick="cmsRosterSetStatus(' + _vdEsc(JSON.stringify(v.id)) + ',\'interviewing\')" title="Move back to the Applications tab (Interviewing)">Move back to Applications</button>' +
@@ -51739,15 +51942,17 @@ window.cmsSendVolunteerEmail = async function() {
       time: (document.getElementById('cmsVolReqTime').value || '').trim(),
       location: (document.getElementById('cmsVolReqLocation').value || '').trim(),
       details: (document.getElementById('cmsVolReqDetails').value || '').trim(),
-      maxVolunteers: parseInt(document.getElementById('cmsVolReqMax').value, 10) || 0
+      staffNeeded: Math.max(0, parseInt(document.getElementById('cmsVolReqStaff').value, 10) || 0),
+      volunteersNeeded: Math.max(0, parseInt(document.getElementById('cmsVolReqVols').value, 10) || 0)
     });
     var sent = (res && res.data && res.data.sent) || 0;
-    if (window.auditLog) window.auditLog('Sent volunteer help request', sent + ' recipient(s) — ' + subject);
-    _showToast('Help request sent to ' + sent + ' volunteer' + (sent === 1 ? '' : 's') + '.', '#16A34A');
+    var staffSent = (res && res.data && res.data.staffSent) || 0;
+    if (window.auditLog) window.auditLog('Sent volunteer help request', sent + ' volunteer(s), ' + staffSent + ' staff — ' + subject);
+    _showToast('Help request sent to ' + sent + ' volunteer' + (sent === 1 ? '' : 's') + (staffSent ? ' and ' + staffSent + ' staff (email + task)' : '') + '.', '#16A34A');
     if (typeof cmsLoadVolunteerRequests === 'function') cmsLoadVolunteerRequests();
     document.getElementById('cmsVolEmailSubject').value = '';
     document.getElementById('cmsVolEmailBody').value = '';
-    ['cmsVolReqDate','cmsVolReqTime','cmsVolReqLocation','cmsVolReqDetails','cmsVolReqMax'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+    ['cmsVolReqDate','cmsVolReqTime','cmsVolReqLocation','cmsVolReqDetails','cmsVolReqStaff','cmsVolReqVols'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
     window._cmsRosterSel = {};
     if (typeof cmsRenderRoster === 'function') cmsRenderRoster();
     cmsCloseVolunteerEmail();
