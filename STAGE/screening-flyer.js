@@ -231,7 +231,7 @@ function ensureCss(doc) {
 function mount(el, spec, tpl) { ensureCss(); el.innerHTML = html(spec, tpl); const r = el.querySelector('.sf'); fit(r); if (document.fonts) document.fonts.ready.then(() => fit(r)); return r; }
 
 /* ---- Rendering to an image, the same way the Virtual Event Builder does it ---- */
-let renderer = null, fontCss = null;
+let renderer = null;
 function getRenderer() {
   if (renderer) return renderer;
   renderer = new Promise((resolve, reject) => {
@@ -246,15 +246,31 @@ function getRenderer() {
   return renderer;
 }
 // html-to-image cannot read the Google Fonts stylesheet across origins: inline the latin font files.
-function getFontCss() {
-  if (fontCss) return fontCss;
-  fontCss = fetch(FONTS).then(r => r.text()).then(css => {
-    const blocks = css.split(/(?=\/\* [a-z-]+ \*\/)/).filter(b => /^\/\* latin \*\//.test(b));
-    return Promise.all(blocks.map(b => { const m = b.match(/url\((https:[^)]+)\)/); if (!m) return b;
-      return fetch(m[1]).then(r => r.blob()).then(bl => new Promise(res => { const fr = new FileReader(); fr.onload = () => res(b.replace(m[1], fr.result)); fr.readAsDataURL(bl); })); }))
-      .then(p => p.join('\n'));
-  }).catch(e => { fontCss = null; throw e; });
-  return fontCss;
+/* Fonts for the image (2026-11-19): html-to-image cannot read the Google Fonts stylesheet, so
+   the latin font files are inlined as data URLs. Google serves ONE variable file for every
+   weight of a family, so each file is fetched and embedded once, with a weight range, and
+   only the families a design uses go in. Embedding every weight separately made the image
+   too heavy and the browser silently fell back to Arial. */
+const DESIGN_FONTS = { A: ['Fredoka', 'Nunito'], B: ['Baloo 2', 'Nunito'], C: ['Fredoka', 'Nunito'], D: ['Nunito', 'Roboto Condensed'] };
+let fontFaces = null;
+function loadFaces() {
+  if (fontFaces) return fontFaces;
+  fontFaces = fetch(FONTS).then(r => r.text()).then(css => {
+    const by = {};
+    css.split(/(?=\/\* [a-z-]+ \*\/)/).filter(b => /^\/\* latin \*\//.test(b)).forEach(b => {
+      const fam = (b.match(/font-family: '([^']+)'/) || [])[1], url = (b.match(/url\((https:[^)]+)\)/) || [])[1];
+      const wt = +((b.match(/font-weight: (\d+)/) || [])[1] || 400), ur = (b.match(/unicode-range: ([^;]+);/) || [])[1] || '';
+      if (!fam || !url) return; const k = fam + '|' + url;
+      if (!by[k]) by[k] = { fam: fam, url: url, lo: wt, hi: wt, ur: ur }; else { by[k].lo = Math.min(by[k].lo, wt); by[k].hi = Math.max(by[k].hi, wt); }
+    });
+    return Promise.all(Object.keys(by).map(k => { const f = by[k];
+      return fetch(f.url).then(r => r.blob()).then(bl => new Promise(res => { const fr = new FileReader(); fr.onload = () => res(Object.assign(f, { data: fr.result })); fr.readAsDataURL(bl); })); }));
+  }).catch(e => { fontFaces = null; throw e; });
+  return fontFaces;
+}
+async function getFontCss(tpl) {
+  const want = DESIGN_FONTS[tpl] || ['Fredoka', 'Nunito', 'Baloo 2', 'Roboto Condensed'];
+  return (await loadFaces()).filter(f => want.indexOf(f.fam) !== -1).map(f => "@font-face{font-family:'" + f.fam + "';font-style:normal;font-weight:" + f.lo + (f.hi !== f.lo ? ' ' + f.hi : '') + ";font-display:block;src:url(" + f.data + ") format('woff2');" + (f.ur ? 'unicode-range:' + f.ur + ';' : '') + '}').join('\n');
 }
 async function render(spec, tpl) {
   const f = await getRenderer(), doc = f.contentDocument, w = f.contentWindow, box = doc.getElementById('r');
@@ -263,7 +279,7 @@ async function render(spec, tpl) {
   await Promise.all([].map.call(box.querySelectorAll('img'), im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; })));
   const node = box.firstElementChild; fit(node);
   await new Promise(r => setTimeout(r, 120));
-  return w.htmlToImage.toJpeg(node, { quality: 0.9, pixelRatio: 1, width: W, height: H, cacheBust: true, backgroundColor: '#ffffff', fontEmbedCSS: await getFontCss() });
+  return w.htmlToImage.toJpeg(node, { quality: 0.9, pixelRatio: 1, width: W, height: H, cacheBust: true, backgroundColor: '#ffffff', fontEmbedCSS: await getFontCss(tpl) });
 }
 /* A letter-size PDF around the JPEG (jsPDF is already on the DAN page). Returns base64 (no prefix). */
 function pdf(jpegDataUrl) {
