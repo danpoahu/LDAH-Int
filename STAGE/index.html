@@ -6320,7 +6320,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.89-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.90-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -50988,21 +50988,55 @@ window.cmsVolSignupSheet = function() {
     'td.in{width:100px;text-align:center;font-weight:700}tr.gap td{border-left:none;border-right:none;height:10px}.empty{color:#94A3B8;font-style:italic}' +
     '.chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:.72rem;font-weight:700}.s{background:#ECFEFF;color:#0E7490}.v{background:#F5F3FF;color:#7C3AED}.o{background:#FFFBEB;color:#B45309}' +
     'body.hide-done tbody.done{display:none}@media print{.bar{display:none}.w{padding:0}tbody.blk{break-inside:avoid}}';
-  var w = window.open('', '_blank');
-  if (!w) { _showToast('Allow pop-ups to view the sign-up sheet.', '#D97706'); return; }
-  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Volunteer Sign-Up Sheet</title><style>' + css + '</style></head><body class="hide-done"><div class="w">' +
-    '<h1>Volunteer Sign-Up Sheet for LDAH ' + py + '</h1>' +
-    '<div class="bar"><label><input type="checkbox" id="sd" onchange="document.body.classList.toggle(\'hide-done\',!this.checked)"> Show completed</label>' +
-    '<button onclick="window.print()">Print</button><button class="g" id="dl">Download for Excel</button>' +
-    '<span><span class="chip s">Staff</span> <span class="chip v">Volunteer</span> <span class="chip o">Still needed</span></span></div>' +
-    '<table><thead><tr><th>Date of event</th><th>#</th><th>Name of volunteer / staff</th><th>Type</th><th>Staff (initials)</th></tr></thead>' + body + '</table></div></body></html>');
-  w.document.close();
-  var dl = w.document.getElementById('dl');
-  if (dl) dl.onclick = function() {
-    var a = w.document.createElement('a');
+  /* In a pop-up that fits the screen and scrolls (Daniel 2026-11-19). Print
+     goes through a hidden frame so it prints only the sheet. */
+  var title = 'Volunteer Sign-Up Sheet for LDAH ' + py;
+  var table = '<table><thead><tr><th>Date of event</th><th>#</th><th>Name of volunteer / staff</th><th>Type</th><th>Staff (initials)</th></tr></thead>' + body + '</table>';
+  var old = document.getElementById('cmsSusOv'); if (old) old.remove();
+  var sc = css.replace(/(^|\})\s*([^{}@]+)\{/g, function(m, b, sel) {
+    if (/^\s*(from|to|\d+%)\s*$/.test(sel)) return m;
+    return b + sel.split(',').map(function(x) { x = x.trim(); return x === 'body' ? '#cmsSusOv .sus' : '#cmsSusOv .sus ' + x.replace(/^body\.hide-done\s*/, ''); }).join(',') + '{';
+  });
+  sc = sc.replace('#cmsSusOv .sus tbody.done{display:none}', '#cmsSusOv .sus.hide-done tbody.done{display:none}');
+  var ov = document.createElement('div');
+  ov.id = 'cmsSusOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:12px;';
+  ov.innerHTML = '<style>' + sc + '#cmsSusOv .sus table{min-width:620px}</style>' +
+    '<div style="background:#fff;width:min(980px,100%);max-height:calc(100vh - 24px);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.3);">' +
+      '<div style="background:#1a3c6e;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+        '<div style="font-weight:700;font-size:1rem;margin-right:auto;">' + E(title) + '</div>' +
+        '<label style="font-size:.82rem;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="cmsSusDone"> Show completed</label>' +
+        '<button type="button" class="btn" id="cmsSusPrint" style="font-size:.8rem;background:#fff;color:#1a3c6e;border:none;">Print</button>' +
+        '<button type="button" class="btn" id="cmsSusDl" style="font-size:.8rem;background:rgba(255,255,255,.18);color:#fff;border:none;">Download for Excel</button>' +
+        '<button type="button" id="cmsSusClose" aria-label="Close" style="background:none;border:none;color:#fff;font-size:1.5rem;line-height:1;cursor:pointer;padding:0 4px;">&times;</button>' +
+      '</div>' +
+      '<div class="sus hide-done" id="cmsSusBody" style="overflow:auto;flex:1;min-height:0;padding:14px 16px 18px;">' +
+        '<div style="font-size:.8rem;margin-bottom:10px;"><span class="chip s">Staff</span> <span class="chip v">Volunteer</span> <span class="chip o">Still needed</span></div>' + table +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  var close = function() { ov.remove(); document.removeEventListener('keydown', onKey); };
+  var onKey = function(e) { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  ov.addEventListener('click', function(e) { if (e.target === ov) close(); });
+  document.getElementById('cmsSusClose').onclick = close;
+  document.getElementById('cmsSusDone').onchange = function() { document.getElementById('cmsSusBody').classList.toggle('hide-done', !this.checked); };
+  document.getElementById('cmsSusPrint').onclick = function() {
+    var showDone = document.getElementById('cmsSusDone').checked;
+    var f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(f);
+    var d = f.contentWindow.document;
+    d.open();
+    d.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + E(title) + '</title><style>' + css + '</style></head><body' + (showDone ? '' : ' class="hide-done"') + '><div class="w"><h1>' + E(title) + '</h1>' + table + '</div></body></html>');
+    d.close();
+    setTimeout(function() { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {} setTimeout(function() { f.remove(); }, 1500); }, 250);
+  };
+  document.getElementById('cmsSusDl').onclick = function() {
+    var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csvText], { type: 'text/csv' }));
     a.download = 'Volunteer-Sign-Up-Sheet-' + new Date().toISOString().slice(0, 10) + '.csv';
-    w.document.body.appendChild(a); a.click(); a.remove();
+    document.body.appendChild(a); a.click(); a.remove();
   };
 };
 
