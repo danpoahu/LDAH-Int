@@ -6287,7 +6287,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.10</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.11</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -72436,6 +72436,54 @@ async function _pcWsPrevEnsure() {
   return true;
 }
 window.pcWsToggleLY = function (on) { _pbState.wsLY = !!on; try { localStorage.setItem('pcWsLY', on ? '1' : '0'); } catch (e) {} _pbRender(); };
+/* Send back missing details (Daniel 2026-11-19, from the CPIR review: "gather all of that ...
+   one crack and say this needs to be done by tomorrow"). Every child counted in Section III
+   whose record lacks a name, age, ethnicity or disability goes back to whoever entered the
+   parent's contact: ONE task per person listing each parent and what is missing, due
+   tomorrow. A partner's task carries their island so it shows in their My Day. */
+window.pcSendBackMissing = async function () {
+  if (!(window.currentUserData && window.currentUserData.role === 'superAdmin')) { _showToast('Super Admin only.', '#B45309'); return; }
+  var R = _pcLast || _pcCompute(), kids = (R.detail && R.detail.kids) || [], C = _pbCache || {};
+  var byId = {}; (C.contacts || []).forEach(function (c) { byId[c.id] = c; });
+  var per = {};
+  kids.forEach(function (k) {
+    if (!k.cid) return;
+    var miss = [];
+    if (!k.child) miss.push('child’s name');
+    if (!k.sideSet) miss.push('age / date of birth');
+    if (!k.eth) miss.push('ethnicity');
+    if (!(k.dis && k.dis.length) && !(k.disOther && k.disOther.length)) miss.push('disability');
+    if (!miss.length) return;
+    var ct = byId[k.cid] || {}, raw = ct.raw || {}, uid = raw.createdBy || raw.ownerUid || raw.createdByUid || '';
+    var o = per[uid] = per[uid] || { uid: uid, name: raw.createdByName || '', recs: {} };
+    var r = o.recs[k.cid] = o.recs[k.cid] || { name: ct.name || k.parent || 'Contact', miss: {} };
+    miss.forEach(function (m) { r.miss[m] = 1; });
+  });
+  var owners = Object.keys(per).filter(function (u) { return Object.keys(per[u].recs).length; });
+  if (!owners.length) { _showToast('No records with missing details in this report.', '#15803D'); return; }
+  var roles = {};
+  try { var rs = await db.collection('userRoles').get(); rs.forEach(function (d) { roles[d.id] = d.data() || {}; }); } catch (e) {}
+  var me = window.currentUserData || {};
+  var lines = owners.map(function (u) { var o = per[u], n = Object.keys(o.recs).length, who = (roles[u] && roles[u].displayName) || o.name || 'Not known (comes to you)'; return who + ': ' + n + ' record' + (n === 1 ? '' : 's'); });
+  if (!confirm('Send back ' + owners.reduce(function (a, u) { return a + Object.keys(per[u].recs).length; }, 0) + ' records with missing details, one task each, due tomorrow?\n\n' + lines.join('\n'))) return;
+  var t = new Date(); t.setDate(t.getDate() + 1);
+  var due = t.toLocaleDateString('en-CA', { timeZone: 'Pacific/Honolulu' }), made = 0;
+  for (var i = 0; i < owners.length; i++) {
+    var u = owners[i], o = per[u], ro = roles[u] || null, ownUid = ro ? u : me.uid, ownName = ro ? (ro.displayName || o.name) : (me.displayName || '');
+    var ids = Object.keys(o.recs);
+    var notes = 'The CPIR report needs these details, due tomorrow. Open each family’s contact card and fill in what is missing for the child:\n\n' +
+      ids.map(function (cid) { var r = o.recs[cid]; return '• ' + r.name + ': ' + Object.keys(r.miss).join(', '); }).join('\n') +
+      (ro ? '' : '\n\n(Who entered these is not recorded, so they came to you.)');
+    var doc = { channel: 'Internal', interactionType: 'Data Fix', contactId: ids.length === 1 ? ids[0] : '', contactName: ids.length === 1 ? o.recs[ids[0]].name : 'CPIR: ' + ids.length + ' records',
+      summary: 'CPIR: fill in missing child details on ' + ids.length + ' record' + (ids.length === 1 ? '' : 's') + ' (due ' + due + ')', notes: notes,
+      followUpDate: due, status: 'Open', urgent: true, isDraft: false, owner: ownName, ownerUid: ownUid, workflowStep: 'cpirMissing', cpirContactIds: ids,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: me.uid || '', createdByName: me.displayName || '' };
+    if (ro && (ro.role === 'partner' || ro.role === 'superPartner') && ro.location) doc.partnerIsland = ro.location;
+    try { await db.collection('interactions').add(doc); made++; } catch (e) { console.warn('send back:', e && e.message); }
+  }
+  if (window.auditLog) window.auditLog('CPIR missing details sent back', made + ' task(s): ' + lines.join('; '));
+  _showToast(made + ' task' + (made === 1 ? '' : 's') + ' sent, due tomorrow.', '#15803D');
+};
 function _pcWsHtml() {
   var R = _pcCompute(); _pcLast = R;
   var rows = _pcRows(), V = {};
@@ -72475,6 +72523,7 @@ function _pcWsHtml() {
        'Transition age is ' + _PC_TA + ' and over. <span style="background:#F0FDF4;color:#15803D;font-weight:700;padding:0 5px;border-radius:4px;">Green</span> = from DAN. <span style="background:#FEF3C7;color:#92400E;font-weight:700;padding:0 5px;border-radius:4px;">Yellow</span> = nothing in DAN: type it on the Parent Center Data Collection tab and save, or type it straight into the CPIR form.</div></div>' +
        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
        '<label style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;border:1px solid #CBD5E1;border-radius:8px;padding:5px 11px;cursor:pointer;background:' + (_pbState.wsLY ? '#E0F2FE' : '#fff') + ';" title="Puts last year\u2019s figure (LY) in small grey type under each number, for the same dates one year earlier."><input type="checkbox"' + (_pbState.wsLY ? ' checked' : '') + ' onchange="pcWsToggleLY(this.checked)"> Show last year</label>' +
+       '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;color:#B45309;border-color:#FCD34D;" onclick="pcSendBackMissing()" title="Every child counted in Section III with no name, age, ethnicity or disability: one task to whoever entered the family, due tomorrow.">Send back missing details</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pcPrint()" title="Opens a printable copy. Choose Save as PDF in the print window.">Print / PDF</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pcExportCsv()">Download CSV</button>' +
        '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 12px;" onclick="pbSetView(\'cpir\')" title="Where typed figures are entered and saved, with the records behind every figure.">Type in figures</button>' +
