@@ -6291,7 +6291,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.28</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.29</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7246,11 +7246,12 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
               var me=window.currentUserData||{};
               var p=document.getElementById('srDohPanel'), bar=document.getElementById('srDohWaitBar');
               if(p){
-                if(me.uid==='YmGV2TlBGqR01dVdxZ0rtFLEFCG3'){
+                if(me.uid==='YmGV2TlBGqR01dVdxZ0rtFLEFCG3'||me.uid==='xxApwGPzZafLhmfrGll6gwylknJ3'){
                   p.style.display='';
                   document.getElementById('srDohLinkRow').style.display='none'; document.getElementById('srDohLink').value='';
                   _dohCall({action:'status'}).then(function(j){
-                    document.getElementById('srDohStatus').textContent=j.hasKey?('Link made '+new Date(j.keyMadeAt).toLocaleDateString()):'No link yet';
+                    document.getElementById('srDohEmail').value=j.email||'';
+                    document.getElementById('srDohStatus').textContent=(j.linkEmailedAt?('Link emailed to DOH '+new Date(j.linkEmailedAt).toLocaleDateString()):(j.hasKey?('Link made '+new Date(j.keyMadeAt).toLocaleDateString()+', not emailed yet'):'No link yet'));
                   }).catch(function(err){ document.getElementById('srDohStatus').textContent='Could not load: '+err.message; });
                 } else p.style.display='none';
               }
@@ -7264,10 +7265,37 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                 document.getElementById('srDohWaitNote').textContent=t?window._srDohWaiting.map(function(x){return x.school+' ('+x.count+')';}).join(', '):'Nothing new from DOH.';
               }catch(err){ bar.style.display='none'; }
             };
+            window.srDohSaveEmail = async function(btn){
+              var e=String(document.getElementById('srDohEmail').value||'').trim();
+              if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)){ _showToast('Type a valid email.', '#DC2626'); return; }
+              btn.disabled=true;
+              try{ await _dohCall({action:'setEmail',email:e}); _showToast('DOH email saved: '+e, '#15803D'); }
+              catch(err){ _showToast('Not saved: '+err.message, '#DC2626'); }
+              btn.disabled=false;
+            };
+            /* Two clicks: a new link replaces the old one, then the system emails it
+               (with the how-to steps) to the saved DOH address. */
+            window.srDohSendLink = async function(btn){
+              var e=String(document.getElementById('srDohEmail').value||'').trim();
+              if(!e){ _showToast('Type DOH\'s email and press Save first.', '#DC2626'); return; }
+              if(!btn.dataset.armed){
+                btn.dataset.armed='1'; btn.textContent='Click again to email '+e;
+                setTimeout(function(){ delete btn.dataset.armed; btn.textContent='Email DOH the link'; },6000);
+                return;
+              }
+              delete btn.dataset.armed; btn.disabled=true; btn.textContent='Sending…';
+              try{
+                await _dohCall({action:'setEmail',email:e});
+                await _dohCall({action:'sendLink'});
+                _showToast('Link emailed to '+e+'. Any older link has stopped working.', '#15803D');
+                window.srDohInit();
+              }catch(err){ _showToast('Not sent: '+err.message, '#DC2626'); }
+              btn.disabled=false; btn.textContent='Email DOH the link';
+            };
             window.srDohNewKey = async function(btn){
               if(!btn.dataset.armed){
                 btn.dataset.armed='1'; btn.textContent='Click again: the old link stops working';
-                setTimeout(function(){ delete btn.dataset.armed; btn.textContent='New DOH link'; },6000);
+                setTimeout(function(){ delete btn.dataset.armed; btn.textContent='New link to copy'; },6000);
                 return;
               }
               delete btn.dataset.armed; btn.disabled=true; btn.textContent='Making…';
@@ -7277,7 +7305,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                 document.getElementById('srDohLinkRow').style.display='flex';
                 document.getElementById('srDohStatus').textContent='New link made just now';
               }catch(err){ _showToast('Not made: '+err.message, '#DC2626'); }
-              btn.disabled=false; btn.textContent='New DOH link';
+              btn.disabled=false; btn.textContent='New link to copy';
             };
             window.myDayOpenContact = function(id){
               var d=(window._myDayDocs||{})[id];
@@ -10630,9 +10658,13 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
            ldahawaii.org/lions-upload.html?k=..., gets a 6-digit code by email each
            visit and can only send. Batches arrive as a task on Daniel's My Day. -->
       <div id="srDohPanel" style="display:none;margin:0 0 14px;padding:12px 14px;border:1px solid #CBD5E1;border-left:4px solid #1a3c6e;border-radius:10px;background:var(--card-bg,#fff);font-size:.85rem;">
-        <div style="font-weight:700;color:#1a3c6e;margin-bottom:6px;">DOH upload link <span style="font-weight:400;color:var(--text-soft);">(only you see this) &middot; DOH bookmarks the link; no code, no expiry; the page can only send</span></div>
+        <div style="font-weight:700;color:#1a3c6e;margin-bottom:6px;">DOH upload link <span style="font-weight:400;color:var(--text-soft);">(Daniel and Justin only) &middot; DOH bookmarks the link; no code, no expiry; the page can only send</span></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-          <button class="btn" id="srDohKeyBtn" style="font-size:.75rem;padding:5px 11px;background:#1a3c6e;color:#fff;" onclick="srDohNewKey(this)">New DOH link</button>
+          <label for="srDohEmail" style="font-weight:600;">DOH email</label>
+          <input type="email" id="srDohEmail" placeholder="DOH contact's email" style="font-size:.82rem;padding:5px 8px;border:1px solid #CBD5E1;border-radius:6px;min-width:240px;">
+          <button class="btn" style="font-size:.75rem;padding:5px 11px;" onclick="srDohSaveEmail(this)">Save</button>
+          <button class="btn" id="srDohSendBtn" style="font-size:.75rem;padding:5px 11px;background:#15803D;color:#fff;" onclick="srDohSendLink(this)">Email DOH the link</button>
+          <button class="btn" id="srDohKeyBtn" style="font-size:.75rem;padding:5px 11px;background:#1a3c6e;color:#fff;" onclick="srDohNewKey(this)">New link to copy</button>
           <span id="srDohStatus" style="color:var(--text-soft);"></span>
         </div>
         <div id="srDohLinkRow" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap;">
