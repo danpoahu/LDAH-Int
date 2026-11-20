@@ -6291,7 +6291,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.27</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.28</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7206,14 +7206,9 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
               var d=(window._myDayDocs||{})[taskId]; if(!d||!d.dohBatchId) return;
               btn.disabled=true; var was=btn.innerHTML; btn.textContent='Loading…';
               try{
-                var list=await _dohCall({action:'files',batchId:d.dohBatchId});
-                var files=[];
-                for(var i=0;i<list.files.length;i++){
-                  var f=list.files[i]; btn.textContent='Loading '+(i+1)+' of '+list.files.length+'…';
-                  var j=await _dohCall({action:'file',batchId:d.dohBatchId,storagePath:f.storagePath});
-                  var bin=atob(j.base64), u8=new Uint8Array(bin.length); for(var b=0;b<bin.length;b++) u8[b]=bin.charCodeAt(b);
-                  files.push(new File([u8], f.name||('form-'+(i+1)), {type:f.mimeType}));
-                }
+                var cnt=0, r=await _dohFetchBatch(d.dohBatchId, function(){ cnt++; btn.textContent='Loading '+cnt+'…'; });
+                var files=r.files, list={school:r.school};
+                try{ await _dohCall({action:'markLoaded',batchId:d.dohBatchId}); }catch(e){}
                 var nav=document.querySelector('[data-section=screeningReferrals]'); if(nav) nav.click();
                 setTimeout(function(){
                   if(typeof window.srIngestFiles==='function'){ window.srIngestFiles(files); _showToast(files.length+' DOH forms from '+(list.school||'DOH')+' are being read.', '#15803D'); }
@@ -7221,25 +7216,53 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
               }catch(err){ _showToast('Could not load the DOH forms: '+err.message, '#DC2626'); }
               btn.disabled=false; btn.innerHTML=was;
             };
-            window.srDohInit = async function(){
-              var p=document.getElementById('srDohPanel'); if(!p) return;
-              var me=window.currentUserData||{};
-              if(me.uid!=='YmGV2TlBGqR01dVdxZ0rtFLEFCG3'){ p.style.display='none'; return; }
-              p.style.display='';
-              document.getElementById('srDohLinkRow').style.display='none'; document.getElementById('srDohLink').value='';
+            /* Everything DOH sent that nobody has loaded yet, in one press. Loading
+               marks the batch loaded; the task's own button can still reload it. */
+            async function _dohFetchBatch(batchId, onEach){
+              var list=await _dohCall({action:'files',batchId:batchId}), out=[];
+              for(var i=0;i<list.files.length;i++){
+                var f=list.files[i]; if(onEach) onEach();
+                var j=await _dohCall({action:'file',batchId:batchId,storagePath:f.storagePath});
+                var bin=atob(j.base64), u8=new Uint8Array(bin.length); for(var b=0;b<bin.length;b++) u8[b]=bin.charCodeAt(b);
+                out.push(new File([u8], f.name||('form-'+(i+1)), {type:f.mimeType}));
+              }
+              return {school:list.school, files:out};
+            }
+            window.srDohLoadWaiting = async function(btn){
+              var bt=window._srDohWaiting||[]; if(!bt.length){ _showToast('No DOH forms waiting.', '#B45309'); return; }
+              btn.disabled=true; var all=[], n=0, total=bt.reduce(function(a,x){return a+x.count;},0);
               try{
-                var j=await _dohCall({action:'status'});
-                document.getElementById('srDohEmail').value=j.email||'';
-                document.getElementById('srDohStatus').textContent=j.hasKey?('Link made '+new Date(j.keyMadeAt).toLocaleDateString()):'No link yet';
-              }catch(err){ document.getElementById('srDohStatus').textContent='Could not load: '+err.message; }
+                for(var i=0;i<bt.length;i++){
+                  var r=await _dohFetchBatch(bt[i].batchId, function(){ n++; btn.textContent='Loading '+n+' of '+total+'…'; });
+                  all=all.concat(r.files);
+                }
+                if(typeof window.srIngestFiles==='function') window.srIngestFiles(all);
+                for(var k=0;k<bt.length;k++){ try{ await _dohCall({action:'markLoaded',batchId:bt[k].batchId}); }catch(e){} }
+                _showToast(all.length+' DOH forms are being read. Check them and save as usual.', '#15803D');
+              }catch(err){ _showToast('Could not load the DOH forms: '+err.message, '#DC2626'); }
+              btn.disabled=false; window.srDohInit();
             };
-            window.srDohSaveEmail = async function(btn){
-              var e=String(document.getElementById('srDohEmail').value||'').trim();
-              if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)){ _showToast('Type a valid email.', '#DC2626'); return; }
-              btn.disabled=true;
-              try{ await _dohCall({action:'setEmail',email:e}); _showToast('Codes will go to '+e, '#15803D'); }
-              catch(err){ _showToast('Not saved: '+err.message, '#DC2626'); }
-              btn.disabled=false;
+            window.srDohInit = async function(){
+              var me=window.currentUserData||{};
+              var p=document.getElementById('srDohPanel'), bar=document.getElementById('srDohWaitBar');
+              if(p){
+                if(me.uid==='YmGV2TlBGqR01dVdxZ0rtFLEFCG3'){
+                  p.style.display='';
+                  document.getElementById('srDohLinkRow').style.display='none'; document.getElementById('srDohLink').value='';
+                  _dohCall({action:'status'}).then(function(j){
+                    document.getElementById('srDohStatus').textContent=j.hasKey?('Link made '+new Date(j.keyMadeAt).toLocaleDateString()):'No link yet';
+                  }).catch(function(err){ document.getElementById('srDohStatus').textContent='Could not load: '+err.message; });
+                } else p.style.display='none';
+              }
+              if(!bar) return;
+              try{
+                var w=await _dohCall({action:'waiting'}); window._srDohWaiting=w.batches||[];
+                var t=window._srDohWaiting.reduce(function(a,x){return a+x.count;},0);
+                bar.style.display='';
+                document.getElementById('srDohWaitBtn').textContent='DOH forms ('+t+' waiting)';
+                document.getElementById('srDohWaitBtn').disabled=!t;
+                document.getElementById('srDohWaitNote').textContent=t?window._srDohWaiting.map(function(x){return x.school+' ('+x.count+')';}).join(', '):'Nothing new from DOH.';
+              }catch(err){ bar.style.display='none'; }
             };
             window.srDohNewKey = async function(btn){
               if(!btn.dataset.armed){
@@ -10607,11 +10630,8 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
            ldahawaii.org/lions-upload.html?k=..., gets a 6-digit code by email each
            visit and can only send. Batches arrive as a task on Daniel's My Day. -->
       <div id="srDohPanel" style="display:none;margin:0 0 14px;padding:12px 14px;border:1px solid #CBD5E1;border-left:4px solid #1a3c6e;border-radius:10px;background:var(--card-bg,#fff);font-size:.85rem;">
-        <div style="font-weight:700;color:#1a3c6e;margin-bottom:6px;">DOH upload link <span style="font-weight:400;color:var(--text-soft);">(only you see this)</span></div>
+        <div style="font-weight:700;color:#1a3c6e;margin-bottom:6px;">DOH upload link <span style="font-weight:400;color:var(--text-soft);">(only you see this) &middot; DOH bookmarks the link; no code, no expiry; the page can only send</span></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-          <label for="srDohEmail" style="font-weight:600;">Code goes to</label>
-          <input type="email" id="srDohEmail" placeholder="DOH person's email" style="font-size:.82rem;padding:5px 8px;border:1px solid #CBD5E1;border-radius:6px;min-width:240px;">
-          <button class="btn" style="font-size:.75rem;padding:5px 11px;" onclick="srDohSaveEmail(this)">Save</button>
           <button class="btn" id="srDohKeyBtn" style="font-size:.75rem;padding:5px 11px;background:#1a3c6e;color:#fff;" onclick="srDohNewKey(this)">New DOH link</button>
           <span id="srDohStatus" style="color:var(--text-soft);"></span>
         </div>
@@ -10620,6 +10640,11 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
           <button class="btn" style="font-size:.75rem;padding:5px 11px;" onclick="var i=document.getElementById('srDohLink');i.select();navigator.clipboard&&navigator.clipboard.writeText(i.value);_showToast('Link copied','#15803D')">Copy</button>
           <span style="color:#B45309;font-size:.78rem;">Shown once. Send it to the DOH person; it is not stored anywhere you can see again.</span>
         </div>
+      </div>
+
+      <div id="srDohWaitBar" style="display:none;margin:0 0 14px;">
+        <button class="btn" id="srDohWaitBtn" style="background:#1a3c6e;color:#fff;font-weight:700;padding:9px 16px;border-radius:8px;" onclick="srDohLoadWaiting(this)">DOH forms</button>
+        <span id="srDohWaitNote" style="margin-left:8px;font-size:.82rem;color:var(--text-soft);"></span>
       </div>
 
       <!-- Two drop cards (v153.10-STAGE): Lions Club forms keep exactly the
