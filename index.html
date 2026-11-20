@@ -6291,7 +6291,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.26</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.27</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -7190,6 +7190,71 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                 _showToast('Sent to '+e+': '+j.families+' families, '+j.forms+' forms attached.', '#15803D');
                 if(typeof window.loadMyDay==='function') window.loadMyDay();
               }catch(err){ btn.disabled=false; btn.innerHTML=was; _showToast('Not sent: '+err.message, '#DC2626'); }
+            };
+            /* DOH Lions upload (2026-11-20). Files come back through lionsDohAdmin
+               (staff token), are turned into File objects and fed to the normal
+               Screening Referrals intake; staff check and save as usual. */
+            var _DOH_FN='https://us-central1-ldah-932d5.cloudfunctions.net/lionsDohAdmin';
+            async function _dohCall(data){
+              var tok=await firebase.auth().currentUser.getIdToken();
+              var resp=await fetch(_DOH_FN,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({idToken:tok},data))});
+              var j=await resp.json().catch(function(){return {};});
+              if(!resp.ok) throw new Error(j.error||'request failed');
+              return j;
+            }
+            window.myDayDohOpen = async function(taskId, btn){
+              var d=(window._myDayDocs||{})[taskId]; if(!d||!d.dohBatchId) return;
+              btn.disabled=true; var was=btn.innerHTML; btn.textContent='Loading…';
+              try{
+                var list=await _dohCall({action:'files',batchId:d.dohBatchId});
+                var files=[];
+                for(var i=0;i<list.files.length;i++){
+                  var f=list.files[i]; btn.textContent='Loading '+(i+1)+' of '+list.files.length+'…';
+                  var j=await _dohCall({action:'file',batchId:d.dohBatchId,storagePath:f.storagePath});
+                  var bin=atob(j.base64), u8=new Uint8Array(bin.length); for(var b=0;b<bin.length;b++) u8[b]=bin.charCodeAt(b);
+                  files.push(new File([u8], f.name||('form-'+(i+1)), {type:f.mimeType}));
+                }
+                var nav=document.querySelector('[data-section=screeningReferrals]'); if(nav) nav.click();
+                setTimeout(function(){
+                  if(typeof window.srIngestFiles==='function'){ window.srIngestFiles(files); _showToast(files.length+' DOH forms from '+(list.school||'DOH')+' are being read.', '#15803D'); }
+                },600);
+              }catch(err){ _showToast('Could not load the DOH forms: '+err.message, '#DC2626'); }
+              btn.disabled=false; btn.innerHTML=was;
+            };
+            window.srDohInit = async function(){
+              var p=document.getElementById('srDohPanel'); if(!p) return;
+              var me=window.currentUserData||{};
+              if(me.uid!=='YmGV2TlBGqR01dVdxZ0rtFLEFCG3'){ p.style.display='none'; return; }
+              p.style.display='';
+              document.getElementById('srDohLinkRow').style.display='none'; document.getElementById('srDohLink').value='';
+              try{
+                var j=await _dohCall({action:'status'});
+                document.getElementById('srDohEmail').value=j.email||'';
+                document.getElementById('srDohStatus').textContent=j.hasKey?('Link made '+new Date(j.keyMadeAt).toLocaleDateString()):'No link yet';
+              }catch(err){ document.getElementById('srDohStatus').textContent='Could not load: '+err.message; }
+            };
+            window.srDohSaveEmail = async function(btn){
+              var e=String(document.getElementById('srDohEmail').value||'').trim();
+              if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)){ _showToast('Type a valid email.', '#DC2626'); return; }
+              btn.disabled=true;
+              try{ await _dohCall({action:'setEmail',email:e}); _showToast('Codes will go to '+e, '#15803D'); }
+              catch(err){ _showToast('Not saved: '+err.message, '#DC2626'); }
+              btn.disabled=false;
+            };
+            window.srDohNewKey = async function(btn){
+              if(!btn.dataset.armed){
+                btn.dataset.armed='1'; btn.textContent='Click again: the old link stops working';
+                setTimeout(function(){ delete btn.dataset.armed; btn.textContent='New DOH link'; },6000);
+                return;
+              }
+              delete btn.dataset.armed; btn.disabled=true; btn.textContent='Making…';
+              try{
+                var j=await _dohCall({action:'newKey'});
+                document.getElementById('srDohLink').value=j.link;
+                document.getElementById('srDohLinkRow').style.display='flex';
+                document.getElementById('srDohStatus').textContent='New link made just now';
+              }catch(err){ _showToast('Not made: '+err.message, '#DC2626'); }
+              btn.disabled=false; btn.textContent='New DOH link';
             };
             window.myDayOpenContact = function(id){
               var d=(window._myDayDocs||{})[id];
@@ -8091,6 +8156,9 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                           +'<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#1a3c6e;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="event.stopPropagation();myDayLionsContactSend('+_jsArg(d._id)+',this)">Email the list + forms &rarr;</button>'
                           +'</div></div>';
                       }
+                      /* DOH Lions upload (2026-11-20): load the batch into Screening Referrals. */
+                      if(r.bucket!=='done'&&d.workflowStep==='dohLionsUpload'&&d.dohBatchId&&!actionBtn)
+                        actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#1a3c6e;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayDohOpen('+_jsArg(d._id)+',this)">Open in Screening Referrals ('+(d.dohFileCount||0)+') &rarr;</button>';
                       /* Yearly office holidays task (2026-11-13): open the Office holidays card. */
                       if(r.bucket!=='done'&&d.workflowStep==='officeHolidaysYearly'&&!actionBtn)
                         actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#B45309;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();var _l=document.querySelector(\'[data-section=listmanagement]\');if(_l)_l.click();setTimeout(function(){var c=document.getElementById(\'lmHolCard\');if(c){c.classList.remove(\'collapsed\');lmLoadHolidays();c.scrollIntoView({behavior:\'smooth\',block:\'start\'});}},400)">Open Office holidays &rarr;</button>';
@@ -10532,6 +10600,25 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
           <h2 class="section-title">Screening Referrals <span class="cms-ib" onclick="event.stopPropagation();cmsIbShow(this,'Two kinds of paper come in here. <b>Lions Club screening forms</b> (left): drop the scanned Lions vision or hearing results forms. Each page is read automatically, then you check it before anything is saved. Only referred children should appear &mdash; a child who passed stays with the school. <b>LDAH school consent forms</b> (right): a school&rsquo;s classroom PDF of our Informed Consent and Release forms. Fill in the school, classroom and screening dates first, then drop the PDF. Each page is read, the pages are put together into one row per child, and you check every row before anything is saved. A consent that is not signed is never saved.')">i</span></h2>
           <span id="srGeneratedAt" style="font-size:.78rem;color:var(--text-soft);"></span>
+        </div>
+      </div>
+
+      <!-- DOH upload link (2026-11-20): Daniel only. The DOH person bookmarks
+           ldahawaii.org/lions-upload.html?k=..., gets a 6-digit code by email each
+           visit and can only send. Batches arrive as a task on Daniel's My Day. -->
+      <div id="srDohPanel" style="display:none;margin:0 0 14px;padding:12px 14px;border:1px solid #CBD5E1;border-left:4px solid #1a3c6e;border-radius:10px;background:var(--card-bg,#fff);font-size:.85rem;">
+        <div style="font-weight:700;color:#1a3c6e;margin-bottom:6px;">DOH upload link <span style="font-weight:400;color:var(--text-soft);">(only you see this)</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <label for="srDohEmail" style="font-weight:600;">Code goes to</label>
+          <input type="email" id="srDohEmail" placeholder="DOH person's email" style="font-size:.82rem;padding:5px 8px;border:1px solid #CBD5E1;border-radius:6px;min-width:240px;">
+          <button class="btn" style="font-size:.75rem;padding:5px 11px;" onclick="srDohSaveEmail(this)">Save</button>
+          <button class="btn" id="srDohKeyBtn" style="font-size:.75rem;padding:5px 11px;background:#1a3c6e;color:#fff;" onclick="srDohNewKey(this)">New DOH link</button>
+          <span id="srDohStatus" style="color:var(--text-soft);"></span>
+        </div>
+        <div id="srDohLinkRow" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="srDohLink" readonly style="font-size:.78rem;padding:5px 8px;border:1px solid #CBD5E1;border-radius:6px;flex:1;min-width:260px;">
+          <button class="btn" style="font-size:.75rem;padding:5px 11px;" onclick="var i=document.getElementById('srDohLink');i.select();navigator.clipboard&&navigator.clipboard.writeText(i.value);_showToast('Link copied','#15803D')">Copy</button>
+          <span style="color:#B45309;font-size:.78rem;">Shown once. Send it to the DOH person; it is not stored anywhere you can see again.</span>
         </div>
       </div>
 
@@ -17006,6 +17093,7 @@ var _photoPendingByIsland = {};
           return;
         }
         _showFullWidth(document.getElementById('screeningReferralsSection'), window.srLoadQueue);
+        if (typeof window.srDohInit === 'function') window.srDohInit();
       } else if (section === 'auditlog') {
         _showFullWidth(document.getElementById('auditLogSection'), loadAuditLog);
       } else if (section === 'emaillog') {
@@ -76654,6 +76742,8 @@ window.cmsBuildMembershipReport = async function() {
     if (input && input.files && input.files.length) _srProcessFiles(input.files);
     if (input) input.value = '';   // so the same file can be picked again
   };
+  /* DOH upload batches (2026-11-20) are fed in here as File objects. */
+  window.srIngestFiles = function (files) { if (files && files.length) return _srProcessFiles(files); };
 
   /* Sequential, not parallel. A school batch is a dozen pages; firing them all
      at once would hit the function's instance cap and fail the tail of the
