@@ -6324,7 +6324,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.22-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.23-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -38951,6 +38951,14 @@ async function scLoad(fromIso, toIso) {
       t = r.startTime ? { start: r.startTime, end: r.endTime || '' } : null;
     } else if (r.office || r.vol) {
       var l = leadOf(r.leadUid, r.leadName); x.leadUids = l.uids; x.leadNames = l.names;
+      if (r.vol && Array.isArray(r.confirmedPeople)) {
+        // Staff confirmed on a help request see it too, dashed like a helper.
+        r.confirmedPeople.forEach(function(p) {
+          var s = staff.filter(function(st) { return p.email && st.email === p.email; })[0];
+          var u = s ? s.uid : (uidByName[p.name.toLowerCase()] || '');
+          if (u && x.leadUids.indexOf(u) < 0 && x.attendeeUids.indexOf(u) < 0) x.attendeeUids.push(u);
+        });
+      }
       t = r.office ? { start: r.startTime, end: r.endTime } : _scParseTime(r.timeText);
     } else {
       var l2 = leadOf(r.presenterUid, r.rawPresenter); x.leadUids = l2.uids; x.leadNames = l2.names;
@@ -39310,14 +39318,21 @@ window._vrLoadForCalendar = async function (fromIso, toIso) {
   if (!_edStaffCalAllowed()) return out;
   try {
     var snap = await db.collection('volunteerRequests').orderBy('createdAt', 'desc').limit(150).get();
+    var reads = [];
     snap.forEach(function (d) {
       var r = d.data() || {}; if (r.archived === true || r.status === 'cancelled') return;
       var iso = window._vrDateIso(r); if (!iso || iso < fromIso || iso > toIso) return;
-      out.push({ coll: 'volunteerRequests', id: d.id, vol: true, title: r.title || 'Volunteer help request', date: iso, key: '',
+      // Confirmed people, so staff who signed up see it on their own calendar (Daniel 2026-11-23).
+      var row = { confirmedPeople: [] };
+      reads.push(d.ref.collection('participants').where('confirmed', '==', true).get().then(function (ps) {
+        ps.forEach(function (p) { var q = p.data() || {}; row.confirmedPeople.push({ email: String(q.email || '').trim().toLowerCase(), name: String(q.name || '').trim() }); });
+      }).catch(function (e) { console.warn('help request people not loaded', d.id, e && e.message); }));
+      out.push(Object.assign(row, { coll: 'volunteerRequests', id: d.id, vol: true, title: r.title || 'Volunteer help request', date: iso, key: '',
                  when: r.time || '', sortTime: '', where: r.location || '', notes: r.details || '', single: true,
                  eventType: 'volunteer_request', typeKey: 'volunteer_request', cancelled: false, maxVolunteers: Number(r.maxVolunteers) || 0,
-                 leadUid: r.leadUid || '', leadName: r.leadName || '', timeText: r.time || '' });
+                 leadUid: r.leadUid || '', leadName: r.leadName || '', timeText: r.time || '' }));
     });
+    await Promise.all(reads);
   } catch (e) { console.warn('Volunteer help requests not loaded for the calendar:', e && e.message); }
   return out;
 };
@@ -39583,7 +39598,7 @@ async function _edAgLoadStaff() {
     var x = d.data() || {};
     if (x.isArchived === true || x.role === 'partner' || x.role === 'superPartner') return;
     var n = x.displayName || x.name || x.email || ''; if (!n || /^\./.test(n)) return;
-    list.push({ uid: d.id, name: n, screener: x.screener === true });
+    list.push({ uid: d.id, name: n, email: String(x.email || '').trim().toLowerCase(), screener: x.screener === true });
   });
   list.sort(function(a, b) { return a.name.localeCompare(b.name); });
   return (_edAgStaff = list);
