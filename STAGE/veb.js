@@ -311,6 +311,7 @@
     body.innerHTML =
       '<div class="veb-wrap' + (rnd ? ' veb-rnd' : '') + '"><div class="veb-form">'
       + (S.id ? '<div class="veb-editing">Editing: ' + esc(S.title || 'saved event') + ' <span class="veb-pill ' + (S.active ? 'live' : '') + '">' + (S.active ? 'On the website' : 'Hidden draft') + '</span> <a href="javascript:void(0)" onclick="VEB.newEvent()">Start a new event</a></div>' : '')
+      + '<section class="veb-card"><div class="veb-card-h"><span class="veb-num">1</span>Event and dates</div>'
       + '<div class="veb-row3"><label>Series *<select id="vebSeries" onchange="VEB.seriesChanged()"><option' + (S.series === 'Learning Labs' ? ' selected' : '') + '>Learning Labs</option><option' + (S.series === 'Parent Talk Café' ? ' selected' : '') + '>Parent Talk Café</option><option' + (rnd ? ' selected' : '') + '>Random</option><option>Screenings</option></select></label>'
       + (rnd ? '<label style="grid-column:span 2">Event name *<input id="vebTitle" maxlength="48" value="' + esc(S.title) + '" oninput="VEB.changed()" placeholder="For example: Holiday Family Night"></label></div>'
           + '<label>One short line under the name<input id="vebTagline" maxlength="70" value="' + esc(S.tagline) + '" oninput="VEB.changed()" placeholder="For example: Games, crafts and a visit from Santa"></label>'
@@ -325,19 +326,20 @@
       + '<div id="vebSessions">' + S.sessions.map(sessRow).join('') + '</div>'
       + (S.sessions.length < 2 ? '<button class="btn btn-ghost veb-small" onclick="VEB.addSession()">Add a session</button>' : '')
       + (rnd ? '' : '<datalist id="vebLessons">' + LESSONS.map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist>')
+      + '</section><section class="veb-card"><div class="veb-card-h"><span class="veb-num">2</span>Presenter and grant</div>'
       + '<div class="veb-row2"><label>Presenter<input id="vebPresenter" value="' + esc(S.presenter) + '" oninput="VEB.changed()"></label>'
       + '<label>Grant / Program<input id="vebGrant" value="' + esc(S.grant) + '" oninput="VEB.changed()" placeholder="For example: HI-PTI"></label></div>'
       + '<label class="veb-chk" style="margin:-2px 0 10px"><input type="checkbox" id="vebShowPresenter"' + (S.showPresenter ? ' checked' : '') + ' onchange="VEB.changed()"> Show the presenter on the flyer (guest speaker)</label>'
-      + '<div class="veb-lbl">Callout boxes <span class="veb-muted" style="font-weight:400">(two are picked at random and shown where the flyer has room)</span></div><div>'
+      + '</section><section class="veb-card"><div class="veb-card-h"><span class="veb-num">3</span>Callout boxes <span class="veb-muted" style="font-weight:400">(two are picked at random and shown where the flyer has room)</span></div><div>'
       + (F().CALLOUT_PRESETS || []).map(function (c) { return '<label class="veb-chk"><input type="checkbox" class="veb-callout" value="' + esc(c) + '"' + ((S.callouts || []).indexOf(c) >= 0 ? ' checked' : '') + ' onchange="VEB.changed()"> ' + esc(c) + '</label>'; }).join('') + '</div>'
       + '<div class="veb-row2" style="margin-top:6px">' + [0, 1].map(function (i) { return '<label>Your own callout ' + (i + 1) + '<input class="veb-callout-own" maxlength="32" value="' + esc((S.customCallouts || [])[i] || '') + '" oninput="VEB.changed()" placeholder="For example: Spanish interpreter available"></label>'; }).join('') + '</div>'
-      + '<div class="veb-lbl">Sponsor logos on the flyer <span class="veb-muted" style="font-weight:400">(tick up to 3)</span></div><div class="veb-logos">' + spons + '</div>' + logoForm
+      + '</section><section class="veb-card"><div class="veb-card-h"><span class="veb-num">4</span>Sponsor logos on the flyer <span class="veb-muted" style="font-weight:400">(tick up to 3)</span></div><div class="veb-logos">' + spons + '</div>' + logoForm
       + (inPerson() ? '' : '<label class="veb-chk" style="margin-top:8px"><input type="checkbox" id="vebPartner"' + (S.partnerPages ? ' checked' : '') + ' onchange="VEB.changed()"> Also list it on the six partner island pages</label>')
-      + '<div class="veb-btns"><button class="btn" onclick="VEB.makeFlyers()">Make flyers</button>'
+      + '</section><div class="veb-btns"><button class="btn" onclick="VEB.makeFlyers()">Make flyers</button>'
       + '<button class="btn btn-ghost" onclick="VEB.save(false)">Save as hidden draft</button>'
       + (S.id && S.active ? '<button class="btn btn-ghost" onclick="VEB.unpublish()">Hide from website</button>' : '<button class="btn btn-ghost veb-pub" onclick="VEB.save(true)">Publish to website…</button>') + '</div>'
       + '<p class="veb-muted">Saving keeps the event hidden from ldahawaii.org. Publish puts it on the website straight away.</p>'
-      + '</div><div class="veb-side"><div class="veb-lbl">Pick a design <span class="veb-muted" style="font-weight:400">(' + (rnd ? randomTemplates().length + ', ' : '') + 'click one)</span></div><div id="vebPick" class="veb-pick' + (rnd ? ' veb-pick-rnd' : '') + (S.ownMode ? ' veb-off' : '') + '"></div>' + sideExtras(rnd) + '<div class="veb-lbl" style="margin-top:14px">Each island\'s local time</div><div id="vebTz"></div></div></div>'
+      + '</div><div class="veb-side"><section class="veb-card veb-card-side"><div class="veb-card-h">Pick a design <span class="veb-muted" style="font-weight:400">(' + (rnd ? randomTemplates().length + ', ' : '') + 'click one)</span></div><div id="vebPick" class="veb-pick' + (rnd ? ' veb-pick-rnd' : '') + (S.ownMode ? ' veb-off' : '') + '"></div>' + sideExtras(rnd) + '</section><section class="veb-card veb-card-side"><div class="veb-card-h">Each island\'s local time</div><div id="vebTz"></div></section></div></div>'
       + '<div class="veb-lbl" style="margin-top:18px">Flyers</div><p id="vebFlyerNote" class="veb-muted">Click Make flyers to draw all four.</p><div id="vebFlyers" class="veb-flyers"></div>'
       + '<div class="veb-lbl" style="margin-top:22px">Events made with the builder</div><div id="vebList" class="veb-muted">Loading…</div>';
     readForm(); tzTable(); drawPicker(); loadList();
@@ -561,7 +563,10 @@
     } catch (e) { toast('Could not open it: ' + e.message, '#DC2626'); }
   }
 
-  var CSS = '.veb-off{opacity:.35;pointer-events:none}.veb-up label,.veb-own label{display:block;font-size:.8rem;margin:6px 0}'
+  var CSS = '.veb-card{border:1px solid #cbd5e1;border-left:4px solid #0F766E;border-radius:12px;padding:12px 14px 6px;margin:0 0 16px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.05)}.veb-card-side{border-left-color:#0369A1}'
+    + '.veb-card-h{display:flex;align-items:center;gap:8px;font-weight:800;font-size:.95rem;color:#0f172a;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid #e2e8f0}.veb-card-h .veb-muted{margin:0}'
+    + '.veb-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#0F766E;color:#fff;font-size:.75rem;font-weight:800;flex:none}'
+    + '.veb-off{opacity:.35;pointer-events:none}.veb-up label,.veb-own label{display:block;font-size:.8rem;margin:6px 0}'
     + '.veb-side input[type=file],.veb-side input:not([type]),.veb-side select{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:7px;font:inherit;font-size:.84rem;background:#fff}'
     + '.veb-pick-rnd{max-height:calc(100vh - 260px);min-height:320px;overflow:auto;padding-right:4px}'
     + '.veb-logos{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;max-height:330px;overflow:auto;padding:2px}.veb-logo{display:flex!important;flex-direction:column;align-items:center;gap:4px;margin:0!important;padding:6px;border:2px solid #e2e8f0;border-radius:9px;cursor:pointer;background:#fff;position:relative}.veb-logo:hover{border-color:#94a3b8}.veb-logo.on{border-color:#0F766E;background:#ecfdf5}.veb-logo input{position:absolute;top:5px;left:5px;margin:0}.veb-logo-art{height:46px;width:100%;display:flex;align-items:center;justify-content:center;border-radius:5px}.veb-logo-art.dk{background:#1d2430}.veb-logo-art img{max-height:42px;max-width:92px;object-fit:contain}.veb-logo-n{font-size:.7rem;font-weight:600;color:#334155;text-align:center;line-height:1.15}.veb-logo-n i{font-weight:400;color:#64748b}.veb-logo-x{position:absolute;top:2px;right:3px;width:20px;height:20px;border:0;border-radius:50%;background:transparent;color:#94a3b8;font-size:15px;line-height:1;cursor:pointer;padding:0;opacity:0;transition:opacity .15s}.veb-logo:hover .veb-logo-x,.veb-logo-x:focus{opacity:1}.veb-logo-x:hover{background:#fee2e2;color:#b91c1c}.veb-logo-add{border-style:dashed;font:inherit;color:#0f766e}.veb-logo-add .veb-logo-art{font-size:28px;font-weight:300;color:#0f766e}.veb-logo-form{margin-top:10px;padding:10px 12px;border:1px solid #99f6e4;background:#f0fdfa;border-radius:9px}'
