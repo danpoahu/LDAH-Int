@@ -6292,7 +6292,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.36</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.37</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -8211,6 +8211,9 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
                       /* DOH Lions upload (2026-11-20): load the batch into Screening Referrals. */
                       if(r.bucket!=='done'&&d.workflowStep==='dohLionsUpload'&&d.dohBatchId&&!actionBtn)
                         actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#1a3c6e;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayDohOpen('+_jsArg(d._id)+',this)">Open in Screening Referrals ('+(d.dohFileCount||0)+') &rarr;</button>';
+                      /* Advocacy check-in review (v156.32-STAGE): straight to the family's answers. */
+                      if(r.bucket!=='done'&&d.workflowStep==='advocacyCheckInReview'&&!actionBtn)
+                        actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#6D28D9;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();myDayCheckInOpen('+_jsArg(d._id)+')">Open the check-in &rarr;</button>';
                       /* Yearly office holidays task (2026-11-13): open the Office holidays card. */
                       if(r.bucket!=='done'&&d.workflowStep==='officeHolidaysYearly'&&!actionBtn)
                         actionBtn='<button class="btn" style="font-size:.72rem;padding:5px 11px;background:#B45309;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:7px;font-weight:600;align-self:flex-start;" onclick="event.stopPropagation();var _l=document.querySelector(\'[data-section=listmanagement]\');if(_l)_l.click();setTimeout(function(){var c=document.getElementById(\'lmHolCard\');if(c){c.classList.remove(\'collapsed\');lmLoadHolidays();c.scrollIntoView({behavior:\'smooth\',block:\'start\'});}},400)">Open Office holidays &rarr;</button>';
@@ -9019,6 +9022,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
             <span id="carGeneratedAt" style="font-size:.78rem;color:var(--text-soft);"></span>
           </div>
           <div id="carBody"><div style="padding:24px;color:var(--text-soft);text-align:center;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);">Loading case advocacy&hellip;</div></div>
+          <div id="carCheckIns" style="margin-top:18px;"></div>   <!-- Family check-ins (v156.32-STAGE) -->
         </div>
 
         <!-- Case Management Report (in-grid; Admin / SuperAdmin only, v152.43).
@@ -15814,6 +15818,8 @@ var _photoPendingByIsland = {};
         _goReport('cmsBuildCaseAdvocacyReport', function() { _carNoMemberOnly = true; });
       },
       'case-mgmt': function() { _goReport('cmsBuildCaseManagementReport'); },
+      /* Advocacy check-in review task (v156.32-STAGE): open the report at that family's answers. */
+      'advocacy-checkin': function() { var _ci = q.get('id') || ''; _goReport('cmsBuildCaseAdvocacyReport', function() { window._carCiFocus = _ci; }); },
       'volunteers': function() {
         _goNav('cmsVolunteers');
         setTimeout(function() { if (typeof cmsSwitchVolunteersTab === 'function') cmsSwitchVolunteersTab('applications'); }, 300);
@@ -24063,6 +24069,10 @@ window.openContactDetail = async function(contactId) {
           caSlot.style.display = '';
           caSlot.innerHTML = _ctCaDocsHtml(c, contactId, _advCase);
           _ctCaLoadSummary(contactId);
+        } else if (caSlot && Array.isArray(c.advocacyCheckIns) && c.advocacyCheckIns.length) {
+          /* Check-ins stay on the card after the case closes (v156.32-STAGE). */
+          caSlot.style.display = '';
+          caSlot.innerHTML = '<div class="ct-info-card" style="background:#F5F0FF;border:1px solid #C4B5FD;margin:0 0 12px;"><div class="ct-info-field span2">' + _ctCheckInsHtml(c, _CT_SERVICE_SKIN.advocacy) + '</div></div>';
         }
       }).catch(function(err) { console.warn('Contact case-advocacy pill query failed:', err.message); });
 
@@ -25180,6 +25190,23 @@ window.openContactDetail = async function(contactId) {
     management: { label: 'Case Management', bg: '#EEF2FF', border: '#C7D2FE', head: '#4338CA', accent: '#6366F1' }
   };
 
+  /* Family check-ins (v156.32-STAGE): the family's own answers, newest first. */
+  function _ctCheckInsHtml(c, _skin) {
+    var html = '';
+    var _cis = Array.isArray(c.advocacyCheckIns) ? c.advocacyCheckIns.slice().sort(function (a, b) { return String(b.answeredAt || '').localeCompare(String(a.answeredAt || '')); }) : [];
+      if (_cis.length) {
+        html += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed ' + _skin.border + ';"><div style="font-weight:700;color:' + _skin.head + ';font-size:.85rem;margin-bottom:4px;">Family check-ins</div>';
+        _cis.forEach(function (k) {
+          html += '<div style="font-size:.82rem;margin:6px 0;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid ' + _skin.border + ';">' +
+            '<div style="color:#64748b;font-size:.74rem;">' + (k.test ? '<b style="color:#B45309;">TEST</b> &middot; ' : '') + rsEscape(k.answeredAt ? new Date(k.answeredAt).toLocaleDateString() : '') + (k.consultant ? ' &middot; consultant ' + rsEscape(k.consultant) : '') + '</div>' +
+            '<div style="margin-top:2px;"><b>Self-advocacy ' + rsEscape(k.selfAdvocacy) + '/10</b> &middot; <b>Satisfied ' + rsEscape(k.satisfaction) + '/5</b> &middot; ' + rsEscape(k.commLabel || k.comm || '') + '</div>' +
+            (k.going ? '<div style="margin-top:4px;white-space:pre-wrap;">' + rsEscape(k.going) + '</div>' : '') +
+            (k.commNote ? '<div style="margin-top:4px;white-space:pre-wrap;color:#475569;"><i>On communication:</i> ' + rsEscape(k.commNote) + '</div>' : '') + '</div>';
+        });
+        html += '</div>';
+      }
+    return html;
+  }
   function _ctCaDocsHtml(c, contactId, advCase) {
     var auth = c.caseAdvocacyAuthorization || null;
     var docs = Array.isArray(c.caseAdvocacyDocuments) ? c.caseAdvocacyDocuments : [];
@@ -25356,6 +25383,8 @@ window.openContactDetail = async function(contactId) {
         html += '<div style="font-size:.82rem;color:#94A3B8;margin-top:4px;">No documents on file yet.</div>';
       }
     }
+
+    html += _ctCheckInsHtml(c, _skin);   /* family check-ins (v156.32-STAGE) */
 
     html += '</div></div>'; // ct-info-field span2 + ct-info-card
     return html;
@@ -68148,6 +68177,177 @@ function _carIsAdv(d) {
          d.interactionType === 'Case Advocacy' || d.workflowStep === 'caseAdvocacy';
 }
 
+/* ── Family check-ins on the Case Advocacy Report (v156.32-STAGE, Daniel 2026-11-25) ──
+   Families in case advocacy get a check-in email signed by Noelani (Cloud
+   Function sendAdvocacyCheckIns). Each answer comes back as an "Advocacy
+   Check-In" interaction (workflowStep advocacyCheckInReview) owned by Noe,
+   holding the answers in checkIn{}; closing it marks it reviewed. Listed
+   here, newest first; a My Day / email deep link (#go=advocacy-checkin&id=)
+   scrolls to and flashes the one answer. */
+var CAR_CI_FN = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendAdvocacyCheckIns';
+/* KPI charts over the check-in answers, tied to 524B (v156.32-STAGE, Daniel 2026-11-25):
+   2.g "information or support met their needs" = satisfied 4-5 of 5 (Hawaii
+   target 100%); 4.b Focused Support Planning outcome = self-advocacy 7+ of 10
+   (target 80%); 5.b Parents as Partners = families at 8+ who could be asked to
+   volunteer. Test answers are left out unless there are no real ones yet. */
+function _carCiKpis(rows, sentN) {
+  var real = rows.filter(function (r) { return !(r.checkIn || {}).test; });
+  var isTest = !real.length && rows.length;
+  var use = (isTest ? rows : real).map(function (r) { return r.checkIn || {}; });
+  var n = use.length; if (!n) return '';
+  var pct = function (k) { return Math.round(100 * k / n); };
+  var sat = use.map(function (c) { return Number(c.satisfaction) || 0; }), self = use.map(function (c) { return Number(c.selfAdvocacy) || 0; });
+  var met = sat.filter(function (v) { return v >= 4; }).length, conf = self.filter(function (v) { return v >= 7; }).length, pap = self.filter(function (v) { return v >= 8; }).length;
+  var comm = { easy: 0, sometimes: 0, hard: 0 }; use.forEach(function (c) { if (comm[c.comm] != null) comm[c.comm]++; });
+  var avg = function (a) { return (a.reduce(function (x, y) { return x + y; }, 0) / n).toFixed(1); };
+  var tile = function (big, label, sub, color, target, val) {
+    var bar = target != null ? '<div style="position:relative;height:8px;background:#E2E8F0;border-radius:4px;margin-top:8px;"><div style="position:absolute;left:0;top:0;bottom:0;width:' + Math.min(100, val) + '%;background:' + color + ';border-radius:4px;"></div>' +
+      '<div title="524B target ' + target + '%" style="position:absolute;left:calc(' + target + '% - 1px);top:-3px;bottom:-3px;width:2px;background:#0F172A;"></div></div>' +
+      '<div style="font-size:.7rem;margin-top:3px;font-weight:700;color:' + (val >= target ? '#15803D' : '#B91C1C') + ';">' + (val >= target ? 'Meets' : 'Below') + ' the ' + target + '% target</div>' : '';
+    return '<div style="flex:1;min-width:150px;background:#fff;border:1px solid #E2E8F0;border-top:4px solid ' + color + ';border-radius:10px;padding:10px 12px;">' +
+      '<div style="font-size:1.5rem;font-weight:800;color:' + color + ';line-height:1.1;">' + big + '</div><div style="font-size:.8rem;font-weight:700;color:#1F2937;margin-top:2px;">' + label + '</div>' +
+      '<div style="font-size:.72rem;color:#64748b;">' + sub + '</div>' + bar + '</div>';
+  };
+  var cols = function (vals, max, color, okFrom) {
+    var cnt = []; for (var i = 1; i <= max; i++) cnt.push(vals.filter(function (v) { return v === i; }).length);
+    var top = Math.max.apply(null, cnt.concat([1]));
+    return '<div style="display:flex;align-items:flex-end;gap:4px;height:90px;padding-top:6px;">' + cnt.map(function (c, i) {
+      var h = Math.round(70 * c / top);
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="' + (i + 1) + ': ' + c + ' famil' + (c === 1 ? 'y' : 'ies') + '">' +
+        '<div style="font-size:.68rem;color:#475569;">' + (c || '') + '</div><div style="width:100%;height:' + Math.max(h, c ? 3 : 1) + 'px;background:' + (i + 1 >= okFrom ? color : '#CBD5E1') + ';border-radius:3px 3px 0 0;"></div>' +
+        '<div style="font-size:.68rem;color:#64748b;margin-top:2px;">' + (i + 1) + '</div></div>';
+    }).join('') + '</div>';
+  };
+  var chart = function (title, body, note) { return '<div style="flex:1;min-width:240px;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:10px 12px;"><div style="font-size:.8rem;font-weight:700;color:#1F2937;">' + title + '</div>' + body + (note ? '<div style="font-size:.7rem;color:#64748b;margin-top:4px;">' + note + '</div>' : '') + '</div>'; };
+  var stack = '<div style="display:flex;height:22px;border-radius:6px;overflow:hidden;margin-top:12px;">' +
+    [['easy', '#16A34A', 'Easy'], ['sometimes', '#F59E0B', 'Sometimes hard'], ['hard', '#DC2626', 'Hard']].map(function (k) {
+      return comm[k[0]] ? '<div title="' + k[2] + ': ' + comm[k[0]] + '" style="width:' + (100 * comm[k[0]] / n) + '%;background:' + k[1] + ';color:#fff;font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;">' + pct(comm[k[0]]) + '%</div>' : '';
+    }).join('') + '</div><div style="display:flex;gap:10px;font-size:.7rem;color:#475569;margin-top:6px;flex-wrap:wrap;">' +
+    '<span>&#9632; <span style="color:#16A34A">Easy to reach</span> ' + comm.easy + '</span><span>&#9632; <span style="color:#B45309">Sometimes hard</span> ' + comm.sometimes + '</span><span>&#9632; <span style="color:#DC2626">Hard to reach</span> ' + comm.hard + '</span></div>';
+  return (isTest ? '<div style="margin-top:10px;font-size:.76rem;font-weight:700;color:#B45309;">Showing TEST answers (no family answers yet)</div>' : '') +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">' +
+      tile(n + (sentN ? ' <span style="font-size:.9rem;color:#64748b;font-weight:600;">of ' + sentN + '</span>' : ''), 'Families answered', sentN ? Math.round(100 * n / sentN) + '% response rate' : 'check-ins returned', '#6D28D9') +
+      tile(pct(met) + '%', '2.g Support met their needs', met + ' of ' + n + ' satisfied (4&ndash;5 of 5) &middot; avg ' + avg(sat) + '/5', '#0D9488', 100, pct(met)) +
+      tile(pct(conf) + '%', '4.b Confident advocating', conf + ' of ' + n + ' at 7+ of 10 &middot; avg ' + avg(self) + '/10', '#1A3C6E', 80, pct(conf)) +
+      tile(pct(comm.easy) + '%', 'Consultant easy to reach', comm.easy + ' of ' + n + ' families', '#16A34A') +
+      tile(String(pap), '5.b Parents as Partners prospects', 'families at 8+ of 10, ask them to volunteer', '#B45309') +
+    '</div>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">' +
+      chart('Self-advocacy (1 = needs a lot of help, 10 = on their own)', cols(self, 10, '#1A3C6E', 7), 'Dark bars count toward 4.b (7 and up).') +
+      chart('Satisfaction (1&ndash;5)', cols(sat, 5, '#0D9488', 4), 'Teal bars count toward 2.g (4 and 5).') +
+      chart('Communication with parent consultant', stack, '') +
+    '</div>';
+}
+async function _carCheckInsLoad() {
+  var host = document.getElementById('carCheckIns'); if (!host) return;
+  var esc = rsEscape, isSA = !!(window.currentUserData && window.currentUserData.role === 'superAdmin');
+  var rows = [];
+  try {
+    var snap = await db.collection('interactions').where('workflowStep', '==', 'advocacyCheckInReview').get();
+    snap.forEach(function (d) { var x = d.data() || {}; x._id = d.id; rows.push(x); });
+  } catch (e) { host.innerHTML = '<div style="color:#DC2626;">Could not load check-ins: ' + esc(e.message) + '</div>'; return; }
+  rows.sort(function (a, b) { return String((b.checkIn || {}).answeredAt || '').localeCompare(String((a.checkIn || {}).answeredAt || '')); });
+  var sentN = 0; try { sentN = (await db.collection('contacts').where('advocacyCheckInSentAt', '>', new Date(0)).get()).size; } catch (_s) {}
+  var open = rows.filter(function (r) { return r.status !== 'Closed'; }).length;
+  var real = rows.filter(function (r) { return !(r.checkIn || {}).test; });
+  var avg = function (k) { var v = real.map(function (r) { return Number((r.checkIn || {})[k]) || 0; }).filter(Boolean); return v.length ? (v.reduce(function (a, b) { return a + b; }, 0) / v.length).toFixed(1) : '&ndash;'; };
+  var commTone = { easy: ['#DCFCE7', '#15803D'], sometimes: ['#FEF3C7', '#92400E'], hard: ['#FEE2E2', '#B91C1C'] };
+  var h = '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px 18px;">' +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<h3 style="margin:0;flex:1;color:#6D28D9;font-family:\'Outfit\',sans-serif;">Family Check-Ins <span style="font-size:.8rem;color:var(--text-soft);font-weight:500;">' + real.length + ' answered &middot; ' + open + ' to review &middot; avg self-advocacy ' + avg('selfAdvocacy') + '/10 &middot; avg satisfaction ' + avg('satisfaction') + '/5</span></h3>' +
+      (isSA ? '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="carCiSendTest()">Send me a test</button>' +
+              /* LIVE: the family Send button waits until the answer page is on ldahawaii.org (v155.37). */ '' : '') +
+    '</div>';
+  h += _carCiKpis(rows, sentN);
+  if (!rows.length) {
+    h += '<div style="color:var(--text-soft);font-size:.88rem;margin-top:10px;">No answers yet. Each family&rsquo;s answers show here and on their contact card, and Noelani gets a task to review each one.</div></div>';
+    host.innerHTML = h; return;
+  }
+  h += '<div class="pb-scroll" style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;min-width:760px;"><thead><tr style="background:#F5F3FF;text-align:left;">' +
+       '<th style="padding:7px;">Answered</th><th style="padding:7px;">Family</th><th style="padding:7px;">Consultant</th><th style="padding:7px;">How is it going?</th><th style="padding:7px;">Communication</th><th style="padding:7px;text-align:center;">Self-advocacy</th><th style="padding:7px;text-align:center;">Satisfied</th><th style="padding:7px;"></th></tr></thead><tbody>';
+  rows.forEach(function (r) {
+    var c = r.checkIn || {}, t = commTone[c.comm] || ['#F1F5F9', '#475569'], done = r.status === 'Closed';
+    var when = c.answeredAt ? new Date(c.answeredAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    h += '<tr id="carCi_' + esc(r._id) + '" style="border-top:1px solid #E2E8F0;vertical-align:top;' + (done ? 'opacity:.7;' : '') + '">' +
+      '<td style="padding:7px;white-space:nowrap;">' + esc(when) + (c.test ? ' <span style="color:#B45309;font-weight:700;">TEST</span>' : '') + '</td>' +
+      '<td style="padding:7px;font-weight:600;">' + (r.contactId ? '<a href="javascript:void(0)" onclick="if(typeof openContactDetail===\'function\')openContactDetail(' + _jsArg(r.contactId) + ')">' + esc(String(r.contactName || '').replace(/^\[TEST\] /, '')) + '</a>' : esc(r.contactName || '')) + '</td>' +
+      '<td style="padding:7px;">' + esc(c.consultant || '') + '</td>' +
+      '<td style="padding:7px;max-width:320px;white-space:pre-wrap;">' + esc(c.going || '') + '</td>' +
+      '<td style="padding:7px;"><span style="display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;font-size:.75rem;background:' + t[0] + ';color:' + t[1] + ';">' + esc(c.commLabel || c.comm || '') + '</span>' + (c.commNote ? '<div style="margin-top:4px;white-space:pre-wrap;">' + esc(c.commNote) + '</div>' : '') + '</td>' +
+      '<td style="padding:7px;text-align:center;font-weight:800;color:#1a3c6e;">' + esc(c.selfAdvocacy || '') + '<span style="font-weight:400;color:var(--text-soft);">/10</span></td>' +
+      '<td style="padding:7px;text-align:center;font-weight:800;color:#0d9488;">' + esc(c.satisfaction || '') + '<span style="font-weight:400;color:var(--text-soft);">/5</span></td>' +
+      '<td style="padding:7px;white-space:nowrap;">' + (done ? '<span style="color:#15803D;font-weight:700;">Reviewed</span>' + (r.reviewedBy ? '<div style="font-size:.72rem;color:var(--text-soft);">' + esc(r.reviewedBy) + '</div>' : '')
+        : '<button class="btn" style="font-size:.75rem;padding:4px 10px;background:#15803D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="carCiReviewed(' + _jsArg(r._id) + ',this)">Mark reviewed</button>') + '</td></tr>';
+  });
+  h += '</tbody></table></div></div>';
+  host.innerHTML = h;
+  var f = window._carCiFocus; window._carCiFocus = '';
+  if (f) setTimeout(function () {
+    var el = document.getElementById('carCi_' + f); if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'background .6s'; el.style.background = '#FEF9C3';
+    setTimeout(function () { el.style.background = ''; }, 2600);
+  }, 250);
+}
+window.carCiReviewed = async function (id, btn) {
+  var who = (window.currentUserData && (window.currentUserData.displayName || window.currentUserData.name || window.currentUserData.email)) || 'staff';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    await db.collection('interactions').doc(id).update({ status: 'Closed', reviewedBy: who, reviewedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (typeof _showToast === 'function') _showToast('Marked reviewed.', '#16A34A');
+    _carCheckInsLoad();
+  } catch (e) { if (btn) { btn.disabled = false; btn.textContent = 'Mark reviewed'; } if (typeof _showToast === 'function') _showToast('Could not save: ' + (e && e.message), '#DC2626'); }
+};
+async function _carCiCall(body) {
+  var u = firebase.auth().currentUser; if (!u) throw new Error('Not signed in.');
+  body.idToken = await u.getIdToken();
+  var r = await fetch(CAR_CI_FN, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  var j = await r.json().catch(function () { return {}; });
+  if (!r.ok || !j.ok) throw new Error(j.error || ('Request failed (' + r.status + ')'));
+  return j;
+}
+window.carCiSendTest = async function () {
+  var to = (window.currentUserData && window.currentUserData.email) || '';
+  to = prompt('Send a TEST check-in email to:', to); if (!to) return;
+  try { var j = await _carCiCall({ action: 'test', testTo: to }); if (typeof _showToast === 'function') _showToast('Test sent to ' + j.sentTo + ' (using ' + j.family + '’s case).', '#16A34A'); }
+  catch (e) { if (typeof _showToast === 'function') _showToast('Test failed: ' + e.message, '#DC2626'); }
+};
+window.carCiSendDialog = async function () {
+  var ov = document.getElementById('carCiOverlay');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'carCiOverlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;'; document.body.appendChild(ov); }
+  ov.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:86vh;display:flex;flex-direction:column;padding:18px;"><b>Loading families…</b></div>';
+  ov.style.display = 'flex';
+  var j; try { j = await _carCiCall({ action: 'list' }); } catch (e) { ov.innerHTML = '<div style="background:#fff;border-radius:12px;padding:18px;max-width:420px;">Could not load: ' + rsEscape(e.message) + '<div style="margin-top:12px;text-align:right;"><button class="btn btn-ghost" onclick="document.getElementById(\'carCiOverlay\').style.display=\'none\'">Close</button></div></div>'; return; }
+  var esc = rsEscape, fam = j.families || [];
+  var list = fam.map(function (f, i) {
+    var ok = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email || '');
+    return '<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 4px;border-top:1px solid #EEF2F7;' + (ok ? '' : 'opacity:.55;') + '"><input type="checkbox" data-cid="' + esc(f.contactId) + '"' + (ok ? ' checked' : ' disabled') + '>' +
+      '<span><b>' + esc(f.name) + '</b> <span style="color:#64748b;font-size:.8rem;">' + esc(f.email || 'no email') + ' &middot; ' + esc(f.consultant || '') + (f.lastSentAt ? ' &middot; last sent ' + esc(new Date(f.lastSentAt).toLocaleDateString()) : '') + '</span></span></label>';
+  }).join('');
+  ov.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:86vh;display:flex;flex-direction:column;padding:18px;">' +
+    '<div style="font-weight:800;font-size:1.05rem;color:#6D28D9;">Send the advocacy check-in</div>' +
+    '<div style="font-size:.84rem;color:#475569;margin:4px 0 10px;">' + fam.length + ' families are in case advocacy right now. Untick anyone who should not get it. Signed by Noelani; replies go to her.</div>' +
+    '<div style="overflow:auto;flex:1;border:1px solid #E2E8F0;border-radius:8px;padding:0 8px;">' + list + '</div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;align-items:center;"><span id="carCiCount" style="flex:1;font-size:.84rem;color:#475569;"></span>' +
+      '<button class="btn btn-ghost" onclick="document.getElementById(\'carCiOverlay\').style.display=\'none\'">Cancel</button>' +
+      '<button class="btn" id="carCiGo" style="background:#6D28D9;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Send</button></div></div>';
+  var count = function () { var n = ov.querySelectorAll('input[data-cid]:checked').length; document.getElementById('carCiCount').textContent = n + ' selected'; document.getElementById('carCiGo').textContent = 'Send to ' + n; return n; };
+  ov.addEventListener('change', count); count();
+  document.getElementById('carCiGo').onclick = async function () {
+    var ids = Array.prototype.map.call(ov.querySelectorAll('input[data-cid]:checked'), function (x) { return x.getAttribute('data-cid'); });
+    if (!ids.length) return;
+    if (!confirm('Send the check-in email to ' + ids.length + ' families now?')) return;
+    this.disabled = true; this.textContent = 'Sending…';
+    try {
+      var r = await _carCiCall({ action: 'send', contactIds: ids });
+      ov.innerHTML = '<div style="background:#fff;border-radius:12px;padding:18px;max-width:480px;"><b>Sent to ' + r.sent.length + ' families.</b>' +
+        (r.skipped.length ? '<div style="margin-top:8px;color:#B45309;font-size:.86rem;">Not sent: ' + r.skipped.map(function (s) { return rsEscape(s.name + ' (' + s.why + ')'); }).join(', ') + '</div>' : '') +
+        '<div style="margin-top:12px;text-align:right;"><button class="btn btn-ghost" onclick="document.getElementById(\'carCiOverlay\').style.display=\'none\'">Close</button></div></div>';
+    } catch (e) { this.disabled = false; this.textContent = 'Send'; alert('Send failed: ' + e.message); }
+  };
+};
+window.myDayCheckInOpen = function (id) { location.hash = 'go=advocacy-checkin&id=' + encodeURIComponent(id); };
+
 window.cmsBuildCaseAdvocacyReport = async function() {
   _cmsShowOnlyReport('caseAdvocacyReportInGrid');
   var body = document.getElementById('carBody');
@@ -68291,6 +68491,7 @@ window.cmsBuildCaseAdvocacyReport = async function() {
     })();
     var st = document.getElementById('carGeneratedAt');
     if (st) st.textContent = 'Generated ' + new Date().toLocaleString();
+    try { _carCheckInsLoad(); } catch (_ci) { console.warn('check-ins:', _ci && _ci.message); }   /* (v156.32-STAGE) */
   } catch (e) {
     if (body) body.innerHTML = '<div style="padding:24px;color:#DC2626;text-align:center;">Could not load case advocacy: ' + rsEscape(e.message) + '</div>';
     console.warn('cmsBuildCaseAdvocacyReport:', e && e.message);
