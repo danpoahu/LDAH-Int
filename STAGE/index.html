@@ -6325,7 +6325,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.28-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.29-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -26649,12 +26649,12 @@ window.openContactDetail = async function(contactId) {
     if (!box || !window._ES_M524) return;
     if (!box.getAttribute('data-rendered')) {
       box.innerHTML = '<label style="font-size:.8rem;color:var(--text-soft);">524B measures <span style="font-weight:400;">tick every one this interaction counts toward</span></label>' +
-        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:4px 14px;margin-top:6px;">' +
+        '<div id="intM524Grid" onchange="_m524GrpSync(\'int\', this)" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:4px 14px;margin-top:6px;">' +
         window._ES_M524.map(function(m) {
           return '<label style="display:flex;gap:6px;align-items:flex-start;font-size:.8rem;font-weight:500;cursor:pointer;margin:0;">' +
             '<input type="checkbox" data-m524="' + rsEscape(m[0]) + '" onchange="_int524Count()" style="margin:2px 0 0;width:auto;">' +
             '<span><b>' + rsEscape(m[0]) + '</b> ' + rsEscape(m[1]) + '</span></label>';
-        }).join('') + '</div>';
+        }).join('') + '</div>' + window._m524GrpHtml('int', '');
       box.setAttribute('data-rendered', '1');
     }
     box.style.display = box.style.display === 'none' ? '' : 'none';
@@ -26670,6 +26670,9 @@ window.openContactDetail = async function(contactId) {
   window._int524Reset = function(){
     var box = document.getElementById('int524Box');
     if (box) { box.querySelectorAll('input[data-m524]').forEach(function(i){ i.checked = false; }); box.style.display = 'none'; }
+    var _g = document.getElementById('intM524Grp'); if (_g) _g.style.display = 'none';
+    var _gs = document.getElementById('intM524GrpSel'); if (_gs) { _gs.value = ''; _gs.setAttribute('data-saved', ''); }
+    var _go = document.getElementById('intM524GrpOther'); if (_go) { _go.value = ''; _go.style.display = 'none'; }
     window._int524Count();
   };
 
@@ -26789,6 +26792,8 @@ window.openContactDetail = async function(contactId) {
 
     var _m524 = _int524Read();
     if (_m524.length) data.measure524 = _m524;
+    var _m524g = window._m524GrpRead('int', document.getElementById('int524Box'));   /* 5.a group (2026-11-25) */
+    if (_m524g) data.measure524Group = _m524g;
 
     // Materials distributed (v145.2.0) — additive; only written when logged.
     var _matDist = _collectInteractionMaterials();
@@ -46954,6 +46959,65 @@ window._ES_M524 = [
   ['Y1.a', 'Youth conference'], ['Y1.b', 'Youth materials: college, career, transition'],
   ['Y2.a', 'Skillz Lab'], ['Y2.b', 'Youth materials: IEP, ADR, literacy, SEL'], ['Y3.a', 'Youth Synergy']
 ];
+/* 5.a "Which group?" (Daniel 2026-11-25). The federal measure counts GROUPS LDAH
+   sits on (target 15), not meetings, so a 5.a tick asks which group. The list
+   lives in settings/ed524Groups (Super Admins only can write settings, so a Super
+   Admin's new name joins the list when saved; anyone else's is kept on the record
+   and still counted). The 524B chart counts each group once. */
+window._m524GroupList = null;
+window._m524GrpLoad = function () {
+  if (window._m524GroupList) return Promise.resolve(window._m524GroupList);
+  return db.collection('settings').doc('ed524Groups').get().then(function (d) {
+    var g = (d.exists && Array.isArray((d.data() || {}).groups)) ? d.data().groups.map(String) : [];
+    window._m524GroupList = g.sort(function (a, b) { return a.localeCompare(b); });
+    return window._m524GroupList;
+  }).catch(function () { window._m524GroupList = []; return []; });
+};
+window._m524GrpHtml = function (pfx, saved) {
+  saved = String(saved || '');
+  return '<div id="' + pfx + 'M524Grp" style="display:none;margin:8px 0 2px;padding:8px 10px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;">' +
+    '<label style="display:block;font-size:.76rem;font-weight:700;color:#0369A1;margin:0 0 4px;">5.a Which group?</label>' +
+    '<div style="font-size:.72rem;color:#475569;margin:0 0 5px;">The 524B chart counts each workgroup, task force or advisory group once, however often it meets.</div>' +
+    '<select id="' + pfx + 'M524GrpSel" data-saved="' + rsEscape(saved) + '" onchange="_m524GrpOther(\'' + pfx + '\')" style="width:100%;max-width:420px;font-size:.8rem;padding:5px 6px;"><option value="">Pick the group&hellip;</option></select>' +
+    '<input id="' + pfx + 'M524GrpOther" type="text" placeholder="Type the group’s name" style="display:none;width:100%;max-width:420px;margin-top:5px;font-size:.8rem;padding:5px 6px;">' +
+    '</div>';
+};
+window._m524GrpFill = function (pfx) {
+  var sel = document.getElementById(pfx + 'M524GrpSel'); if (!sel) return;
+  window._m524GrpLoad().then(function (list) {
+    var saved = sel.getAttribute('data-saved') || '';
+    var names = list.slice(); if (saved && names.indexOf(saved) === -1) names.unshift(saved);
+    sel.innerHTML = '<option value="">Pick the group&hellip;</option>' +
+      names.map(function (n) { return '<option value="' + rsEscape(n) + '"' + (n === saved ? ' selected' : '') + '>' + rsEscape(n) + '</option>'; }).join('') +
+      '<option value="__other">Another group (type its name)</option>';
+  });
+};
+window._m524GrpOther = function (pfx) {
+  var sel = document.getElementById(pfx + 'M524GrpSel'), o = document.getElementById(pfx + 'M524GrpOther');
+  if (sel && o) o.style.display = sel.value === '__other' ? '' : 'none';
+};
+/* Show the pick only while 5.a is ticked inside `box`. */
+window._m524GrpSync = function (pfx, box) {
+  var w = document.getElementById(pfx + 'M524Grp'); if (!w || !box) return;
+  var cb = box.querySelector('input[data-m524="5.a"]');
+  var on = !!(cb && cb.checked);
+  w.style.display = on ? '' : 'none';
+  if (on) window._m524GrpFill(pfx);
+};
+/* The group name to save: '' when 5.a is not ticked or nothing was picked. */
+window._m524GrpRead = function (pfx, box) {
+  var cb = box && box.querySelector('input[data-m524="5.a"]');
+  if (!cb || !cb.checked) return '';
+  var sel = document.getElementById(pfx + 'M524GrpSel'); if (!sel) return '';
+  var v = sel.value === '__other' ? String((document.getElementById(pfx + 'M524GrpOther') || {}).value || '').trim() : sel.value;
+  v = String(v || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  var role = (typeof currentUserData !== 'undefined' && currentUserData) ? currentUserData.role : '';
+  if (v && role === 'superAdmin' && (window._m524GroupList || []).indexOf(v) === -1) {
+    db.collection('settings').doc('ed524Groups').set({ groups: firebase.firestore.FieldValue.arrayUnion(v) }, { merge: true })
+      .then(function () { if (window._m524GroupList) window._m524GroupList.push(v); }).catch(function () {});
+  }
+  return v;
+};
 function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   var container = document.getElementById('cmsEventSummaryContent');
   var isRecurring = d.isRecurring;
@@ -47577,12 +47641,13 @@ function cmsRenderEventSummary(d, eventDoc, feedbackDocs, announcementSent) {
   var _m524Saved = Array.isArray(summary.measure524) ? summary.measure524 : [];
   html += '<div class="es-form-field" style="margin:2px 0 12px;"><label>524B measures</label>' +
     '<div style="font-size:.72rem;color:var(--text-soft);margin:0 0 5px;line-height:1.4;">Tick what this counts toward on the 524B Status Chart. With none ticked, the chart decides from the title and tier.</div>' +
-    '<div id="esMeasure524" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:3px 12px;">' +
+    '<div id="esMeasure524" onchange="_m524GrpSync(\'es\', this)" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:3px 12px;">' +
     window._ES_M524.map(function(m) {
       return '<label style="display:flex;align-items:center;gap:6px;font-size:.78rem;font-weight:500;color:#334155;cursor:pointer;margin:0;">' +
         '<input type="checkbox" data-m524="' + rsEscape(m[0]) + '"' + (_m524Saved.indexOf(m[0]) !== -1 ? ' checked' : '') + ' style="margin:0;width:auto;">' +
         '<b style="min-width:30px;">' + rsEscape(m[0]) + '</b>' + rsEscape(m[1]) + '</label>';
-    }).join('') + '</div></div>';
+    }).join('') + '</div>' + window._m524GrpHtml('es', summary.measure524Group) + '</div>';
+  setTimeout(function () { window._m524GrpSync('es', document.getElementById('esMeasure524')); }, 0);
 
   // Phase 1: Presenter + Materials + Comments
   // Phase 2: presenter list now comes from presenterStaff collection
@@ -47945,6 +48010,7 @@ window.cmsSaveEventSummary = async function() {
     newMeasure524 = [];
     _m524Box.querySelectorAll('input[data-m524]').forEach(function(el) { if (el.checked) newMeasure524.push(el.getAttribute('data-m524')); });
   }
+  var newM524Group = _m524Box ? window._m524GrpRead('es', _m524Box) : null;   /* 5.a group (2026-11-25) */
 
   var signups = _cmsSignupsModalData.signups || [];
   var evDoc = _cmsEventSummaryData.eventDoc || {};
@@ -48134,6 +48200,7 @@ window.cmsSaveEventSummary = async function() {
     attendanceTotalResolved: attendanceTotalResolved,
     // 524B measures this counts toward; [] = none ticked, the chart decides.
     measure524: newMeasure524 !== null ? newMeasure524 : (Array.isArray(_priorSummaryForUid.measure524) ? _priorSummaryForUid.measure524 : []),
+    measure524Group: newM524Group !== null ? newM524Group : (_priorSummaryForUid.measure524Group || ''),
     completedAt: firebase.firestore.FieldValue.serverTimestamp(),
     completedBy: (currentUserData && currentUserData.displayName) || 'Unknown'
   };
@@ -65257,17 +65324,18 @@ window.prExportCsv = function() {
   /* 524B measures on one-off events (v153.73): the same tick boxes as the
      session Event Summary, saved to summary.measure524. Most LDAH and partner
      activity is entered here, so the chart's tags have to be reachable here too. */
-  function _ooRenderM524(saved) {
+  function _ooRenderM524(saved, savedGrp) {
     var box = document.getElementById('oneOffM524'); if (!box || !window._ES_M524) return;
     saved = Array.isArray(saved) ? saved : [];
     box.innerHTML = '<label style="display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:4px;">524B measures</label>' +
       '<div style="font-size:.72rem;color:#64748B;margin:0 0 5px;line-height:1.4;">Tick what this counts toward on the 524B Status Chart. With none ticked, the chart decides from the title and tier.</div>' +
-      '<div id="ooMeasure524" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:3px 12px;">' +
+      '<div id="ooMeasure524" onchange="_m524GrpSync(\'oo\', this)" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:3px 12px;">' +
       window._ES_M524.map(function (m) {
         return '<label style="display:flex;align-items:center;gap:6px;font-size:.76rem;font-weight:500;color:#334155;cursor:pointer;margin:0;">' +
           '<input type="checkbox" data-m524="' + rsEscape(m[0]) + '"' + (saved.indexOf(m[0]) !== -1 ? ' checked' : '') + ' style="margin:0;width:auto;">' +
           '<b style="min-width:30px;">' + rsEscape(m[0]) + '</b>' + rsEscape(m[1]) + '</label>';
-      }).join('') + '</div>';
+      }).join('') + '</div>' + window._m524GrpHtml('oo', savedGrp);
+    window._m524GrpSync('oo', document.getElementById('ooMeasure524'));
   }
   function _ooReadM524() {
     var box = document.getElementById('ooMeasure524'); if (!box) return null;
@@ -65389,7 +65457,7 @@ window.prExportCsv = function() {
             window.partnerPickerInit('oneOffPartnerIslandRow', 'oneOffPartnerIsland', d.partnerIsland || '');
           }
           document.getElementById('oneOffTier').value = (d.summary && d.summary.tierModel) || '';
-          _ooRenderM524(d.summary && d.summary.measure524);
+          _ooRenderM524(d.summary && d.summary.measure524, d.summary && d.summary.measure524Group);
           document.getElementById('oneOffDescription').value = d.description || '';
           // Preload every grant so a save writes them back rather than wiping them (v154.09-STAGE).
           if (_ooGrEl) _ooGrEl.value = window._grantText(d);
@@ -65474,6 +65542,7 @@ window.prExportCsv = function() {
     }
     var tier = document.getElementById('oneOffTier').value || '';
     var m524 = _ooReadM524();
+    var m524Grp = m524 ? window._m524GrpRead('oo', document.getElementById('ooMeasure524')) : '';   /* 5.a group */
     var description = (document.getElementById('oneOffDescription').value || '').trim();
     var mats = _ooMaterialsFromInputs();
     var comments = (document.getElementById('oneOffPresenterComments').value || '').trim();
@@ -65502,7 +65571,7 @@ window.prExportCsv = function() {
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, archived: !_ooFutureMode, 'summary.presenter': presenter, 'summary.presenterUid': _ooPres.uid || '', 'summary.presenterEmail': _ooPres.outside ? (_ooPres.email || '') : '', 'summary.tierModel': tier, 'summary.materialsPacked': mats.packed, 'summary.materialsDisseminated': mats.diss, 'summary.materialsOther': mats.other, 'summary.presenterComments': comments, feedbackEmails: _ooFeedbackOn(), updatedAt: ts()
         };
-        if (m524) _ooUpd['summary.measure524'] = m524;
+        if (m524) { _ooUpd['summary.measure524'] = m524; _ooUpd['summary.measure524Group'] = m524Grp; }
         if (_ooGrant) Object.assign(_ooUpd, _ooGrant);   // (v154.09-STAGE)
         if (_ooPartnerChange !== null) {
           _ooUpd.partnerIsland = (_ooPartnerChange === '')
@@ -65519,6 +65588,7 @@ window.prExportCsv = function() {
           title: name, description: description, location: location, eventDate: dateIso,
           isOneOff: true, feedbackEmails: _ooFeedbackOn(), summary: Object.assign({ presenter: presenter, presenterUid: _ooPres.uid || '', presenterEmail: _ooPres.outside ? (_ooPres.email || '') : '', tierModel: tier, materialsPacked: mats.packed, materialsDisseminated: mats.diss, materialsOther: mats.other, presenterComments: comments },
             m524 && m524.length ? { measure524: m524 } : {},
+            m524Grp ? { measure524Group: m524Grp } : {},
             partnerCount === null ? {} : { attendanceOverrides: { attTotal: partnerCount } }), signupDates: [],
           /* Upcoming events stay live until the day after they happen — the
              nightly sweep archives them then. Only these carry qrTableEvent,
@@ -69463,8 +69533,35 @@ async function _pbLoadAll() {
     children = children.filter(_pipRow);
     feedback = feedback.filter(_pipRow);
   }
+  /* 5.b (Daniel 2026-11-25): the federal measure is a NETWORK of Parents as Partners
+     volunteers, so the chart counts accepted PAP volunteers on the Roster, and who
+     served (checked in on a volunteer help request) during the period. */
+  var pap = [], papServed = [];
+  try {
+    var _PAP = 'n615k3m9PBKNM3JfOZUu';
+    var _vs = await db.collection('volunteers').where('opportunityId', '==', _PAP).get();
+    var _papIds = {};
+    _vs.forEach(function (d) {
+      var x = d.data() || {};
+      if (x.status !== 'accepted' || x.archived === true) return;
+      _papIds[d.id] = 1;
+      pap.push({ id: d.id, pip: !!x.partnerIsland, pIsland: x.partnerIsland || '', date: _pbTsISO(x.submittedAt) || '',
+                 name: ((x.firstName || '') + ' ' + (x.lastName || '')).trim() || '(no name)' });
+    });
+    var _rq = await db.collection('volunteerRequests').get();
+    var _parts = await Promise.all(_rq.docs.map(function (r) { return r.ref.collection('participants').where('attended', '==', true).get(); }));
+    _parts.forEach(function (ps, k) {
+      var rd = _rq.docs[k].data() || {};
+      ps.forEach(function (pd) {
+        var x = pd.data() || {};
+        if (!(x.volunteerId && _papIds[x.volunteerId]) && x.opportunityId !== _PAP) return;
+        papServed.push({ volunteerId: x.volunteerId || pd.id, date: _pbTsISO(x.attendedAt) || String(rd.date || '').slice(0, 10), title: rd.title || 'Volunteer help request' });
+      });
+    });
+  } catch (e) { console.warn('[524B] Parents as Partners read failed', e); }
+
   _pbCache = { sessions: sessions, signups: signups, interactions: interactions,
-               contacts: contacts, children: children, feedback: feedback, _pipOnly: _pbPipOnly() };
+               contacts: contacts, children: children, feedback: feedback, pap: pap, papServed: papServed, _pipOnly: _pbPipOnly() };
   return _pbCache;
 }
 
@@ -73334,7 +73431,8 @@ function _sbRows() {
       att: _pbRowAttendance(r), prof: pick('profOther', 'attendanceProfessionalOther'), youth: _sbYouthTA(r, pick('youthWD', 'attendanceYouthWithDisability')),
       isOneOff: !!r.isOneOff, eventId: r.eventId || r.id,
       dissem: _pbIsDissemEvent(r), reach: reach, mat: mat.total, tips: tips, dm: Math.max(reach, mat.total),
-      tags: Array.isArray(s.measure524) ? s.measure524.map(String) : []
+      tags: Array.isArray(s.measure524) ? s.measure524.map(String) : [],
+      grp: String(s.measure524Group || '')
     };
   });
 }
@@ -73380,10 +73478,16 @@ function _sbCompute(grant) {
   }), att);
   total('2.b', pickRows('2.b', function (x) { return x.tier !== 'Tier 1' && !x.dissem && RX.trans.test(x.title) && !RX.meet.test(x.title); }), att);
   total('2.c', pickRows('2.c', function (x) { return workshop(x) && x.dm > 0; }), dm, true);
-  total('3.a', pickRows('3.a', function (x) {
+  /* Named programs (Daniel 2026-11-25): a Connect-Gen, Learning Lab, SMART, Parent
+     Talk Cafe, Skillz Lab or Youth Synergy always counts toward its own box, whatever
+     else is ticked; ticks only add. A Cafe is never 3.a, even if ticked. */
+  var progRows = function (id, rule) {
+    return R.filter(function (x) { return rule(x) || x.tags.indexOf(id) !== -1; });
+  };
+  total('3.a', progRows('3.a', function (x) {
     return (RX.cg.test(x.title) || x.eventType === 'connect_gen' || x.eventType === 'learning_labs') && !x.dissem;
-  }), att);
-  total('3.b', pickRows('3.b', function (x) { return RX.ptc.test(x.title); }), att);
+  }).filter(function (x) { return !RX.ptc.test(x.title); }), att);
+  total('3.b', progRows('3.b', function (x) { return RX.ptc.test(x.title); }), att);
   total('3.c', pickRows('3.c', function (x) { return x.tips > 0; }), function (x) { return x.tags.length ? x.dm : x.tips; }, true);
   total('6.a', pickRows('6.a', workshop), prof, true);
   total('6.b', pickRows('6.b', function (x) { return !x.dissem; }), prof, true);
@@ -73391,14 +73495,13 @@ function _sbCompute(grant) {
   var ymat = function (x) { return x.tags.length ? x.dm : Math.min(x.youth, x.dm); };
   var ymatRule = function (x) { return x.youth > 0 && x.dm > 0; };
   total('Y1.b', pickRows('Y1.b', ymatRule), ymat, true);
-  total('Y2.a', pickRows('Y2.a', function (x) { return RX.skillz.test(x.title); }), att);
+  total('Y2.a', progRows('Y2.a', function (x) { return RX.skillz.test(x.title); }), att);
   total('Y2.b', pickRows('Y2.b', ymatRule), ymat, true);
-  total('Y3.a', pickRows('Y3.a', function (x) { return RX.synergy.test(x.title); }), att);
+  total('Y3.a', progRows('Y3.a', function (x) { return RX.synergy.test(x.title); }), att);
   /* 5.a / 5.b (2026-11-13): only ticked events, no title rule. 5.a counts each ticked
      meeting; 5.b counts the people at each ticked event as volunteers. The typed figure
      still wins when one is entered. */
-  total('5.a', pickRows('5.a', function () { return false; }), function () { return 1; });
-  total('5.b', pickRows('5.b', function () { return false; }), att);
+  /* 5.a and 5.b are counted below, after the interactions (2026-11-25). */
 
   /* Surveys: every evaluation dated in the period is a respondent, whatever
      it answered; Yes over all of them. */
@@ -73488,6 +73591,48 @@ function _sbCompute(grant) {
     var o = out[id]; if (!o) return;
     R.filter(function (x) { return x.tags.indexOf(id) !== -1; }).sort(byDate).forEach(function (x) { o.v += n0(x.att); o.recs.push(rec(x, x.att)); o.tagged = (o.tagged || 0) + 1; });
   });
+  /* Interactions ticked under 524B measures (Daniel 2026-11-25: "there are 524b
+     measures in the interaction also"). Each ticked interaction counts its person
+     once per measure; 4.a / 4.b only add people the rules above did not already
+     count. 1.b adds a presentation. 5.a / 5.b are handled just below. */
+  var ixSeen = {};
+  ca.forEach(function (x) { ixSeen['4.b|' + (x.contactId || x.id)] = 1; });
+  ia.forEach(function (x) { ixSeen['4.a|' + (x.contactId || x.id)] = 1; });
+  var ixT = X.filter(function (x) { return Array.isArray(raw(x).measure524) && raw(x).measure524.length; }).sort(byDate);
+  ixT.forEach(function (x) {
+    raw(x).measure524.map(String).forEach(function (id) {
+      if (id === '5.a' || id === '5.b') return;
+      var key = id + '|' + (x.contactId || x.id);
+      if (ixSeen[key]) return; ixSeen[key] = 1;
+      var o = out[id] || (out[id] = { v: 0, recs: [] });
+      var r0 = recI(x); r0.tagged = true; o.recs.push(r0);
+      o.v += 1; o.tagged = (o.tagged || 0) + 1;
+    });
+  });
+  /* 5.a (2026-11-25): each GROUP once, however often it meets. The group is the
+     "Which group?" pick; an older record without one falls back to its title. */
+  var gKey = function (t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); };
+  var g5 = {}, g5recs = [];
+  var addG = function (name, fallback, recObj) {
+    var k = name ? 'g:' + gKey(name) : 't:' + gKey(fallback);
+    var first = !g5[k]; g5[k] = name || fallback;
+    recObj.count = first ? 1 : 0; recObj.tagged = true;
+    recObj.title = (name ? name + ' · ' : '(no group picked) · ') + recObj.title;
+    g5recs.push(recObj);
+  };
+  R.filter(function (x) { return x.tags.indexOf('5.a') !== -1; }).sort(byDate).forEach(function (x) { addG(x.grp, x.title, rec(x, 1)); });
+  ixT.filter(function (x) { return raw(x).measure524.map(String).indexOf('5.a') !== -1; })
+     .forEach(function (x) { addG(String(raw(x).measure524Group || ''), x.summary || x.type, recI(x)); });
+  out['5.a'] = { v: Object.keys(g5).length, recs: g5recs.sort(byDate), groups: Object.keys(g5).map(function (k) { return g5[k]; }), meetings: g5recs.length };
+  /* 5.b (2026-11-25): the network of Parents as Partners volunteers accepted on the
+     Roster by the end of the period, plus how many served during it. */
+  var papIn = (_pbCache.pap || []).filter(function (v) { return _pbKeepScope(v) && (!v.date || v.date <= to); });
+  var papIds = {}; papIn.forEach(function (v) { papIds[v.id] = 1; });
+  var served = {}; (_pbCache.papServed || []).forEach(function (sv) { if (papIds[sv.volunteerId] && inR(sv.date)) served[sv.volunteerId] = 1; });
+  var ev5b = R.filter(function (x) { return x.tags.indexOf('5.b') !== -1; });
+  out['5.b'] = { v: papIn.length, served: Object.keys(served).length, evTicked: ev5b.length,
+                 recs: papIn.map(function (v) { return { type: 'volunteer', id: v.id, date: v.date, title: v.name + ' (Parents as Partners)' + (served[v.id] ? ', served this period' : ''), count: 1, tagged: false }; })
+                   .concat(ev5b.sort(byDate).map(function (x) { var r1 = rec(x, null); r1.title = 'Volunteers helped: ' + r1.title; return r1; })) };
   /* Y4.a: youth 14+ by the contact card (type Youth / Student with no child under 14),
      the same test as the CPIR; a record with no card falls back to the old wording test. */
   var yx = X.filter(function (x) {
@@ -73583,7 +73728,10 @@ function _sbCellsBase(m, C) {
     var ins = m.typed === 'ratio' ? _sbIn(m.id + '.n', 'Panel score') + ' of ' + _sbIn(m.id + '.of', 'Number rated')
             : m.typed === 'youthGroups' ? _sbIn(m.id + '.n', 'Youth') + ' youth, ' + _sbIn(m.id + '.g', 'Groups') + ' groups'
             : _sbIn(m.id + '.n', 'Figure for the period');
-    var tick = (tc && tc.recs && tc.recs.length) ? '<div style="font-size:.74rem;color:#0369A1;font-weight:700;">Ticked events: ' + _pbFmt(tc.v) + '</div>' : '';
+    var tick = !(tc && tc.recs && tc.recs.length) ? ''
+      : m.id === '5.a' ? '<div style="font-size:.74rem;color:#0369A1;font-weight:700;">Groups from ticks: ' + _pbFmt(tc.v) + ' (' + _pbFmt(tc.meetings || 0) + ' meetings)</div>'
+      : m.id === '5.b' ? '<div style="font-size:.74rem;color:#0369A1;font-weight:700;">Parents as Partners on the Roster: ' + _pbFmt(tc.v) + ' &middot; served this period: ' + _pbFmt(tc.served || 0) + '</div>'
+      : '<div style="font-size:.74rem;color:#0369A1;font-weight:700;">Ticked events: ' + _pbFmt(tc.v) + '</div>';
     return { act: '<div style="white-space:nowrap;">' + ins + '</div>' + tick + '<div id="sbAct_' + _sbSafe(m.id) + '" style="font-size:.74rem;color:var(--text-soft);">' + t.act + '</div>',
              pct: '<span id="sbPct_' + _sbSafe(m.id) + '">' + t.pct + '</span>', text: t.text, pctText: t.pct };
   }
@@ -73828,6 +73976,8 @@ function _spFig(m, c) {
   c = c || { v: 0 };
   if (m.survey) return { pct: true, v: c.resp ? c.v : null, t: m.t, sub: c.resp ? (_pbFmt(c.yes) + ' of ' + _pbFmt(c.resp) + ' responses') : 'No survey responses yet' };
   if (m.kind === 'typed') {
+    if (m.id === '5.b') return { v: Number(c.v) || 0, t: m.t, sub: 'Parents as Partners on the Roster · ' + _pbFmt(c.served || 0) + ' served this year' };
+    if (m.id === '5.a' && c.recs && c.recs.length) return { v: Number(c.v) || 0, t: m.t, sub: 'Each group counted once · ' + _pbFmt(c.meetings || 0) + ' meetings' };
     if (c.recs && c.recs.length) return { v: Number(c.v) || 0, t: m.t, sub: 'From ticked events. The chart uses a typed figure when Rosie saves one.' };
     return { typed: true, t: m.t, sub: m.typed === 'ratio' ? 'Expert panel score, typed in at report time' : 'Typed in at report time' };
   }
