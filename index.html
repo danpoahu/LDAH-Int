@@ -6292,7 +6292,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.43</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.44</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -71651,7 +71651,7 @@ function _pbRender() {
   /* 524B Status Chart view (v153.71-STAGE). */
   if (_pbState.view === 'ed524' && !_pbPipOnly()) { _sbRender(host); return; }
   /* 524B Pace (Daniel 2026-11-25, from STAGE v156.28): both grants, current federal year. */
-  if (_pbState.view === 'pace' && !_pbPipOnly()) { host.innerHTML = _spHtml(); return; }
+  if (_pbState.view === 'pace' && !_pbPipOnly()) { var _fyp = _spFiscalYear(); _sbEnsureCpirIv(_fyp.from, _fyp.to).then(function () { if (_pbState.view === 'pace') host.innerHTML = _spHtml(); }); return; }   /* CPIR interviews (2026-11-25) */
   /* CPIR Worksheet (v154.98): redrawn whole once typed figures and website views load. */
   if (_pbState.view === 'cpirws' && !_pbPipOnly()) {
     host.innerHTML = _pcWsHtml();
@@ -72964,6 +72964,7 @@ window.pcSaveManual = async function () {
     });
     _pcManualMeta = { by: who, at: new Date().toLocaleString() };
     var n = document.getElementById('pcSaveNote'); if (n) n.textContent = 'Typed figures saved by ' + who + ' just now.';
+    _sbCpirIv = {};   /* 524B re-reads the CPIR interviews (2026-11-25) */
     if (typeof auditLog === 'function') auditLog('Saved Parent Center Data Collection figures', _pcDocId());
     if (typeof _showToast === 'function') _showToast('Typed figures saved.', '#16A34A');
   } catch (e) {
@@ -73290,13 +73291,14 @@ function _pcAdjCard(R) {
     '<div class="pb-note" style="margin:6px 0;">Type how much to add to a figure (a minus sign takes away), for example contacts a partner island logged outside the dashboard. <b>Reported</b> is what goes to Export CSV, Print and the CPIR Worksheet. Press <b>Save typed figures</b> to keep them; they are saved for this scope and date range only.</div>' +
     '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Item</th><th class="num">From DAN</th><th class="num">Adjust +/&minus;</th><th class="num">Reported</th></tr></thead><tbody>' + body + '</tbody></table></div></details>';
 }
-/* ── Part 2 Program Measures Survey: the CPIR interview results (2026-11-25) ─────
-   CPIR's seven questions, each answered Strongly agree / Agree / Disagree /
-   Strongly disagree, for three groups (parents of children under transition
-   age, parents of transition-age youth, youth 14+). Staff either record one
-   interview at a time (tap the seven answers, Add this interview) or type the
-   counts. Counts are typed figures (p2.<group>.<q>.<answer>) saved with Save
-   typed figures, per date range and scope, and go into Export CSV / Print. */
+/* ── Part 2 Program Measures Survey: the CPIR interviews, one row each (2026-11-25) ──
+   CPIR's seven questions, answered Strongly agree / Agree / Disagree / Strongly
+   disagree, by parents of children under transition age (fc), parents of
+   transition-age youth (ft) or youth 14+ (y). Each interview is a row in
+   _pcManual['p2.iv'] (saved with Save typed figures, per date range and
+   scope); a blank row always waits at the bottom for the next one. The
+   tables, Export CSV and the 524B survey measures (2.e, 2.g, 2.i) all count
+   from these rows. */
 var _PC_P2_Q = [
   'The information or support you received from LDAH met your needs.',
   'You were able to understand the information you received from LDAH.',
@@ -73307,67 +73309,78 @@ var _PC_P2_Q = [
   'You would recommend LDAH to others.'
 ];
 var _PC_P2_G = [['fc', 'Children under transition age (0–14)'], ['ft', 'Transition-age youth (14–22)'], ['y', 'Youth who are transition age and older (14+)']];
-var _PC_P2_A = [['sa', 'Strongly agree'], ['a', 'Agree'], ['d', 'Disagree'], ['sd', 'Strongly disagree']];
-var _pcP2Pick = { g: 'fc', ans: {} };
-function _pcP2N(g, q, a) { return Number(_pcManual['p2.' + g + '.' + q + '.' + a]) || 0; }
+var _PC_P2_A = [['sa', 'Strongly agree', 'SA'], ['a', 'Agree', 'A'], ['d', 'Disagree', 'D'], ['sd', 'Strongly disagree', 'SD']];
+function _pcP2Rows() { var v = _pcManual['p2.iv']; return Array.isArray(v) ? v : []; }
+function _pcP2Done(r) { return !!(r && r.g && Array.isArray(r.a) && r.a.length === 7 && r.a.every(function (x) { return !!x; })); }
+function _pcP2Counts(rows) {
+  var c = {}; rows.filter(_pcP2Done).forEach(function (r) { r.a.forEach(function (x, i) { var k = r.g + '.' + (i + 1) + '.' + x; c[k] = (c[k] || 0) + 1; }); });
+  return c;
+}
 function _pcP2Html() {
-  var E = _pbEsc;
-  var btn = function (q, a, lab) {
-    var on = _pcP2Pick.ans[q] === a;
-    return '<button type="button" onclick="pcP2Tap(' + q + ',\'' + a + '\')" style="font-size:.72rem;padding:4px 8px;border-radius:999px;cursor:pointer;border:1.5px solid #0F766E;' + (on ? 'background:#0F766E;color:#fff;' : 'background:#fff;color:#0F766E;') + '">' + lab + '</button>';
+  var E = _pbEsc, rows = _pcP2Rows(), all = rows.concat([{ g: '', who: '', date: '', a: ['', '', '', '', '', '', ''] }]);
+  var done = rows.filter(_pcP2Done).length;
+  var sel = function (i, field, val, opts, w) {
+    return '<select onchange="pcP2Set(' + i + ',\'' + field + '\',this.value)" style="font-size:.76rem;padding:2px 3px;border:1px solid #CBD5E1;border-radius:5px;' + (w ? 'width:' + w + ';' : '') + (val ? 'background:#F0FDFA;font-weight:700;' : '') + '">' +
+      '<option value=""></option>' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + E(o[1]) + '</option>'; }).join('') + '</select>';
   };
-  var h = '<div class="pb-card" id="pcP2Card"><h3 class="pb-h">Part 2 &nbsp;Program Measures Survey &mdash; interview results</h3>' +
-    '<div style="font-size:.84rem;line-height:1.5;margin-bottom:8px;">CPIR&rsquo;s seven questions about support received <b>within the last 6 months</b>. Record each interview below, or type the counts in the tables. Press <b>Save typed figures</b> at the top to keep them.</div>' +
-    '<div style="border:1px dashed #0F766E;border-radius:10px;padding:10px 12px;background:#F0FDFA;">' +
-      '<div style="font-weight:700;font-size:.86rem;margin-bottom:6px;">Record an interview</div>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">' + _PC_P2_G.map(function (g) {
-        var on = _pcP2Pick.g === g[0];
-        return '<button type="button" onclick="pcP2Group(\'' + g[0] + '\')" style="font-size:.76rem;padding:5px 10px;border-radius:6px;cursor:pointer;border:1.5px solid #1E3A5F;' + (on ? 'background:#1E3A5F;color:#fff;' : 'background:#fff;color:#1E3A5F;') + '">' + E(g[1]) + '</button>';
-      }).join('') + '</div>' +
-      _PC_P2_Q.map(function (t, i) {
-        return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 0;border-top:1px solid #CCFBF1;"><div style="flex:1;min-width:240px;font-size:.8rem;"><b>' + (i + 1) + '.</b> ' + E(t) + '</div><div style="display:flex;gap:4px;flex-wrap:wrap;">' +
-          _PC_P2_A.map(function (a) { return btn(i + 1, a[0], a[1]); }).join('') + '</div></div>';
-      }).join('') +
-      '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><button type="button" class="btn" onclick="pcP2Add()" style="font-size:.8rem;padding:6px 14px;background:#0F766E;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;">Add this interview</button>' +
-      '<span id="pcP2Msg" style="font-size:.78rem;color:var(--text-soft);">' + Object.keys(_pcP2Pick.ans).length + ' of 7 answered</span></div>' +
-    '</div>';
+  var h = '<div class="pb-card" id="pcP2Card"><h3 class="pb-h">Part 2 &nbsp;Program Measures Survey &mdash; interviews <span class="pb-count">' + done + ' complete</span></h3>' +
+    '<div style="font-size:.84rem;line-height:1.5;margin-bottom:8px;">One row per interview. Pick the group and an answer for each question; when a row is filled a new one appears below it. Press <b>Save typed figures</b> at the top to keep them. These also count toward the 524B survey measures (2.e, 2.g, 2.i).</div>' +
+    '<details style="font-size:.78rem;margin-bottom:8px;"><summary style="cursor:pointer;color:#0F766E;font-weight:700;">The seven questions</summary><ol style="margin:6px 0 0 18px;padding:0;">' + _PC_P2_Q.map(function (q) { return '<li>' + E(q) + '</li>'; }).join('') + '</ol></details>' +
+    '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>#</th><th>Group</th><th>Who (code or initials)</th><th>Date</th>' +
+    _PC_P2_Q.map(function (q, i) { return '<th class="num" title="' + E(q) + '">Q' + (i + 1) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>';
+  all.forEach(function (r, i) {
+    var last = i === rows.length, ok = _pcP2Done(r);
+    h += '<tr' + (last ? ' style="background:#FAFAFA;"' : '') + '><td class="nw" style="color:var(--text-soft);">' + (i + 1) + (ok ? ' <span style="color:#15803D;">&#10003;</span>' : '') + '</td>' +
+      '<td>' + sel(i, 'g', r.g, _PC_P2_G, '150px') + '</td>' +
+      '<td><input type="text" value="' + E(r.who || '') + '" onchange="pcP2Set(' + i + ',\'who\',this.value)" placeholder="' + (last ? 'next interview' : '') + '" style="width:110px;font-size:.76rem;padding:2px 5px;border:1px solid #CBD5E1;border-radius:5px;"></td>' +
+      '<td><input type="date" value="' + E(r.date || '') + '" onchange="pcP2Set(' + i + ',\'date\',this.value)" style="font-size:.74rem;padding:1px 3px;border:1px solid #CBD5E1;border-radius:5px;"></td>' +
+      r.a.map(function (x, q) { return '<td class="num">' + sel(i, 'q' + q, x, _PC_P2_A.map(function (o) { return [o[0], o[2]]; }), '52px') + '</td>'; }).join('') +
+      '<td>' + (last ? '' : '<button type="button" title="Remove this interview" onclick="pcP2Del(' + i + ')" style="border:none;background:none;color:#B91C1C;cursor:pointer;font-size:1rem;">&times;</button>') + '</td></tr>';
+  });
+  h += '</tbody></table></div><div style="font-size:.72rem;color:var(--text-soft);margin-top:4px;">SA = Strongly agree &middot; A = Agree &middot; D = Disagree &middot; SD = Strongly disagree</div>';
+  var cnt = _pcP2Counts(rows);
   _PC_P2_G.forEach(function (g) {
-    var total = 0; for (var q = 1; q <= 7; q++) _PC_P2_A.forEach(function (a) { total += _pcP2N(g[0], q, a[0]); });
-    h += '<div style="font-weight:700;font-size:.86rem;margin:14px 0 4px;">' + E(g[1]) + ' <span style="font-weight:400;color:var(--text-soft);">&middot; ' + Math.round(total / 7 * 10) / 10 + ' interviews</span></div>' +
+    var n = rows.filter(function (r) { return _pcP2Done(r) && r.g === g[0]; }).length;
+    if (!n) return;
+    h += '<div style="font-weight:700;font-size:.86rem;margin:14px 0 4px;">' + E(g[1]) + ' <span style="font-weight:400;color:var(--text-soft);">&middot; ' + n + ' interview' + (n === 1 ? '' : 's') + '</span></div>' +
       '<div class="pb-scroll"><table class="pb-tbl"><thead><tr><th>Question</th>' + _PC_P2_A.map(function (a) { return '<th class="num">' + a[1] + '</th>'; }).join('') + '<th class="num">% agree</th></tr></thead><tbody>';
-    for (var q2 = 1; q2 <= 7; q2++) {
-      var n = 0, ag = 0;
-      _PC_P2_A.forEach(function (a) { var v = _pcP2N(g[0], q2, a[0]); n += v; if (a[0] === 'sa' || a[0] === 'a') ag += v; });
-      h += '<tr><td style="font-size:.8rem;"><b>' + q2 + '.</b> ' + E(_PC_P2_Q[q2 - 1]) + '</td>' +
-        _PC_P2_A.map(function (a) { var k = 'p2.' + g[0] + '.' + q2 + '.' + a[0], v = _pcManual[k];
-          return '<td class="num"><input type="number" min="0" step="1" data-pc="' + k + '" value="' + (v == null ? '' : E(v)) + '" oninput="pcManualEdit(this);pcP2Redraw(true)" style="width:56px;text-align:right;padding:2px 4px;border:1.5px dashed #8B5CF6;border-radius:6px;background:#F5F3FF;font-weight:700;color:#5B21B6;"></td>'; }).join('') +
-        '<td class="num" style="font-weight:800;">' + (n ? Math.round(100 * ag / n) + '%' : '&ndash;') + '</td></tr>';
+    for (var q = 1; q <= 7; q++) {
+      var ag = (cnt[g[0] + '.' + q + '.sa'] || 0) + (cnt[g[0] + '.' + q + '.a'] || 0);
+      h += '<tr><td style="font-size:.8rem;"><b>' + q + '.</b> ' + E(_PC_P2_Q[q - 1]) + '</td>' + _PC_P2_A.map(function (a) { return '<td class="num">' + (cnt[g[0] + '.' + q + '.' + a[0]] || 0) + '</td>'; }).join('') +
+        '<td class="num" style="font-weight:800;">' + Math.round(100 * ag / n) + '%</td></tr>';
     }
     h += '</tbody></table></div>';
   });
   return h + '</div>';
 }
-window.pcP2Group = function (g) { _pcP2Pick.g = g; pcP2Redraw(); };
-window.pcP2Tap = function (q, a) { _pcP2Pick.ans[q] = a; pcP2Redraw(); };
-window.pcP2Add = function () {
-  var m = document.getElementById('pcP2Msg');
-  if (Object.keys(_pcP2Pick.ans).length < 7) { if (m) { m.textContent = 'Answer all 7 questions first (' + Object.keys(_pcP2Pick.ans).length + ' of 7).'; m.style.color = '#B91C1C'; } return; }
-  for (var q = 1; q <= 7; q++) { var k = 'p2.' + _pcP2Pick.g + '.' + q + '.' + _pcP2Pick.ans[q]; _pcManual[k] = (Number(_pcManual[k]) || 0) + 1; }
-  _pcP2Pick.ans = {};
+window.pcP2Set = function (i, field, val) {
+  var rows = _pcP2Rows().slice();
+  if (i >= rows.length) { if (!val) return; rows.push({ g: '', who: '', date: (typeof _localToday === 'function' ? _localToday() : new Date().toISOString().slice(0, 10)), a: ['', '', '', '', '', '', ''] }); }
+  var r = Object.assign({}, rows[i]); r.a = (r.a || []).slice();
+  if (field.charAt(0) === 'q' && field !== 'q') r.a[Number(field.slice(1))] = val; else r[field] = val;
+  rows[i] = r; _pcManual['p2.iv'] = rows;
   pcP2Redraw();
-  if (typeof _showToast === 'function') _showToast('Interview added. Press Save typed figures to keep it.', '#0F766E');
 };
-/* Redraw the card in place; while typing in a count box only the % column needs it, so keep focus. */
-window.pcP2Redraw = function (typing) {
-  var c = document.getElementById('pcP2Card'); if (!c) return;
-  if (typing) {
-    var a = document.activeElement, k = a && a.getAttribute && a.getAttribute('data-pc'), pos = a && a.selectionStart;
-    c.outerHTML = _pcP2Html();
-    if (k) { var n = document.querySelector('#pcP2Card input[data-pc="' + k + '"]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (_) {} } }
-    return;
+window.pcP2Del = function (i) {
+  if (!confirm('Remove interview ' + (i + 1) + '?')) return;
+  var rows = _pcP2Rows().slice(); rows.splice(i, 1); _pcManual['p2.iv'] = rows; pcP2Redraw();
+};
+window.pcP2Redraw = function () { var c = document.getElementById('pcP2Card'); if (c) c.outerHTML = _pcP2Html(); };
+
+/* 524B: the CPIR interviews for a date range, both grants, loaded once ((2026-11-25)).
+   2.g met needs = Q1, 2.i understood and useful = Q2 and Q4, 2.e recommend = Q7;
+   Strongly agree or Agree is a yes. */
+var _sbCpirIv = {};
+async function _sbEnsureCpirIv(from, to) {
+  var ids = ['cpir_' + from + '_' + to, 'cpir_pip_' + from + '_' + to], got = false;
+  for (var i = 0; i < ids.length; i++) {
+    if (_sbCpirIv[ids[i]]) continue;
+    try { var d = await db.collection('settings').doc(ids[i]).get(); var v = d.exists ? ((d.data() || {}).values || {})['p2.iv'] : null; _sbCpirIv[ids[i]] = Array.isArray(v) ? v : []; got = true; }
+    catch (e) { _sbCpirIv[ids[i]] = []; }
   }
-  c.outerHTML = _pcP2Html();
-};
+  return got;
+}
+var _SB_IV_MAP = { '2.g': [1], '2.i': [2, 4], '2.e': [7] };
 
 function _pcRowsBase() {
   var R = _pcLast || _pcCompute(), rows = [['Section', 'Item', 'Value', 'Source']];
@@ -73388,7 +73401,8 @@ function _pcRowsBase() {
   ['English', 'Spanish', 'Other'].forEach(function (l) { cols.forEach(function (c) { rows.push(['III.D', l + ' - ' + c[1], m('lang.' + l.toLowerCase() + '.' + c[0]), 'Typed']); }); });
   [['iep', 'IFSP/IEP/504 meetings'], ['tiep', 'Transition IEP meetings'], ['fiep', 'Facilitated IEP meetings'], ['dp', 'Due process hearings'], ['mdr', 'Manifestation determination hearings'], ['med', 'Mediations'], ['res', 'Resolution sessions'], ['susp', 'Suspension/expulsion hearings'], ['slep', 'Student-led IEP meetings']].forEach(function (x) { rows.push(['IV.A', x[1], (R.mtgCount[x[0]] || 0) + (Number(m('mtg.' + x[0])) || 0), 'Auto + typed']); });
   [['local', 'Local/community-level systems meetings'], ['state', 'State-level systems meetings'], ['national', 'National/federal-level systems meetings'], ['youth', 'Of those, related to youth/young adults']].forEach(function (x) { rows.push(['IV.B', x[1], (R.sys[x[0]] || 0) + (Number(m('sys.' + x[0])) || 0), 'Auto + typed']); });   /* (v155.71-STAGE) */
-  _PC_P2_G.forEach(function (g) { for (var q = 1; q <= 7; q++) _PC_P2_A.forEach(function (a) { rows.push(['Part 2 survey', g[1] + ' - Q' + q + ' - ' + a[1], m('p2.' + g[0] + '.' + q + '.' + a[0]), 'Typed']); }); });   /* (2026-11-25) */
+  var _p2c = _pcP2Counts(_pcP2Rows());
+  _PC_P2_G.forEach(function (g) { for (var q = 1; q <= 7; q++) _PC_P2_A.forEach(function (a) { rows.push(['Part 2 survey', g[1] + ' - Q' + q + ' - ' + a[1], _p2c[g[0] + '.' + q + '.' + a[0]] || 0, 'Interviews']); }); });   /* (2026-11-25) */
   rows.push(['V', 'Newsletters disseminated', m('out.newsletters'), 'Typed'], ['V', 'Social media reach', _pcSocial(R), (m('out.social') !== '' && m('out.social') != null) ? 'Typed' : 'Auto'],
             ['V', 'Exhibits/fairs - materials disseminated', R.outMaterials, 'Auto'], ['V', 'Exhibits/fairs - events attended', R.outEvents, 'Auto'],
             ['V', 'Website page views (website and app)', _pcWeb ? _pcWeb.pv + (Number(m('web.before')) || 0) : '', m('web.before') ? 'Auto + typed (before 3/22/26)' : 'Auto'],
@@ -73706,12 +73720,18 @@ function _sbCompute(grant) {
   /* Surveys: every evaluation dated in the period is a respondent, whatever
      it answered; Yes over all of them. */
   var fb = (_pbCache.feedback || []).filter(function (f) { return _pbKeep(f) && inR(f.date); });
+  var _iv = (_sbCpirIv[(pip ? 'cpir_pip_' : 'cpir_') + from + '_' + to] || []).filter(_pcP2Done);   /* CPIR interviews (2026-11-25) */
+  var _ivG = { fc: 'parent, child under transition age', ft: 'parent, transition-age youth', y: 'youth 14+' };
   _SB_MEASURES[grant].forEach(function (m) {
     if (!m.survey) return;
     var yes = fb.filter(function (f) { return String((f.raw || {})[m.survey]).toLowerCase() === 'yes'; });
+    var qs = _SB_IV_MAP[m.id] || [];
+    var ivYes = qs.length ? _iv.filter(function (r) { return qs.every(function (q) { return r.a[q - 1] === 'sa' || r.a[q - 1] === 'a'; }); }) : [];
+    var resp = fb.length + (qs.length ? _iv.length : 0), y = yes.length + ivYes.length;
     out[m.id] = {
-      v: fb.length ? Math.round(100 * yes.length / fb.length) : null, yes: yes.length, resp: fb.length,
+      v: resp ? Math.round(100 * y / resp) : null, yes: y, resp: resp,
       recs: yes.slice().sort(byDate).map(function (f) { return { type: 'survey', id: f.id, date: f.date, title: f.title, count: 1 }; })
+        .concat(ivYes.map(function (r) { return { type: 'CPIR interview', id: '', date: r.date || '', title: 'CPIR interview' + (r.who ? ' ' + r.who : '') + ' (' + (_ivG[r.g] || r.g) + ')', count: 1 }; }))
     };
   });
 
@@ -74039,6 +74059,12 @@ window.sbSaveManual = async function () {
 /* Draws the chart, then drops the saved typed figures into the boxes without
    a re-render, so nothing being typed is wiped. */
 function _sbRender(host) {
+  if (!host._ivWait) {   /* CPIR interviews first ((2026-11-25)) */
+    host._ivWait = true;
+    _sbEnsureCpirIv(_pbState.from, _pbState.to).then(function () { host._ivWait = false; if (_pbState.view === 'ed524') _sbRender(host); }, function () { host._ivWait = false; });
+    return;
+  }
+  host._ivWait = false;
   host.innerHTML = _sbHtml();
   if (!_sbGrant()) return;
   _sbLoadManual().then(function (changed) {
