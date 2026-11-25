@@ -6292,7 +6292,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.37</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v155.38</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -66194,6 +66194,16 @@ window.prExportCsv = function() {
     var kids = Array.isArray(c.children) ? c.children : [];
     return kids.some(function(k) { return String(k && k.nativeHawaiian || '').toLowerCase() === 'yes'; });
   }
+  /* The screened child's own Native Hawaiian answer (the box on the screening
+     form lands on children[] of the family card). Matched by name; a family
+     with one child on file needs no match. (v156.33-STAGE) */
+  function _komScreenedChildNH(c, childName) {
+    var kids = Array.isArray(c.children) ? c.children : [];
+    var n = function (v) { return String(v || '').toLowerCase().replace(/[^a-z]/g, ''); };
+    var hit = kids.filter(function (k) { return k && n(k.name) && n(k.name) === n(childName); });
+    if (!hit.length && kids.length === 1) hit = kids;
+    return hit.some(function (k) { return String(k && k.nativeHawaiian || '').toLowerCase() === 'yes'; });
+  }
   function _komIsNativeHawaiian(c) {
     if (String(c.ethnicity || '').toLowerCase().indexOf('hawaiian') !== -1) return true;
     return _komChildIsNH(c);
@@ -66271,7 +66281,7 @@ window.prExportCsv = function() {
           var ty = String(s.screeningType || '').toLowerCase();
           if (ty === 'hearing') {
             var lionsRefer = String(s.outcome || '').toLowerCase() === 'refer';
-            hearing.push({ s: s, c: c, refer: lionsRefer, pass: String(s.outcome || '').toLowerCase() === 'pass' });
+            hearing.push({ s: s, c: c, refer: lionsRefer, pass: String(s.outcome || '').toLowerCase() === 'pass', nh: _komScreenedChildNH(c, s.childName) });
             if (lionsRefer) hearingRefer++;
           } else if (ty === 'vision') {
             vision.push({ s: s, c: c });
@@ -66284,7 +66294,7 @@ window.prExportCsv = function() {
             var dist = (r.vision || {}).distance || {};
             if (!ab.hearing && (oae.right || oae.left || ty2.right || ty2.left)) {
               var hRefer = oae.right === 'Fail' || oae.left === 'Fail';
-              hearing.push({ s: s, c: c, refer: hRefer, pass: !hRefer && !!(oae.right || oae.left) });
+              hearing.push({ s: s, c: c, refer: hRefer, pass: !hRefer && !!(oae.right || oae.left), nh: _komScreenedChildNH(c, s.childName || (s.child && s.child.name)) });
               if (hRefer) hearingRefer++;
             }
             if (!ab.vision && (dist.right || dist.left)) vision.push({ s: s, c: c });
@@ -66314,6 +66324,10 @@ window.prExportCsv = function() {
          the month, for someone served. An interaction can be Open with no
          follow-up date at all, so that shape is deliberately not counted —
          it would inflate the number with records nobody is chasing. */
+      /* (v156.33-STAGE, Daniel 2026-11-25) Participants requiring follow-up = every
+         child whose hearing screening this month was a refer or fail. The old
+         count (open interactions with a follow-up date) is kept below only as
+         openFollowUps for the note. */
       var followUp = 0;
       try {
         var ixSnap = await db.collection('interactions')
@@ -66324,6 +66338,9 @@ window.prExportCsv = function() {
           if (x.contactId && contactIds[x.contactId]) followUp++;
         });
       } catch (_) { followUp = 0; }
+      var openFollowUps = followUp;
+      followUp = hearingRefer;
+      var nhScreened = hearing.filter(function (h) { return h.nh; }).length;
 
       var manual = {};
       try {
@@ -66335,7 +66352,7 @@ window.prExportCsv = function() {
         month: month, monthEvents: monthEvents, byMonth: byMonth,
         served: served, nhServed: nhServed, hearing: hearing, vision: vision,
         hearingRefer: hearingRefer, trainingSessions: trainingSessions,
-        followUp: followUp, manual: manual, signups: signupRows
+        followUp: followUp, openFollowUps: openFollowUps, nhScreened: nhScreened, manual: manual, signups: signupRows
       };
 
       var st = document.getElementById('komGeneratedAt');
@@ -66409,13 +66426,13 @@ window.prExportCsv = function() {
       + '</tr></thead><tbody>';
 
     html += auto('Participants served', d.served.length, 'Distinct people who signed up to a Ke Ola Mamo event this month. Counted once each, however many sessions they attended.');
-    html += auto('Native Hawaiian beneficiaries served', d.nhServed.length, 'Of those participants: ethnicity recorded as Hawaiian/Part Hawaiian, or a child answered Yes to the Native Hawaiian question.');
+    html += auto('Native Hawaiian beneficiaries served', d.nhServed.length + (d.nhScreened || 0), _pbFmt(d.nhServed.length) + ' event participant' + (d.nhServed.length === 1 ? '' : 's') + ' (ethnicity Hawaiian/Part Hawaiian, or a child answered Yes to Native Hawaiian) + ' + _pbFmt(d.nhScreened || 0) + ' child' + (d.nhScreened === 1 ? '' : 'ren') + ' hearing-screened this month whose form is marked Native Hawaiian.');
     html += manualRow('Outreach contacts completed', 'outreachContacts', 'No field records an outreach contact. Type the count from the event logs.');
     html += auto('Training sessions conducted', d.trainingSessions, 'Ke Ola Mamo events recorded at Tier 2 or Tier 3 this month.');
     html += auto('Hearing screenings completed', d.hearing.length, 'Every hearing screening completed this month' + (d.vision.length ? ' (' + d.vision.length + ' vision screening' + (d.vision.length === 1 ? '' : 's') + ' also recorded, not counted here)' : '') + '. Screenings carry no grant tag, so this is not limited to Ke Ola Mamo events.');
     html += auto('Community events supported', d.monthEvents.length, d.monthEvents.length ? _komTypeBreakdown(d.monthEvents) : 'No event is tagged to Ke Ola Mamo this month.');
     html += manualRow('Ke Ola Mamo CHWs trained', 'chwsTrained', 'Nothing identifies a partner-agency trainee. Type the number of KOM Community Health Workers trained.');
-    html += auto('Participants requiring follow-up', d.followUp, 'Open interactions with a follow-up date this month, for the people served above.' + (d.hearingRefer ? ' Separately, ' + d.hearingRefer + ' hearing screening' + (d.hearingRefer === 1 ? '' : 's') + ' returned a refer result.' : ''));
+    html += auto('Participants requiring follow-up', d.followUp, 'Children whose hearing screening this month was a refer or fail (Lions refer, or OAE Fail in either ear).' + (d.openFollowUps ? ' Not added: ' + d.openFollowUps + ' open follow-up task' + (d.openFollowUps === 1 ? '' : 's') + ' for event participants.' : ''));
     html += manualRow('Referrals made', 'referralsMade', 'The system records referrals coming IN, never one going out. Type the number of families referred on to another agency.');
 
     html += '</tbody></table>';
@@ -66534,13 +66551,13 @@ window.prExportCsv = function() {
       [],
       ['Measure', 'Count', 'Source'],
       ['Participants served', d.served.length, 'Distinct contacts signed up to a Ke Ola Mamo event'],
-      ['Native Hawaiian beneficiaries served', d.nhServed.length, 'Of those served: Hawaiian/Part Hawaiian, or child answered Yes'],
+      ['Native Hawaiian beneficiaries served', d.nhServed.length + (d.nhScreened || 0), d.nhServed.length + ' event participants + ' + (d.nhScreened || 0) + ' hearing-screened children marked Native Hawaiian on the form'],
       ['Outreach contacts completed', d.manual.outreachContacts != null ? d.manual.outreachContacts : '', 'Entered by staff'],
       ['Training sessions conducted', d.trainingSessions, 'Tier 2 / Tier 3 Ke Ola Mamo sessions'],
       ['Hearing screenings completed', d.hearing.length, 'All hearing screenings this month'],
       ['Community events supported', d.monthEvents.length, 'Events tagged to the Ke Ola Mamo grant'],
       ['Ke Ola Mamo CHWs trained', d.manual.chwsTrained != null ? d.manual.chwsTrained : '', 'Entered by staff'],
-      ['Participants requiring follow-up', d.followUp, 'Open interactions with a follow-up date this month'],
+      ['Participants requiring follow-up', d.followUp, 'Children whose hearing screening this month was a refer or fail'],
       ['Referrals made', d.manual.referralsMade != null ? d.manual.referralsMade : '', 'Entered by staff'],
       [],
       ['Program-specific outcomes', d.manual.outcomes || '']
