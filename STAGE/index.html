@@ -6325,7 +6325,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.27-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.28-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -69974,17 +69974,20 @@ function _pbRenderControls() {
   var _cpir = (_pbState.view === 'cpir' && !_pbPipOnly());
   var _ed524 = (_pbState.view === 'ed524' && !_pbPipOnly());
   var _ws = (_pbState.view === 'cpirws' && !_pbPipOnly());
+  var _pace = (_pbState.view === 'pace' && !_pbPipOnly());
   host.innerHTML =
     '<div class="pb-card pb-controls">' +
       /* Which report (v151.63): the Board Report, or the yearly federal Parent
          Center Data Collection laid out like CPIR's worksheet. */
       (_pbPipOnly() ? '' :
       '<div><label class="pb-lbl">Report</label><div class="pb-seg">' +
-        '<button type="button" onclick="pbSetView(\'board\')" title="The quarterly PTI Board Report."' + (!_cpir && !_ed524 && !_ws ? ' style="background:#0F766E;color:#fff;"' : '') + '>Board Report</button>' +
+        '<button type="button" onclick="pbSetView(\'board\')" title="The quarterly PTI Board Report."' + (!_cpir && !_ed524 && !_ws && !_pace ? ' style="background:#0F766E;color:#fff;"' : '') + '>Board Report</button>' +
         '<button type="button" onclick="pbSetView(\'cpir\')" title="The yearly federal Parent Center Data Collection (CPIR Part 1 and the Part 2 contact lists), laid out like the worksheet. LDAH is the Hawaii PTI figure; PIP and Both are also available."' + (_cpir ? ' style="background:#0F766E;color:#fff;"' : '') + '>Parent Center Data Collection</button>' +
         /* 524B Status Chart (v153.71-STAGE): one chart per grant, LDAH = Hawaii PTI, PIP = Pacific Island PTI. */
         '<button type="button" onclick="pbSetView(\'ed524\')" title="The ED 524B Project Status Chart for the grant: every measure with its target, the actual figure for the period and the records behind it. LDAH is the Hawaii PTI chart, PIP the Pacific Island PTI chart. Opens on the program year."' + (_ed524 ? ' style="background:#0F766E;color:#fff;"' : '') + '>524B Status Chart</button>' +
         '<button type="button" onclick="pbSetView(\'cpirws\')" title="CPIR Part 1 worksheet filled in box by box, for LDAH, PIP or Both."' + (_ws ? ' style="background:#0F766E;color:#fff;"' : '') + '>CPIR Worksheet</button>' +
+        /* 524B Pace (Daniel 2026-11-25): where each measure stands this federal year, both grants. */
+        '<button type="button" onclick="pbSetView(\'pace\')" title="Every 524B measure for this federal year (Oct 1 to Sep 30), Hawaii PTI and Pacific Island PTI side by side, against where an even pace puts us today."' + (_pace ? ' style="background:#0F766E;color:#fff;"' : '') + '>524B Pace</button>' +
       '</div></div>') +
       /* Scope first: it decides what every figure below MEANS, so it is read
          before the dates. Same colours as the Event Attendance toggle —
@@ -71427,6 +71430,8 @@ function _pbRender() {
   if (!host || !_pbCache) return;
   /* 524B Status Chart view (v153.71-STAGE). */
   if (_pbState.view === 'ed524' && !_pbPipOnly()) { _sbRender(host); return; }
+  /* 524B Pace (Daniel 2026-11-25): both grants, current federal year. */
+  if (_pbState.view === 'pace' && !_pbPipOnly()) { host.innerHTML = _spHtml(); return; }
   /* CPIR Worksheet (v155.87): redrawn whole once typed figures and website views load. */
   if (_pbState.view === 'cpirws' && !_pbPipOnly()) {
     host.innerHTML = _pcWsHtml();
@@ -73791,9 +73796,116 @@ window.sbExportXlsx = function () {
 };
 /* ── end 524B Status Chart ── */
 
+/* ── 524B Pace (Daniel 2026-11-25) ──────────────────────────────────────────
+   "at a glance where we are" for the federal year (Oct 1 - Sep 30): every 524B
+   measure, Hawaii PTI and Pacific Island PTI side by side, against where an even
+   pace says it should be today. Same counting as the 524B Status Chart
+   (_sbCompute), so the two can never disagree; recomputed from live records
+   each time the report opens or Refresh is pressed. */
+function _spFiscalYear() {
+  var now = new Date(), y = now.getFullYear();
+  var endY = now.getMonth() >= 9 ? y + 1 : y;          /* October starts the next federal year */
+  return { from: (endY - 1) + '-10-01', to: endY + '-09-30', label: 'FY ' + (endY - 1) + '–' + String(endY).slice(2) };
+}
+function _spCompute() {
+  var keep = { scope: _pbState.scope, partner: _pbState.partner, island: _pbState.island, from: _pbState.from, to: _pbState.to };
+  var fy = _spFiscalYear(), C = {};
+  try {
+    _pbState.from = fy.from; _pbState.to = fy.to; _pbState.partner = ''; _pbState.island = '';
+    _pbState.scope = 'ldah'; C.ldah = _sbCompute('ldah');
+    _pbState.scope = 'pip';  C.pip = _sbCompute('pip');
+  } finally {
+    _pbState.scope = keep.scope; _pbState.partner = keep.partner; _pbState.island = keep.island;
+    _pbState.from = keep.from; _pbState.to = keep.to;
+  }
+  return C;
+}
+/* The figure the pace is judged on, and its target. Survey measures are a
+   percentage, not a running total, so they get no pace line. Typed measures
+   only have a figure when events were ticked for them. */
+function _spFig(m, c) {
+  if (!m) return null;
+  c = c || { v: 0 };
+  if (m.survey) return { pct: true, v: c.resp ? c.v : null, t: m.t, sub: c.resp ? (_pbFmt(c.yes) + ' of ' + _pbFmt(c.resp) + ' responses') : 'No survey responses yet' };
+  if (m.kind === 'typed') {
+    if (c.recs && c.recs.length) return { v: Number(c.v) || 0, t: m.t, sub: 'From ticked events. The chart uses a typed figure when Rosie saves one.' };
+    return { typed: true, t: m.t, sub: m.typed === 'ratio' ? 'Expert panel score, typed in at report time' : 'Typed in at report time' };
+  }
+  var f = { v: Number(c.v) || 0, t: m.t, sub: '' };
+  if (m.id === '1.b') f.sub = _pbFmt(c.people || 0) + ' of ' + _pbFmt(m.t2) + ' people';
+  if (m.id === '4.a') f.sub = _pbFmt(c.v2 || 0) + ' of ' + _pbFmt(m.t2) + ' new';
+  return f;
+}
+function _spStatus(f, frac) {
+  if (!f || f.typed || f.v === null) return null;
+  if (f.pct) return f.v >= f.t ? ['Meeting target', '#DCFCE7', '#15803D'] : ['Below target', '#FEE2E2', '#B91C1C'];
+  if (f.v >= f.t) return ['Target met', '#DCFCE7', '#15803D'];
+  var exp = f.t * frac;
+  if (f.v >= exp) return ['On pace', '#DCFCE7', '#15803D'];
+  if (f.v >= exp * 0.75) return ['A little behind', '#FEF3C7', '#92400E'];
+  return ['Behind', '#FEE2E2', '#B91C1C'];
+}
+function _spBar(f, frac, color) {
+  if (!f) return '<div style="font-size:.78rem;color:var(--text-soft);">Not a measure on this chart</div>';
+  if (f.typed) return '<div style="font-size:.8rem;color:var(--text-soft);">' + _pbEsc(f.sub) + ' &middot; target ' + _pbFmt(f.t) + '</div>';
+  var st = _spStatus(f, frac);
+  var w = f.v === null ? 0 : Math.max(0, Math.min(100, 100 * f.v / (f.t || 1)));
+  var mark = f.pct ? 100 : Math.round(100 * frac);
+  var need = f.pct ? '' : Math.ceil(f.t * frac);
+  var head = f.v === null ? '&mdash;' : (f.pct ? f.v + '%' : _pbFmt(f.v)) + ' <span style="font-weight:500;color:var(--text-soft);">of ' + (f.pct ? f.t + '%' : _pbFmt(f.t)) + '</span>';
+  return '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px;">' +
+      '<b style="font-size:1rem;">' + head + '</b>' +
+      (st ? '<span style="font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:999px;background:' + st[1] + ';color:' + st[2] + ';">' + st[0] + '</span>' : '') +
+    '</div>' +
+    '<div style="position:relative;height:14px;background:#E2E8F0;border-radius:7px;overflow:visible;">' +
+      '<div style="position:absolute;left:0;top:0;bottom:0;width:' + w.toFixed(1) + '%;background:' + color + ';border-radius:7px;"></div>' +
+      (f.pct ? '' : '<div title="Where an even pace puts us today: ' + _pbFmt(need) + '" style="position:absolute;left:calc(' + mark + '% - 1px);top:-4px;bottom:-4px;width:3px;background:#0F172A;border-radius:2px;"></div>') +
+    '</div>' +
+    '<div style="font-size:.74rem;color:var(--text-soft);margin-top:4px;">' +
+      (f.pct ? '' : 'Should be at ' + _pbFmt(need) + ' today') + (f.sub ? (f.pct ? '' : ' &middot; ') + _pbEsc(f.sub) : '') +
+    '</div>';
+}
+function _spHtml() {
+  var fy = _spFiscalYear(), C = _spCompute();
+  var d0 = new Date(fy.from + 'T00:00:00'), d1 = new Date(fy.to + 'T00:00:00'), now = new Date();
+  var total = Math.round((d1 - d0) / 864e5) + 1;
+  var day = Math.max(0, Math.min(total, Math.floor((now - d0) / 864e5) + 1));
+  var frac = day / total;
+  var pipBy = {}; (_SB_MEASURES.pip || []).forEach(function (m) { pipBy[m.id] = m; });
+  var tally = { ldah: { on: 0, behind: 0 }, pip: { on: 0, behind: 0 } };
+  var rows = '', lastObj = '';
+  (_SB_MEASURES.ldah || []).forEach(function (m) {
+    var mp = pipBy[m.id];
+    var fh = _spFig(m, C.ldah[m.id]), fp = _spFig(mp, C.pip[m.id]);
+    [['ldah', fh], ['pip', fp]].forEach(function (g) { var st = _spStatus(g[1], frac); if (!st) return; if (/met|On pace|Meeting/.test(st[0])) tally[g[0]].on++; else tally[g[0]].behind++; });
+    var obj = m.id.charAt(0) === 'Y' ? 'Y' : m.id.split('.')[0];
+    if (obj !== lastObj) { rows += '<tr><td colspan="3" style="padding:14px 10px 6px;font-weight:800;color:#0F766E;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;">' + _pbEsc(_SB_OBJ[obj] || '') + '</td></tr>'; lastObj = obj; }
+    rows += '<tr style="border-top:1px solid var(--border,#E2E8F0);vertical-align:top;">' +
+      '<td style="padding:10px;width:30%;"><b>' + _pbEsc(m.id) + '</b> <span style="font-size:.84rem;">' + _pbEsc(m.w) + '</span></td>' +
+      '<td style="padding:10px;width:35%;">' + _spBar(fh, frac, '#0891B2') + '</td>' +
+      '<td style="padding:10px;width:35%;">' + _spBar(fp, frac, '#7C3AED') + '</td></tr>';
+  });
+  var asOf = now.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+  var tile = function (name, color, t) { return '<div style="flex:1;min-width:200px;background:#fff;border-radius:10px;padding:12px 14px;border-left:5px solid ' + color + ';box-shadow:var(--shadow-soft);"><div style="font-weight:800;">' + name + '</div><div style="font-size:.86rem;margin-top:4px;"><b style="color:#15803D;">' + t.on + '</b> on pace or met &middot; <b style="color:#B91C1C;">' + t.behind + '</b> behind</div></div>'; };
+  return '<div class="pb-card" style="padding:16px 18px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">' +
+        '<div><div style="font-size:1.25rem;font-weight:800;">524B Pace &middot; ' + fy.label + '</div>' +
+        '<div style="font-size:.86rem;color:var(--text-soft);margin-top:2px;">October 1, ' + fy.from.slice(0, 4) + ' to September 30, ' + fy.to.slice(0, 4) + ' &middot; as of ' + asOf + ' &middot; day ' + day + ' of ' + total + ' (' + Math.round(100 * frac) + '% of the year)</div></div>' +
+        '<button type="button" class="btn btn-secondary" onclick="pbRefresh()" title="Read the records again for the newest figures.">Refresh</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">' + tile('Hawaii PTI', '#0891B2', tally.ldah) + tile('Pacific Island PTI', '#7C3AED', tally.pip) + '</div>' +
+      '<div style="font-size:.8rem;color:var(--text-soft);margin-top:10px;line-height:1.5;">Each bar is the figure so far against the target for the whole year. The dark line is where an even pace puts us today. Ahead of the line is on pace. Figures are counted exactly as the 524B Status Chart counts them. Survey measures are percentages, so they have no line. Typed measures show only when events were ticked for them.</div>' +
+    '</div>' +
+    '<div class="pb-card" style="padding:0;overflow-x:auto;margin-top:12px;"><table style="width:100%;border-collapse:collapse;min-width:760px;">' +
+      '<thead><tr style="background:#F8FAFC;"><th style="text-align:left;padding:10px;">Measure</th><th style="text-align:left;padding:10px;color:#0891B2;">Hawaii PTI</th><th style="text-align:left;padding:10px;color:#7C3AED;">Pacific Island PTI</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+}
+/* ── end 524B Pace ── */
+
+
 window.pbSetView = function (v) {
   if (_pbPipOnly()) return;
-  v = (v === 'cpir' || v === 'ed524' || v === 'cpirws') ? v : 'board';
+  v = (v === 'cpir' || v === 'ed524' || v === 'cpirws' || v === 'pace') ? v : 'board';
   if (v === _pbState.view) return;
   /* Each view remembers its own period (boardFrom, cpirFrom, ed524From). The
      board keeps whatever it had; CPIR and 524B open on the program year. */
@@ -73801,6 +73913,8 @@ window.pbSetView = function (v) {
   _pbState[cur + 'From'] = _pbState.from; _pbState[cur + 'To'] = _pbState.to;
   if (v === 'board') {
     if (_pbState.boardFrom) { _pbState.from = _pbState.boardFrom; _pbState.to = _pbState.boardTo; }
+  } else if (v === 'pace') {
+    var fyp = _spFiscalYear(); _pbState.from = fyp.from; _pbState.to = fyp.to;   /* always the current federal year */
   } else {
     var py = (_pbState[v + 'From'] ? { from: _pbState[v + 'From'], to: _pbState[v + 'To'] } : _pcProgramYear());
     _pbState.from = py.from; _pbState.to = py.to;
