@@ -6325,7 +6325,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.29-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.30-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -26650,7 +26650,7 @@ window.openContactDetail = async function(contactId) {
     if (!box.getAttribute('data-rendered')) {
       box.innerHTML = '<label style="font-size:.8rem;color:var(--text-soft);">524B measures <span style="font-weight:400;">tick every one this interaction counts toward</span></label>' +
         '<div id="intM524Grid" onchange="_m524GrpSync(\'int\', this)" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:4px 14px;margin-top:6px;">' +
-        window._ES_M524.map(function(m) {
+        window._ES_M524.filter(function(m) { return window._IX_M524.indexOf(m[0]) !== -1; }).map(function(m) {
           return '<label style="display:flex;gap:6px;align-items:flex-start;font-size:.8rem;font-weight:500;cursor:pointer;margin:0;">' +
             '<input type="checkbox" data-m524="' + rsEscape(m[0]) + '" onchange="_int524Count()" style="margin:2px 0 0;width:auto;">' +
             '<span><b>' + rsEscape(m[0]) + '</b> ' + rsEscape(m[1]) + '</span></label>';
@@ -46964,6 +46964,11 @@ window._ES_M524 = [
    lives in settings/ed524Groups (Super Admins only can write settings, so a Super
    Admin's new name joins the list when saved; anyone else's is kept on the record
    and still counted). The 524B chart counts each group once. */
+/* Boxes a single interaction can earn (Daniel 2026-11-25): one person's help (4.a,
+   4.b), a workgroup meeting (5.a), Parents as Partners (5.b) and materials. Event
+   boxes such as 1.a or 3.b belong on events, so the New Interaction box offers only
+   these and the 524B chart ignores any other box ticked on an interaction. */
+window._IX_M524 = ['1.c', '2.c', '3.c', '4.a', '4.b', '5.a', '5.b', '6.b', 'Y1.b', 'Y2.b'];
 window._m524GroupList = null;
 window._m524GrpLoad = function () {
   if (window._m524GroupList) return Promise.resolve(window._m524GroupList);
@@ -69545,7 +69550,7 @@ async function _pbLoadAll() {
       var x = d.data() || {};
       if (x.status !== 'accepted' || x.archived === true) return;
       _papIds[d.id] = 1;
-      pap.push({ id: d.id, pip: !!x.partnerIsland, pIsland: x.partnerIsland || '', date: _pbTsISO(x.submittedAt) || '',
+      pap.push({ id: d.id, cid: x.linkedContactId || '', pip: !!x.partnerIsland, pIsland: x.partnerIsland || '', date: _pbTsISO(x.submittedAt) || '',
                  name: ((x.firstName || '') + ' ' + (x.lastName || '')).trim() || '(no name)' });
     });
     var _rq = await db.collection('volunteerRequests').get();
@@ -69792,7 +69797,10 @@ function _tfRender() {
         '<button type="button" class="tf-x" onclick="tfSelect(\'\')" title="Close">&times;</button></div>' +
       '<div class="tf-step">1. Tier</div>' + _tfTierBtns(r, true) +
       '<div class="tf-step">2. 524B measures <span style="font-weight:500;color:var(--text-soft);">click to tick or untick</span></div>' +
-      '<div class="tf-meas">' + window._ES_M524.map(function (m) {
+      (r.kind === 'ix' ? '<div style="font-size:.76rem;color:var(--text-soft);margin:-2px 0 6px;">An interaction can count toward individual help, case advocacy, a workgroup, Parents as Partners and materials. Event boxes belong on the event.</div>' : '') +
+      '<div class="tf-meas">' + window._ES_M524.filter(function (m) {
+        return r.kind !== 'ix' || window._IX_M524.indexOf(m[0]) !== -1 || r.measures.indexOf(m[0]) !== -1;
+      }).map(function (m) {
         var on = r.measures.indexOf(m[0]) !== -1;
         return '<button type="button" class="' + (on ? 'tf-on' : '') + '" onclick="tfToggleMeasure(\'' + _pbEsc(m[0]) + '\')">' +
           '<span class="tf-box">' + (on ? '&#10003;' : '') + '</span><b>' + _pbEsc(m[0]) + '</b>' + _pbEsc(m[1]) + '</button>';
@@ -73559,7 +73567,20 @@ function _sbCompute(grant) {
     return { type: 'interaction', id: x.id, date: x.date, count: 1,
              title: (x.contactName || '(no contact)') + ' - ' + String(x.summary || x.type || '').slice(0, 70) };
   };
-  var ca = X.filter(function (x) { return isCA(x) && !notIA(x); });
+  /* 4.b is case ADVOCACY only (Daniel 2026-11-25: "Only count Advocacy not Case
+     management"). Case management is DAN's own rule (serviceLevel 'management', or a
+     Lions screening case with no level set). A family whose case is management is left
+     out unless it also has an advocacy case (moved up). */
+  var isMgmt = function (x) { var r = raw(x); return r.serviceLevel === 'management' || (!r.serviceLevel && r.caseAdvocacySource === 'lions-screening'); };
+  var advCt = {}, mgmtCt = {};
+  _pbCache.interactions.forEach(function (x) {
+    var r = raw(x); if (!x.contactId) return;
+    var isCase = r.workflowStep === 'caseAdvocacy' || r.caseAdvocacy === true;
+    if (!isCase) return;
+    if (isMgmt(x)) mgmtCt[x.contactId] = 1; else advCt[x.contactId] = 1;
+  });
+  var mgmtFam = function (x) { return isMgmt(x) || (x.contactId && mgmtCt[x.contactId] && !advCt[x.contactId]); };
+  var ca = X.filter(function (x) { return isCA(x) && !notIA(x) && !mgmtFam(x); });
   var ia = X.filter(function (x) { return isT1(x) && !isCA(x) && !notIA(x) && family(x); });
   var firstT1 = {};
   _pbCache.interactions.forEach(function (x) {
@@ -73601,7 +73622,8 @@ function _sbCompute(grant) {
   var ixT = X.filter(function (x) { return Array.isArray(raw(x).measure524) && raw(x).measure524.length; }).sort(byDate);
   ixT.forEach(function (x) {
     raw(x).measure524.map(String).forEach(function (id) {
-      if (id === '5.a' || id === '5.b') return;
+      if (id === '5.a' || id === '5.b' || window._IX_M524.indexOf(id) === -1) return;
+      if (id === '4.b' && mgmtFam(x)) return;
       var key = id + '|' + (x.contactId || x.id);
       if (ixSeen[key]) return; ixSeen[key] = 1;
       var o = out[id] || (out[id] = { v: 0, recs: [] });
@@ -73629,6 +73651,8 @@ function _sbCompute(grant) {
   var papIn = (_pbCache.pap || []).filter(function (v) { return _pbKeepScope(v) && (!v.date || v.date <= to); });
   var papIds = {}; papIn.forEach(function (v) { papIds[v.id] = 1; });
   var served = {}; (_pbCache.papServed || []).forEach(function (sv) { if (papIds[sv.volunteerId] && inR(sv.date)) served[sv.volunteerId] = 1; });
+  var papByCid = {}; papIn.forEach(function (v) { if (v.cid) papByCid[v.cid] = v.id; });
+  ixT.forEach(function (x) { if (x.contactId && papByCid[x.contactId] && raw(x).measure524.map(String).indexOf('5.b') !== -1) served[papByCid[x.contactId]] = 1; });
   var ev5b = R.filter(function (x) { return x.tags.indexOf('5.b') !== -1; });
   out['5.b'] = { v: papIn.length, served: Object.keys(served).length, evTicked: ev5b.length,
                  recs: papIn.map(function (v) { return { type: 'volunteer', id: v.id, date: v.date, title: v.name + ' (Parents as Partners)' + (served[v.id] ? ', served this period' : ''), count: 1, tagged: false }; })
