@@ -3338,7 +3338,12 @@
 .ag-x:hover{ color:#DC2626; }
 .ag-add{ display:flex; gap:8px; margin-top:6px; }
 .ag-add textarea{ flex:1; padding:8px 10px; border:1px solid #CBD5E1; border-radius:8px; font:inherit; resize:vertical; min-height:40px; }
-#agNotes{ width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #CBD5E1; border-radius:8px; font:inherit; min-height:120px; }
+#agNotes{ width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #CBD5E1; border-radius:8px; font:inherit; min-height:120px; max-height:70vh; resize:vertical; overflow:auto; line-height:1.45; }
+/* Notes expand + print (Daniel 2026-11-25) */
+#edAgendaOverlay.ag-wide .modal{ max-width:min(1000px, 96vw) !important; }
+#edAgendaOverlay.ag-wide #agNotes{ min-height:62vh; max-height:none; }
+.ag-notes-view{ white-space:pre-wrap; font-size:.88rem; color:#1E293B; line-height:1.45; border:1px solid #E2E8F0; border-radius:8px; padding:10px 12px; background:#fff; max-height:50vh; overflow:auto; }
+#edAgendaOverlay.ag-wide .ag-notes-view{ max-height:none; }
 .ag-btn{ background:#DC2626; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-weight:800; font-size:.82rem; cursor:pointer; white-space:nowrap; }
 .ag-btn.ghost{ background:#fff; color:#B91C1C; border:1px solid #FCA5A5; }
 .ag-btn:disabled{ opacity:.6; cursor:progress; }
@@ -6325,7 +6330,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.40-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.41-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -39725,6 +39730,7 @@ window.edOpenAgenda = async function(id, date) {
   _edAg.unsub = function() { u1(); u2(); };
 };
 window.edCloseAgenda = function() {
+  var _ov = document.getElementById('edAgendaOverlay'); if (_ov) _ov.classList.remove('ag-wide');
   if (_edAg.unsub) { _edAg.unsub(); _edAg.unsub = null; }
   var ov = document.getElementById('edAgendaOverlay'); if (ov) ov.classList.remove('active');
   var sec = document.getElementById('eventsDashboardSection');
@@ -39760,16 +39766,52 @@ function _edAgRender() {
   }).join('') : '<div class="ag-muted">Nobody has added an item yet.</div>';
   if (canAdd) h += '<div class="ag-add"><textarea id="agNew" maxlength="600" placeholder="Something you want to talk about"></textarea>' +
     '<button class="ag-btn" onclick="edAgAddItem(this)">Add</button></div>';
+  // Notes expand + print (Daniel 2026-11-25): the box grows with the text, Expand makes the window big, Print prints the agenda and notes.
+  var wide = document.getElementById('edAgendaOverlay').classList.contains('ag-wide');
+  var notesTools = '<button class="ag-btn ghost" type="button" onclick="edAgToggleWide()">' + (wide ? 'Shrink' : 'Expand') + '</button>' +
+    '<button class="ag-btn ghost" type="button" onclick="edAgPrint()">Print</button>';
   h += '<h4>Meeting notes</h4>';
-  h += canAdd ? '<textarea id="agNotes" maxlength="20000" placeholder="Notes from the meeting">' + rsEscape(notesVal) + '</textarea>' +
-       '<div style="display:flex;align-items:center;gap:10px;margin-top:6px;"><button class="ag-btn" onclick="edAgSaveNotes(this)">Save notes</button>' +
+  h += canAdd ? '<textarea id="agNotes" maxlength="40000" placeholder="Notes from the meeting" oninput="_edAgGrow(this)">' + rsEscape(notesVal) + '</textarea>' +
+       '<div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;"><button class="ag-btn" onclick="edAgSaveNotes(this)">Save notes</button>' + notesTools +
        '<span class="ag-muted" id="agNotesMsg">' + (a.notesByName ? 'Last saved by ' + rsEscape(a.notesByName) : '') + '</span></div>'
-     : (a.notes ? '<div class="ag-item"><span class="ag-t">' + rsEscape(a.notes) + '</span></div>' : '<div class="ag-muted">No notes yet.</div>');
+     : (a.notes ? '<div class="ag-notes-view">' + rsEscape(a.notes) + '</div><div style="display:flex;gap:10px;margin-top:6px;">' + notesTools + '</div>' : '<div class="ag-muted">No notes yet.</div>');
   h += '<div id="agMsg" style="min-height:18px;font-size:.82rem;font-weight:700;margin-top:10px;color:#DC2626;"></div>';
   document.getElementById('agBody').innerHTML = h;
   var nd = document.getElementById('agNew'); if (nd && draft) nd.value = draft;
-  if (notesFocused) { var n2 = document.getElementById('agNotes'); if (n2) { n2.focus(); n2.setSelectionRange(n2.value.length, n2.value.length); } }
+  var n2 = document.getElementById('agNotes'); if (n2) _edAgGrow(n2);
+  if (notesFocused && n2) { n2.focus(); n2.setSelectionRange(n2.value.length, n2.value.length); }
 }
+window._edAgGrow = function(ta) {
+  if (!ta) return;
+  if (document.getElementById('edAgendaOverlay').classList.contains('ag-wide')) { ta.style.height = ''; return; }
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight + 4, Math.round(window.innerHeight * 0.7)) + 'px';
+};
+window.edAgToggleWide = function() {
+  document.getElementById('edAgendaOverlay').classList.toggle('ag-wide');
+  _edAgRender();
+};
+window.edAgPrint = function() {
+  var e = _edAg.entry || {}, a = _edAgOf();
+  var ta = document.getElementById('agNotes'), notes = ta ? ta.value : (a.notes || '');
+  var items = Array.isArray(a.items) ? a.items : [];
+  var title = document.getElementById('agTitle').textContent || 'Meeting agenda';
+  var w = window.open('', '_blank');
+  if (!w) { _edAgErr('Allow pop-ups to print.'); return; }
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + rsEscape(title) + '</title>' +
+    '<style>body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111;margin:32px;line-height:1.45;font-size:12pt;}' +
+    'h1{font-size:18pt;margin:0 0 4px;}h2{font-size:13pt;margin:22px 0 8px;border-bottom:1px solid #ccc;padding-bottom:4px;}' +
+    '.sub{color:#555;font-size:10pt;}ol{padding-left:22px;}li{margin-bottom:4px;}.by{color:#666;font-size:9.5pt;}' +
+    '.notes{white-space:pre-wrap;}@media print{body{margin:0;}}</style></head><body>' +
+    '<h1>' + rsEscape(title) + '</h1><div class="sub">Leadership in Disabilities and Achievement of Hawai\u02bbi</div>' +
+    '<h2>Agenda items</h2>' + (items.length ? '<ol>' + items.map(function(it) {
+      return '<li>' + rsEscape(it.text || '') + (it.byName ? ' <span class="by">(' + rsEscape(it.byName) + ')</span>' : '') + '</li>'; }).join('') + '</ol>' : '<p class="sub">No items.</p>') +
+    '<h2>Meeting notes</h2>' + (notes ? '<div class="notes">' + rsEscape(notes) + '</div>' : '<p class="sub">No notes yet.</p>') +
+    '</body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(function() { w.print(); }, 300);
+};
 function _edAgErr(t) { var m = document.getElementById('agMsg'); if (m) m.textContent = t; }
 window.edAgAddItem = async function(btn) {
   var ta = document.getElementById('agNew'); var t = String(ta && ta.value || '').trim();
