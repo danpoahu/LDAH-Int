@@ -6330,7 +6330,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.42-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.43-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -25218,20 +25218,22 @@ window.openContactDetail = async function(contactId) {
 
   /* Family check-ins (v156.32-STAGE): the family's own answers, newest first. */
   function _ctCheckInsHtml(c, _skin) {
+    /* Family check-ins (2026-11-25): the three yes/no answers, newest first. */
     var html = '';
     var _cis = Array.isArray(c.advocacyCheckIns) ? c.advocacyCheckIns.slice().sort(function (a, b) { return String(b.answeredAt || '').localeCompare(String(a.answeredAt || '')); }) : [];
-      if (_cis.length) {
-        html += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed ' + _skin.border + ';"><div style="font-weight:700;color:' + _skin.head + ';font-size:.85rem;margin-bottom:4px;">Family check-ins</div>';
-        _cis.forEach(function (k) {
-          html += '<div style="font-size:.82rem;margin:6px 0;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid ' + _skin.border + ';">' +
-            '<div style="color:#64748b;font-size:.74rem;">' + (k.test ? '<b style="color:#B45309;">TEST</b> &middot; ' : '') + rsEscape(k.answeredAt ? new Date(k.answeredAt).toLocaleDateString() : '') + (k.consultant ? ' &middot; consultant ' + rsEscape(k.consultant) : '') + '</div>' +
-            '<div style="margin-top:2px;"><b>Self-advocacy ' + rsEscape(k.selfAdvocacy) + '/10</b> &middot; <b>Satisfied ' + rsEscape(k.satisfaction) + '/5</b> &middot; ' + rsEscape(k.commLabel || k.comm || '') + '</div>' +
-            (k.going ? '<div style="margin-top:4px;white-space:pre-wrap;">' + rsEscape(k.going) + '</div>' : '') +
-            (k.commNote ? '<div style="margin-top:4px;white-space:pre-wrap;color:#475569;"><i>On communication:</i> ' + rsEscape(k.commNote) + '</div>' : '') + '</div>';
-        });
-        html += '</div>';
-      }
-    return html;
+    if (!_cis.length) return html;
+    var L = { yes: 'Yes', no: 'No', na: 'N/A' };
+    html += '<div style="margin-top:12px;padding-top:10px;border-top:1px dashed ' + _skin.border + ';"><div style="font-weight:700;color:' + _skin.head + ';font-size:.85rem;margin-bottom:4px;">Family check-ins</div>';
+    _cis.forEach(function (k) {
+      html += '<div style="font-size:.82rem;margin:6px 0;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid ' + _skin.border + ';">' +
+        '<div style="color:#64748b;font-size:.74rem;">' + (k.test ? '<b style="color:#B45309;">TEST</b> &middot; ' : '') + rsEscape(k.answeredAt ? new Date(k.answeredAt).toLocaleDateString() : '') + (k.consultant ? ' &middot; consultant ' + rsEscape(k.consultant) : '') + '</div>' +
+        (k.q1 ? '<div style="margin-top:3px;">1. Helped make education decisions: <b>' + (L[k.q1] || '') + '</b></div>' +
+                '<div>2. IEP/504 meeting helped make progress: <b>' + (L[k.q2] || '') + '</b></div>' +
+                '<div>3. Used members-only resources: <b>' + (L[k.q3] || '') + '</b></div>'
+              : '<div style="margin-top:2px;">Self-advocacy ' + rsEscape(k.selfAdvocacy) + '/10 &middot; Satisfied ' + rsEscape(k.satisfaction) + '/5 &middot; ' + rsEscape(k.commLabel || '') + (k.going ? '<div style="margin-top:3px;white-space:pre-wrap;">' + rsEscape(k.going) + '</div>' : '') + '</div>') +
+        '</div>';
+    });
+    return html + '</div>';
   }
   function _ctCaDocsHtml(c, contactId, advCase) {
     var auth = c.caseAdvocacyAuthorization || null;
@@ -68413,52 +68415,45 @@ var CAR_CI_FN = 'https://us-central1-ldah-932d5.cloudfunctions.net/sendAdvocacyC
    (target 80%); 5.b Parents as Partners = families at 8+ who could be asked to
    volunteer. Test answers are left out unless there are no real ones yet. */
 function _carCiKpis(rows, sentN) {
+  /* Three yes/no questions (2026-11-25): Q1 helped make decisions about the
+     child's education, Q2 IEP/504 support made progress (N/A left out of the
+     %), Q3 used the members-only resources. Test answers are left out unless
+     there are no real ones yet. */
   var real = rows.filter(function (r) { return !(r.checkIn || {}).test; });
   var isTest = !real.length && rows.length;
-  var use = (isTest ? rows : real).map(function (r) { return r.checkIn || {}; });
+  var use = (isTest ? rows : real).map(function (r) { return r.checkIn || {}; }).filter(function (c) { return c.q1; });
   var n = use.length; if (!n) return '';
-  var pct = function (k) { return Math.round(100 * k / n); };
-  var sat = use.map(function (c) { return Number(c.satisfaction) || 0; }), self = use.map(function (c) { return Number(c.selfAdvocacy) || 0; });
-  var met = sat.filter(function (v) { return v >= 4; }).length, conf = self.filter(function (v) { return v >= 7; }).length, pap = self.filter(function (v) { return v >= 8; }).length;
-  var comm = { easy: 0, sometimes: 0, hard: 0 }; use.forEach(function (c) { if (comm[c.comm] != null) comm[c.comm]++; });
-  var avg = function (a) { return (a.reduce(function (x, y) { return x + y; }, 0) / n).toFixed(1); };
-  var tile = function (big, label, sub, color, target, val) {
-    var bar = target != null ? '<div style="position:relative;height:8px;background:#E2E8F0;border-radius:4px;margin-top:8px;"><div style="position:absolute;left:0;top:0;bottom:0;width:' + Math.min(100, val) + '%;background:' + color + ';border-radius:4px;"></div>' +
-      '<div title="524B target ' + target + '%" style="position:absolute;left:calc(' + target + '% - 1px);top:-3px;bottom:-3px;width:2px;background:#0F172A;"></div></div>' +
-      '<div style="font-size:.7rem;margin-top:3px;font-weight:700;color:' + (val >= target ? '#15803D' : '#B91C1C') + ';">' + (val >= target ? 'Meets' : 'Below') + ' the ' + target + '% target</div>' : '';
+  var cnt = function (k, v) { return use.filter(function (c) { return c[k] === v; }).length; };
+  var q1y = cnt('q1', 'yes'), q2y = cnt('q2', 'yes'), q2n = cnt('q2', 'no'), q2na = cnt('q2', 'na'), q3y = cnt('q3', 'yes'), q3n = cnt('q3', 'no');
+  var pc = function (a, b) { return b ? Math.round(100 * a / b) : 0; };
+  var tile = function (big, label, sub, color) {
     return '<div style="flex:1;min-width:150px;background:#fff;border:1px solid #E2E8F0;border-top:4px solid ' + color + ';border-radius:10px;padding:10px 12px;">' +
       '<div style="font-size:1.5rem;font-weight:800;color:' + color + ';line-height:1.1;">' + big + '</div><div style="font-size:.8rem;font-weight:700;color:#1F2937;margin-top:2px;">' + label + '</div>' +
-      '<div style="font-size:.72rem;color:#64748b;">' + sub + '</div>' + bar + '</div>';
+      '<div style="font-size:.72rem;color:#64748b;">' + sub + '</div></div>';
   };
-  var cols = function (vals, max, color, okFrom) {
-    var cnt = []; for (var i = 1; i <= max; i++) cnt.push(vals.filter(function (v) { return v === i; }).length);
-    var top = Math.max.apply(null, cnt.concat([1]));
-    return '<div style="display:flex;align-items:flex-end;gap:4px;height:90px;padding-top:6px;">' + cnt.map(function (c, i) {
-      var h = Math.round(70 * c / top);
-      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="' + (i + 1) + ': ' + c + ' famil' + (c === 1 ? 'y' : 'ies') + '">' +
-        '<div style="font-size:.68rem;color:#475569;">' + (c || '') + '</div><div style="width:100%;height:' + Math.max(h, c ? 3 : 1) + 'px;background:' + (i + 1 >= okFrom ? color : '#CBD5E1') + ';border-radius:3px 3px 0 0;"></div>' +
-        '<div style="font-size:.68rem;color:#64748b;margin-top:2px;">' + (i + 1) + '</div></div>';
-    }).join('') + '</div>';
+  var bar = function (label, y, no, na) {
+    var t = y + no + (na || 0) || 1, seg = function (v, col, lab) { return v ? '<div title="' + lab + ': ' + v + '" style="width:' + (100 * v / t) + '%;background:' + col + ';color:#fff;font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;">' + v + '</div>' : ''; };
+    return '<div style="margin:8px 0;"><div style="font-size:.78rem;font-weight:700;color:#1F2937;margin-bottom:3px;">' + label + '</div><div style="display:flex;height:20px;border-radius:6px;overflow:hidden;background:#F1F5F9;">' +
+      seg(y, '#16A34A', 'Yes') + seg(no, '#DC2626', 'No') + seg(na || 0, '#94A3B8', 'N/A') + '</div></div>';
   };
-  var chart = function (title, body, note) { return '<div style="flex:1;min-width:240px;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:10px 12px;"><div style="font-size:.8rem;font-weight:700;color:#1F2937;">' + title + '</div>' + body + (note ? '<div style="font-size:.7rem;color:#64748b;margin-top:4px;">' + note + '</div>' : '') + '</div>'; };
-  var stack = '<div style="display:flex;height:22px;border-radius:6px;overflow:hidden;margin-top:12px;">' +
-    [['easy', '#16A34A', 'Easy'], ['sometimes', '#F59E0B', 'Sometimes hard'], ['hard', '#DC2626', 'Hard']].map(function (k) {
-      return comm[k[0]] ? '<div title="' + k[2] + ': ' + comm[k[0]] + '" style="width:' + (100 * comm[k[0]] / n) + '%;background:' + k[1] + ';color:#fff;font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;">' + pct(comm[k[0]]) + '%</div>' : '';
-    }).join('') + '</div><div style="display:flex;gap:10px;font-size:.7rem;color:#475569;margin-top:6px;flex-wrap:wrap;">' +
-    '<span>&#9632; <span style="color:#16A34A">Easy to reach</span> ' + comm.easy + '</span><span>&#9632; <span style="color:#B45309">Sometimes hard</span> ' + comm.sometimes + '</span><span>&#9632; <span style="color:#DC2626">Hard to reach</span> ' + comm.hard + '</span></div>';
   return (isTest ? '<div style="margin-top:10px;font-size:.76rem;font-weight:700;color:#B45309;">Showing TEST answers (no family answers yet)</div>' : '') +
     '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">' +
-      tile(n + (sentN ? ' <span style="font-size:.9rem;color:#64748b;font-weight:600;">of ' + sentN + '</span>' : ''), 'Families answered', sentN ? Math.round(100 * n / sentN) + '% response rate' : 'check-ins returned', '#6D28D9') +
-      tile(pct(met) + '%', '2.g Support met their needs', met + ' of ' + n + ' satisfied (4&ndash;5 of 5) &middot; avg ' + avg(sat) + '/5', '#0D9488', 100, pct(met)) +
-      tile(pct(conf) + '%', '4.b Confident advocating', conf + ' of ' + n + ' at 7+ of 10 &middot; avg ' + avg(self) + '/10', '#1A3C6E', 80, pct(conf)) +
-      tile(pct(comm.easy) + '%', 'Consultant easy to reach', comm.easy + ' of ' + n + ' families', '#16A34A') +
-      tile(String(pap), '5.b Parents as Partners prospects', 'families at 8+ of 10, ask them to volunteer', '#B45309') +
+      tile(n + (sentN ? ' <span style="font-size:.9rem;color:#64748b;font-weight:600;">of ' + sentN + '</span>' : ''), 'Families answered', sentN ? pc(n, sentN) + '% response rate' : 'check-ins returned', '#6D28D9') +
+      tile(pc(q1y, n) + '%', 'Helped make education decisions', q1y + ' of ' + n + ' said Yes', '#15803D') +
+      tile((q2y + q2n ? pc(q2y, q2y + q2n) + '%' : '&ndash;'), 'IEP/504 support made progress', q2y + ' of ' + (q2y + q2n) + ' said Yes' + (q2na ? ' &middot; ' + q2na + ' N/A' : ''), '#1A3C6E') +
+      tile(pc(q3y, n) + '%', 'Used members-only resources', q3y + ' of ' + n + ' said Yes', '#0D9488') +
+      tile(String(q3n), 'Membership prospects', 'not using member resources yet', '#B45309') +
     '</div>' +
-    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">' +
-      chart('Self-advocacy (1 = needs a lot of help, 10 = on their own)', cols(self, 10, '#1A3C6E', 7), 'Dark bars count toward 4.b (7 and up).') +
-      chart('Satisfaction (1&ndash;5)', cols(sat, 5, '#0D9488', 4), 'Teal bars count toward 2.g (4 and 5).') +
-      chart('Communication with parent consultant', stack, '') +
+    '<div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:10px 12px;margin-top:10px;">' +
+      bar('1. Helped me make decisions about my child&rsquo;s education', q1y, cnt('q1', 'no')) +
+      bar('2. Attended my IEP/504 meeting and helped make progress', q2y, q2n, q2na) +
+      bar('3. Took advantage of the members-only resources', q3y, q3n) +
+      '<div style="display:flex;gap:12px;font-size:.7rem;color:#475569;margin-top:4px;"><span style="color:#16A34A;">&#9632; Yes</span><span style="color:#DC2626;">&#9632; No</span><span style="color:#94A3B8;">&#9632; N/A</span></div>' +
     '</div>';
+}
+function _ciYN(v) {
+  var m = { yes: ['Yes', '#DCFCE7', '#15803D'], no: ['No', '#FEE2E2', '#B91C1C'], na: ['N/A', '#F1F5F9', '#475569'] }[v];
+  return '<td style="padding:7px;text-align:center;">' + (m ? '<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-weight:700;font-size:.75rem;background:' + m[1] + ';color:' + m[2] + ';">' + m[0] + '</span>' : '&ndash;') + '</td>';
 }
 async function _carCheckInsLoad() {
   var host = document.getElementById('carCheckIns'); if (!host) return;
@@ -68472,11 +68467,9 @@ async function _carCheckInsLoad() {
   var sentN = 0; try { sentN = (await db.collection('contacts').where('advocacyCheckInSentAt', '>', new Date(0)).get()).size; } catch (_s) {}
   var open = rows.filter(function (r) { return r.status !== 'Closed'; }).length;
   var real = rows.filter(function (r) { return !(r.checkIn || {}).test; });
-  var avg = function (k) { var v = real.map(function (r) { return Number((r.checkIn || {})[k]) || 0; }).filter(Boolean); return v.length ? (v.reduce(function (a, b) { return a + b; }, 0) / v.length).toFixed(1) : '&ndash;'; };
-  var commTone = { easy: ['#DCFCE7', '#15803D'], sometimes: ['#FEF3C7', '#92400E'], hard: ['#FEE2E2', '#B91C1C'] };
-  var h = '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px 18px;">' +
+    var h = '<div style="background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-soft);padding:16px 18px;">' +
     '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
-      '<h3 style="margin:0;flex:1;color:#6D28D9;font-family:\'Outfit\',sans-serif;">Family Check-Ins <span style="font-size:.8rem;color:var(--text-soft);font-weight:500;">' + real.length + ' answered &middot; ' + open + ' to review &middot; avg self-advocacy ' + avg('selfAdvocacy') + '/10 &middot; avg satisfaction ' + avg('satisfaction') + '/5</span></h3>' +
+      '<h3 style="margin:0;flex:1;color:#6D28D9;font-family:\'Outfit\',sans-serif;">Family Check-Ins <span style="font-size:.8rem;color:var(--text-soft);font-weight:500;">' + real.length + ' answered &middot; ' + open + ' to review</span></h3>' +
       (isSA ? '<button class="btn btn-ghost" style="font-size:.8rem;" onclick="carCiSendTest()">Send me a test</button>' +
               '<button class="btn" style="font-size:.8rem;padding:6px 12px;background:#6D28D9;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;" onclick="carCiSendDialog()">Send check-in emails&hellip;</button>' : '') +
     '</div>';
@@ -68485,19 +68478,16 @@ async function _carCheckInsLoad() {
     h += '<div style="color:var(--text-soft);font-size:.88rem;margin-top:10px;">No answers yet. Each family&rsquo;s answers show here and on their contact card, and Noelani gets a task to review each one.</div></div>';
     host.innerHTML = h; return;
   }
-  h += '<div class="pb-scroll" style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;min-width:760px;"><thead><tr style="background:#F5F3FF;text-align:left;">' +
-       '<th style="padding:7px;">Answered</th><th style="padding:7px;">Family</th><th style="padding:7px;">Consultant</th><th style="padding:7px;">How is it going?</th><th style="padding:7px;">Communication</th><th style="padding:7px;text-align:center;">Self-advocacy</th><th style="padding:7px;text-align:center;">Satisfied</th><th style="padding:7px;"></th></tr></thead><tbody>';
+  h += '<div class="pb-scroll" style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;min-width:700px;"><thead><tr style="background:#F5F3FF;text-align:left;">' +
+       '<th style="padding:7px;">Answered</th><th style="padding:7px;">Family</th><th style="padding:7px;">Consultant</th><th style="padding:7px;text-align:center;">1. Decisions</th><th style="padding:7px;text-align:center;">2. IEP/504 progress</th><th style="padding:7px;text-align:center;">3. Member resources</th><th style="padding:7px;"></th></tr></thead><tbody>';
   rows.forEach(function (r) {
-    var c = r.checkIn || {}, t = commTone[c.comm] || ['#F1F5F9', '#475569'], done = r.status === 'Closed';
+    var c = r.checkIn || {}, done = r.status === 'Closed';
     var when = c.answeredAt ? new Date(c.answeredAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
     h += '<tr id="carCi_' + esc(r._id) + '" style="border-top:1px solid #E2E8F0;vertical-align:top;' + (done ? 'opacity:.7;' : '') + '">' +
       '<td style="padding:7px;white-space:nowrap;">' + esc(when) + (c.test ? ' <span style="color:#B45309;font-weight:700;">TEST</span>' : '') + '</td>' +
       '<td style="padding:7px;font-weight:600;">' + (r.contactId ? '<a href="javascript:void(0)" onclick="if(typeof openContactDetail===\'function\')openContactDetail(' + _jsArg(r.contactId) + ')">' + esc(String(r.contactName || '').replace(/^\[TEST\] /, '')) + '</a>' : esc(r.contactName || '')) + '</td>' +
       '<td style="padding:7px;">' + esc(c.consultant || '') + '</td>' +
-      '<td style="padding:7px;max-width:320px;white-space:pre-wrap;">' + esc(c.going || '') + '</td>' +
-      '<td style="padding:7px;"><span style="display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;font-size:.75rem;background:' + t[0] + ';color:' + t[1] + ';">' + esc(c.commLabel || c.comm || '') + '</span>' + (c.commNote ? '<div style="margin-top:4px;white-space:pre-wrap;">' + esc(c.commNote) + '</div>' : '') + '</td>' +
-      '<td style="padding:7px;text-align:center;font-weight:800;color:#1a3c6e;">' + esc(c.selfAdvocacy || '') + '<span style="font-weight:400;color:var(--text-soft);">/10</span></td>' +
-      '<td style="padding:7px;text-align:center;font-weight:800;color:#0d9488;">' + esc(c.satisfaction || '') + '<span style="font-weight:400;color:var(--text-soft);">/5</span></td>' +
+      _ciYN(c.q1) + _ciYN(c.q2) + _ciYN(c.q3) +
       '<td style="padding:7px;white-space:nowrap;">' + (done ? '<span style="color:#15803D;font-weight:700;">Reviewed</span>' + (r.reviewedBy ? '<div style="font-size:.72rem;color:var(--text-soft);">' + esc(r.reviewedBy) + '</div>' : '')
         : '<button class="btn" style="font-size:.75rem;padding:4px 10px;background:#15803D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;" onclick="carCiReviewed(' + _jsArg(r._id) + ',this)">Mark reviewed</button>') + '</td></tr>';
   });
