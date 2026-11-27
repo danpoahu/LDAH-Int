@@ -6330,7 +6330,7 @@ document.addEventListener('DOMContentLoaded', function(){ window._ldahMarkLook()
 
     <main class="main">
       <header class="topbar">
-        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.44-STAGE</span>
+        <span id="buildVersion" style="position:absolute;top:4px;right:8px;font-size:.65rem;color:rgba(100,116,139,.55);font-weight:700;pointer-events:none;z-index:1;">v156.45-STAGE</span>
 
         <!-- Logo spans both rows -->
         <div class="topbar-left">
@@ -64083,14 +64083,21 @@ async function _prLoadAll() {
               contactId: x.linkedContactId || '', when: t });
   });
 
-  /* Advocacy families. The marker is on interactionType, and the stored strings
-     are not consistent — "Individual Assistance:  Advocacy" appears with one
-     space and with two — so it is matched loosely rather than by equality. */
+  /* Advocacy families = families with a CASE ADVOCACY case that is not case
+     management (Daniel 2026-11-27: "truly only counting CASE advocacy and not
+     Management"). Same rule as 524B 4.b: a case is workflowStep 'caseAdvocacy' or
+     caseAdvocacy true; management is serviceLevel 'management', or a Lions screening
+     case with no level set. A family with both counts (it was moved up to advocacy).
+     The old rule (any interaction type containing "advocacy") also took in every
+     one-off Individual Assistance call and all case management. */
   var ixSnap = await db.collection('interactions').get();
   var advocacy = {};
   ixSnap.forEach(function(d) {
     var x = d.data() || {};
-    if (x.contactId && /advocacy/i.test(x.interactionType || '')) advocacy[x.contactId] = 1;
+    if (!x.contactId) return;
+    if (!(x.workflowStep === 'caseAdvocacy' || x.caseAdvocacy === true)) return;
+    var mgmt = x.serviceLevel === 'management' || (!x.serviceLevel && x.caseAdvocacySource === 'lions-screening');
+    if (!mgmt) advocacy[x.contactId] = 1;
   });
 
   _prCache = { rows: rows, fb: fb, allIds: allIds, advocacy: advocacy };
@@ -64390,7 +64397,7 @@ function _prRender() {
     { v: A.attended, l: 'attended', color: '#0F7B4F' },
     { v: A.feedback, l: 'gave feedback', color: '#B45309' },
     { v: A.attended ? Math.round(A.feedback / A.attended * 100) + '%' : '—', l: 'feedback rate' }
-  ], 'A family counts as advocacy if any interaction on their record is an advocacy type. Matched loosely, because the stored labels are inconsistent &mdash; "Individual Assistance:&nbsp;&nbsp;Advocacy" exists with one space and with two.');
+  ], 'A family counts here only if it has a case advocacy case. Case management families are left out, unless they were moved up to advocacy. One-off Individual Assistance calls do not count.');
 
   body.innerHTML =
     peopleStrip + advStrip +
